@@ -12,6 +12,8 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `ai/context/common.md` — rules shared by every part of the product
 - `ai/context/flutter/` — Flutter client conventions; read for client work
 - `ai/context/skse/` — native Skyrim bridge conventions; read for SKSE work
+- `ai/context/protocol/` — canonical cross-side contract; read for message or schema work
+- `ai/context/integration/` — tests that verify the client and bridge meet at the contract
 
 ## Non-negotiable rules
 

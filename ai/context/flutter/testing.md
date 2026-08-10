@@ -11,7 +11,7 @@
 
 - Mirror the source tree under `test/`.
 - Use one test file per source file once implementation begins.
-- Keep fixtures close to the feature that owns them.
+- Keep ordinary client fixtures close to the feature that owns them. Cross-side protocol fixtures are an explicit exception and live in the shared protocol area; those fixtures take precedence for contract tests.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
