@@ -19,8 +19,8 @@ Every message is one UTF-8 JSON object with these fields:
 |---|---|---:|---|
 | `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
 | `messageType` | string | yes | Canonical message identifier. |
-| `messageId` | string | yes | Unique within the connection session. |
-| `sessionId` | string | yes | Identifies this connection; messages from older sessions are discarded. |
+| `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
+| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued connection identity. Messages from older sessions are discarded. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
 
@@ -70,17 +70,21 @@ The envelope uses `protocolVersion: 0` because no version has been selected yet.
 ```json
 {
   "endpoint": "bridge",
-  "supportedProtocolVersions": [1]
+  "supportedProtocolVersions": [1],
+  "auth": {
+    "method": "one_time_local_token",
+    "token": "redacted-in-documentation"
+  }
 }
 ```
 
 `endpoint` is either `bridge` or `client`.
 
-Required payload fields: `endpoint`, `supportedProtocolVersions`. The peer responds with `hello_ack`.
+Required payload fields: `endpoint`, `supportedProtocolVersions`, `auth`. v1 accepts only `auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack` only after token validation.
 
 ### `hello_ack`
 
-Uses `protocolVersion: 0` and selects one common version:
+Uses `protocolVersion: 0`, carries the newly issued non-null `sessionId` in its envelope, and selects one common version:
 
 ```json
 {
@@ -88,7 +92,7 @@ Uses `protocolVersion: 0` and selects one common version:
 }
 ```
 
-Required payload field: `selectedProtocolVersion`. All messages after this acknowledgement use the selected version.
+Required payload field: `selectedProtocolVersion`. All messages after this acknowledgement use the selected version and the server-issued session identity.
 
 `hello_ack.correlationId` is the `messageId` of the `hello` it answers.
 
@@ -182,6 +186,8 @@ Reports a structured failure without exposing infrastructure exceptions:
 `code` is a canonical machine-readable value. `message` is diagnostic text and must not be used for branching.
 
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
+
+Canonical v1 error codes include `malformed_message`, `frame_too_large`, `unsupported_version`, `unsupported_capability`, `unauthenticated`, `unauthorized`, `replayed_message`, `stale_session`, `rate_limited`, and `internal_error`. Error codes are for branching; diagnostic messages are not.
 
 ### `ping` and `pong`
 

@@ -56,8 +56,8 @@ Render companion views and manage local layout preferences. A client should rema
 - The bridge-to-client contract should be defined before multiple clients are built.
 - The protocol contract is the source of truth for cross-side messages; Flutter and SKSE adapters must not silently invent incompatible fields.
 - The Phase 1 reference encoding is UTF-8 JSON with one complete object per transport message; the transport must preserve those message boundaries.
-- The first connection should work on a local network or the same machine without requiring a hosted backend.
-- The transport implementation and pairing mechanism remain separate decisions; LAN exposure is not approved until the security convention is complete.
+- The first connection proof is same-machine and loopback-only; it must not expose a listening service to the LAN.
+- LAN or remote-device support is not approved until `ai/context/protocol/security.md` is implemented and its required scenarios pass.
 
 ## Reliability expectations
 

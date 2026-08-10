@@ -34,6 +34,7 @@ The canonical v1 schema is `protocol/schema/README.md`. This file defines how th
 - Duplicate events must be harmless where practical; otherwise the contract must expose the identity needed for safe deduplication.
 - Events at or below the current revision are ignored as duplicate or stale; only a higher revision with the wrong `baseRevision` triggers recovery.
 - Malformed, unsupported, or unauthenticated messages are rejected at the boundary and never reach game logic or presentation state.
+- Security and input-limit failures use the canonical error codes in `protocol/schema/README.md`; they do not invent side-specific error names.
 
 ## Reconnect policy
 

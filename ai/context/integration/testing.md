@@ -29,10 +29,21 @@ Cover at least:
 - protocol-version mismatch
 - unsupported capability
 - malformed message
+- oversized frame
+- unauthenticated or unauthorized peer
+- replayed message and stale session
+- rate-limited repeated violations
+- invalid token, expired token, reused token, and duplicate message ID
+- redaction of tokens, credentials, paths, and raw infrastructure exceptions from errors and logs
+- nesting-depth, string-length, array-length, object-member, idle-timeout, outbound-queue, and session-message limits
+- concurrent token-consumption attempts and concurrent proof-client attempts
+- failed-token throttling and repeated-violation connection closure
 - transport disconnect while state is changing
 
 ## End-to-end boundary
 
 Use a deterministic fake transport first. A real local connection check is required when transport framing or platform networking changes, but it should not be the only proof of protocol correctness.
+
+The first real connection check must prove loopback-only binding and rejection of a non-loopback peer. LAN checks are not a substitute for pairing and authenticated-encryption tests when LAN support is eventually proposed.
 
 Do not use a running Skyrim process for tests that only verify protocol mapping, client decoding, or application state transitions.
