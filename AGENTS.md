@@ -9,6 +9,8 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `ARCHITECTURE.md` — system boundaries and technical direction
 - `ROADMAP.md` — milestone order and deferred work
 - `CONTRIBUTING.md` — branch and pull request workflow for maintainer-led, AI-assisted development
+- `ai/context/common.md` — rules shared by every part of the product
+- `ai/context/flutter/` — Flutter client conventions; read for client work
 
 ## Non-negotiable rules
 
@@ -37,7 +39,7 @@ The first implementation milestone is only a reliable connection between Skyrim 
 
 The first client should be read-only. Do not add remote gameplay actions, hosted services, accounts, plugin systems, or multi-client abstractions unless the maintainer adds them to the roadmap.
 
-When Flutter implementation begins, use the Price check conventions that have been deliberately copied and adapted into this repository. The copied repository must remain self-contained: never depend on another local project, an absolute path, or instructions that are unavailable here.
+When Flutter implementation begins, use the Price check conventions that have been deliberately copied and adapted into `ai/context/flutter/`. The copied repository must remain self-contained: never depend on another local project, an absolute path, or instructions that are unavailable here.
 
 Only rules documented in this repository are binding for DovahLink. If a Price check convention has not yet been copied here, treat it as a proposal to discuss rather than an external requirement.
 
