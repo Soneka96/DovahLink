@@ -23,9 +23,25 @@ SKSE plugin entry points / hooks
              transport
 ```
 
+The allowed dependency edges are:
+
+```text
+plugin entry / hooks → coordinator
+plugin entry / hooks → callback registry
+callback registry → game-state adapter
+game-state adapter → Skyrim/CommonLib runtime
+coordinator → application state
+application state → protocol adapter
+protocol adapter → canonical protocol schema
+coordinator → transport
+transport → protocol messages
+```
+
+No reverse edge is allowed. In particular, hooks and game-state adapters must not call transport or serialize protocol messages, and the application coordinator must not depend on CommonLib types.
+
 ### Plugin boundary
 
-Owns SKSE loading, lifecycle, event registration, and runtime-specific integration. It delegates quickly and does not contain business rules or wire serialization.
+Owns SKSE loading, lifecycle, event registration, and runtime-specific integration. Hooks may synchronously capture through the game-state adapter and enqueue an owned application work item; they must not defer a runtime read to a worker. They must not read runtime objects directly, contain business rules, serialize wire messages, or call transport.
 
 ### Game-state adapters
 
@@ -57,6 +73,7 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 - Keep callback work small: capture the required value, enqueue work, and return.
 - Copy captured values into owned, immutable work items before they cross a thread boundary.
 - Make ownership and thread handoff explicit.
+- Capture must be bounded, validated, and non-blocking. Unbounded scans, waits, network calls, and uncontrolled allocation are forbidden in callbacks.
 - Do not access game objects from a worker thread unless the approved runtime API explicitly permits it.
 - If a bounded queue is full, never block the game thread: apply the documented latest-state coalescing or drop policy and record the loss.
 - Shutdown must stop workers and close transport resources before the plugin unloads.
@@ -65,14 +82,19 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 
 - One application coordinator owns the callback registrations, work queues, worker threads, and transport lifecycle.
 - Registration handles are released before the coordinator is destroyed.
-- Shutdown first prevents new callback work, then drains or cancels queued work, stops workers, and finally closes transport resources.
+- Shutdown first marks the coordinator stopping so new callbacks return without touching destroyed state, then unregisters callbacks, waits for callbacks already in flight to leave, drains or cancels queued work, stops and joins workers, cancels transport completions, waits for completions already running to leave or rejects them through an independently owned lifetime token and generation guard, and finally closes transport resources. The lifetime token outlives every callback that can inspect it.
 - Queued work must not retain borrowed Skyrim objects, `BuildContext`-like runtime handles, or pointers whose lifetime is not owned by the queue.
+- Callback registration and in-flight tracking must remain alive until the unregister-and-wait barrier completes.
 
 ## Failure semantics
 
 - If plugin startup cannot establish a required runtime capability, disable the affected capability and log a clear reason; do not publish fabricated state.
 - Queue overflow must produce an observable diagnostic and leave the next published state marked as potentially incomplete or recovered by a fresh snapshot.
+- The v1 queue policy is latest-state coalescing per state area: intermediate updates may be dropped, but the next client-visible state must come from a fresh snapshot capture before it is presented as current.
+- Outbound capacity is split into a reserved control/recovery lane and an event lane. Events may be coalesced or dropped; snapshots, acknowledgements, errors, and recovery messages are never silently dropped or allowed to block the game thread. If the control lane is full, the client is marked unavailable and the connection is closed.
+- When queue loss marks a state area for recovery, the next eligible game callback synchronously captures a fresh owned value through the game-state adapter and places it in the reserved recovery lane; workers never request or perform a deferred runtime read.
 - A transport disconnect marks the client unavailable and triggers the approved reconnect policy; it must not block game-state capture.
+- If a worker exits unexpectedly, the coordinator enters `unavailable`, stops publishing state as current, reports a controlled `internal_error`, and either restarts the worker through an approved policy or requires a clean reconnect. A restarted worker must receive a fresh snapshot before publication resumes on the existing session.
 - Malformed or incompatible messages are rejected at the protocol boundary and never reach game APIs.
 
 ## Runtime compatibility

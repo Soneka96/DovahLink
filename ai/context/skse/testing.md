@@ -20,10 +20,20 @@ Cover:
 - callback-to-queue handoff
 - owned snapshot creation at the callback boundary
 - queue-full behavior without blocking the callback
+- latest-state coalescing and forced fresh-snapshot recovery after queue loss
+- next-game-callback recovery capture after queue loss without worker-side runtime reads
 - registration and unregistration ordering
+- callbacks that enter during shutdown and callbacks already in flight at unregister time
 - worker shutdown while work is pending
+- worker, callback, and transport-completion exceptions are contained
+- transport completions arriving after cancellation are ignored safely
+- transport completions already running during shutdown are drained or rejected by a generation guard
 - transport disconnect and reconnect
 - slow-client or full-queue behavior
+- reserved recovery/control capacity while the event lane is full
+- critical outbound message handling when the control lane is full
+- worker failure transitions to unavailable and recovery/reconnect behavior
+- worker restart requires a fresh snapshot before publication resumes
 - stale or out-of-order state updates
 - malformed, incompatible, and unknown protocol messages
 
@@ -34,6 +44,8 @@ Cover:
 - Do not rely on timing sleeps to prove concurrency; use controllable fakes, barriers, or explicit state transitions.
 - Keep protocol fixtures language-neutral so Flutter and SKSE can consume the same examples.
 - Assert that no borrowed runtime object crosses into queued work or worker-owned state.
+- Assert that queued work contains captured values only and never a deferred game/runtime read.
+- Assert that hooks cannot reach protocol serialization or transport directly; test through the coordinator seam.
 
 ## Manual verification
 

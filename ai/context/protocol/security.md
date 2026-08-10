@@ -41,7 +41,7 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum connected clients during the first proof: 1
 - handshake timeout: 5 seconds
 - idle connection timeout: 60 seconds without a valid heartbeat or message
-- bounded outbound queue: 128 messages per client
+- bounded outbound queue: 128 messages per client, with 16 reserved control/recovery slots and 112 event slots
 
 Limit changes require explicit maintainer approval and a documented reason.
 

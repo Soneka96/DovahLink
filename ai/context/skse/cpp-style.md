@@ -7,6 +7,8 @@
 - Do not retain borrowed Skyrim objects beyond the lifetime guaranteed by the runtime API.
 - Keep long-lived workers and connections owned by one clear application component.
 - Make shutdown idempotent.
+- Transport completion callbacks must use an in-flight counter or a lifetime token owned independently of the coordinator so no callback can access destroyed coordinator or transport state. The token remains valid until every callback has returned.
+- Catch all exceptions at callback, worker-thread, and transport-completion boundaries. Convert them into controlled component failure and diagnostics; never allow an exception to escape a callback or thread entry point.
 
 ## Files and types
 
@@ -25,6 +27,7 @@
 ## Performance and safety
 
 - Do not allocate unnecessarily or perform unbounded work in a game callback.
+- Any callback allocation or runtime traversal must have an explicit bound and maintainer-approved reason; prefer copying a small, validated value into preallocated or bounded storage.
 - Bound queues and define behavior when the client is slower than the game state producer.
 - Treat missing, delayed, and stale values explicitly; do not substitute plausible values silently.
 - Keep the first implementation read-only and minimize hooks.
