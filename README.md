@@ -41,9 +41,11 @@ The first implementation milestone is a reliable, minimal connection between Sky
 
 See [PRODUCT.md](PRODUCT.md) for the product definition, [ARCHITECTURE.md](ARCHITECTURE.md) for the technical direction, and [ROADMAP.md](ROADMAP.md) for planned milestones.
 
-## Contributing
+## Discussion and suggestions
 
-Work should happen on a feature branch and be submitted as one pull request per feature. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Suggestions, feedback, and feature ideas are welcome through GitHub Issues. DovahLink is currently maintained by its creator, and all code changes are made by the maintainer.
+
+Please use Issues to discuss ideas rather than opening pull requests. The maintainer will decide which suggestions fit the project's architecture and roadmap.
 
 ## Name
 
