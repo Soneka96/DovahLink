@@ -1,6 +1,6 @@
 # Roadmap
 
-The roadmap is intentionally milestone-based. Each milestone should produce a usable result and be delivered as a focused feature branch and pull request.
+The roadmap is intentionally milestone-based. Each milestone should produce a usable result and be delivered as a focused feature branch and pull request. A roadmap item describes direction, not implementation authorization; the maintainer must explicitly request work before an AI agent or contributor starts it.
 
 ## 0. Documentation baseline
 

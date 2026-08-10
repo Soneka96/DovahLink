@@ -4,7 +4,7 @@ This document describes the controlled development workflow for DovahLink, inclu
 
 ## Code ownership
 
-DovahLink is maintained by its creator. External suggestions, feedback, and feature ideas are welcome through GitHub Issues, but code changes are made only by the maintainer with the help of approved development tools.
+DovahLink is maintained by its creator. External suggestions, feedback, and feature ideas are welcome through GitHub Issues, but code changes are made only by the maintainer with the help of tools available and explicitly approved for the task.
 
 External contributors should not open pull requests or implement changes against the repository unless the maintainer has explicitly asked them to do so.
 
@@ -24,6 +24,8 @@ Explain the problem, the proposed direction, and any relevant trade-offs. The ma
 
 The `main` branch is kept stable. Implementation work is performed on feature branches, with one pull request per feature. This workflow applies to both the maintainer and AI-assisted development.
 
+Direct commits, pushes, merges, and force-pushes to `main` are not part of the normal workflow. The AI must not perform them unless the maintainer explicitly requests that exact operation.
+
 1. Create a branch from the current `main` branch.
 2. Keep the branch focused on one feature or one clearly related fix.
 3. Make the smallest complete change that can be reviewed.
@@ -42,7 +44,9 @@ docs/protocol-notes
 
 ## AI-assisted development
 
-AI tools should inspect this repository's own documents before making changes. Its rules must remain self-contained and portable; AI must not depend on another local project, an absolute path, or unavailable external instructions. They should preserve the documented architecture, avoid speculative structure, and ask for direction before making a change that works around an architectural decision.
+AI tools should inspect this repository's own documents before making changes. Its rules must remain self-contained and portable; AI must not depend on another local project, an absolute path, or unavailable external instructions. A vague prompt, Issue, roadmap item, suggestion, or previous discussion is not approval for implementation. Architecture, protocol, security, dependency, runtime, and repository-boundary changes require a direct maintainer instruction in the current task that clearly names the scope.
+
+The AI must verify it is working on a feature branch before feature work, preserve the documented architecture, avoid speculative structure, and stop when a requested change conflicts with a non-negotiable rule instead of choosing the more permissive interpretation.
 
 The maintainer remains responsible for approving changes, reviewing pull requests, and merging code.
 

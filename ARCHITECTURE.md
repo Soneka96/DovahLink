@@ -4,6 +4,20 @@
 
 There is no implementation yet. This document records the initial boundaries so the first feature can stay small and replaceable.
 
+## Repository boundaries
+
+The future implementation is divided into explicit areas:
+
+```text
+app/          Flutter client
+bridge/       native SKSE bridge
+protocol/     canonical cross-side schemas and shared fixtures
+integration/  cross-area tests and scenarios
+ai/context/   AI development conventions
+```
+
+These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; client and bridge adapters consume them but do not redefine them.
+
 ## Target shape
 
 ```text
