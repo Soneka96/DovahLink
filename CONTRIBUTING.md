@@ -1,12 +1,12 @@
-# Discussion and suggestions
+# Development workflow
 
-Thanks for helping shape DovahLink.
+This document describes the controlled development workflow for DovahLink, including work done with AI assistance.
 
 ## Code ownership
 
-DovahLink is currently maintained by its creator. External suggestions, feedback, and feature ideas are welcome, but code changes are made only by the maintainer.
+DovahLink is maintained by its creator. External suggestions, feedback, and feature ideas are welcome through GitHub Issues, but code changes are made only by the maintainer with the help of approved development tools.
 
-Please do not open pull requests or implement changes against the repository unless the maintainer has explicitly asked you to do so.
+External contributors should not open pull requests or implement changes against the repository unless the maintainer has explicitly asked them to do so.
 
 ## Using Issues
 
@@ -20,16 +20,16 @@ Use GitHub Issues to propose:
 
 Explain the problem, the proposed direction, and any relevant trade-offs. The maintainer will decide whether and how a suggestion fits the project.
 
-## Development workflow
+## Branch and pull request workflow
 
-The `main` branch is kept stable. The maintainer plans and performs implementation work on feature branches, with one pull request per feature.
+The `main` branch is kept stable. Implementation work is performed on feature branches, with one pull request per feature. This workflow applies to both the maintainer and AI-assisted development.
 
 1. Create a branch from the current `main` branch.
 2. Keep the branch focused on one feature or one clearly related fix.
 3. Make the smallest complete change that can be reviewed.
 4. Update relevant documentation and tests with the change.
 5. Open one pull request for that feature.
-6. Merge only after the stated checks pass.
+6. Review the result and merge only after the stated checks pass.
 
 Suggested branch names:
 
@@ -39,6 +39,12 @@ feature/minimal-client
 fix/reconnect-state
 docs/protocol-notes
 ```
+
+## AI-assisted development
+
+AI tools should inspect this repository's own documents before making changes. Its rules must remain self-contained and portable; AI must not depend on another local project, an absolute path, or unavailable external instructions. They should preserve the documented architecture, avoid speculative structure, and ask for direction before making a change that works around an architectural decision.
+
+The maintainer remains responsible for approving changes, reviewing pull requests, and merging code.
 
 ## Scope for the first implementation
 
@@ -54,4 +60,4 @@ The first implementation should prove reliable communication between Skyrim and 
 
 ## Questions and proposals
 
-Open an Issue with enough context for someone unfamiliar with the idea to understand the problem, the proposed direction, and the trade-offs. Do not open a pull request unless the maintainer has explicitly requested one.
+Open an Issue with enough context for someone unfamiliar with the idea to understand the problem, the proposed direction, and the trade-offs. Issues are the appropriate place for external suggestions; code changes should follow the maintainer's development workflow.
