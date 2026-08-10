@@ -6,7 +6,7 @@ This document describes the controlled development workflow for DovahLink, inclu
 
 DovahLink is maintained by its creator. External suggestions, feedback, and feature ideas are welcome through GitHub Issues, but code changes are made only by the maintainer with the help of tools available and explicitly approved for the task.
 
-External contributors should not open pull requests or implement changes against the repository unless the maintainer has explicitly asked them to do so.
+External users may provide suggestions, bug reports, and proposals through Issues. They must not submit code changes or pull requests. The maintainer alone decides, implements, and integrates changes, with AI assistance where appropriate.
 
 ## Using Issues
 
@@ -24,7 +24,7 @@ Explain the problem, the proposed direction, and any relevant trade-offs. The ma
 
 The `main` branch is kept stable. Implementation work is performed on feature branches, with one pull request per feature. This workflow applies to both the maintainer and AI-assisted development.
 
-Direct commits, pushes, merges, and force-pushes to `main` are not part of the normal workflow. The AI must not perform them unless the maintainer explicitly requests that exact operation.
+Direct commits, pushes, merges, and force-pushes to `main` are prohibited. Only the maintainer performs the final merge; approval does not delegate merge authority to AI or any external contributor.
 
 1. Create a branch from the current `main` branch.
 2. Keep the branch focused on one feature or one clearly related fix.
@@ -32,6 +32,17 @@ Direct commits, pushes, merges, and force-pushes to `main` are not part of the n
 4. Update relevant documentation and tests with the change.
 5. Open one pull request for that feature.
 6. Review the result and merge only after the stated checks pass.
+
+## Merge gate
+
+Before a pull request is considered ready, verify all of the following:
+
+- The change has a direct maintainer-approved scope and stays within one feature or clearly related fix.
+- The work was performed on a feature branch, not `main`.
+- Relevant product, architecture, protocol, security, AI-convention, and test documentation is updated when the change affects it.
+- Required tests or documentation checks pass, and any intentionally untested behavior is recorded.
+- No secrets, credentials, generated artifacts, unrelated cleanup, or unowned abstractions were added.
+- The maintainer has reviewed and explicitly approved the final diff. A pull request is merge-ready only after this approval and all checks pass; the maintainer performs the merge manually.
 
 Suggested branch names:
 

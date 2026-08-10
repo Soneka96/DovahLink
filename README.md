@@ -31,11 +31,11 @@ DovahLink protocol
 PC / tablet / phone
 ```
 
-The repository currently contains documentation only. The Flutter companion app and Skyrim bridge will be added through feature branches after the initial documentation is agreed on.
+The repository currently contains documentation only. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. Roadmap status, Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
 
 ## Status
 
-🚧 Early planning
+Documentation baseline complete; implementation has not started.
 
 The first implementation milestone is a reliable, minimal connection between Skyrim and one external client.
 
@@ -49,4 +49,4 @@ Please use Issues to discuss ideas rather than opening pull requests. The mainta
 
 ## Name
 
-“Dovah” means dragon in the dragon language of Skyrim. “Link” describes the bridge between the game and the player's companion devices.
+"Dovah" means dragon in the dragon language of Skyrim. "Link" describes the bridge between the game and the player's companion devices.

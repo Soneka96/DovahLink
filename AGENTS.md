@@ -1,4 +1,4 @@
-# DovahLink — AI development instructions
+# DovahLink - AI development instructions
 
 DovahLink is a maintainer-owned project developed with AI assistance. The maintainer owns the product direction, architecture, protocol decisions, and final approval of every change.
 
@@ -26,8 +26,9 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - Do not modify unrelated files or perform opportunistic cleanup.
 - Do not treat a technically working alternative as automatically acceptable; it must fit the project's documented direction and existing conventions.
 - Keep `main` stable and use one feature branch and one pull request per feature.
-- Do not commit, push, merge, or force-push directly to `main` unless the maintainer explicitly requests that exact operation.
-- Before changing implementation or feature documentation after bootstrap, verify that the current branch is a feature branch; do not begin feature work while checked out on `main`.
+- After the documentation baseline, every repository change, including governance, roadmap, README, convention, and documentation changes, must be made on a feature branch. Do not edit these files on `main`.
+- Do not commit, push, merge, or force-push directly to `main`. Only the maintainer may perform the final merge; AI must never merge, even when asked.
+- Before changing any repository file after bootstrap, verify that the current branch is a feature branch; do not begin work while checked out on `main`.
 - Update the relevant documentation when a product, architecture, roadmap, or workflow decision changes.
 
 ## How AI should work
@@ -38,7 +39,8 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 4. Explain important trade-offs when a decision is not already documented.
 5. Add focused tests for non-trivial behavior once implementation begins.
 6. Check the diff for unrelated changes before presenting the work.
-7. Leave `main` clean and summarize the branch, checks, and remaining limitations.
+7. Before handoff, verify that intended changes are on the feature branch, no unintended working-tree or staged changes remain, and `main` was not modified.
+8. Summarize the branch, checks, and remaining limitations.
 
 ## Architecture direction
 

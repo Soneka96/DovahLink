@@ -1,14 +1,21 @@
 # Roadmap
 
-The roadmap is intentionally milestone-based. Each milestone should produce a usable result and be delivered as a focused feature branch and pull request. A roadmap item describes direction, not implementation authorization; the maintainer must explicitly request work before an AI agent or contributor starts it.
+The roadmap is intentionally milestone-based. Each milestone should produce a usable result and be delivered as a focused feature branch and pull request. A roadmap item describes direction, not implementation authorization. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
 
 ## 0. Documentation baseline
 
-**Status:** In progress
+**Status:** Complete
 
 - Establish the product direction.
 - Record initial architecture boundaries.
 - Define the contribution and branch workflow.
+- Define the canonical protocol boundary and initial security constraints.
+- Copy the AI development conventions needed for Flutter, SKSE, protocol, and integration work into this repository.
+- Keep the repository implementation-free until the maintainer explicitly starts the next feature.
+
+### Acceptance criteria
+
+"Complete" means the required documentation has been prepared as the self-contained source of truth for product scope, architecture, protocol ownership, security constraints, AI conventions, and development workflow. It does not delegate authority to modify or implement the system. Phase 1 still requires a direct maintainer instruction naming the feature and scope on a feature branch.
 
 ## 1. Connection proof
 
