@@ -55,8 +55,9 @@ Render companion views and manage local layout preferences. A client should rema
 - The repository will eventually contain a Flutter client and a Skyrim integration, but neither is created in this documentation phase.
 - The bridge-to-client contract should be defined before multiple clients are built.
 - The protocol contract is the source of truth for cross-side messages; Flutter and SKSE adapters must not silently invent incompatible fields.
+- The Phase 1 reference encoding is UTF-8 JSON with one complete object per transport message; the transport must preserve those message boundaries.
 - The first connection should work on a local network or the same machine without requiring a hosted backend.
-- Transport, serialization, and pairing details remain open until the first connection experiment identifies the smallest reliable choice.
+- The transport implementation and pairing mechanism remain separate decisions; LAN exposure is not approved until the security convention is complete.
 
 ## Reliability expectations
 

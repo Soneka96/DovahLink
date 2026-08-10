@@ -1,0 +1,201 @@
+# Protocol schema v1
+
+## Common envelope
+
+Every message is one UTF-8 JSON object with these fields:
+
+```json
+{
+  "protocolVersion": 1,
+  "messageType": "state_snapshot",
+  "messageId": "opaque-message-id",
+  "sessionId": "opaque-connection-id",
+  "correlationId": null,
+  "payload": {}
+}
+```
+
+| Field | Type | Required | Meaning |
+|---|---|---:|---|
+| `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
+| `messageType` | string | yes | Canonical message identifier. |
+| `messageId` | string | yes | Unique within the connection session. |
+| `sessionId` | string | yes | Identifies this connection; messages from older sessions are discarded. |
+| `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
+| `payload` | object | yes | Message-specific data. |
+
+Unknown top-level fields are ignored only when the negotiated version permits forward-compatible reading. Required fields with the wrong type invalidate the message. Every message type below lists its required payload fields; fields not listed are not sent in v1.
+
+## State envelope
+
+`state_snapshot` and `state_event` payloads contain:
+
+```json
+{
+  "stateArea": "character",
+  "revision": 42,
+  "occurredAt": "2026-08-10T12:00:00Z",
+  "data": {}
+}
+```
+
+- `stateArea` is a canonical identifier such as `character` or `location`.
+- `revision` is a non-negative integer, monotonically increasing within one state area and session.
+- `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
+- `data` contains the state-area contract.
+- An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.
+
+An event additionally contains `baseRevision`, the revision the event expects the client to have before applying it:
+
+```json
+{
+  "stateArea": "character",
+  "baseRevision": 41,
+  "revision": 42,
+  "occurredAt": "2026-08-10T12:00:00Z",
+  "data": {}
+}
+```
+
+In v1, `data` is the complete post-change state for the state area, not a patch. `revision` must equal `baseRevision + 1`. If an event's `revision` is at or below the client's current revision, the client ignores it as a duplicate or stale message. If its `revision` is higher than the current revision and `baseRevision` does not equal the current revision, the client marks the state area stale and requests a fresh snapshot.
+
+## Message types
+
+### `hello`
+
+Negotiates the connection before any optional state messages.
+
+The envelope uses `protocolVersion: 0` because no version has been selected yet. The payload fields are:
+
+```json
+{
+  "endpoint": "bridge",
+  "supportedProtocolVersions": [1]
+}
+```
+
+`endpoint` is either `bridge` or `client`.
+
+Required payload fields: `endpoint`, `supportedProtocolVersions`. The peer responds with `hello_ack`.
+
+### `hello_ack`
+
+Uses `protocolVersion: 0` and selects one common version:
+
+```json
+{
+  "selectedProtocolVersion": 1
+}
+```
+
+Required payload field: `selectedProtocolVersion`. All messages after this acknowledgement use the selected version.
+
+`hello_ack.correlationId` is the `messageId` of the `hello` it answers.
+
+### `capabilities`
+
+Declares supported features after version negotiation.
+
+```json
+{
+  "capabilities": [
+    {"id": "state.character", "version": 1}
+  ]
+}
+```
+
+Capability IDs and versions are canonical protocol values. A missing capability means the feature is unavailable and the client must remain usable without it.
+
+Required payload field: `capabilities`. Each capability requires `id` and `version`.
+
+Both endpoints send `capabilities`. In v1, the only registered capability is `state.character` version `1`; unregistered capability IDs are rejected. The bridge may advertise `state.character`; the client sends an empty capability list because no client-side capability IDs are defined yet.
+
+### `subscribe`
+
+Requests state areas after capabilities are negotiated.
+
+```json
+{
+  "stateAreas": ["character"]
+}
+```
+
+The bridge confirms the subscription and sends a `state_snapshot` before sending events for that state area.
+
+Required payload field: `stateAreas`. The bridge responds with `subscription_ack`.
+
+### `subscription_ack`
+
+Confirms accepted and rejected state areas:
+
+```json
+{
+  "acceptedStateAreas": ["character"],
+  "rejectedStateAreas": []
+}
+```
+
+Both arrays are required. The bridge sends snapshots only for accepted areas.
+
+`subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. Each initial snapshot also uses the `subscribe` message ID as its `correlationId`; later snapshots use the `snapshot_request` message ID that caused them.
+
+### `snapshot_request`
+
+Requests a fresh baseline for one state area. The bridge responds with a `state_snapshot` at the current revision.
+
+```json
+{
+  "stateArea": "character",
+  "knownRevision": 41
+}
+```
+
+Required payload field: `stateArea`. `knownRevision` is optional and advisory only.
+
+### `state_snapshot`
+
+Contains the complete state for one subscribed state area at a revision.
+
+Required payload fields: `stateArea`, `revision`, `occurredAt`, `data`.
+
+An initial snapshot correlates to `subscribe`; a recovery snapshot correlates to `snapshot_request`.
+
+### `state_event`
+
+Contains one ordered update from `baseRevision` to `revision` for one subscribed state area.
+
+Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. v1 events contain complete post-change state, not partial patches.
+
+### `error`
+
+Reports a structured failure without exposing infrastructure exceptions:
+
+```json
+{
+  "code": "unsupported_version",
+  "message": "No mutually supported protocol version",
+  "retryable": false,
+  "details": null
+}
+```
+
+`code` is a canonical machine-readable value. `message` is diagnostic text and must not be used for branching.
+
+Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
+
+### `ping` and `pong`
+
+Carry no application state. They prove liveness for the current `sessionId`.
+
+`pong.correlationId` is the `messageId` of the `ping` it answers. `capabilities`, `state_event`, and unsolicited `error` messages use `correlationId: null`.
+
+## Session and recovery rules
+
+1. The client and bridge exchange `hello` using `protocolVersion: 0`.
+2. They select the highest mutually supported protocol version and exchange `hello_ack`; if none exists, the connection ends with `unsupported_version`.
+3. They exchange `capabilities` using the selected version.
+4. The client sends `subscribe` and receives `subscription_ack`.
+5. The bridge sends a snapshot before events for each accepted state area.
+6. On reconnect, a new `sessionId` is created and the client must not apply messages from the old session.
+7. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
+8. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
