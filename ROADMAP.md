@@ -615,6 +615,40 @@ This phase is evidence-driven and comes after feature usage reveals real constra
 
 Every improvement names the measured problem it solves, preserves or deliberately versions existing contracts, passes lifecycle and integration tests, and does not expand bridge authority beyond an approved product need.
 
+## 23. CommonLib Dependency Maintenance Audit
+
+**Status:** Planned
+
+### Outcome
+
+DovahLink's pinned `commonlibsse-ng-flatrim` dependency remains reproducible, supported, and
+deliberately maintained before public release.
+
+### Scope and behavior
+
+- Keep the Phase 1 dependency pinned while the supported runtime remains Steam Skyrim `1.6.1170`
+  with SKSE `2.2.6`.
+- Audit the CommonLibSSE-NG upstream project and the Color-Glass vcpkg registry for relevant fixes,
+  runtime compatibility changes, and available releases.
+- Update the pinned registry baseline, package version, or source commit only after the bridge,
+  toolchain, protocol, and in-game compatibility checks pass.
+- Record the reviewed dependency versions, upgrade decision, validation results, and any known
+  limitations before public release.
+- Define a fallback plan for a stale or unavailable package, including a deliberately reviewed direct
+  source pin if the package route can no longer provide a validated build.
+
+### Dependencies and boundaries
+
+This audit does not expand supported Skyrim runtimes, replace the CommonLib adapter boundary, or
+make upstream updates automatic. Runtime expansion and dependency changes remain separate approved
+decisions.
+
+### Acceptance criteria
+
+The exact pinned dependency builds reproducibly, its upstream and package-registry status has been
+reviewed, the chosen version has passed the required bridge and manual runtime checks, and the
+upgrade or retention decision is documented before public release.
+
 ## Deferred possibilities
 
 The following ideas are deliberately not assigned a phase. They require a demonstrated player need and separate product, safety, and architecture decisions before entering the ordered roadmap:
