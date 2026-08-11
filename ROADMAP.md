@@ -126,19 +126,38 @@ The normal local setup connects with minimal player configuration while remainin
 ### Scope and behavior
 
 - Detect or locate the approved same-machine bridge endpoint without requiring the player to enter transport details on every launch.
+- Observe whether the supported Skyrim process is absent or running through a client-owned platform
+  adapter; do not add a resident helper service or a second connection protocol for presence.
+- Combine process presence with authenticated bridge lifecycle status: process absence means
+  `stopped`; a running process without an available bridge is `launching` only during the approved
+  startup window and becomes an actionable `bridge unavailable` state afterward; bridge startup is
+  `initializing`, and only bridge-reported lifecycle events may establish `ready`, `loading`, or
+  `playing`.
 - Remember only safe local connection preferences.
 - Distinguish bridge unavailable, Skyrim unavailable, version mismatch, recovery, and configuration errors.
-- Retry with exponential backoff and jitter capped at 30 seconds, reset the backoff after successful
-  negotiation, and provide an explicit manual retry path.
+- While the Skyrim process is running, retry transient bridge-availability failures indefinitely
+  with exponential backoff and jitter capped at 30 seconds. Pause automatic connection attempts
+  while the process is absent.
+- Stop automatic retries on non-retryable authentication, configuration, or protocol-compatibility
+  failures, explicit cancellation, and application shutdown. An explicit manual retry starts an
+  immediate new cycle and resets its terminal and backoff state; successful negotiation also resets
+  the backoff and clears any prior connection failure.
 - Preserve protocol compatibility checks during every new or recovered session.
 
 ### Dependencies and boundaries
 
-This phase builds on the bridge and desktop client. It remains loopback-only and does not authorize LAN discovery, internet exposure, hosted relay services, accounts, or silent weakening of pairing and security requirements.
+This phase builds on the bridge and desktop client. Process observation reports coarse presence
+only: Flutter does not inspect game memory or infer readiness when the authenticated bridge is
+unavailable. The phase remains loopback-only and does not authorize LAN discovery, internet
+exposure, hosted relay services, accounts, a resident monitoring service, or silent weakening of
+pairing and security requirements.
 
 ### Acceptance criteria
 
-A supported local installation connects automatically during the normal startup flow, recovers after either side restarts, stops retrying responsibly, and gives the player enough information to correct a failed setup.
+A supported local installation connects automatically during the normal startup flow, reports
+stopped, launching, initializing, ready, loading, playing, recovery, and actionable failure states
+without overstating process presence, recovers after either side restarts, backs off responsibly,
+stops on terminal conditions, and gives the player enough information to correct a failed setup.
 
 ## 4. Live Player State
 
