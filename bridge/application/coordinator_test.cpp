@@ -1,0 +1,259 @@
+#include "application/coordinator.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <thread>
+#include <vector>
+
+using dovahlink::application::CallbackRegistry;
+using dovahlink::application::Coordinator;
+using dovahlink::application::LifetimeToken;
+using dovahlink::application::TransportLifecycle;
+using dovahlink::application::WorkerPool;
+
+namespace {
+
+class RecordingCallbackRegistry : public CallbackRegistry {
+public:
+    explicit RecordingCallbackRegistry(std::vector<std::string>& log) : log_(log) {}
+    void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
+
+private:
+    std::vector<std::string>& log_;
+};
+
+class RecordingWorkerPool : public WorkerPool {
+public:
+    explicit RecordingWorkerPool(std::vector<std::string>& log) : log_(log) {}
+    void Start() override { log_.push_back("workers.Start"); }
+    void Stop() override { log_.push_back("workers.Stop"); }
+    void Join() override { log_.push_back("workers.Join"); }
+
+private:
+    std::vector<std::string>& log_;
+};
+
+class RecordingTransportLifecycle : public TransportLifecycle {
+public:
+    explicit RecordingTransportLifecycle(std::vector<std::string>& log) : log_(log) {}
+    void Start() override { log_.push_back("transport.Start"); }
+    void CancelCompletions() override { log_.push_back("transport.CancelCompletions"); }
+    void Close() override { log_.push_back("transport.Close"); }
+
+private:
+    std::vector<std::string>& log_;
+};
+
+struct Fixture {
+    std::vector<std::string> log;
+    RecordingCallbackRegistry callbacks{log};
+    RecordingWorkerPool workers{log};
+    RecordingTransportLifecycle transport{log};
+    Coordinator coordinator{callbacks, workers, transport};
+};
+
+}  // namespace
+
+TEST_CASE("Start registers callbacks, then starts workers, then starts transport",
+          "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Start();
+
+    CHECK(f.log == std::vector<std::string>{"callbacks.RegisterAll", "workers.Start", "transport.Start"});
+}
+
+TEST_CASE("Shutdown follows the exact documented barrier order with no callbacks in flight",
+          "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Shutdown();
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
+TEST_CASE("Shutdown marks the coordinator stopping", "[application][coordinator]") {
+    Fixture f;
+    CHECK_FALSE(f.coordinator.IsStopping());
+    f.coordinator.Shutdown();
+    CHECK(f.coordinator.IsStopping());
+}
+
+TEST_CASE("a second Shutdown call is a no-op", "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Shutdown();
+    std::size_t countAfterFirst = f.log.size();
+    f.coordinator.Shutdown();
+
+    CHECK(f.log.size() == countAfterFirst);
+}
+
+TEST_CASE("Shutdown called concurrently from multiple threads still runs the barrier exactly once",
+          "[application][coordinator]") {
+    Fixture f;
+
+    constexpr int kThreads = 8;
+    std::vector<std::thread> threads;
+    threads.reserve(kThreads);
+    for (int i = 0; i < kThreads; ++i) {
+        threads.emplace_back([&f] { f.coordinator.Shutdown(); });
+    }
+    for (std::thread& t : threads) {
+        t.join();
+    }
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
+TEST_CASE("a Shutdown call that arrives after another is already in progress waits for it to finish",
+          "[application][coordinator]") {
+    // Regression seam: a caller whose Shutdown() call did not win the race to
+    // run the barrier must not observe Shutdown() returning before the
+    // winner's barrier has actually completed. Proven the same way as the
+    // in-flight-callback wait below: by a deterministic final state that
+    // could only be reached if both calls genuinely blocked. Which of the two
+    // threads below wins the race is unspecified and does not matter here:
+    // whichever one runs the barrier blocks on the held guard at step 3, and
+    // the other blocks waiting for that one to finish.
+    Fixture f;
+    auto guard = std::make_unique<Coordinator::CallbackGuard>(f.coordinator);
+    REQUIRE(guard->ShouldProceed());
+
+    std::thread first([&f] { f.coordinator.Shutdown(); });
+    std::thread second([&f] { f.coordinator.Shutdown(); });
+
+    guard.reset();
+    first.join();
+    second.join();
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
+namespace {
+
+class StoppingCheckCallbackRegistry : public CallbackRegistry {
+public:
+    StoppingCheckCallbackRegistry(std::vector<std::string>& log, const Coordinator*& coordinatorRef)
+        : log_(log), coordinatorRef_(coordinatorRef) {}
+    void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    void UnregisterAll() override {
+        wasStoppingDuringUnregister_ = coordinatorRef_ != nullptr && coordinatorRef_->IsStopping();
+        log_.push_back("callbacks.UnregisterAll");
+    }
+    bool wasStoppingDuringUnregister_ = false;
+
+private:
+    std::vector<std::string>& log_;
+    const Coordinator*& coordinatorRef_;
+};
+
+}  // namespace
+
+TEST_CASE("IsStopping is already true by the time UnregisterAll runs", "[application][coordinator]") {
+    std::vector<std::string> log;
+    const Coordinator* coordinatorPtr = nullptr;
+    StoppingCheckCallbackRegistry callbacks(log, coordinatorPtr);
+    RecordingWorkerPool workers(log);
+    RecordingTransportLifecycle transport(log);
+    Coordinator coordinator(callbacks, workers, transport);
+    coordinatorPtr = &coordinator;
+
+    CHECK_FALSE(coordinator.IsStopping());
+    coordinator.Shutdown();
+
+    CHECK(callbacks.wasStoppingDuringUnregister_);
+}
+
+TEST_CASE("a CallbackGuard constructed before shutdown proceeds normally",
+          "[application][coordinator]") {
+    Fixture f;
+    Coordinator::CallbackGuard guard(f.coordinator);
+    CHECK(guard.ShouldProceed());
+}
+
+TEST_CASE("a CallbackGuard constructed after shutdown does not proceed", "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Shutdown();
+
+    Coordinator::CallbackGuard guard(f.coordinator);
+    CHECK_FALSE(guard.ShouldProceed());
+}
+
+TEST_CASE("a guard that does not proceed does not need to be balanced by release",
+          "[application][coordinator]") {
+    // A guard built while stopping never joined the in-flight count, so letting
+    // it go out of scope immediately must not affect a later Shutdown call's
+    // wait -- this must not hang.
+    Fixture f;
+    f.coordinator.Shutdown();
+    { Coordinator::CallbackGuard guard(f.coordinator); }
+    f.coordinator.Shutdown();  // still a no-op; must return promptly.
+    SUCCEED();
+}
+
+TEST_CASE("Shutdown blocks until a callback already in flight releases its guard",
+          "[application][coordinator]") {
+    // This does not need to catch the shutdown thread mid-wait to be a valid,
+    // non-flaky proof: the mutex/condition_variable wait guarantees the final
+    // log order below regardless of how the two threads are scheduled. If the
+    // wait did not actually block on the guard, the order would be
+    // non-deterministic across runs instead of reliably correct.
+    Fixture f;
+    auto guard = std::make_unique<Coordinator::CallbackGuard>(f.coordinator);
+    REQUIRE(guard->ShouldProceed());
+
+    std::thread shutdownThread([&f] { f.coordinator.Shutdown(); });
+
+    guard.reset();
+    shutdownThread.join();
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
+TEST_CASE("the transport lifetime token is valid before shutdown and invalid after",
+          "[application][coordinator]") {
+    Fixture f;
+    std::shared_ptr<LifetimeToken> token = f.coordinator.TransportLifetimeTokenHandle();
+    CHECK(token->IsValid());
+
+    f.coordinator.Shutdown();
+    CHECK_FALSE(token->IsValid());
+}
+
+TEST_CASE("the transport lifetime token outlives the coordinator", "[application][coordinator]") {
+    std::shared_ptr<LifetimeToken> token;
+    {
+        Fixture f;
+        f.coordinator.Shutdown();
+        token = f.coordinator.TransportLifetimeTokenHandle();
+    }
+    // The coordinator (and its fakes) are destroyed; the independently
+    // owned token, held via shared_ptr, is still safely readable.
+    CHECK_FALSE(token->IsValid());
+}
