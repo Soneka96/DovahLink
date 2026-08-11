@@ -1,42 +1,12 @@
 #include "security/token_provider.hpp"
 
+#include "security/hex.hpp"
+
 #include <windows.h>
 
 namespace dovahlink::security {
 
 namespace {
-
-std::optional<std::uint8_t> HexNibble(char c) {
-    if (c >= '0' && c <= '9') {
-        return static_cast<std::uint8_t>(c - '0');
-    }
-    if (c >= 'a' && c <= 'f') {
-        return static_cast<std::uint8_t>(c - 'a' + 10);
-    }
-    if (c >= 'A' && c <= 'F') {
-        return static_cast<std::uint8_t>(c - 'A' + 10);
-    }
-    return std::nullopt;
-}
-
-// Decodes `hex` as lowercase-or-uppercase hex. Returns nullopt on odd
-// length or any non-hex character; never partially decodes.
-std::optional<std::vector<std::uint8_t>> DecodeHex(std::string_view hex) {
-    if (hex.empty() || hex.size() % 2 != 0) {
-        return std::nullopt;
-    }
-    std::vector<std::uint8_t> bytes;
-    bytes.reserve(hex.size() / 2);
-    for (std::size_t i = 0; i < hex.size(); i += 2) {
-        auto high = HexNibble(hex[i]);
-        auto low = HexNibble(hex[i + 1]);
-        if (!high.has_value() || !low.has_value()) {
-            return std::nullopt;
-        }
-        bytes.push_back(static_cast<std::uint8_t>((*high << 4) | *low));
-    }
-    return bytes;
-}
 
 // Overwrites the string's contents before it is destroyed. Mirrors
 // token_store.cpp's SecureClear for std::vector<uint8_t>; the intermediate

@@ -24,6 +24,7 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
     application/event_coalescer.cpp
+    application/handshake_handler.cpp
     application/outbound_queue.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
@@ -35,6 +36,7 @@ add_library(dovahlink_bridge_core STATIC
     protocol/json_field_decoders.cpp
     protocol/messages.cpp
     security/csprng.cpp
+    security/hex.cpp
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
@@ -65,6 +67,7 @@ add_executable(dovahlink_bridge_tests
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
     application/event_coalescer_test.cpp
+    application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/outbound_queue_test.cpp
     application/reconnect_reset_test.cpp
@@ -76,6 +79,7 @@ add_executable(dovahlink_bridge_tests
     game_state/runtime_guard_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
+    security/hex_test.cpp
     security/throttle_test.cpp
     security/token_provider_test.cpp
     security/token_store_test.cpp
