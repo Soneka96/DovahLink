@@ -18,6 +18,7 @@ find_package(boost_json CONFIG REQUIRED)
 # plugin entry point (added later) may depend on CommonLib/Skyrim runtime
 # types; nothing in this target may do so.
 add_library(dovahlink_bridge_core STATIC
+    application/character_state.cpp
     application/connection_timeout_tracker.cpp
     application/event_coalescer.cpp
     application/outbound_queue.cpp
@@ -36,6 +37,7 @@ target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
 target_link_libraries(dovahlink_bridge_core PUBLIC Boost::json bcrypt)
 
 add_executable(dovahlink_bridge_tests
+    application/character_state_test.cpp
     application/connection_timeout_tracker_test.cpp
     application/event_coalescer_test.cpp
     application/outbound_queue_test.cpp
