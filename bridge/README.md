@@ -88,6 +88,19 @@ configuration value that changes only the port, never the listening address (`12
 private range (49152-65535) to avoid collision with common local dev-tool ports (3000, 5173,
 8000, 8080, 9000) and any Skyrim-related tooling's default ports.
 
+## One-time token supply
+
+Per TASK.md's "supply the development token out of band through the launch environment," the
+bridge reads its expected one-time token (256-bit, per TASK.md) from the `DOVAHLINK_BRIDGE_TOKEN`
+environment variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
+`0x` prefix, no separators). Hex was chosen over base64 to avoid pulling in an encoding dependency
+this codebase does not otherwise need and to keep the value trivially assembled by a developer
+launch script (`$env:DOVAHLINK_BRIDGE_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Max 256) })`
+or equivalent). A variable that is unset, empty, not valid hex, or does not decode to exactly 32
+bytes is treated identically to "no token available" -- never a partial or best-effort value. The
+decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
+which owns clearing them after consumption or expiry.
+
 ## SkyrimWebSocket reference
 
 - Reference release: [`v1.15.1`](https://github.com/andreyvelsk/SkyrimWebSocket/releases/tag/v1.15.1)

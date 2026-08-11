@@ -36,6 +36,7 @@ add_library(dovahlink_bridge_core STATIC
     protocol/messages.cpp
     security/csprng.cpp
     security/throttle.cpp
+    security/token_provider.cpp
     security/token_store.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
@@ -76,6 +77,7 @@ add_executable(dovahlink_bridge_tests
     security/limits_test.cpp
     security/csprng_test.cpp
     security/throttle_test.cpp
+    security/token_provider_test.cpp
     security/token_store_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
