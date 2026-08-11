@@ -78,7 +78,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Until navigation is approved, do not add routing infrastructure or route constants. Once approved, route paths belong only in the approved navigation boundary and must never be repeated as inline strings.
 - Keep purely local presentation state local to the widget.
 - Use shared state only when another screen, use case, or process needs the value.
-- Do not choose a state-management package until the maintainer approves it for DovahLink.
+- DovahLink uses Redux for shared client state, with the store created once in the application composition root. Features add their reducers and middleware through the approved store-construction boundary.
+- Do not introduce another state-management package without maintainer approval.
 
 ### Connection and recovery state
 
