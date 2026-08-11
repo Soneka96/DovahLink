@@ -175,6 +175,13 @@ class ValidateAllTests(unittest.TestCase):
             "errors/error-unauthenticated-invalid-token.json",
             "errors/error-unauthenticated-reused-token.json",
             "errors/error-unsupported-version.json",
+            "subscriptions/snapshot-request.json",
+            "state/character/state-event-revision-gap.json",
+            "state/character/state-event-duplicate.json",
+            "state/character/state-event-stale.json",
+            "state/character/state-snapshot-unknown-field.json",
+            "connection/ping.json",
+            "connection/pong.json",
         }
         self.assertEqual(set(checked), expected)
 

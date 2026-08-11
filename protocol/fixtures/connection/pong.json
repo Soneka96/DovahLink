@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 1,
+  "messageType": "pong",
+  "messageId": "message-pong-1",
+  "sessionId": "session-1",
+  "correlationId": "message-ping-1",
+  "payload": {}
+}
