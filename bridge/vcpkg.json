@@ -5,6 +5,7 @@
   "builtin-baseline": "2f1d605400c8727cc00c15797aba796c88ccd523",
   "dependencies": [
     "boost-asio",
+    "boost-beast",
     "boost-json",
     "catch2"
   ]

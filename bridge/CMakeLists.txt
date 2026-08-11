@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3 CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
+find_package(boost_beast CONFIG REQUIRED)
 find_package(boost_json CONFIG REQUIRED)
 
 # Skyrim-independent core: application, protocol, transport, and security
@@ -34,11 +35,13 @@ add_library(dovahlink_bridge_core STATIC
     security/csprng.cpp
     security/throttle.cpp
     security/token_store.cpp
+    transport/connection_slot.cpp
     transport/listener.cpp
+    transport/websocket_session.cpp
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
-target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::json bcrypt)
+target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt)
 
 add_executable(dovahlink_bridge_tests
     application/character_state_test.cpp
@@ -60,7 +63,9 @@ add_executable(dovahlink_bridge_tests
     protocol/envelope_test.cpp
     protocol/json_field_decoders_test.cpp
     protocol/messages_test.cpp
+    transport/connection_slot_test.cpp
     transport/listener_test.cpp
+    transport/websocket_session_test.cpp
 )
 target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)
 target_compile_definitions(dovahlink_bridge_tests PRIVATE
