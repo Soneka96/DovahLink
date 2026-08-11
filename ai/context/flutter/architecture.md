@@ -82,5 +82,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 ## Visual rules
 
 - Check approved DovahLink design references before making a new visual decision. If no local reference or design system exists, record the decision and do not import an external design system without approval.
+- Build the approved Skyrim-inspired presentation with native Flutter theming and components.
+- Keep fonts, colors, panels, icons, spacing, and animations behind shared theme tokens or themed components so the Core UI Theme System can support future adapters.
 - Do not hardcode colors, typography, spacing, icon sizes, or corner radii inside widgets once the theme system exists.
 - Use the existing theme and layout tokens; add a new token before adding a repeated literal.
+- Keep the native DovahLink theme complete and usable without installed-resource detection or a UI mod adapter; missing or unsupported adapter values must fall back to it.
