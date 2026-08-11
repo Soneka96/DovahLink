@@ -54,6 +54,12 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
 No dependency here duplicates a role already covered by Boost, Catch2, or CommonLibSSE-NG's own
 dependencies; no second JSON, WebSocket, logging, cryptography, or test library is introduced.
 
+`bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same checklist
+step that first consumes it, rather than all at once: `catch2` lands with the build scaffolding,
+`boost-json` with the message codec, `boost-asio`/`boost-beast` with the transport, and
+`commonlibsse-ng-flatrim` (via `bridge/vcpkg-configuration.json`) with the game-state adapter. This
+keeps every step's build from compiling dependencies it doesn't use yet.
+
 ## Default loopback port
 
 The DovahLink bridge listens on TCP port `58231` by default, overridable through a documented
