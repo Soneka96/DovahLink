@@ -109,6 +109,12 @@ std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::
     return HelloAckPayload{.selectedProtocolVersion = *selectedProtocolVersion};
 }
 
+boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload) {
+    boost::json::object obj;
+    obj["selectedProtocolVersion"] = payload.selectedProtocolVersion;
+    return obj;
+}
+
 std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload) {
     const boost::json::value* capabilitiesValue = RequireField(payload, "capabilities");
     if (!capabilitiesValue) {
@@ -333,6 +339,15 @@ std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::
         .retryable = retryableValue->get_bool(),
         .details = std::move(details),
     };
+}
+
+boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
+    boost::json::object obj;
+    obj["code"] = payload.code;
+    obj["message"] = payload.message;
+    obj["retryable"] = payload.retryable;
+    obj["details"] = payload.details.has_value() ? *payload.details : boost::json::value(nullptr);
+    return obj;
 }
 
 }  // namespace dovahlink::protocol

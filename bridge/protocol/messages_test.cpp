@@ -183,6 +183,80 @@ TEST_CASE("every error fixture decodes to a valid ErrorPayload", "[protocol][mes
     }
 }
 
+TEST_CASE("EncodeHelloAckPayload round-trips the hello-ack fixture's payload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("connection/hello-ack.json");
+    auto original = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
+    REQUIRE(original.has_value());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeHelloAckPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeHelloAckPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->selectedProtocolVersion == original->selectedProtocolVersion);
+}
+
+TEST_CASE("EncodeErrorPayload round-trips a fixture with details absent", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("errors/error-unsupported-version.json");
+    auto original = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
+    REQUIRE(original.has_value());
+    REQUIRE_FALSE(original->details.has_value());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeErrorPayload(*original);
+
+    // details must still be present in the wire shape, as an explicit null,
+    // not omitted -- see the EncodeErrorPayload declaration's comment.
+    const boost::json::value* detailsValue = encoded.if_contains("details");
+    REQUIRE(detailsValue != nullptr);
+    CHECK(detailsValue->is_null());
+
+    auto roundTripped = dovahlink::protocol::DecodeErrorPayload(encoded);
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->code == original->code);
+    CHECK(roundTripped->message == original->message);
+    CHECK(roundTripped->retryable == original->retryable);
+    CHECK_FALSE(roundTripped->details.has_value());
+}
+
+TEST_CASE("EncodeErrorPayload round-trips retryable and non-retryable values",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("errors/error-rate-limited.json");
+    auto original = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
+    REQUIRE(original.has_value());
+    REQUIRE(original->retryable);
+
+    boost::json::object encoded = dovahlink::protocol::EncodeErrorPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeErrorPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->retryable);
+}
+
+TEST_CASE("EncodeErrorPayload round-trips a payload with details actually present",
+          "[protocol][messages]") {
+    // No Phase 1 error fixture has non-null details (protocol/fixtures/errors/*.json
+    // all use null), so this branch is exercised with a hand-built payload rather
+    // than a fixture, matching protocol/fixtures/README.md's fixtures-model-valid-
+    // scenarios scope.
+    dovahlink::protocol::ErrorPayload original{
+        .code = "internal_error",
+        .message = "worker exited unexpectedly",
+        .retryable = false,
+        .details = boost::json::value(boost::json::object{{"component", "worker"}}),
+    };
+
+    boost::json::object encoded = dovahlink::protocol::EncodeErrorPayload(original);
+
+    const boost::json::value* detailsValue = encoded.if_contains("details");
+    REQUIRE(detailsValue != nullptr);
+    REQUIRE(detailsValue->is_object());
+    CHECK(detailsValue->get_object().at("component").as_string() == "worker");
+
+    auto roundTripped = dovahlink::protocol::DecodeErrorPayload(encoded);
+    REQUIRE(roundTripped.has_value());
+    REQUIRE(roundTripped->details.has_value());
+    CHECK(*roundTripped->details == *original.details);
+}
+
 // Hand-built malformed payload cases: these test the codec's rejection behavior for
 // rules distinctive to each message type and are not stored as fixtures, matching
 // protocol/fixtures/README.md (fixtures model valid or documented wire scenarios).

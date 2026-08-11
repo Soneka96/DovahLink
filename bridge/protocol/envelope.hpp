@@ -32,4 +32,11 @@ using EnvelopeError = DecodeError;
 // the wire error code `malformed_message`.
 std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& message);
 
+// Encodes `envelope` to its canonical JSON wire text, using its `payload`
+// field as-is. This function does not validate or build the payload's shape
+// -- that is the caller's job, via the registered Encode*Payload functions
+// in messages.hpp -- mirroring how DecodeEnvelope stays separate from the
+// payload-specific Decode*Payload functions.
+std::string EncodeEnvelope(const Envelope& envelope);
+
 }  // namespace dovahlink::protocol

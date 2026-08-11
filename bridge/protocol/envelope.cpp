@@ -3,6 +3,7 @@
 #include "protocol/json_field_decoders.hpp"
 
 #include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 
 #include <utility>
@@ -95,6 +96,19 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         .correlationId = std::move(correlationId),
         .payload = payloadValue->get_object(),
     };
+}
+
+std::string EncodeEnvelope(const Envelope& envelope) {
+    boost::json::object obj;
+    obj["protocolVersion"] = envelope.protocolVersion;
+    obj["messageType"] = envelope.messageType;
+    obj["messageId"] = envelope.messageId;
+    obj["sessionId"] =
+        envelope.sessionId.has_value() ? boost::json::value(*envelope.sessionId) : boost::json::value(nullptr);
+    obj["correlationId"] = envelope.correlationId.has_value() ? boost::json::value(*envelope.correlationId)
+                                                                : boost::json::value(nullptr);
+    obj["payload"] = envelope.payload;
+    return boost::json::serialize(obj);
 }
 
 }  // namespace dovahlink::protocol

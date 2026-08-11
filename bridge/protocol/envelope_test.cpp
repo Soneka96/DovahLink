@@ -210,3 +210,59 @@ TEST_CASE("a message with unknown top-level fields still decodes", "[protocol][e
     REQUIRE(envelope.has_value());
     CHECK(envelope->messageType == "ping");
 }
+
+// EncodeEnvelope round-trips: encoding a decoded fixture and decoding the
+// result again must reproduce every field DecodeEnvelope itself validates.
+// A bug that omitted or mistyped a field would fail these at the decode
+// step, not just at a hand-rolled field comparison.
+
+TEST_CASE("EncodeEnvelope round-trips the hello-ack fixture (non-null sessionId and correlationId)",
+          "[protocol][envelope]") {
+    auto original = DecodeFixture("connection/hello-ack.json");
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(original);
+
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
+    REQUIRE(roundTripped.has_value());
+
+    CHECK(roundTripped->protocolVersion == original.protocolVersion);
+    CHECK(roundTripped->messageType == original.messageType);
+    CHECK(roundTripped->messageId == original.messageId);
+    CHECK(roundTripped->sessionId == original.sessionId);
+    CHECK(roundTripped->correlationId == original.correlationId);
+    CHECK(roundTripped->payload == original.payload);
+}
+
+TEST_CASE("EncodeEnvelope round-trips a null sessionId as JSON null, not a string",
+          "[protocol][envelope]") {
+    auto original = DecodeFixture("errors/error-unauthenticated-invalid-token.json");
+    REQUIRE_FALSE(original.sessionId.has_value());
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(original);
+
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    REQUIRE(reparsed->is_object());
+    const boost::json::value* sessionIdValue = reparsed->get_object().if_contains("sessionId");
+    REQUIRE(sessionIdValue != nullptr);
+    CHECK(sessionIdValue->is_null());
+
+    auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
+    REQUIRE(roundTripped.has_value());
+    CHECK_FALSE(roundTripped->sessionId.has_value());
+}
+
+TEST_CASE("EncodeEnvelope round-trips a non-null sessionId from an error fixture",
+          "[protocol][envelope]") {
+    auto original = DecodeFixture("errors/error-stale-session.json");
+    REQUIRE(original.sessionId.has_value());
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(original);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->sessionId == original.sessionId);
+}

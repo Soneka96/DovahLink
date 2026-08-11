@@ -60,6 +60,7 @@ struct HelloAckPayload {
     std::int64_t selectedProtocolVersion = 0;
 };
 std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::json::object& payload);
+boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload);
 
 struct Capability {
     std::string id;
@@ -132,5 +133,10 @@ struct ErrorPayload {
     std::optional<boost::json::value> details;
 };
 std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::object& payload);
+// Always emits the `details` key, as `null` when absent, matching the
+// canonical fixtures (protocol/fixtures/errors/*.json) -- "nullable and
+// optional" (protocol/schema/README.md) means the value may be null, not
+// that the key may be omitted from a v1 message this codebase produces.
+boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
 
 }  // namespace dovahlink::protocol
