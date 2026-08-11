@@ -1,0 +1,10 @@
+{
+  "protocolVersion": 0,
+  "messageType": "hello_ack",
+  "messageId": "message-hello-ack-1",
+  "sessionId": "session-1",
+  "correlationId": "message-hello-1",
+  "payload": {
+    "selectedProtocolVersion": 1
+  }
+}

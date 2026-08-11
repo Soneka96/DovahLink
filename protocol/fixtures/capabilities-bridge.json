@@ -1,0 +1,12 @@
+{
+  "protocolVersion": 1,
+  "messageType": "capabilities",
+  "messageId": "message-capabilities-bridge-1",
+  "sessionId": "session-1",
+  "correlationId": null,
+  "payload": {
+    "capabilities": [
+      {"id": "state.character", "version": 1}
+    ]
+  }
+}
