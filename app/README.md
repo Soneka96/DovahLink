@@ -1,17 +1,23 @@
-# dovahlink_client
+# DovahLink client
 
-A new Flutter project.
+This directory owns the Flutter desktop client. Product status and phase dependencies live in the
+root [ROADMAP.md](../ROADMAP.md); system boundaries live in
+[ARCHITECTURE.md](../ARCHITECTURE.md); Flutter-specific conventions live in
+[`ai/context/flutter/`](../ai/context/flutter/).
 
-## Getting Started
+Canonical messages and shared fixtures remain under [`protocol/`](../protocol/). Client models and
+adapters consume that contract without redefining it.
 
-This project is a starting point for a Flutter application.
+## Development checks
 
-A few resources to get you started if this is your first Flutter project:
+Run commands from this directory:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```powershell
+flutter pub get
+dart run build_runner build
+flutter analyze
+flutter test
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Generated `.g.dart` files are committed beside their source models and are regenerated rather than
+edited by hand.

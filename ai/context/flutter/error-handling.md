@@ -29,6 +29,8 @@ not be treated as valid. Document the choice on the repository method.
 
 ## UI error surfaces
 
+- User-visible error, disconnected, stale, and recovery states expose typed, user-safe status
+  models or localized messages.
 - Inline validation belongs in the native field error affordance.
 - Unexpected or blocking failures go through the approved logging/popup boundary once one exists.
 - Background failures that should not interrupt the user remain silent.

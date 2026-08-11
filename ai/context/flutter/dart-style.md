@@ -1,43 +1,39 @@
 # Flutter and Dart style
 
-## Never do
+## Type safety
 
-- Do not use `print`, `debugPrint`, `developer.log`, direct console writes, or ad-hoc logging packages. Until an approved logger exists, diagnostics must use typed results/state. Never log tokens, credentials, raw protocol payloads, or unredacted sensitive game state.
-- Do not use the null assertion operator (`!`) when explicit null handling is possible.
-- Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type; the boundary exception for protocol decoding is defined below.
-- Do not write snapshot tests.
-- Do not add a dependency when the existing SDK or project code is sufficient.
+- Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type.
+- `dynamic` is permitted only inside the smallest protocol decoding function when required by the
+  decoder. Validate and convert it immediately into typed values; it must not cross into domain,
+  state, or presentation code.
+- Use the null assertion operator (`!`) only when an immediately visible check or constructor
+  contract establishes the invariant; otherwise handle null explicitly.
 
 ## Naming and files
 
 - Use the naming convention established for the relevant type before adding a file. When no existing example exists, use Dart defaults: `snake_case.dart` filenames, `UpperCamelCase` types, `lowerCamelCase` members, and descriptive protocol suffixes such as `CharacterStateModel` and `CharacterStateMessage`.
-- Keep one primary class per file.
 - Name files after the concept they contain, not after the screen that happens to use them.
 - Keep protocol mapping names explicit so a Flutter model is not confused with a wire message.
-
-## Boundaries
-
-- Keep parsing and serialization at the protocol/client boundary.
-- Keep business decisions out of widgets and event callbacks.
-- Keep reusable widgets dumb: pass data and callbacks as inputs.
-- Do not fetch services or dependencies from a low-level reusable widget.
-- Session identity, correlation, stale-message handling, and revision transitions belong in the protocol/client-state adapter.
-- Use explicit names such as `connecting`, `connected`, `recovering`, `disconnected`, `stale`, and `failed`; do not collapse distinct protocol states into a generic `loading` flag.
-- User-visible error, disconnected, stale, and recovery states must expose typed, user-safe status models or localized messages. They must never expose raw exceptions, stack traces, tokens, or protocol payloads.
-- `dynamic` is permitted only inside the smallest protocol decoding function when required by the decoder. Validate and convert it immediately into typed values; it must not cross into domain, state, or presentation code.
-- Use the null assertion operator (`!`) only when an immediately visible check or constructor contract establishes the invariant; otherwise handle null explicitly.
 
 ## Documentation
 
 Document non-obvious decisions and compatibility constraints at the boundary where they matter. Do not add comments that merely restate the code.
 
-- Add concise `///` documentation to every public class, entity, model, typedef, constructor, property, factory, and method.
+- Add concise `///` documentation to every public class, entity, model, typedef, constructor,
+  property, parameter field, factory, method, and enum member.
 - Describe purpose and contract, not implementation; include unavailable, nullable, unit, lifecycle, or compatibility meaning when relevant.
-- Use Dart doc links such as `[CharacterStateEntity]` and `[toJson]` when referring to another documented symbol.
-- Private helpers need documentation when their validation, ownership, or compatibility behavior is not obvious from their name.
+- Use Dart doc links such as `[CharacterStateEntity]` when referring to another documented symbol,
+  and fully qualify member links such as `[CharacterStateModel.toJson]`. Add the declaring import
+  even when the link is its only reference.
+- Coupled classes cross-reference in one direction: Model to Entity, UseCase to repository
+  interface, and repository implementation to repository interface. Domain never imports data.
+- Private non-obvious helpers use a short `//` comment immediately above the declaration. Missing
+  implementation uses `// TODO: ...` immediately above the declaration. Do not place explanatory
+  comments between statements or widgets.
 
 ## Baseline Dart rules
 
+- Do not add a dependency when the existing SDK or project code is sufficient.
 - Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.
 - Use lowerCamelCase for variables, parameters, functions, members, and constants.
 - Use lowercase_with_underscores for packages, directories, source files, and import prefixes.
@@ -67,10 +63,6 @@ Use `Equatable` for entities, models, value objects, ViewModels, Redux actions, 
 Do not hand-write equality or hash codes for classes that extend it. Use `Option<T>?` from `fpdart`
 for nullable `copyWith` fields so omitted, cleared, and set values remain distinct.
 
-Generated JSON models that extend concrete entities may use an explicit `super(...)` constructor
-initializer to forward their typed model fields. This is required when `json_serializable` must
-serialize nested model values, and is intentionally limited to those model constructors.
-
 ## Enums
 
 - Every enum is declared in `lib/shared/constants/enums.dart`, including feature-local status
@@ -83,24 +75,11 @@ serialize nested model values, and is intentionally limited to those model const
   the enum itself or in its immediately following extension. Test enum methods, factories, and
   extensions when they contain logic.
 
-## Documentation
-
-- Add concise `///` comments to every public class, method, property, constructor, factory,
-  typedef, entity, model, parameter field, and enum member.
-- Describe what the symbol is and its contract, not surrounding application context or a restatement
-  of its implementation.
-- Use `[SymbolName]` links in doc comments and add the declaring import even when the link is the
-  only reference. Fully qualify member links as `[ClassName.member]`.
-- Coupled classes cross-reference in one direction: Model to Entity, UseCase to repository
-  interface, and repository implementation to repository interface. Domain never imports data.
-- Private non-obvious helpers use a short `//` comment immediately above the declaration. Missing
-  implementation uses `// TODO: ...` immediately above the declaration. Do not place explanatory
-  comments between statements or widgets.
-
 ## Logging and Flutter-specific rules
 
-- Never use `print`, `debugPrint`, or direct console writes. Use the approved logger boundary once
-  one exists and never log credentials, tokens, raw protocol payloads, or unredacted game state.
+- Never use `print`, `debugPrint`, `developer.log`, direct console writes, or ad-hoc logging
+  packages. Until an approved logger exists, diagnostics use typed results or state. Never log
+  credentials, tokens, raw protocol payloads, or unredacted game state.
 - Prefer `StatelessWidget` over helper methods returning widgets; extract reusable helpers into
   widgets that can be tested and made `const`.
 - Localize `setState` to the smallest subtree, avoid expensive work in `build`, and split widgets

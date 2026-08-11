@@ -12,14 +12,11 @@ presentation -> domain
 - `data` performs external I/O and maps models to domain entities.
 - `domain` contains pure Dart entities, repository interfaces, and use cases.
 - `presentation` contains screens, sections, widgets, view models, and client state.
-- Domain must not import Flutter or infrastructure packages.
-- Presentation must not call datasources, repositories, or transport clients directly.
 - Imports may point from `presentation` to `domain`, and from `data` to `domain`.
 - Domain must not import `data`, `presentation`, Flutter, or transport implementations.
 - Presentation may consume domain interfaces and client-state outputs, but never construct infrastructure.
-- Infrastructure implementations, protocol clients, repositories, and their dependencies are
-  registered in the manual `GetIt` injection container. Widgets and use cases resolve registered
-  dependencies through `sl<Type>()`; they never instantiate infrastructure directly.
+- Domain dependencies are constructor-injected interfaces. Domain code never imports or resolves
+  the `GetIt` container.
 
 ## Feature structure
 
@@ -111,7 +108,6 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Middleware calls `next(action)` before dispatching handler results so handlers see reduced state.
 - Middleware handlers accept only `Store<AppState>` and the typed Action; raw values and
   `BuildContext` are not handler parameters.
-- Use cases and services are resolved via `sl<Type>()` in middleware handlers.
 - To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.
 
 ## Feature call chain
@@ -124,9 +120,15 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 
 - Register shared dependencies first in `lib/injection_container.dart`, then call each feature's
   injection container.
+- Infrastructure implementations, protocol clients, repositories, use cases, services, and ViewModels
+  are registered in the manual `GetIt` container.
 - Register concrete implementations behind domain interfaces.
 - Register use cases as DI dependencies and construct them with repository interfaces.
 - Register ViewModels with `registerFactoryParam` when they need a Redux `Store`.
+- Screens and Sections resolve registered ViewModels; middleware handlers resolve registered use
+  cases and services through `sl<Type>()`.
+- Reusable widgets, ViewModels, use cases, entities, repositories, and datasources never resolve
+  dependencies from `GetIt`.
 - Call dependency initialization once before `runApp`.
 
 ## Services
@@ -134,9 +136,8 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Do not create a generic feature service layer.
 - App-wide plumbing without business rules belongs in `shared/utils/` and is DI-registered; it is
   not wrapped in a use case.
-- Feature-specific orchestration engines also belong in `shared/utils/` when they coordinate work
-  across a feature's layers. The feature folder remains reserved for datasources, models/entities,
-  repositories, use cases, presentation, and state.
+- Feature-specific orchestration stays in its owning feature; do not move it to `shared/utils/` to
+  avoid choosing a feature boundary.
 - One-off I/O belongs in the owning feature datasource.
 
 ## Theming and layout
@@ -148,7 +149,7 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Widgets receive data and callbacks through props; visual styling comes from the theme, not from
   constructor parameters or hidden DI lookups.
 
-### JSON models and generated code
+## JSON models and generated code
 
 - Use `json_serializable` for Dart models that map to or from JSON; do not hand-write repetitive `fromJson`/`toJson` mappings for protocol DTOs.
 - Run generation with `dart run build_runner build` from the owning Flutter project.
@@ -156,6 +157,13 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - `json_serializable` is a mapping tool, not the protocol contract. The canonical schema remains in `protocol/schema/`, and shared examples remain in `protocol/fixtures/`.
 - Keep semantic validation outside generated code: protocol versions, revisions, message/payload pairing, session identity, finite values, security limits, and recovery rules must be validated by handwritten boundary code.
 - Configure generated models to preserve required-versus-unavailable distinctions; a missing required field must not silently become `null`.
+
+## Client versioning
+
+- The Flutter client version is defined in `app/pubspec.yaml`; platform build metadata is derived
+  from it rather than maintained as unrelated manual versions.
+- Increment the build number for each distributable client build. Increment the semantic client
+  version only for an intentional client release boundary.
 
 ## Navigation and state
 
@@ -171,6 +179,8 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 ### Connection and recovery state
 
 - Keep connection/session state separate from feature display state.
+- Use explicit states such as `connecting`, `connected`, `recovering`, `disconnected`, `stale`, and
+  `failed`; do not collapse distinct protocol states into a generic `loading` flag.
 - A newly accepted session invalidates all messages and subscriptions from the previous session.
 - A revision gap, local outbound queue loss, reconnect, or protocol recovery request enters `recovering`; treat local queue loss as an internal client-state signal unless the canonical protocol schema explicitly defines a corresponding wire message. Do not invent wire messages in Flutter code.
 - A snapshot is valid only when its session ID matches the active session, its correlation matches the current recovery request when applicable, and its state-area revision is accepted by the canonical protocol rules.

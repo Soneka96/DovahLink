@@ -6,9 +6,15 @@
 - Widgets and sections should have behavior-focused tests rather than snapshots.
 - Screens should test the important user-visible states, failure states, and accessibility behavior.
 - Protocol mapping tests belong at the client boundary and should use representative wire fixtures.
-- Tests for JSON models must consume representative protocol fixtures and assert both generated `fromJson` decoding and generated `toJson` round-tripping. Generated source itself is not hand-tested or edited; handwritten boundary validation is tested explicitly.
+- Tests for JSON models must consume representative protocol fixtures and exercise every generated
+  mapping direction the model exposes. Models intended to round-trip assert both `fromJson`
+  decoding and `toJson` output. Generated source itself is not hand-tested or edited; handwritten
+  boundary validation is tested explicitly.
 - Model tests must also assert that each model is usable as its corresponding domain entity; entity behavior tests belong beside the entity when the entity contains behavior beyond value declarations.
-- Client-boundary tests must assert both accepted and rejected messages, emitted recovery requests, correlation IDs, session-generation invalidation, suppression of stale publications, malformed or unsupported protocol messages, duplicate and stale messages, revision gaps, snapshot recovery, and late messages after disposal.
+- For each behavior exposed by a client boundary, tests must cover the applicable accepted and
+  rejected messages, recovery requests, correlation IDs, session-generation invalidation, stale
+  publication suppression, malformed or unsupported messages, duplicate and stale messages,
+  revision gaps, snapshot recovery, and late messages after disposal.
 
 ## Test structure
 
@@ -26,8 +32,6 @@
 - Test descriptions name the actual method or action. Use literal Dart syntax for equality
   conditions, including enum values and null checks.
 - Primitive properties use two assertions in order: `isA<T>()`, then the exact expected value.
-- Test files mirror source files under `test/`, and fixtures live beside the feature test that owns
-  them. Cross-side protocol fixtures remain in `protocol/fixtures/`.
 
 ## Layer-specific tests
 
@@ -39,8 +43,6 @@
   calls and symmetric no-call branches.
 - Reducers test handled actions and a separate unhandled-action pass-through case.
 - Datasource tests cover every distinct catch, guard, explicit throw, and malformed-input branch.
-- Widget tests use stable keys or semantics, build the smallest real app/store context, and stub
-  every dependency read during build. Do not write snapshot tests.
 
 ## Test naming
 
