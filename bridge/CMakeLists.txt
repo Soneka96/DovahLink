@@ -29,6 +29,7 @@ add_library(dovahlink_bridge_core STATIC
     application/replay_guard.cpp
     application/session.cpp
     game_state/level_adapter.cpp
+    game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
     protocol/envelope.cpp
     protocol/json_field_decoders.cpp
@@ -53,6 +54,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_level_accessor.cpp
+    game_state/commonlib_level_increase_sink.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
@@ -69,6 +71,7 @@ add_executable(dovahlink_bridge_tests
     application/replay_guard_test.cpp
     application/session_test.cpp
     game_state/level_adapter_test.cpp
+    game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
