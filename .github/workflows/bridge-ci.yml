@@ -1,0 +1,52 @@
+name: bridge-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-ci.yml"
+  pull_request:
+    paths:
+      - "bridge/**"
+      - ".github/workflows/bridge-ci.yml"
+
+jobs:
+  build-and-test:
+    # Pinned toolchain and dependency baselines are recorded in bridge/README.md.
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned CMake and Ninja
+        run: |
+          choco install cmake --version=4.4.2 --no-progress -y
+          choco install ninja --version=1.13.2 --no-progress -y
+
+      - name: Set up the MSVC 2022 developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Check out vcpkg at the pinned builtin baseline
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "${{ runner.temp }}\vcpkg"
+          git -C "${{ runner.temp }}\vcpkg" checkout 2f1d605400c8727cc00c15797aba796c88ccd523
+          & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        working-directory: bridge
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+        run: cmake --preset windows-x64-debug
+
+      - name: Build
+        working-directory: bridge
+        run: cmake --build --preset windows-x64-debug
+
+      - name: Test
+        working-directory: bridge
+        run: ctest --preset windows-x64-debug

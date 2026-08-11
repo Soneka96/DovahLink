@@ -26,6 +26,11 @@ runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initializati
 | Build tool | Ninja 1.13.2 | Latest stable release at the time this baseline was recorded. |
 | Package manager | vcpkg, manifest mode | Builtin baseline pinned below; classic mode is not used. |
 
+`.github/workflows/bridge-ci.yml` installs CMake `4.4.2` and Ninja `1.13.2` exactly via Chocolatey
+on `windows-2022`, and sets up the MSVC 2022 developer environment before configuring. A local
+dev machine should match these same versions for a reproducible build; the workflow has not yet
+been exercised by an actual push, so treat it as unverified until it runs once in CI.
+
 ## Dependency baselines
 
 vcpkg builtin registry baseline (`microsoft/vcpkg`):
