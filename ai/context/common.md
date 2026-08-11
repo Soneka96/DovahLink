@@ -29,6 +29,18 @@ These rules apply to every DovahLink area: the Flutter client, SKSE bridge, prot
 - Review the complete diff for unrelated changes before presenting the work.
 - Update the relevant product, architecture, roadmap, or convention document when a decision changes.
 
+## Versioning
+
+- Roadmap phase numbers and application versions are separate; completing a phase does not require
+  matching the application version to that phase number.
+- The Flutter client version is defined in `app/pubspec.yaml`; platform build metadata should be
+  derived from it rather than maintained as unrelated manual versions.
+- Increment the build number for each distributable client build. Increment the semantic client
+  version only for an intentional client release boundary.
+- Change the protocol version only when the canonical wire contract changes. Client-only screens,
+  state, tests, and internal boundaries do not change the protocol version.
+- Do not add a changelog or release artifact until the repository has an approved release workflow.
+
 ## Repository boundaries
 
 - `app/` is reserved for the Flutter client.

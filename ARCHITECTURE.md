@@ -2,7 +2,10 @@
 
 ## Current state
 
-There is no implementation yet. This document records the initial boundaries so the first feature can stay small and replaceable.
+The Phase 0.5 client and protocol foundation is complete. The Flutter client contains generated
+protocol models, domain entities and connection use cases, Redux-backed connection state,
+selectors, dependency injection, and a read-only connection status screen. The Skyrim bridge and
+real loopback transport have not started; they belong to Phase 1.
 
 ## Repository boundaries
 

@@ -31,13 +31,16 @@ DovahLink protocol
 PC / tablet / phone
 ```
 
-The repository currently contains documentation only. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. Roadmap status, Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
+Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. That instruction has now started the Phase 1 implementation foundation; the bridge and transport are still pending. Roadmap status, Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
 
 ## Status
 
-Documentation baseline complete; implementation has not started.
+Phase 0.5, the client and protocol foundation, is complete. Phase 1, the Skyrim Bridge Foundation,
+has not started.
 
-The first implementation milestone is a reliable, minimal connection between Skyrim and one external client.
+The completed foundation includes client entities and models, connection use cases, Redux state
+and selectors, dependency injection, and a read-only connection status screen. The Skyrim bridge
+and real loopback transport are the specific scope of Phase 1.
 
 See [PRODUCT.md](PRODUCT.md) for the product definition, [ARCHITECTURE.md](ARCHITECTURE.md) for the technical direction, and [ROADMAP.md](ROADMAP.md) for planned milestones.
 
