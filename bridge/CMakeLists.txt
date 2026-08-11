@@ -11,17 +11,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3 CONFIG REQUIRED)
+find_package(boost_json CONFIG REQUIRED)
 
 # Skyrim-independent core: application, protocol, transport, and security
 # code. Per ai/context/skse/architecture.md, only the game-state adapter and
 # plugin entry point (added later) may depend on CommonLib/Skyrim runtime
 # types; nothing in this target may do so.
-add_library(dovahlink_bridge_core INTERFACE)
-target_include_directories(dovahlink_bridge_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_features(dovahlink_bridge_core INTERFACE cxx_std_23)
+add_library(dovahlink_bridge_core STATIC
+    protocol/bounded_json.cpp
+)
+target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
+target_link_libraries(dovahlink_bridge_core PUBLIC Boost::json)
 
 add_executable(dovahlink_bridge_tests
     security/limits_test.cpp
+    protocol/bounded_json_test.cpp
 )
 target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)
 
