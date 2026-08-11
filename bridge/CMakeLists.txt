@@ -18,6 +18,7 @@ find_package(boost_json CONFIG REQUIRED)
 # plugin entry point (added later) may depend on CommonLib/Skyrim runtime
 # types; nothing in this target may do so.
 add_library(dovahlink_bridge_core STATIC
+    application/connection_timeout_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
     protocol/bounded_json.cpp
@@ -33,6 +34,7 @@ target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
 target_link_libraries(dovahlink_bridge_core PUBLIC Boost::json bcrypt)
 
 add_executable(dovahlink_bridge_tests
+    application/connection_timeout_tracker_test.cpp
     application/replay_guard_test.cpp
     application/session_test.cpp
     security/limits_test.cpp
