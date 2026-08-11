@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 1,
+  "messageType": "error",
+  "messageId": "message-error-malformed-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-malformed-1",
+  "payload": {
+    "code": "malformed_message",
+    "message": "Missing required payload field: stateAreas",
+    "retryable": false,
+    "details": null
+  }
+}

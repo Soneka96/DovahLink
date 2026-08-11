@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 0,
+  "messageType": "error",
+  "messageId": "message-error-frame-too-large-1",
+  "sessionId": null,
+  "correlationId": null,
+  "payload": {
+    "code": "frame_too_large",
+    "message": "Inbound frame exceeds the 1 MiB limit",
+    "retryable": false,
+    "details": null
+  }
+}

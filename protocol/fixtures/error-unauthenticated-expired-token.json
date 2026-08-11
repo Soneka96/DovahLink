@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 0,
+  "messageType": "error",
+  "messageId": "message-error-expired-token-1",
+  "sessionId": null,
+  "correlationId": "message-hello-1",
+  "payload": {
+    "code": "unauthenticated",
+    "message": "Token expired",
+    "retryable": false,
+    "details": null
+  }
+}

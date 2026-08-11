@@ -21,7 +21,7 @@ object per message; framing is not part of the JSON payload.
 | `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
-| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued identity for that socket. A session ID is valid only on the socket to which it was issued. |
+| `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
 

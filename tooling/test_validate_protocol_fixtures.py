@@ -29,6 +29,17 @@ def _valid_snapshot() -> dict:
     }
 
 
+def _valid_error(session_id: str | None) -> dict:
+    return {
+        "protocolVersion": 0,
+        "messageType": "error",
+        "messageId": "m-3",
+        "sessionId": session_id,
+        "correlationId": "m-1",
+        "payload": {"code": "unauthenticated", "message": "boom", "retryable": False, "details": None},
+    }
+
+
 class ValidateEnvelopeTests(unittest.TestCase):
     def test_valid_hello_passes(self) -> None:
         validate_envelope("hello.json", _valid_hello())
@@ -125,6 +136,22 @@ class ValidateEnvelopeTests(unittest.TestCase):
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
+    def test_error_with_null_session_id_passes(self) -> None:
+        validate_envelope("error.json", _valid_error(None))
+
+    def test_error_with_session_id_passes(self) -> None:
+        validate_envelope("error.json", _valid_error("session-1"))
+
+    def test_error_with_empty_session_id_rejected(self) -> None:
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", _valid_error(""))
+
+    def test_error_with_non_string_session_id_rejected(self) -> None:
+        message = _valid_error(None)
+        message["sessionId"] = 1
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
 
 class ValidateAllTests(unittest.TestCase):
     def test_real_fixtures_directory_passes(self) -> None:
@@ -136,6 +163,15 @@ class ValidateAllTests(unittest.TestCase):
         self.assertIn("subscribe.json", checked)
         self.assertIn("subscription-ack.json", checked)
         self.assertIn("character-state-snapshot.json", checked)
+        self.assertIn("error-unauthenticated-invalid-token.json", checked)
+        self.assertIn("error-unauthenticated-expired-token.json", checked)
+        self.assertIn("error-unauthenticated-reused-token.json", checked)
+        self.assertIn("error-unsupported-version.json", checked)
+        self.assertIn("error-frame-too-large.json", checked)
+        self.assertIn("error-stale-session.json", checked)
+        self.assertIn("error-replayed-message.json", checked)
+        self.assertIn("error-rate-limited.json", checked)
+        self.assertIn("error-malformed-message.json", checked)
 
     def test_empty_directory_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

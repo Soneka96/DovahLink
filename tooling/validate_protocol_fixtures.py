@@ -2,9 +2,10 @@
 """Validate every protocol/fixtures/*.json file against the v1 envelope contract
 documented in protocol/schema/README.md.
 
-This checks envelope shape only (required fields, types, the hello/session-id
-rule). Per-message-type payload validation belongs to the registered message
-codecs consuming these fixtures on the bridge and client sides.
+This checks envelope shape only (required fields, types, and the sessionId
+null-ability rule for hello and pre-session error messages). Per-message-type
+payload validation belongs to the registered message codecs consuming these
+fixtures on the bridge and client sides.
 """
 
 from __future__ import annotations
@@ -53,11 +54,15 @@ def validate_envelope(name: str, message: object) -> None:
     if correlation_id is not None and not isinstance(correlation_id, str):
         raise FixtureError(f"{name}: correlationId must be a string or null")
 
-    # sessionId is null only for pre-authentication hello (protocol/schema/README.md).
+    # sessionId is null for pre-authentication hello, and may be null for an error
+    # that rejects a connection before a session exists (protocol/schema/README.md).
     session_id = message["sessionId"]
     if message_type == "hello":
         if session_id is not None:
             raise FixtureError(f"{name}: sessionId must be null for hello, since it precedes authentication")
+    elif message_type == "error":
+        if session_id is not None and (not isinstance(session_id, str) or not session_id):
+            raise FixtureError(f"{name}: sessionId must be null or a non-empty string for 'error'")
     elif not isinstance(session_id, str) or not session_id:
         raise FixtureError(f"{name}: sessionId must be a non-empty string for '{message_type}'")
 
