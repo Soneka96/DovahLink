@@ -17,7 +17,7 @@ constexpr const char* kVarName = "DOVAHLINK_BRIDGE_TOKEN";
 // 32 bytes (64 hex characters) of a representative, obviously-fake value.
 // Mixed case on purpose, to prove both cases decode.
 constexpr const char* kValidHexToken =
-    "0123456789abcdefABCDEF00112233445566778899aabbccddeeff00112233";
+    "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
 class FakeEnvironmentReader : public EnvironmentReader {
 public:
@@ -48,8 +48,8 @@ TEST_CASE("ReadTokenFromEnvironment decodes a valid 64-character hex token to 32
     CHECK(token->size() == kTokenBytes);
     CHECK((*token)[0] == 0x01);
     CHECK((*token)[1] == 0x23);
-    CHECK((*token)[6] == 0xAB);  // from the uppercase "AB" pair
-    CHECK((*token)[31] == 0x33);
+    CHECK((*token)[8] == 0xAB);  // from the uppercase "AB" pair
+    CHECK((*token)[31] == 0x44);
 }
 
 TEST_CASE("ReadTokenFromEnvironment returns nullopt when the variable is unset",
