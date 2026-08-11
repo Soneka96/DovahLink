@@ -8,7 +8,7 @@
 PRODUCT_NAME = dovahlink_client
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.dovahlinkClient
+PRODUCT_BUNDLE_IDENTIFIER = io.github.soneka96.dovahlink
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright (C) 2026 Soneka96. All rights reserved.
