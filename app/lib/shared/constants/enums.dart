@@ -25,5 +25,17 @@ enum ConnectionPhase {
   unavailable,
 
   /// The peers cannot agree on a supported protocol version.
-  incompatible,
+  incompatible;
+
+  /// Returns the concise user-visible label for this phase.
+  String get label => switch (this) {
+    ConnectionPhase.none => 'Unknown',
+    ConnectionPhase.disconnected => 'Disconnected',
+    ConnectionPhase.connecting => 'Connecting',
+    ConnectionPhase.negotiating => 'Negotiating',
+    ConnectionPhase.connected => 'Connected',
+    ConnectionPhase.recovering => 'Recovering',
+    ConnectionPhase.unavailable => 'Unavailable',
+    ConnectionPhase.incompatible => 'Incompatible',
+  };
 }

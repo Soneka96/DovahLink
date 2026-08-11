@@ -79,7 +79,8 @@ serialize nested model values, and is intentionally limited to those model const
   default.
 - Document every member, including `none`.
 - Keep enum extensions directly after their enum in the same file.
-- Do not create a test for a plain enum without behavior; test enum methods, factories, and
+- Keep enum behavior that is intrinsic to the enum, such as stable labels or classifications, on
+  the enum itself or in its immediately following extension. Test enum methods, factories, and
   extensions when they contain logic.
 
 ## Documentation

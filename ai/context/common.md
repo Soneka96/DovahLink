@@ -23,6 +23,8 @@ These rules apply to every DovahLink area: the Flutter client, SKSE bridge, prot
 - Keep `main` stable.
 - Use one feature branch and one pull request per feature.
 - Never commit, push, merge, or force-push directly to `main` without explicit maintainer instruction.
+- The maintainer controls the Git staging area; AI must never stage, unstage, or otherwise alter
+  staged changes.
 - Keep a cross-area feature in one branch when its protocol, bridge, and client changes must land together.
 - Review the complete diff for unrelated changes before presenting the work.
 - Update the relevant product, architecture, roadmap, or convention document when a decision changes.

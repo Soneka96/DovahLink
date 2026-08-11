@@ -102,6 +102,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
 - ViewModels are thin connectors resolved through DI; they read selectors and create dispatch
   callbacks without re-deriving business state.
+- ViewModels and widgets must not read feature fields directly from Redux state. They receive
+  feature values through the feature's `.selectors.dart` file; selectors may compose derived
+  presentation values from simpler selectors.
 - The store is built exactly once through `CreateStore`; every `StoreConnector` uses
   `distinct: true`.
 - Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.
@@ -160,6 +163,8 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Until navigation is approved, do not add routing infrastructure or route constants. Once approved, route paths belong only in the approved navigation boundary and must never be repeated as inline strings.
 - Keep purely local presentation state local to the widget.
 - Use shared state only when another screen, use case, or process needs the value.
+- Keep state extraction and derived state logic in selectors. Do not place filtering, mapping,
+  fallback selection, or other state-derived decisions in ViewModels or widgets.
 - DovahLink uses Redux for shared client state, with the store created once in the application composition root. Features add their reducers and middleware through the approved store-construction boundary.
 - Do not introduce another state-management package without maintainer approval.
 
