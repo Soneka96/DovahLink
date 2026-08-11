@@ -69,13 +69,15 @@ area.
 
 ### `hello`
 
-Negotiates the connection before any optional state messages.
+Negotiates the connection before any optional state messages. The connecting client always sends
+`hello` first; the bridge never initiates a connection or sends `hello` itself, and only replies
+with `hello_ack` after it receives and validates one.
 
 The envelope uses `protocolVersion: 0` because no version has been selected yet. The payload fields are:
 
 ```json
 {
-  "endpoint": "bridge",
+  "endpoint": "client",
   "supportedProtocolVersions": [1],
   "auth": {
     "method": "one_time_local_token",
@@ -84,7 +86,8 @@ The envelope uses `protocolVersion: 0` because no version has been selected yet.
 }
 ```
 
-`endpoint` is either `bridge` or `client`.
+`endpoint` identifies the sender's role and is always `client` in v1, because only the connecting
+client sends `hello`.
 
 Required payload fields: `endpoint`, `supportedProtocolVersions`, `auth`. v1 accepts only `auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack` only after token validation.
 
@@ -223,8 +226,8 @@ Carry no application state. They prove liveness for the current `sessionId`.
 
 ## Session and recovery rules
 
-1. The client and bridge exchange `hello` using `protocolVersion: 0`.
-2. They select the highest mutually supported protocol version and exchange `hello_ack`; if none exists, the connection ends with `unsupported_version`.
+1. The connecting client sends `hello` using `protocolVersion: 0`.
+2. The bridge selects the highest mutually supported protocol version and replies with `hello_ack`; if none exists, the connection ends with `unsupported_version`.
 3. They exchange `capabilities` using the selected version.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
