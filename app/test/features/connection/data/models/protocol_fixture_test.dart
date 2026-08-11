@@ -8,15 +8,15 @@ import 'package:dovahlink_client/features/connection/data/models/json_map.dart';
 import 'package:dovahlink_client/features/connection/data/models/protocol_envelope.model.dart';
 
 void main() {
-  const List<String> fixtureNames = [
-    'character-state-snapshot.json',
-    'character-state-unavailable.json',
-    'character-state-event.json',
+  const List<String> fixturePaths = [
+    'state/character/character-state-snapshot.json',
+    'state/character/character-state-unavailable.json',
+    'state/character/character-state-event.json',
   ];
 
-  for (final String fixtureName in fixtureNames) {
-    test('shared fixture $fixtureName decodes through the client models', () {
-      final File fixture = File('../protocol/fixtures/$fixtureName');
+  for (final String fixturePath in fixturePaths) {
+    test('shared fixture $fixturePath decodes through the client models', () {
+      final File fixture = File('../protocol/fixtures/$fixturePath');
       final JsonMap json = jsonDecode(fixture.readAsStringSync()) as JsonMap;
       final ProtocolEnvelopeModel envelope = ProtocolEnvelopeModel.fromJson(
         json,
@@ -29,7 +29,7 @@ void main() {
       expect(envelope.protocolVersion, 1);
       expect(
         envelope.messageType,
-        fixtureName.endsWith('event.json') ? 'state_event' : 'state_snapshot',
+        fixturePath.endsWith('event.json') ? 'state_event' : 'state_snapshot',
       );
       expect(envelope.messageId, isNotEmpty);
       expect(envelope.sessionId, 'session-1');
@@ -39,12 +39,12 @@ void main() {
       expect(state.toJson(), payload['data']);
       expect(envelope.toJson(), json);
 
-      if (fixtureName.endsWith('event.json')) {
+      if (fixturePath.endsWith('event.json')) {
         expect(payload['baseRevision'], 1);
         expect(payload['revision'], 2);
         expect(payload['revision'], (payload['baseRevision'] as int) + 1);
       }
-      if (fixtureName.endsWith('unavailable.json')) {
+      if (fixturePath.endsWith('unavailable.json')) {
         expect(state.level, isNull);
         expect(state.health, isNull);
         expect(state.magicka, isNull);

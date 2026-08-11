@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate every protocol/fixtures/*.json file against the v1 envelope contract
+"""Validate every protocol/fixtures/**/*.json file against the v1 envelope contract
 documented in protocol/schema/README.md.
 
 This checks envelope shape only (required fields, types, and the sessionId
@@ -72,7 +72,7 @@ def validate_envelope(name: str, message: object) -> None:
 
 
 def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
-    fixture_files = sorted(fixtures_dir.glob("*.json"))
+    fixture_files = sorted(fixtures_dir.rglob("*.json"))
     if not fixture_files:
         raise FixtureError(f"no fixture files found in {fixtures_dir}")
 
@@ -80,8 +80,9 @@ def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
     for path in fixture_files:
         with path.open(encoding="utf-8") as f:
             message = json.load(f)
-        validate_envelope(path.name, message)
-        checked.append(path.name)
+        relative_name = path.relative_to(fixtures_dir).as_posix()
+        validate_envelope(relative_name, message)
+        checked.append(relative_name)
     return checked
 
 

@@ -156,22 +156,35 @@ class ValidateEnvelopeTests(unittest.TestCase):
 class ValidateAllTests(unittest.TestCase):
     def test_real_fixtures_directory_passes(self) -> None:
         checked = validate_all(FIXTURES_DIR)
-        self.assertIn("hello.json", checked)
-        self.assertIn("hello-ack.json", checked)
-        self.assertIn("capabilities-bridge.json", checked)
-        self.assertIn("capabilities-client.json", checked)
-        self.assertIn("subscribe.json", checked)
-        self.assertIn("subscription-ack.json", checked)
-        self.assertIn("character-state-snapshot.json", checked)
-        self.assertIn("error-unauthenticated-invalid-token.json", checked)
-        self.assertIn("error-unauthenticated-expired-token.json", checked)
-        self.assertIn("error-unauthenticated-reused-token.json", checked)
-        self.assertIn("error-unsupported-version.json", checked)
-        self.assertIn("error-frame-too-large.json", checked)
-        self.assertIn("error-stale-session.json", checked)
-        self.assertIn("error-replayed-message.json", checked)
-        self.assertIn("error-rate-limited.json", checked)
-        self.assertIn("error-malformed-message.json", checked)
+        expected = {
+            "connection/hello.json",
+            "connection/hello-ack.json",
+            "capabilities/capabilities-bridge.json",
+            "capabilities/capabilities-client.json",
+            "subscriptions/subscribe.json",
+            "subscriptions/subscription-ack.json",
+            "state/character/character-state-event.json",
+            "state/character/character-state-snapshot.json",
+            "state/character/character-state-unavailable.json",
+            "errors/error-frame-too-large.json",
+            "errors/error-malformed-message.json",
+            "errors/error-rate-limited.json",
+            "errors/error-replayed-message.json",
+            "errors/error-stale-session.json",
+            "errors/error-unauthenticated-expired-token.json",
+            "errors/error-unauthenticated-invalid-token.json",
+            "errors/error-unauthenticated-reused-token.json",
+            "errors/error-unsupported-version.json",
+        }
+        self.assertEqual(set(checked), expected)
+
+    def test_nested_fixture_is_discovered_with_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state" / "character" / "snapshot.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(_valid_snapshot()), encoding="utf-8")
+
+            self.assertEqual(validate_all(Path(tmp)), ["state/character/snapshot.json"])
 
     def test_empty_directory_raises(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -180,14 +193,16 @@ class ValidateAllTests(unittest.TestCase):
 
     def test_malformed_json_propagates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "broken.json"
+            path = Path(tmp) / "errors" / "broken.json"
+            path.parent.mkdir()
             path.write_text("{not json", encoding="utf-8")
             with self.assertRaises(json.JSONDecodeError):
                 validate_all(Path(tmp))
 
     def test_envelope_invalid_fixture_propagates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "bad-envelope.json"
+            path = Path(tmp) / "errors" / "bad-envelope.json"
+            path.parent.mkdir()
             path.write_text(json.dumps({"messageType": "hello"}), encoding="utf-8")
             with self.assertRaises(FixtureError):
                 validate_all(Path(tmp))
@@ -199,6 +214,11 @@ class MainTests(unittest.TestCase):
 
     def test_main_returns_one_on_failure(self) -> None:
         with patch("validate_protocol_fixtures.validate_all", side_effect=FixtureError("boom")):
+            self.assertEqual(main(), 1)
+
+    def test_main_returns_one_on_malformed_json(self) -> None:
+        error = json.JSONDecodeError("broken", "{", 0)
+        with patch("validate_protocol_fixtures.validate_all", side_effect=error):
             self.assertEqual(main(), 1)
 
 
