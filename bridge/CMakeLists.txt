@@ -41,6 +41,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::json bcrypt)
 add_executable(dovahlink_bridge_tests
     application/character_state_test.cpp
     application/connection_timeout_tracker_test.cpp
+    application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
     application/event_coalescer_test.cpp
     application/level_event_sink_test.cpp

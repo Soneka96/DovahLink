@@ -66,6 +66,28 @@ std::shared_ptr<LifetimeToken> Coordinator::TransportLifetimeTokenHandle() const
     return transportToken_;
 }
 
+bool Coordinator::IsAvailable() const {
+    return available_.load(std::memory_order_acquire);
+}
+
+void Coordinator::RegisterFailure() {
+    available_.store(false, std::memory_order_release);
+}
+
+void Coordinator::ResetAvailability() {
+    available_.store(true, std::memory_order_release);
+}
+
+bool Coordinator::RunContained(const std::function<void()>& work) {
+    try {
+        work();
+        return true;
+    } catch (...) {
+        RegisterFailure();
+        return false;
+    }
+}
+
 Coordinator::CallbackGuard::CallbackGuard(Coordinator& coordinator) : coordinator_(coordinator) {
     std::lock_guard<std::mutex> lock(coordinator_.mutex_);
     if (coordinator_.stopping_.load(std::memory_order_acquire)) {

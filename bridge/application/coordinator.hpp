@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 
@@ -108,6 +109,58 @@ public:
     // before touching coordinator- or transport-owned state.
     [[nodiscard]] std::shared_ptr<LifetimeToken> TransportLifetimeTokenHandle() const;
 
+    // Failure containment (ai/context/skse/cpp-style.md: "Catch all
+    // exceptions at callback, worker-thread, and transport-completion
+    // boundaries... never allow an exception to escape a callback or thread
+    // entry point"; ai/context/skse/architecture.md: "If a worker exits
+    // unexpectedly, the coordinator enters unavailable, stops publishing
+    // state as current, reports a controlled internal_error, and either
+    // restarts the worker through an approved policy or requires a clean
+    // reconnect.")
+    //
+    // Phase 1's approved policy is "requires a clean reconnect": no
+    // automatic worker restart is implemented, since there is no worker
+    // infrastructure yet for a restart to act on. A failure marks the
+    // coordinator unavailable; the caller (the transport/session layer, in a
+    // later step) is expected to close the connection and let a fresh
+    // reconnect establish a new session. ResetAvailability is called once
+    // that new session has published a fresh snapshot, matching "a
+    // restarted worker must receive a fresh snapshot before publication
+    // resumes."
+    //
+    // Known limitation: availability is coordinator-scoped, spanning every
+    // session over the plugin's lifetime, not session-scoped. A failure
+    // reported late by a straggling worker/callback from a session that has
+    // already been abandoned for a reconnect can flip a freshly
+    // ResetAvailability()'d coordinator back to unavailable, with no way
+    // from here to tell that the failure belonged to the old session.
+    // Resolving this needs the future integration that wires SessionManager
+    // (bridge/application/session.hpp) together with this coordinator,
+    // which can attach a session identity to the failure; this generic
+    // coordinator does not know about sessions and should not guess at that
+    // wiring prematurely.
+
+    // True until a failure has been registered and no session has
+    // re-established availability since.
+    [[nodiscard]] bool IsAvailable() const;
+
+    // Records that a worker, callback, or transport-completion boundary
+    // caught an exception, marking the coordinator unavailable. Safe to call
+    // more than once; only the first call after becoming available again has
+    // an observable effect.
+    void RegisterFailure();
+
+    // Called once a fresh snapshot has been published on a newly
+    // reconnected session, re-establishing availability.
+    void ResetAvailability();
+
+    // Runs `work` and contains any exception it throws by calling
+    // RegisterFailure instead of letting it escape, per the "never allow an
+    // exception to escape" rule above. Wrap the body of a worker loop, a
+    // game-thread callback, or a transport completion handler with this.
+    // Returns true if `work` completed without throwing.
+    bool RunContained(const std::function<void()>& work);
+
 private:
     CallbackRegistry& callbacks_;
     WorkerPool& workers_;
@@ -119,6 +172,7 @@ private:
     std::condition_variable inFlightCv_;
     std::condition_variable shutdownCompleteCv_;
     std::atomic<bool> stopping_{false};
+    std::atomic<bool> available_{true};
     bool shutdownStarted_ = false;
     bool shutdownComplete_ = false;
     int inFlightCallbacks_ = 0;
