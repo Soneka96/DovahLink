@@ -33,6 +33,12 @@ been exercised by an actual push, so treat it as unverified until it runs once i
 
 ## Dependency baselines
 
+One dependency is not vcpkg-managed: `bcrypt.lib`, the Windows SDK import library for CNG
+(`<bcrypt.h>`), used only for `BCryptGenRandom` in `bridge/security/csprng.cpp`. It ships with the
+Windows SDK already required by MSVC 2022 and is not a new external dependency; it exists because
+`ai/context/protocol/security.md` requires token and session material to come from Windows CNG,
+never `std::random_device`.
+
 vcpkg builtin registry baseline (`microsoft/vcpkg`):
 
 - Commit: `2f1d605400c8727cc00c15797aba796c88ccd523`
