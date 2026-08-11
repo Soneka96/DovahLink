@@ -42,6 +42,7 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/event_coalescer_test.cpp
     application/outbound_queue_test.cpp
+    application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
     application/session_test.cpp
