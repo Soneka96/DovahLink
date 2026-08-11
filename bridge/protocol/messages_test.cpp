@@ -1,0 +1,339 @@
+#include "protocol/messages.hpp"
+
+#include "protocol/fixture_test_support.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <boost/json/object.hpp>
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+using dovahlink::protocol::test_support::DecodeFixtureEnvelope;
+
+TEST_CASE("hello fixture decodes to the expected HelloPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("connection/hello.json");
+    auto hello = dovahlink::protocol::DecodeHelloPayload(envelope.payload);
+    REQUIRE(hello.has_value());
+    CHECK(hello->endpoint == "client");
+    CHECK(hello->supportedProtocolVersions == std::vector<std::int64_t>{1});
+    CHECK(hello->authMethod == "one_time_local_token");
+    CHECK_FALSE(hello->authToken.empty());
+}
+
+TEST_CASE("hello-ack fixture decodes to the expected HelloAckPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("connection/hello-ack.json");
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
+    REQUIRE(helloAck.has_value());
+    CHECK(helloAck->selectedProtocolVersion == 1);
+}
+
+TEST_CASE("capabilities-bridge fixture decodes to the expected CapabilitiesPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-bridge.json");
+    auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
+    REQUIRE(capabilities.has_value());
+    REQUIRE(capabilities->capabilities.size() == 1);
+    CHECK(capabilities->capabilities[0].id == "state.character");
+    CHECK(capabilities->capabilities[0].version == 1);
+}
+
+TEST_CASE("capabilities-client fixture decodes to an empty CapabilitiesPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-client.json");
+    auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
+    REQUIRE(capabilities.has_value());
+    CHECK(capabilities->capabilities.empty());
+}
+
+TEST_CASE("subscribe fixture decodes to the expected SubscribePayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("subscriptions/subscribe.json");
+    auto subscribe = dovahlink::protocol::DecodeSubscribePayload(envelope.payload);
+    REQUIRE(subscribe.has_value());
+    CHECK(subscribe->stateAreas == std::vector<std::string>{"character"});
+}
+
+TEST_CASE("subscription-ack fixture decodes to the expected SubscriptionAckPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
+    auto subscriptionAck = dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
+    REQUIRE(subscriptionAck.has_value());
+    CHECK(subscriptionAck->acceptedStateAreas == std::vector<std::string>{"character"});
+    CHECK(subscriptionAck->rejectedStateAreas.empty());
+}
+
+TEST_CASE("snapshot-request fixture decodes to the expected SnapshotRequestPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("subscriptions/snapshot-request.json");
+    auto snapshotRequest = dovahlink::protocol::DecodeSnapshotRequestPayload(envelope.payload);
+    REQUIRE(snapshotRequest.has_value());
+    CHECK(snapshotRequest->stateArea == "character");
+    REQUIRE(snapshotRequest->knownRevision.has_value());
+    CHECK(*snapshotRequest->knownRevision == 2);
+}
+
+TEST_CASE("character-state-snapshot fixture decodes to the expected StateSnapshotPayload and CharacterState",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/character-state-snapshot.json");
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(envelope.payload);
+    REQUIRE(snapshot.has_value());
+    CHECK(snapshot->stateArea == "character");
+    CHECK(snapshot->revision == 1);
+    CHECK_FALSE(snapshot->occurredAt.empty());
+
+    auto character = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(character.has_value());
+    REQUIRE(character->level.has_value());
+    CHECK(*character->level == 12);
+    REQUIRE(character->health.has_value());
+    CHECK(character->health->current == 180.0);
+    CHECK(character->health->maximum == 220.0);
+    REQUIRE(character->magicka.has_value());
+    REQUIRE(character->stamina.has_value());
+}
+
+TEST_CASE("character-state-unavailable fixture decodes with every resource unavailable", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/character-state-unavailable.json");
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(envelope.payload);
+    REQUIRE(snapshot.has_value());
+
+    auto character = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(character.has_value());
+    CHECK_FALSE(character->level.has_value());
+    CHECK_FALSE(character->health.has_value());
+    CHECK_FALSE(character->magicka.has_value());
+    CHECK_FALSE(character->stamina.has_value());
+}
+
+TEST_CASE("character-state-event fixture decodes to the expected StateEventPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/character-state-event.json");
+    auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
+    REQUIRE(event.has_value());
+    CHECK(event->stateArea == "character");
+    CHECK(event->baseRevision == 1);
+    CHECK(event->revision == 2);
+
+    auto character = dovahlink::protocol::DecodeCharacterState(event->data);
+    REQUIRE(character.has_value());
+    REQUIRE(character->level.has_value());
+    CHECK(*character->level == 12);
+}
+
+TEST_CASE("state-event-revision-gap fixture decodes with revision higher than baseRevision + 1 from the prior event",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/state-event-revision-gap.json");
+    auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
+    REQUIRE(event.has_value());
+    CHECK(event->baseRevision == 5);
+    CHECK(event->revision == 6);
+}
+
+TEST_CASE("state-event-duplicate fixture decodes to the same revision as character-state-event",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/state-event-duplicate.json");
+    auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
+    REQUIRE(event.has_value());
+    CHECK(event->baseRevision == 1);
+    CHECK(event->revision == 2);
+}
+
+TEST_CASE("state-event-stale fixture decodes to a revision below a later current revision", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/state-event-stale.json");
+    auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
+    REQUIRE(event.has_value());
+    CHECK(event->baseRevision == 0);
+    CHECK(event->revision == 1);
+}
+
+TEST_CASE("error-unsupported-version fixture decodes to the expected ErrorPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("errors/error-unsupported-version.json");
+    auto error = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unsupported_version");
+    CHECK_FALSE(error->message.empty());
+    CHECK_FALSE(error->retryable);
+    CHECK_FALSE(error->details.has_value());
+}
+
+TEST_CASE("error-rate-limited fixture decodes as retryable", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("errors/error-rate-limited.json");
+    auto error = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "rate_limited");
+    CHECK(error->retryable);
+}
+
+TEST_CASE("every error fixture decodes to a valid ErrorPayload", "[protocol][messages]") {
+    static const std::vector<std::string> kErrorFixtures = {
+        "errors/error-unauthenticated-invalid-token.json",
+        "errors/error-unauthenticated-expired-token.json",
+        "errors/error-unauthenticated-reused-token.json",
+        "errors/error-unsupported-version.json",
+        "errors/error-frame-too-large.json",
+        "errors/error-stale-session.json",
+        "errors/error-replayed-message.json",
+        "errors/error-rate-limited.json",
+        "errors/error-malformed-message.json",
+    };
+    for (const std::string& fixturePath : kErrorFixtures) {
+        auto envelope = DecodeFixtureEnvelope(fixturePath);
+        auto error = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
+        REQUIRE(error.has_value());
+        CHECK_FALSE(error->code.empty());
+        CHECK_FALSE(error->message.empty());
+    }
+}
+
+// Hand-built malformed payload cases: these test the codec's rejection behavior for
+// rules distinctive to each message type and are not stored as fixtures, matching
+// protocol/fixtures/README.md (fixtures model valid or documented wire scenarios).
+
+TEST_CASE("hello is rejected when endpoint is not 'client'", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"endpoint": "bridge", "supportedProtocolVersions": [1],
+            "auth": {"method": "one_time_local_token", "token": "t"}})")
+                                       .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello is rejected when auth.method is not 'one_time_local_token'", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"endpoint": "client", "supportedProtocolVersions": [1],
+            "auth": {"method": "password", "token": "t"}})")
+                                       .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello is rejected when auth is missing", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [1]})").get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("capabilities is rejected when an entry is missing version", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"capabilities": [{"id": "state.character"}]})").get_object();
+    auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(payload);
+    REQUIRE_FALSE(capabilities.has_value());
+}
+
+TEST_CASE("capabilities is rejected when an entry is not an object", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"capabilities": ["state.character"]})").get_object();
+    auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(payload);
+    REQUIRE_FALSE(capabilities.has_value());
+}
+
+TEST_CASE("subscribe is rejected when stateAreas contains a non-string item", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"stateAreas": [1]})").get_object();
+    auto subscribe = dovahlink::protocol::DecodeSubscribePayload(payload);
+    REQUIRE_FALSE(subscribe.has_value());
+}
+
+TEST_CASE("snapshot-request decodes without knownRevision when it is absent", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"stateArea": "character"})").get_object();
+    auto snapshotRequest = dovahlink::protocol::DecodeSnapshotRequestPayload(payload);
+    REQUIRE(snapshotRequest.has_value());
+    CHECK_FALSE(snapshotRequest->knownRevision.has_value());
+}
+
+TEST_CASE("state_snapshot is rejected when data is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"stateArea": "character", "revision": 1, "occurredAt": "2026-08-11T12:00:00Z"})")
+                                       .get_object();
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(payload);
+    REQUIRE_FALSE(snapshot.has_value());
+}
+
+TEST_CASE("state_event is rejected when baseRevision is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"stateArea": "character", "revision": 2, "occurredAt": "2026-08-11T12:00:00Z", "data": {}})")
+                                       .get_object();
+    auto event = dovahlink::protocol::DecodeStateEventPayload(payload);
+    REQUIRE_FALSE(event.has_value());
+}
+
+TEST_CASE("character state is rejected when a resource is present but not an object", "[protocol][messages]") {
+    boost::json::object data =
+        boost::json::parse(R"({"level": 1, "health": "not an object", "magicka": null, "stamina": null})")
+            .get_object();
+    auto character = dovahlink::protocol::DecodeCharacterState(data);
+    REQUIRE_FALSE(character.has_value());
+}
+
+TEST_CASE("character state is rejected when a resource is missing its maximum field", "[protocol][messages]") {
+    boost::json::object data = boost::json::parse(
+        R"({"level": 1, "health": {"current": 100.0}, "magicka": null, "stamina": null})")
+                                    .get_object();
+    auto character = dovahlink::protocol::DecodeCharacterState(data);
+    REQUIRE_FALSE(character.has_value());
+}
+
+TEST_CASE("character state is rejected when level is missing", "[protocol][messages]") {
+    boost::json::object data =
+        boost::json::parse(R"({"health": null, "magicka": null, "stamina": null})").get_object();
+    auto character = dovahlink::protocol::DecodeCharacterState(data);
+    REQUIRE_FALSE(character.has_value());
+}
+
+TEST_CASE("error is rejected when retryable is missing", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"code": "internal_error", "message": "boom"})").get_object();
+    auto error = dovahlink::protocol::DecodeErrorPayload(payload);
+    REQUIRE_FALSE(error.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when selectedProtocolVersion is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("subscription_ack is rejected when rejectedStateAreas is the wrong type", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"acceptedStateAreas": ["character"], "rejectedStateAreas": "none"})")
+            .get_object();
+    auto subscriptionAck = dovahlink::protocol::DecodeSubscriptionAckPayload(payload);
+    REQUIRE_FALSE(subscriptionAck.has_value());
+}
+
+TEST_CASE("hello accepts an empty supportedProtocolVersions array", "[protocol][messages]") {
+    // Decoding does not enforce a non-empty intersection with what the bridge supports;
+    // an empty list structurally decodes, and the resulting "no mutually supported
+    // version" outcome is an application-layer negotiation concern, not a codec one.
+    boost::json::object payload = boost::json::parse(
+        R"({"endpoint": "client", "supportedProtocolVersions": [],
+            "auth": {"method": "one_time_local_token", "token": "t"}})")
+                                       .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE(hello.has_value());
+    CHECK(hello->supportedProtocolVersions.empty());
+}
+
+TEST_CASE("character state is rejected when level is negative", "[protocol][messages]") {
+    boost::json::object data =
+        boost::json::parse(R"({"level": -1, "health": null, "magicka": null, "stamina": null})").get_object();
+    auto character = dovahlink::protocol::DecodeCharacterState(data);
+    REQUIRE_FALSE(character.has_value());
+}
+
+TEST_CASE("error accepts non-object, non-null details", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"code": "internal_error", "message": "boom", "retryable": false, "details": "a string detail"})")
+                                       .get_object();
+    auto error = dovahlink::protocol::DecodeErrorPayload(payload);
+    REQUIRE(error.has_value());
+    REQUIRE(error->details.has_value());
+    CHECK(error->details->is_string());
+}
+
+TEST_CASE("error decodes non-null details when present", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+        R"({"code": "internal_error", "message": "boom", "retryable": true, "details": {"hint": "x"}})")
+                                       .get_object();
+    auto error = dovahlink::protocol::DecodeErrorPayload(payload);
+    REQUIRE(error.has_value());
+    REQUIRE(error->details.has_value());
+    CHECK(error->details->is_object());
+}

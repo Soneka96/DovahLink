@@ -1,5 +1,7 @@
 #pragma once
 
+#include "protocol/decode_error.hpp"
+
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
@@ -22,10 +24,7 @@ struct Envelope {
     boost::json::object payload;
 };
 
-struct EnvelopeError {
-    // Human-readable diagnostic; safe to log. Never includes payload content or secrets.
-    std::string reason;
-};
+using EnvelopeError = DecodeError;
 
 // Decodes one already-parsed JSON value (see bounded_json.hpp) into its envelope.
 // Unknown top-level fields are tolerated per ai/context/protocol/compatibility.md;

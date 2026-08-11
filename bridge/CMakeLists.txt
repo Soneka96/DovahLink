@@ -20,6 +20,8 @@ find_package(boost_json CONFIG REQUIRED)
 add_library(dovahlink_bridge_core STATIC
     protocol/bounded_json.cpp
     protocol/envelope.cpp
+    protocol/json_field_decoders.cpp
+    protocol/messages.cpp
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
@@ -29,6 +31,8 @@ add_executable(dovahlink_bridge_tests
     security/limits_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
+    protocol/json_field_decoders_test.cpp
+    protocol/messages_test.cpp
 )
 target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)
 target_compile_definitions(dovahlink_bridge_tests PRIVATE

@@ -1,33 +1,18 @@
 #include "protocol/envelope.hpp"
 
 #include "protocol/bounded_json.hpp"
+#include "protocol/fixture_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <boost/json/value.hpp>
 
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
 
 namespace {
 
-std::string ReadFixture(const std::string& relativePath) {
-    std::filesystem::path path = std::filesystem::path(DOVAHLINK_FIXTURES_DIR) / relativePath;
-    std::ifstream file(path, std::ios::binary);
-    REQUIRE(file.is_open());
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
-}
-
 dovahlink::protocol::Envelope DecodeFixture(const std::string& relativePath) {
-    auto parsed = dovahlink::protocol::ParseBoundedJson(ReadFixture(relativePath));
-    REQUIRE(parsed.has_value());
-    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
-    REQUIRE(envelope.has_value());
-    return std::move(*envelope);
+    return dovahlink::protocol::test_support::DecodeFixtureEnvelope(relativePath);
 }
 
 }  // namespace

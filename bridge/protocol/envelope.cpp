@@ -1,9 +1,10 @@
 #include "protocol/envelope.hpp"
 
+#include "protocol/json_field_decoders.hpp"
+
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
-#include <limits>
 #include <utility>
 
 namespace dovahlink::protocol {
@@ -34,31 +35,20 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         return Fail("missing required envelope field");
     }
 
-    std::int64_t protocolVersion = 0;
-    if (protocolVersionValue->is_int64()) {
-        protocolVersion = protocolVersionValue->get_int64();
-    } else if (protocolVersionValue->is_uint64()) {
-        std::uint64_t asUint = protocolVersionValue->get_uint64();
-        if (asUint > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
-            return Fail("protocolVersion out of range");
-        }
-        protocolVersion = static_cast<std::int64_t>(asUint);
-    } else {
-        return Fail("protocolVersion must be an integer");
-    }
-    if (protocolVersion < 0) {
-        return Fail("protocolVersion must be non-negative");
+    auto protocolVersion = DecodeNonNegativeInt(protocolVersionValue, "protocolVersion");
+    if (!protocolVersion) {
+        return std::unexpected(protocolVersion.error());
     }
 
-    if (!messageTypeValue->is_string() || messageTypeValue->get_string().empty()) {
-        return Fail("messageType must be a non-empty string");
+    auto messageType = DecodeNonEmptyString(messageTypeValue, "messageType");
+    if (!messageType) {
+        return std::unexpected(messageType.error());
     }
-    std::string messageType(messageTypeValue->get_string());
 
-    if (!messageIdValue->is_string() || messageIdValue->get_string().empty()) {
-        return Fail("messageId must be a non-empty string");
+    auto messageId = DecodeNonEmptyString(messageIdValue, "messageId");
+    if (!messageId) {
+        return std::unexpected(messageId.error());
     }
-    std::string messageId(messageIdValue->get_string());
 
     std::optional<std::string> correlationId;
     if (correlationIdValue->is_string()) {
@@ -73,11 +63,11 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
     // sessionId is null only for hello, and may be null for an error that rejects a
     // connection before a session exists (protocol/schema/README.md).
     std::optional<std::string> sessionId;
-    if (messageType == "hello") {
+    if (*messageType == "hello") {
         if (!sessionIdValue->is_null()) {
             return Fail("sessionId must be null for hello");
         }
-    } else if (messageType == "error") {
+    } else if (*messageType == "error") {
         if (sessionIdValue->is_string()) {
             if (sessionIdValue->get_string().empty()) {
                 return Fail("sessionId must be null or a non-empty string for error");
@@ -88,7 +78,7 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         }
     } else {
         if (!sessionIdValue->is_string() || sessionIdValue->get_string().empty()) {
-            return Fail("sessionId must be a non-empty string for '" + messageType + "'");
+            return Fail("sessionId must be a non-empty string for '" + *messageType + "'");
         }
         sessionId = std::string(sessionIdValue->get_string());
     }
@@ -98,9 +88,9 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
     }
 
     return Envelope{
-        .protocolVersion = protocolVersion,
-        .messageType = std::move(messageType),
-        .messageId = std::move(messageId),
+        .protocolVersion = *protocolVersion,
+        .messageType = std::move(*messageType),
+        .messageId = std::move(*messageId),
         .sessionId = std::move(sessionId),
         .correlationId = std::move(correlationId),
         .payload = payloadValue->get_object(),
