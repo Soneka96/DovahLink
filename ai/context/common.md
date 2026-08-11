@@ -8,8 +8,6 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 
 - Roadmap phase numbers and application versions are separate; completing a phase does not require
   matching the application version to that phase number.
-- Change the protocol version only when the canonical wire contract changes. Client-only screens,
-  state, tests, and internal boundaries do not change the protocol version.
 - Do not add a changelog or release artifact until the repository has an approved release workflow.
 
 ## Repository boundaries

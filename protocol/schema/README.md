@@ -2,7 +2,8 @@
 
 ## Common envelope
 
-Every message is one UTF-8 JSON object with these fields:
+Every message is one UTF-8 JSON object with these fields. The transport preserves one complete
+object per message; framing is not part of the JSON payload.
 
 ```json
 {
@@ -41,6 +42,8 @@ Unknown top-level fields are ignored only when the negotiated version permits fo
 
 - `stateArea` is a canonical identifier such as `character` or `location`.
 - `revision` is a non-negative integer, monotonically increasing within one state area and session.
+- Revisions are scoped to one state area and session. They reset when `sessionId` changes and are
+  never compared across sessions.
 - `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
 - `data` contains the state-area contract.
 - An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.
@@ -58,6 +61,9 @@ An event additionally contains `baseRevision`, the revision the event expects th
 ```
 
 In v1, `data` is the complete post-change state for the state area, not a patch. `revision` must equal `baseRevision + 1`. If an event's `revision` is at or below the client's current revision, the client ignores it as a duplicate or stale message. If its `revision` is higher than the current revision and `baseRevision` does not equal the current revision, the client marks the state area stale and requests a fresh snapshot.
+
+An accepted snapshot becomes the baseline for its state area and supersedes older events for that
+area.
 
 ## Message types
 
@@ -223,5 +229,7 @@ Carry no application state. They prove liveness for the current `sessionId`.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
 6. On reconnect, a new `sessionId` is created and the client must not apply messages from the old session.
-7. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
-8. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
+7. Queued state from the old session is not replayed; a fresh snapshot establishes each new
+   baseline.
+8. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
+9. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.

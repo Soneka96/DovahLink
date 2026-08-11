@@ -128,7 +128,8 @@ The normal local setup connects with minimal player configuration while remainin
 - Detect or locate the approved same-machine bridge endpoint without requiring the player to enter transport details on every launch.
 - Remember only safe local connection preferences.
 - Distinguish bridge unavailable, Skyrim unavailable, version mismatch, recovery, and configuration errors.
-- Retry with bounded backoff and provide an explicit manual retry path.
+- Retry with exponential backoff and jitter capped at 30 seconds, reset the backoff after successful
+  negotiation, and provide an explicit manual retry path.
 - Preserve protocol compatibility checks during every new or recovered session.
 
 ### Dependencies and boundaries
