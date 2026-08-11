@@ -2,7 +2,8 @@
 
 ## Common envelope
 
-Every message is one UTF-8 JSON object with these fields:
+Every message is one UTF-8 JSON object with these fields. The transport preserves one complete
+object per message; framing is not part of the JSON payload.
 
 ```json
 {
@@ -20,7 +21,7 @@ Every message is one UTF-8 JSON object with these fields:
 | `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
-| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued connection identity. Messages from older sessions are discarded. |
+| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued identity for that socket. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
 
@@ -41,6 +42,8 @@ Unknown top-level fields are ignored only when the negotiated version permits fo
 
 - `stateArea` is a canonical identifier such as `character` or `location`.
 - `revision` is a non-negative integer, monotonically increasing within one state area and session.
+- Revisions are scoped to one state area and session. They reset when `sessionId` changes and are
+  never compared across sessions.
 - `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
 - `data` contains the state-area contract.
 - An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.
@@ -58,6 +61,9 @@ An event additionally contains `baseRevision`, the revision the event expects th
 ```
 
 In v1, `data` is the complete post-change state for the state area, not a patch. `revision` must equal `baseRevision + 1`. If an event's `revision` is at or below the client's current revision, the client ignores it as a duplicate or stale message. If its `revision` is higher than the current revision and `baseRevision` does not equal the current revision, the client marks the state area stale and requests a fresh snapshot.
+
+An accepted snapshot becomes the baseline for its state area and supersedes older events for that
+area.
 
 ## Message types
 
@@ -170,6 +176,26 @@ Contains one ordered update from `baseRevision` to `revision` for one subscribed
 
 Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. v1 events contain complete post-change state, not partial patches.
 
+### `character` state area
+
+The v1 `character` state area contains a complete read-only snapshot of the player's
+current level and three resource pools:
+
+```json
+{
+  "level": 12,
+  "health": {"current": 180.0, "maximum": 220.0},
+  "magicka": {"current": 90.0, "maximum": 120.0},
+  "stamina": {"current": 140.0, "maximum": 160.0}
+}
+```
+
+The `level`, `health`, `magicka`, and `stamina` fields are required in the
+payload and may be `null` when the bridge cannot provide a trustworthy value.
+When a resource is present, `current` and `maximum` are required finite JSON
+numbers. Values are game units; the protocol does not infer percentages or
+replace unavailable values with zeroes.
+
 ### `error`
 
 Reports a structured failure without exposing infrastructure exceptions:
@@ -202,6 +228,13 @@ Carry no application state. They prove liveness for the current `sessionId`.
 3. They exchange `capabilities` using the selected version.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
-6. On reconnect, a new `sessionId` is created and the client must not apply messages from the old session.
-7. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
-8. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
+6. Each authenticated socket receives a unique `sessionId`. The session is bound exclusively to
+   that socket and is invalidated when the socket closes for any reason.
+7. A session cannot be transferred, resumed, or reused on another socket. A reconnect creates a
+   new session, and messages carrying an invalidated or foreign session ID are rejected as
+   `stale_session` before application handling.
+8. The client must not apply messages from its previous session. Queued state from that session is
+   not replayed; a fresh snapshot establishes each new
+   baseline.
+9. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
+10. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.

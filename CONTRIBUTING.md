@@ -22,16 +22,23 @@ Explain the problem, the proposed direction, and any relevant trade-offs. The ma
 
 ## Branch and pull request workflow
 
-The `main` branch is kept stable. Implementation work is performed on feature branches, with one pull request per feature. This workflow applies to both the maintainer and AI-assisted development.
+The `main` branch is kept stable. After the documentation baseline, every repository change,
+including documentation and governance, is performed on a feature branch with one pull request per
+feature or clearly related fix. This workflow applies to both the maintainer and AI-assisted
+development.
 
 Direct commits, pushes, merges, and force-pushes to `main` are prohibited. Only the maintainer performs the final merge; approval does not delegate merge authority to AI or any external contributor.
 
 1. Create a branch from the current `main` branch.
 2. Keep the branch focused on one feature or one clearly related fix.
-3. Make the smallest complete change that can be reviewed.
-4. Update relevant documentation and tests with the change.
-5. Open one pull request for that feature.
-6. Review the result and merge only after the stated checks pass.
+3. Keep a cross-area feature in one branch when its protocol, bridge, and client changes must land
+   together.
+4. Explain and document a new decision and its important trade-offs before encoding it in code or
+   a shared contract.
+5. Make the smallest complete change that can be reviewed.
+6. Update relevant documentation and tests with the change.
+7. Open one pull request for that feature.
+8. Review the result and merge only after the stated checks pass.
 
 ## Merge gate
 
@@ -40,6 +47,7 @@ Before a pull request is considered ready, verify all of the following:
 - The change has a direct maintainer-approved scope and stays within one feature or clearly related fix.
 - The work was performed on a feature branch, not `main`.
 - Relevant product, architecture, protocol, security, AI-convention, and test documentation is updated when the change affects it.
+- Focused tests cover non-trivial behavior and its failure paths.
 - Required tests or documentation checks pass, and any intentionally untested behavior is recorded.
 - No secrets, credentials, generated artifacts, unrelated cleanup, or unowned abstractions were added.
 - The maintainer has reviewed and explicitly approved the final diff. A pull request is merge-ready only after this approval and all checks pass; the maintainer performs the merge manually.
@@ -55,24 +63,8 @@ docs/protocol-notes
 
 ## AI-assisted development
 
-AI tools should inspect this repository's own documents before making changes. Its rules must remain self-contained and portable; AI must not depend on another local project, an absolute path, or unavailable external instructions. A vague prompt, Issue, roadmap item, suggestion, or previous discussion is not approval for implementation. Architecture, protocol, security, dependency, runtime, and repository-boundary changes require a direct maintainer instruction in the current task that clearly names the scope.
-
-The AI must verify it is working on a feature branch before feature work, preserve the documented architecture, avoid speculative structure, and stop when a requested change conflicts with a non-negotiable rule instead of choosing the more permissive interpretation.
+AI tools must follow `AGENTS.md`, which owns implementation authority, decision priority, and
+AI-specific operating rules. This document owns the branch, pull request, review, and merge
+workflow.
 
 The maintainer remains responsible for approving changes, reviewing pull requests, and merging code.
-
-## Scope for the first implementation
-
-The first implementation should prove reliable communication between Skyrim and one external client. Do not add the complete app, a hosted service, or broad abstractions before that path works.
-
-## Code and design expectations
-
-- Prefer clear, small changes over speculative flexibility.
-- Keep player-facing failures understandable.
-- Treat compatibility and stale data as first-class concerns.
-- Preserve a read-only default until game-changing actions have a clear safety model.
-- Add a focused check for non-trivial behavior.
-
-## Questions and proposals
-
-Open an Issue with enough context for someone unfamiliar with the idea to understand the problem, the proposed direction, and the trade-offs. Issues are the appropriate place for external suggestions; code changes should follow the maintainer's development workflow.

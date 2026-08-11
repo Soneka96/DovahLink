@@ -37,9 +37,7 @@ Use the correct category instead of treating every message as a generic response
 
 - Keep messages small, explicit, and purpose-specific.
 - Prefer neutral names such as `CharacterStateSnapshot` over names tied to Flutter or SKSE.
-- Every message follows the concrete envelope in `protocol/schema/README.md`: `protocolVersion`, `messageType`, `messageId`, `sessionId`, `correlationId`, and `payload`.
-- State messages contain `stateArea`, `revision`, and `occurredAt`; events additionally contain `baseRevision`.
-- The schema document is authoritative when this convention summary and an implementation disagree.
+- Every message follows the envelope and registered message shape in `protocol/schema/README.md`.
 - State whether a field is required, optional, nullable, or version-gated.
 - Use explicit units, coordinate systems, enum meanings, and timestamp semantics.
 - Do not encode presentation concerns such as widget layout, theme, or screen position into game-state messages.
@@ -47,34 +45,17 @@ Use the correct category instead of treating every message as a generic response
 
 ## State flow
 
-- A client must be able to request or receive a fresh snapshot after reconnecting.
-- Events must identify the state area they update and the sequence or revision they belong to.
-- A client must be able to detect stale, duplicated, missing, and out-of-order updates.
-- Event delivery must be safe to repeat or the contract must define why it is not.
-- A snapshot supersedes older events for the same state area.
-- A snapshot's revision is the baseline for subsequent events; events with a revision at or below the snapshot revision are ignored as stale or duplicate.
-- Revisions reset per state area when `sessionId` changes; clients never compare revisions across sessions.
-- The bridge serializes snapshot publication and event publication per state area so an event cannot be ambiguously before or after the snapshot baseline. The concrete recovery sequence is defined in `protocol/schema/README.md`.
-
-## Initial message set
-
-The first contract should start with only these conceptual messages:
-
-- `hello` — endpoint identity and supported protocol versions
-- `capabilities` — registered state capabilities
-- `hello_ack` — selected protocol version after pre-negotiation
-- `snapshot_request` — request a fresh state baseline
-- `subscription_ack` — accepted and rejected state areas
-- `state_snapshot` — complete state for one state area
-- `state_event` — ordered change after a known revision
-- `error` — structured connection or protocol failure
-- `ping` / `pong` — connection liveness
-
-Capability identifiers and state-area identifiers are canonical protocol values. They are not Dart class names, C++ enum names, or widget names.
+- State flow follows the session, revision, ordering, and recovery rules in
+  `protocol/schema/README.md`; side-specific adapters do not reinterpret them.
+- New message designs must let clients detect unavailable, stale, duplicated, missing, and
+  out-of-order state without guessing.
+- Capability, message, and state-area identifiers are canonical protocol values, not Dart class
+  names, C++ enum names, or widget names.
 
 ## Boundary rules
 
 - Serialization and deserialization happen at the protocol adapters, not inside game-state extraction or Flutter widgets.
+- Flutter protocol adapters may use generated `json_serializable` models, but generated mapping never replaces the canonical schema or handwritten semantic validation at the client boundary.
 - Transport framing is separate from message meaning.
 - Authentication, pairing, and transport errors must not be confused with game-state errors.
 - Unknown message types and optional fields must fail safely without corrupting known state.

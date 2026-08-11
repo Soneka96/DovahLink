@@ -31,21 +31,12 @@ DovahLink protocol
 PC / tablet / phone
 ```
 
-The repository currently contains documentation only. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. Roadmap status, Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
+## Project documentation
 
-## Status
-
-Documentation baseline complete; implementation has not started.
-
-The first implementation milestone is a reliable, minimal connection between Skyrim and one external client.
-
-See [PRODUCT.md](PRODUCT.md) for the product definition, [ARCHITECTURE.md](ARCHITECTURE.md) for the technical direction, and [ROADMAP.md](ROADMAP.md) for planned milestones.
-
-## Discussion and suggestions
-
-Suggestions, feedback, and feature ideas are welcome through GitHub Issues. DovahLink is currently maintained by its creator, and all code changes are made by the maintainer.
-
-Please use Issues to discuss ideas rather than opening pull requests. The maintainer will decide which suggestions fit the project's architecture and roadmap.
+- [PRODUCT.md](PRODUCT.md) defines the product and its boundaries.
+- [ARCHITECTURE.md](ARCHITECTURE.md) defines the system boundaries and technical direction.
+- [ROADMAP.md](ROADMAP.md) is the source of truth for phase status, order, and dependencies.
+- [CONTRIBUTING.md](CONTRIBUTING.md) defines the development and proposal workflow.
 
 ## Name
 

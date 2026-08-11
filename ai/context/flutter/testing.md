@@ -6,16 +6,51 @@
 - Widgets and sections should have behavior-focused tests rather than snapshots.
 - Screens should test the important user-visible states, failure states, and accessibility behavior.
 - Protocol mapping tests belong at the client boundary and should use representative wire fixtures.
-- Client-boundary tests must assert both accepted and rejected messages, emitted recovery requests, correlation IDs, session-generation invalidation, suppression of stale publications, malformed or unsupported protocol messages, duplicate and stale messages, revision gaps, snapshot recovery, and late messages after disposal.
+- Tests for JSON models must consume representative protocol fixtures and exercise every generated
+  mapping direction the model exposes. Models intended to round-trip assert both `fromJson`
+  decoding and `toJson` output. Generated source itself is not hand-tested or edited; handwritten
+  boundary validation is tested explicitly.
+- Model tests must also assert that each model is usable as its corresponding domain entity; entity behavior tests belong beside the entity when the entity contains behavior beyond value declarations.
+- For each behavior exposed by a client boundary, tests must cover the applicable accepted and
+  rejected messages, recovery requests, correlation IDs, session-generation invalidation, stale
+  publication suppression, malformed or unsupported messages, duplicate and stale messages,
+  revision gaps, snapshot recovery, and late messages after disposal.
 
 ## Test structure
 
 - Mirror the source tree under `test/`.
 - Add a dedicated test file for each source unit with behavior or failure logic; group trivial declarations with their owning behavior test.
-- Keep ordinary client fixtures close to the feature that owns them. Cross-side protocol fixtures are an explicit exception and live in the shared protocol area; those fixtures take precedence for contract tests.
+- Keep ordinary client fixtures in `test/features/<feature>/fixtures/`, close to the feature that
+  owns them. Use descriptive `.fixture.dart` names and share builders only within that feature.
+  Cross-side protocol fixtures are an explicit exception and live in `protocol/fixtures/`; those
+  canonical fixtures take precedence for contract tests.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
+- Group tests by method or behavior. Do not nest groups, and keep every test inside a group.
+- Define `setUp` per group, or in `main` when setup is shared by the whole file.
+- Test descriptions name the actual method or action. Use literal Dart syntax for equality
+  conditions, including enum values and null checks.
+- Primitive properties use two assertions in order: `isA<T>()`, then the exact expected value.
+
+## Layer-specific tests
+
+- Models have an identity group proving they extend the correct entity and a methods group for
+  `fromJson`/`toJson` or other mapping methods.
+- Use cases have one group named `Usecase [UseCaseName] returns the correct value`. Mock the
+  repository interface and test success and every relevant failure pass-through.
+- Repositories have an identity group and one behavior group per method, including exact datasource
+  calls and symmetric no-call branches.
+- Reducers test handled actions and a separate unhandled-action pass-through case.
+- Datasource tests cover every distinct catch, guard, explicit throw, and malformed-input branch.
+
+## Test naming
+
+- Use `contains` for structural widget presence, `displays` for visible text, and `calls` or
+  `dispatches` for side effects.
+- Use “in state” for values inside `AppState`; reserve “in the store” for the `Store` instance.
+- Add “with correct parameters” when the test verifies a configured state rather than bare
+  presence.
 
 ## Widget tests
 

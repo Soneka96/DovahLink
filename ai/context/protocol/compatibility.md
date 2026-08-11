@@ -6,8 +6,10 @@ The canonical v1 schema is `protocol/schema/README.md`. This file defines how th
 
 ## Versioning
 
-- Every connection negotiates a protocol version through `hello` and `hello_ack` before state messages are exchanged. Pre-negotiation messages use envelope version `0`; later messages use the selected version.
+- Version negotiation follows the current sequence in `protocol/schema/README.md`.
 - Keep protocol version separate from app version, bridge version, Skyrim runtime version, and transport version.
+- Change the protocol version only when the canonical wire contract changes. Client-only screens,
+  state, tests, and internal boundaries do not change it.
 - Additive optional fields should preserve compatibility when their absence has a defined meaning.
 - Changing the meaning or type of an existing field requires a new version or message shape.
 - Never silently reinterpret an old field to mean something new.
@@ -28,20 +30,9 @@ The canonical v1 schema is `protocol/schema/README.md`. This file defines how th
 
 ## Recovery
 
-- On reconnect, the client receives a new `sessionId`, completes `hello` and capability negotiation, requests or receives a fresh snapshot for each subscribed state area, applies the snapshot, and only then accepts subsequent events.
-- Messages from an older `sessionId` are discarded even if their revision is higher.
-- A missing event must not leave the client permanently believing stale data is current.
-- Duplicate events must be harmless where practical; otherwise the contract must expose the identity needed for safe deduplication.
-- Events at or below the current revision are ignored as duplicate or stale; only a higher revision with the wrong `baseRevision` triggers recovery.
-- Malformed, unsupported, or unauthenticated messages are rejected at the boundary and never reach game logic or presentation state.
-- Security and input-limit failures use the canonical error codes in `protocol/schema/README.md`; they do not invent side-specific error names.
-
-## Reconnect policy
-
-- Reconnect attempts use bounded exponential backoff with jitter and a maximum delay of 30 seconds.
-- A successful negotiated connection resets the backoff.
-- Reconnect must not block game-state capture or plugin shutdown.
-- Queued state is not replayed blindly across a disconnect; recovery uses a fresh snapshot unless the protocol explicitly guarantees replay coverage.
+The current recovery sequence and error codes belong to `protocol/schema/README.md`. Compatible
+changes preserve session isolation, prevent missing state from appearing current, retain safe
+duplicate handling, and reject invalid messages before game logic or presentation state.
 
 ## Change process
 

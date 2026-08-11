@@ -62,7 +62,17 @@ Limit changes require explicit maintainer approval and a documented reason.
 
 ## Session and replay protection
 
-- The bridge creates a fresh cryptographically random `sessionId` after successful token validation; the client never chooses it.
-- The authenticated session is bound to the socket that completed token validation; another socket presenting the same `sessionId` is rejected.
-- Every message in an active session must have a unique `messageId`. The bridge retains all seen IDs for the session; the 10,000-message session bound keeps this set bounded and prevents eviction-based replay.
-- A message from an old session, an expired token, or an invalid connection attempt is rejected before application handling.
+- To implement the server-issued session identity defined by `protocol/schema/README.md`, the bridge
+  creates a fresh cryptographically random `sessionId` after successful token validation.
+- The bridge binds the authenticated session exclusively to the socket that completed token
+  validation. Disconnect, timeout, protocol-limit closure, or bridge shutdown invalidates the
+  session before the socket is released; subsequent messages carrying that session ID are rejected
+  before application handling.
+- A session cannot move to another socket. Another socket presenting the same `sessionId` is
+  rejected as `stale_session`.
+- Under the first proof's one-client limit, another connection is rejected while the authenticated
+  client slot is occupied; it does not replace the active session.
+- To enforce the schema's unique `messageId` requirement, the bridge retains all seen IDs for the
+  session; the 10,000-message session bound keeps this set bounded and prevents eviction-based
+  replay.
+- An expired token or invalid connection attempt is rejected before application handling.

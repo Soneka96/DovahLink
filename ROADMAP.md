@@ -2,7 +2,8 @@
 
 The roadmap is intentionally feature-based. Each numbered phase should deliver one coherent player-facing capability or one necessary product foundation, and should be completed through a focused feature branch and pull request.
 
-A roadmap phase describes the intended outcome, behavior, boundaries, dependencies, and acceptance criteria. It is not implementation authorization. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the phase and requested scope. Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
+A roadmap phase describes the intended outcome, behavior, boundaries, dependencies, and acceptance
+criteria. Phase status records product order; implementation authority is defined in `AGENTS.md`.
 
 The order records current product dependencies. A later phase may be refined as earlier work reveals constraints, but it should not be pulled forward silently or bundled into an earlier feature.
 
@@ -30,6 +31,35 @@ This phase has no implementation dependency. It establishes direction and author
 
 The required documentation exists in the repository, agrees on ownership and safety boundaries, and does not depend on instructions from another local project. Later phases still require direct maintainer authorization.
 
+## 0.5 Client and Protocol Foundation
+
+**Status:** Complete
+
+### Outcome
+
+DovahLink has the smallest replaceable Flutter and protocol-facing foundation needed to begin
+bridge integration without mixing client structure with transport implementation.
+
+### Scope and behavior
+
+- Establish the Flutter client shell and manual dependency-injection boundary.
+- Generate and validate the first protocol-facing client models.
+- Define connection domain entities, repository contracts, and use cases.
+- Define Redux connection state, actions, reducers, selectors, and a read-only status screen.
+- Establish client conventions, fixtures, generated-code rules, and test coverage for this
+  foundation.
+
+### Dependencies and boundaries
+
+This foundation does not implement Skyrim integration, a transport, pairing, reconnection, or an
+external validation client. It prepares those boundaries without claiming that a connection works.
+
+### Acceptance criteria
+
+The Flutter project analyzes cleanly, its foundation tests pass, protocol models map the approved
+fixtures, and the client can render explicit disconnected and connection-error states without
+real transport access.
+
 ## 1. Skyrim Bridge Foundation
 
 **Status:** Next
@@ -50,7 +80,11 @@ Skyrim can expose a minimal, trustworthy state value to one external validation 
 
 ### Dependencies and boundaries
 
-This phase depends only on the documentation baseline. It does not create the Flutter product client, map resources, UI theme system, remote-device networking, LOTD data, or unrelated bridge capabilities.
+This phase depends on the documentation baseline and the completed Phase 0.5 protocol-facing
+foundation. Its external validation client is a separate proof client that speaks the canonical
+protocol; this phase does not turn the Phase 0.5 Flutter shell into the connected product client or
+create map resources, a UI theme system, remote-device networking, LOTD data, or unrelated bridge
+capabilities.
 
 ### Acceptance criteria
 
@@ -66,7 +100,8 @@ A player can run the first native Flutter DovahLink client on a PC or second scr
 
 ### Scope and behavior
 
-- Create the first Flutter product client for desktop-sized layouts.
+- Extend the Phase 0.5 Flutter shell into the first connected product client for desktop-sized
+  layouts.
 - Show a small read-only connection and status view using the protocol proven in Phase 1.
 - Represent connecting, connected, recovering, incompatible, unavailable, and disconnected states clearly.
 - Keep the application usable when Skyrim is not running or optional data is missing.
@@ -91,18 +126,38 @@ The normal local setup connects with minimal player configuration while remainin
 ### Scope and behavior
 
 - Detect or locate the approved same-machine bridge endpoint without requiring the player to enter transport details on every launch.
+- Observe whether the supported Skyrim process is absent or running through a client-owned platform
+  adapter; do not add a resident helper service or a second connection protocol for presence.
+- Combine process presence with authenticated bridge lifecycle status: process absence means
+  `stopped`; a running process without an available bridge is `launching` only during the approved
+  startup window and becomes an actionable `bridge unavailable` state afterward; bridge startup is
+  `initializing`, and only bridge-reported lifecycle events may establish `ready`, `loading`, or
+  `playing`.
 - Remember only safe local connection preferences.
 - Distinguish bridge unavailable, Skyrim unavailable, version mismatch, recovery, and configuration errors.
-- Retry with bounded backoff and provide an explicit manual retry path.
+- While the Skyrim process is running, retry transient bridge-availability failures indefinitely
+  with exponential backoff and jitter capped at 30 seconds. Pause automatic connection attempts
+  while the process is absent.
+- Stop automatic retries on non-retryable authentication, configuration, or protocol-compatibility
+  failures, explicit cancellation, and application shutdown. An explicit manual retry starts an
+  immediate new cycle and resets its terminal and backoff state; successful negotiation also resets
+  the backoff and clears any prior connection failure.
 - Preserve protocol compatibility checks during every new or recovered session.
 
 ### Dependencies and boundaries
 
-This phase builds on the bridge and desktop client. It remains loopback-only and does not authorize LAN discovery, internet exposure, hosted relay services, accounts, or silent weakening of pairing and security requirements.
+This phase builds on the bridge and desktop client. Process observation reports coarse presence
+only: Flutter does not inspect game memory or infer readiness when the authenticated bridge is
+unavailable. The phase remains loopback-only and does not authorize LAN discovery, internet
+exposure, hosted relay services, accounts, a resident monitoring service, or silent weakening of
+pairing and security requirements.
 
 ### Acceptance criteria
 
-A supported local installation connects automatically during the normal startup flow, recovers after either side restarts, stops retrying responsibly, and gives the player enough information to correct a failed setup.
+A supported local installation connects automatically during the normal startup flow, reports
+stopped, launching, initializing, ready, loading, playing, recovery, and actionable failure states
+without overstating process presence, recovers after either side restarts, backs off responsibly,
+stops on terminal conditions, and gives the player enough information to correct a failed setup.
 
 ## 4. Live Player State
 
