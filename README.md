@@ -31,24 +31,12 @@ DovahLink protocol
 PC / tablet / phone
 ```
 
-Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the feature and requested scope. That instruction has now started the Phase 1 implementation foundation; the bridge and transport are still pending. Roadmap status, Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
+## Project documentation
 
-## Status
-
-Phase 0.5, the client and protocol foundation, is complete. Phase 1, the Skyrim Bridge Foundation,
-has not started.
-
-The completed foundation includes client entities and models, connection use cases, Redux state
-and selectors, dependency injection, and a read-only connection status screen. The Skyrim bridge
-and real loopback transport are the specific scope of Phase 1.
-
-See [PRODUCT.md](PRODUCT.md) for the product definition, [ARCHITECTURE.md](ARCHITECTURE.md) for the technical direction, and [ROADMAP.md](ROADMAP.md) for planned milestones.
-
-## Discussion and suggestions
-
-Suggestions, feedback, and feature ideas are welcome through GitHub Issues. DovahLink is currently maintained by its creator, and all code changes are made by the maintainer.
-
-Please use Issues to discuss ideas rather than opening pull requests. The maintainer will decide which suggestions fit the project's architecture and roadmap.
+- [PRODUCT.md](PRODUCT.md) defines the product and its boundaries.
+- [ARCHITECTURE.md](ARCHITECTURE.md) defines the system boundaries and technical direction.
+- [ROADMAP.md](ROADMAP.md) is the source of truth for phase status, order, and dependencies.
+- [CONTRIBUTING.md](CONTRIBUTING.md) defines the development and proposal workflow.
 
 ## Name
 

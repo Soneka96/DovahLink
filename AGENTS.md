@@ -4,10 +4,10 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 
 ## Read first
 
-- `README.md` — project overview and current status
+- `README.md` — project overview and documentation map
 - `PRODUCT.md` — product boundaries and principles
 - `ARCHITECTURE.md` — system boundaries and technical direction
-- `ROADMAP.md` — milestone order and deferred work
+- `ROADMAP.md` — milestone status, order, dependencies, and deferred work
 - `CONTRIBUTING.md` — branch and pull request workflow for maintainer-led, AI-assisted development
 - `ai/context/common.md` — rules shared by every part of the product
 - `ai/context/flutter/` — Flutter client conventions; read for client work

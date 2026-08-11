@@ -2,7 +2,8 @@
 
 The roadmap is intentionally feature-based. Each numbered phase should deliver one coherent player-facing capability or one necessary product foundation, and should be completed through a focused feature branch and pull request.
 
-A roadmap phase describes the intended outcome, behavior, boundaries, dependencies, and acceptance criteria. It is not implementation authorization. Implementation begins only after a direct instruction from the maintainer in the current task explicitly names the phase and requested scope. Issues, prior conversations, suggestions, and `continue` messages do not authorize unrelated work.
+A roadmap phase describes the intended outcome, behavior, boundaries, dependencies, and acceptance
+criteria. Phase status records product order; implementation authority is defined in `AGENTS.md`.
 
 The order records current product dependencies. A later phase may be refined as earlier work reveals constraints, but it should not be pulled forward silently or bundled into an earlier feature.
 
@@ -79,7 +80,11 @@ Skyrim can expose a minimal, trustworthy state value to one external validation 
 
 ### Dependencies and boundaries
 
-This phase depends only on the documentation baseline. It does not create the Flutter product client, map resources, UI theme system, remote-device networking, LOTD data, or unrelated bridge capabilities.
+This phase depends on the documentation baseline and the completed Phase 0.5 protocol-facing
+foundation. Its external validation client is a separate proof client that speaks the canonical
+protocol; this phase does not turn the Phase 0.5 Flutter shell into the connected product client or
+create map resources, a UI theme system, remote-device networking, LOTD data, or unrelated bridge
+capabilities.
 
 ### Acceptance criteria
 
@@ -95,7 +100,8 @@ A player can run the first native Flutter DovahLink client on a PC or second scr
 
 ### Scope and behavior
 
-- Create the first Flutter product client for desktop-sized layouts.
+- Extend the Phase 0.5 Flutter shell into the first connected product client for desktop-sized
+  layouts.
 - Show a small read-only connection and status view using the protocol proven in Phase 1.
 - Represent connecting, connected, recovering, incompatible, unavailable, and disconnected states clearly.
 - Keep the application usable when Skyrim is not running or optional data is missing.

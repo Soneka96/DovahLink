@@ -1,12 +1,5 @@
 # Architecture
 
-## Current state
-
-The Phase 0.5 client and protocol foundation is complete. The Flutter client contains generated
-protocol models, domain entities and connection use cases, Redux-backed connection state,
-selectors, dependency injection, and a read-only connection status screen. The Skyrim bridge and
-real loopback transport have not started; they belong to Phase 1.
-
 ## Repository boundaries
 
 The future implementation is divided into explicit areas:
@@ -57,12 +50,12 @@ Render companion views and manage local layout preferences. A client should rema
 
 ## Initial technical decisions
 
-- The repository will eventually contain a Flutter client and a Skyrim integration, but neither is created in this documentation phase.
 - The bridge-to-client contract should be defined before multiple clients are built.
 - The protocol contract is the source of truth for cross-side messages; Flutter and SKSE adapters must not silently invent incompatible fields.
-- The Phase 1 reference encoding is UTF-8 JSON with one complete object per transport message; the transport must preserve those message boundaries.
-- The first connection proof is same-machine and loopback-only; it must not expose a listening service to the LAN.
-- LAN or remote-device support is not approved until `ai/context/protocol/security.md` is implemented and its required scenarios pass.
+- The wire contract is defined by `protocol/schema/README.md`; transport framing remains outside
+  the architecture contract.
+- Transport exposure, pairing, authentication, and input limits are defined by
+  `ai/context/protocol/security.md`.
 
 ## Reliability expectations
 
@@ -95,9 +88,16 @@ The knowledge source belongs outside the live bridge stream; the bridge should e
 
 ### UI theming and adaptation
 
-The Flutter client should establish a Core UI Theme System before the Customizable Dashboard. The default theme is a Skyrim-inspired, native Flutter presentation defined through shared tokens and components for fonts, colors, panels, icons, spacing, and animations. Dashboard modules should consume that theme boundary rather than define their own visual constants.
+The Flutter client's Core UI Theme System defines its Skyrim-inspired native presentation through
+shared tokens and components for fonts, colors, panels, icons, spacing, and animations. Dashboard
+modules consume that theme boundary rather than defining their own visual constants.
 
-The core theme must remain usable without inspecting the Skyrim installation or depending on a particular UI mod. Installed UI Detection is a later, optional capability that may identify supported UI and font resources when detection is reliable. Optional adapters may then map explicitly supported themes such as SkyUI, Nordic UI, and Dear Diary into the DovahLink theme boundary. A future `dovahlink-theme.json` format may provide the same boundary for compatible theme packs, but it is not part of the core theme and must be specified and approved before implementation.
+The core theme must remain usable without inspecting the Skyrim installation or depending on a
+particular UI mod. Optional Installed UI Detection may identify supported UI and font resources
+when detection is reliable, and optional adapters may map explicitly supported themes such as
+SkyUI, Nordic UI, and Dear Diary into the DovahLink theme boundary. A `dovahlink-theme.json` format
+may provide the same boundary for compatible theme packs, but it is not part of the core theme and
+must be specified and approved before implementation.
 
 Detection and adapters may supply supported presentation values; they must not replace client behavior, dashboard structure, or protocol models. Missing, unsupported, or invalid resources fall back to the native DovahLink theme.
 
