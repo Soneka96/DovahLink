@@ -66,9 +66,10 @@ No dependency here duplicates a role already covered by Boost, Catch2, or Common
 dependencies; no second JSON, WebSocket, logging, cryptography, or test library is introduced.
 
 `bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same step that
-first consumes it, rather than all at once: `catch2` landed with the build scaffolding,
-`boost-json` with the bounded JSON decoder, `boost-asio`/`boost-beast` land with the transport, and
-`commonlibsse-ng-flatrim` (via `bridge/vcpkg-configuration.json`) lands with the game-state adapter.
+first consumes it, rather than all at once: `catch2` landed with the build scaffolding, `boost-json`
+with the bounded JSON decoder, `boost-asio` with the loopback listener, `boost-beast` lands with
+framing, and `commonlibsse-ng-flatrim` (via `bridge/vcpkg-configuration.json`) lands with the
+game-state adapter.
 This keeps every step's build from compiling dependencies it doesn't use yet.
 
 ## Default loopback port
