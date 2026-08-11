@@ -1,0 +1,115 @@
+// Closes out Group I (transport) by proving the last piece of
+// ai/context/protocol/security.md's transport requirements not yet covered:
+// "The bridge must reject connections whose remote address is not loopback
+// during this phase." Steps 26-28 already proved real loopback binding and
+// framing extensively with real sockets; what remained was this explicit
+// remote-address check.
+//
+// A genuinely non-loopback peer cannot be originated in a unit test (there
+// is no way to spoof a connection's source address without raw sockets and
+// real routing infrastructure, which would not belong in this test suite
+// even if it were possible). IsAcceptablePeerAddress is a free, pure
+// function specifically so the rejection logic itself can be proven
+// directly against synthetic addresses, per ai/context/integration/
+// testing.md's general preference for fakes where a real end-to-end check
+// is not practical -- while the acceptance path (a real loopback peer) is
+// still proven with a real socket, matching the rest of Group I.
+
+#include "transport/listener.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/system/error_code.hpp>
+
+using dovahlink::transport::AcceptError;
+using dovahlink::transport::IsAcceptablePeerAddress;
+using dovahlink::transport::LoopbackListener;
+
+TEST_CASE("IsAcceptablePeerAddress accepts 127.0.0.1", "[transport][loopback_peer]") {
+    CHECK(IsAcceptablePeerAddress(boost::asio::ip::make_address("127.0.0.1")));
+}
+
+TEST_CASE("IsAcceptablePeerAddress accepts ::1", "[transport][loopback_peer]") {
+    CHECK(IsAcceptablePeerAddress(boost::asio::ip::make_address("::1")));
+}
+
+TEST_CASE("IsAcceptablePeerAddress rejects a non-loopback IPv4 address", "[transport][loopback_peer]") {
+    CHECK_FALSE(IsAcceptablePeerAddress(boost::asio::ip::make_address("192.168.1.1")));
+}
+
+TEST_CASE("IsAcceptablePeerAddress rejects a non-loopback IPv6 address", "[transport][loopback_peer]") {
+    // 2001:db8::/32 is IANA-reserved for documentation and never routable.
+    CHECK_FALSE(IsAcceptablePeerAddress(boost::asio::ip::make_address("2001:db8::1")));
+}
+
+TEST_CASE("IsAcceptablePeerAddress rejects the IPv4 unspecified address", "[transport][loopback_peer]") {
+    CHECK_FALSE(IsAcceptablePeerAddress(boost::asio::ip::make_address("0.0.0.0")));
+}
+
+TEST_CASE("IsAcceptablePeerAddress accepts the IPv4-mapped IPv6 loopback address",
+          "[transport][loopback_peer]") {
+    // ::ffff:127.0.0.1 represents the same loopback host as 127.0.0.1, in the
+    // form a dual-stack IPv6 socket could observe it; is_loopback() is
+    // documented to special-case IPv4-mapped addresses rather than only
+    // recognizing ::1 literally, and this security-sensitive check must
+    // agree with that rather than have a gap for this representation.
+    CHECK(IsAcceptablePeerAddress(boost::asio::ip::make_address("::ffff:127.0.0.1")));
+}
+
+TEST_CASE("AcceptLoopbackOnly returns a valid socket for a real IPv4 loopback peer",
+          "[transport][loopback_peer]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    boost::asio::ip::tcp::socket client(ioc);
+    boost::system::error_code connectEc;
+    client.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE(accepted.has_value());
+    CHECK(accepted->is_open());
+    CHECK(IsAcceptablePeerAddress(accepted->remote_endpoint().address()));
+}
+
+TEST_CASE("AcceptLoopbackOnly returns a valid socket for a real IPv6 loopback peer",
+          "[transport][loopback_peer]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    boost::asio::ip::tcp::socket client(ioc);
+    boost::system::error_code connectEc;
+    client.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE(accepted.has_value());
+    CHECK(accepted->is_open());
+    CHECK(IsAcceptablePeerAddress(accepted->remote_endpoint().address()));
+}
+
+TEST_CASE("AcceptLoopbackOnly reports kAcceptFailed distinctly from a rejected peer",
+          "[transport][loopback_peer]") {
+    // No connection is ever made here; closing the listener's acceptor before
+    // calling AcceptLoopbackOnly is a simple, deterministic way to force the
+    // accept step itself to fail, distinct from the peer-address rejection
+    // path exercised by the IsAcceptablePeerAddress tests above.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    boost::system::error_code closeEc;
+    listener->Acceptor().close(closeEc);
+    REQUIRE_FALSE(closeEc);
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == AcceptError::kAcceptFailed);
+}

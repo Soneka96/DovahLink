@@ -66,6 +66,7 @@ add_executable(dovahlink_bridge_tests
     transport/connection_slot_test.cpp
     transport/inbound_limit_test.cpp
     transport/listener_test.cpp
+    transport/loopback_peer_test.cpp
     transport/websocket_session_test.cpp
 )
 target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)

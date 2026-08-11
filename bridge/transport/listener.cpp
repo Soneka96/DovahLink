@@ -8,6 +8,10 @@
 
 namespace dovahlink::transport {
 
+bool IsAcceptablePeerAddress(const boost::asio::ip::address& address) {
+    return address.is_loopback();
+}
+
 std::expected<LoopbackListener, ListenerError> LoopbackListener::Create(boost::asio::io_context& ioc,
                                                                           IpVersion version,
                                                                           std::uint16_t port) {
@@ -54,6 +58,24 @@ LoopbackListener::LoopbackListener(boost::asio::ip::tcp::acceptor acceptor) : ac
 
 boost::asio::ip::tcp::acceptor& LoopbackListener::Acceptor() {
     return acceptor_;
+}
+
+std::expected<boost::asio::ip::tcp::socket, AcceptError> LoopbackListener::AcceptLoopbackOnly() {
+    boost::system::error_code acceptEc;
+    boost::asio::ip::tcp::socket socket = acceptor_.accept(acceptEc);
+    if (acceptEc) {
+        return std::unexpected(AcceptError::kAcceptFailed);
+    }
+
+    boost::system::error_code remoteEc;
+    boost::asio::ip::tcp::endpoint remote = socket.remote_endpoint(remoteEc);
+    if (remoteEc || !IsAcceptablePeerAddress(remote.address())) {
+        boost::system::error_code closeEc;
+        socket.close(closeEc);
+        return std::unexpected(AcceptError::kNonLoopbackPeerRejected);
+    }
+
+    return socket;
 }
 
 boost::asio::ip::tcp::endpoint LoopbackListener::LocalEndpoint() const {
