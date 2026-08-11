@@ -7,6 +7,7 @@
     "boost-asio",
     "boost-beast",
     "boost-json",
-    "catch2"
+    "catch2",
+    "commonlibsse-ng-flatrim"
   ]
 }

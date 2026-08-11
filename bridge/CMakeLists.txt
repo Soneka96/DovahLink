@@ -28,6 +28,7 @@ add_library(dovahlink_bridge_core STATIC
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
+    game_state/level_adapter.cpp
     protocol/bounded_json.cpp
     protocol/envelope.cpp
     protocol/json_field_decoders.cpp
@@ -43,6 +44,18 @@ target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_D
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
 target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt)
 
+# CommonLib-dependent game-state adapters. Kept in a separate target from
+# dovahlink_bridge_core so dovahlink_bridge_tests never needs to link
+# CommonLibSSE-NG: nothing here is unit-tested (there is no Skyrim process
+# to run against), only the Skyrim-independent conversion logic each
+# adapter's header exposes is (see e.g. game_state/level_adapter.hpp). This
+# target is linked into the real SKSE plugin binary, added in a later step.
+find_package(CommonLibSSE CONFIG REQUIRED)
+add_library(dovahlink_bridge_game_state STATIC
+    game_state/commonlib_level_accessor.cpp
+)
+target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
+
 add_executable(dovahlink_bridge_tests
     application/character_state_test.cpp
     application/connection_timeout_tracker_test.cpp
@@ -55,6 +68,7 @@ add_executable(dovahlink_bridge_tests
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
     application/session_test.cpp
+    game_state/level_adapter_test.cpp
     game_state/runtime_guard_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp

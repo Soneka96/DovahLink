@@ -61,6 +61,14 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
   `c4ab853d095e81e3390b282d7ba01ab2f24ebf25`
 - Port build options: `ENABLE_SKYRIM_VR=off`, `SKSE_SUPPORT_XBYAK=on`
 - Transitive port dependencies: `fmt`, `rapidcsv`, `spdlog`, `xbyak`
+- CMake integration, confirmed against the pinned port and upstream source rather than assumed:
+  `find_package(CommonLibSSE CONFIG REQUIRED)` exposes the target `CommonLibSSE::CommonLibSSE`. The
+  port also installs a `CommonLibSSE.cmake` helper module providing `add_commonlibsse_plugin(...)`,
+  which generates the `SKSEPluginInfo` metadata block automatically; the actual SKSE plugin binary
+  step should use it instead of hand-writing that block.
+- Player level: `RE::PlayerCharacter::GetSingleton()` (declared in `RE/P/PlayerCharacter.h`,
+  reachable via the umbrella header `RE/Skyrim.h`) inherits `GetLevel() const` (returns
+  `std::uint16_t`) from `RE::Actor`, confirmed by reading both headers at the pinned commit.
 
 No dependency here duplicates a role already covered by Boost, Catch2, or CommonLibSSE-NG's own
 dependencies; no second JSON, WebSocket, logging, cryptography, or test library is introduced.
