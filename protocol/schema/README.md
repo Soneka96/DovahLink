@@ -21,7 +21,7 @@ object per message; framing is not part of the JSON payload.
 | `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
-| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued connection identity. Messages from older sessions are discarded. |
+| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued identity for that socket. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
 
@@ -228,8 +228,13 @@ Carry no application state. They prove liveness for the current `sessionId`.
 3. They exchange `capabilities` using the selected version.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
-6. On reconnect, a new `sessionId` is created and the client must not apply messages from the old session.
-7. Queued state from the old session is not replayed; a fresh snapshot establishes each new
+6. Each authenticated socket receives a unique `sessionId`. The session is bound exclusively to
+   that socket and is invalidated when the socket closes for any reason.
+7. A session cannot be transferred, resumed, or reused on another socket. A reconnect creates a
+   new session, and messages carrying an invalidated or foreign session ID are rejected as
+   `stale_session` before application handling.
+8. The client must not apply messages from its previous session. Queued state from that session is
+   not replayed; a fresh snapshot establishes each new
    baseline.
-8. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
-9. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
+9. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
+10. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
