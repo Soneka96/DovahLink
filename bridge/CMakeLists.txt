@@ -55,6 +55,7 @@ add_executable(dovahlink_bridge_tests
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
     application/session_test.cpp
+    game_state/runtime_guard_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
     security/throttle_test.cpp
