@@ -64,6 +64,7 @@ add_executable(dovahlink_bridge_tests
     protocol/json_field_decoders_test.cpp
     protocol/messages_test.cpp
     transport/connection_slot_test.cpp
+    transport/inbound_limit_test.cpp
     transport/listener_test.cpp
     transport/websocket_session_test.cpp
 )

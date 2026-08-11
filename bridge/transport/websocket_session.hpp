@@ -13,6 +13,17 @@ enum class SessionError {
     kReadFailed,
     kWriteFailed,
     kBinaryFrameRejected,
+    // The inbound frame exceeded bridge/security/limits.hpp's
+    // kMaxInboundFrameBytes (1 MiB), enforced by Boost.Beast before the
+    // message could be fully buffered. Per
+    // ai/context/protocol/security.md ("close immediately when framing or
+    // size validation fails before a safe message can be decoded; do not
+    // attempt to send an error over an invalid or oversized frame"), the
+    // caller must close the connection immediately on this error rather
+    // than routing it through the 3-violations/30s throttle
+    // (bridge/security/throttle.hpp's ViolationTracker) that other,
+    // post-decode protocol violations use.
+    kFrameTooLarge,
 };
 
 // Wraps one accepted TCP connection as a WebSocket session with the Phase 1
@@ -35,8 +46,9 @@ class WebSocketSession {
 public:
     explicit WebSocketSession(boost::asio::ip::tcp::socket socket);
 
-    // Performs the WebSocket accept handshake with compression disabled and
-    // the documented timeouts configured.
+    // Performs the WebSocket accept handshake with compression disabled,
+    // the documented timeouts configured, and the maximum inbound message
+    // size bounded to bridge/security/limits.hpp's kMaxInboundFrameBytes.
     [[nodiscard]] std::expected<void, SessionError> Accept();
 
     // Reads one message. Rejects (and does not return the content of) a

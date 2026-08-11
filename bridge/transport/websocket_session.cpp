@@ -6,6 +6,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/websocket/error.hpp>
 #include <boost/beast/websocket/permessage_deflate.hpp>
 #include <boost/beast/websocket/rfc6455.hpp>
 
@@ -27,6 +28,8 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
     timeoutOptions.keep_alive_pings = false;
     ws_.set_option(timeoutOptions);
 
+    ws_.read_message_max(security::kMaxInboundFrameBytes);
+
     boost::beast::error_code ec;
     ws_.accept(ec);
     if (ec) {
@@ -39,6 +42,9 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
     boost::beast::flat_buffer buffer;
     boost::beast::error_code ec;
     ws_.read(buffer, ec);
+    if (ec == boost::beast::websocket::error::message_too_big) {
+        return std::unexpected(SessionError::kFrameTooLarge);
+    }
     if (ec) {
         return std::unexpected(SessionError::kReadFailed);
     }
