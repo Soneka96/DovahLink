@@ -35,3 +35,75 @@ Document non-obvious decisions and compatibility constraints at the boundary whe
 - Describe purpose and contract, not implementation; include unavailable, nullable, unit, lifecycle, or compatibility meaning when relevant.
 - Use Dart doc links such as `[CharacterStateEntity]` and `[toJson]` when referring to another documented symbol.
 - Private helpers need documentation when their validation, ownership, or compatibility behavior is not obvious from their name.
+
+## Baseline Dart rules
+
+- Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.
+- Use lowerCamelCase for variables, parameters, functions, members, and constants.
+- Use lowercase_with_underscores for packages, directories, source files, and import prefixes.
+- Capitalize acronyms longer than two letters as words (`HttpRequest`, `Uri`); keep two-letter
+  acronyms uppercase (`ID`, `IO`).
+- Use non-imperative boolean names such as `isCreating` and `canClose`.
+- Never prefix methods with `get`; use a getter or a descriptive verb.
+- Use `to___()` to convert to a new object and `as___()` for a view or representation.
+- Use `dart format`, trailing commas, braces for flow control, and single quotes.
+- Import in groups: `dart:`, package imports, then project imports; alphabetize each group.
+- Use explicit types for `final` locals and declare return and parameter types on functions.
+- Do not explicitly initialize variables to `null`; avoid `late` unless necessary.
+- Prefer interpolation and collection literals; use `.isEmpty`/`.isNotEmpty` instead of length
+  comparisons; use `whereType<T>()` instead of `cast()`.
+- Use named parameters for functions and constructors with more than two parameters. Avoid
+  positional boolean parameters.
+- Use `=>` for simple expressions, `;` for empty constructors, and empty collections instead of
+  `null` for no data.
+- Handle every `Future` error, specify exception types in `catch`, and use `rethrow` to preserve
+  stack traces.
+- Use `async`/`await` over `.then()` chains and `Future<void>` for async methods without a value.
+- Make fields private unless intentionally public and make constructors `const` when possible.
+
+## Equatable and value objects
+
+Use `Equatable` for entities, models, value objects, ViewModels, Redux actions, and Redux state.
+Do not hand-write equality or hash codes for classes that extend it. Use `Option<T>?` from `fpdart`
+for nullable `copyWith` fields so omitted, cleared, and set values remain distinct.
+
+Generated JSON models that extend concrete entities may use an explicit `super(...)` constructor
+initializer to forward their typed model fields. This is required when `json_serializable` must
+serialize nested model values, and is intentionally limited to those model constructors.
+
+## Enums
+
+- Every enum is declared in `lib/shared/constants/enums.dart`, including feature-local status
+  values.
+- The first member is always `none`, a sentinel for an unselected or invalid value—not an app
+  default.
+- Document every member, including `none`.
+- Keep enum extensions directly after their enum in the same file.
+- Do not create a test for a plain enum without behavior; test enum methods, factories, and
+  extensions when they contain logic.
+
+## Documentation
+
+- Add concise `///` comments to every public class, method, property, constructor, factory,
+  typedef, entity, model, parameter field, and enum member.
+- Describe what the symbol is and its contract, not surrounding application context or a restatement
+  of its implementation.
+- Use `[SymbolName]` links in doc comments and add the declaring import even when the link is the
+  only reference. Fully qualify member links as `[ClassName.member]`.
+- Coupled classes cross-reference in one direction: Model to Entity, UseCase to repository
+  interface, and repository implementation to repository interface. Domain never imports data.
+- Private non-obvious helpers use a short `//` comment immediately above the declaration. Missing
+  implementation uses `// TODO: ...` immediately above the declaration. Do not place explanatory
+  comments between statements or widgets.
+
+## Logging and Flutter-specific rules
+
+- Never use `print`, `debugPrint`, or direct console writes. Use the approved logger boundary once
+  one exists and never log credentials, tokens, raw protocol payloads, or unredacted game state.
+- Prefer `StatelessWidget` over helper methods returning widgets; extract reusable helpers into
+  widgets that can be tested and made `const`.
+- Localize `setState` to the smallest subtree, avoid expensive work in `build`, and split widgets
+  at change boundaries.
+- Use `ListView.builder` for long or data-driven lists.
+- Prefer `AnimatedOpacity` or semitransparent colors over `Opacity` in animations, and avoid
+  unnecessary clipping when `borderRadius` is sufficient.

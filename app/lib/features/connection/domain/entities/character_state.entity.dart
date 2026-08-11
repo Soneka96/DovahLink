@@ -1,19 +1,29 @@
-import 'resource_value.entity.dart';
+import 'package:equatable/equatable.dart';
+
+import 'package:dovahlink_client/features/connection/domain/entities/resource_value.entity.dart';
 
 /// Read-only character values displayed by the companion client.
-abstract class CharacterStateEntity {
+class CharacterStateEntity extends Equatable {
   /// Creates a character state contract.
-  const CharacterStateEntity();
+  const CharacterStateEntity({
+    required this.level,
+    required this.health,
+    required this.magicka,
+    required this.stamina,
+  });
 
   /// The player's level, or `null` when unavailable.
-  int? get level;
+  final int? level;
 
   /// The player's health pool, or `null` when unavailable.
-  ResourceValueEntity? get health;
+  final ResourceValueEntity? health;
 
   /// The player's magicka pool, or `null` when unavailable.
-  ResourceValueEntity? get magicka;
+  final ResourceValueEntity? magicka;
 
   /// The player's stamina pool, or `null` when unavailable.
-  ResourceValueEntity? get stamina;
+  final ResourceValueEntity? stamina;
+
+  @override
+  List<Object?> get props => [level, health, magicka, stamina];
 }

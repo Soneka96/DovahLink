@@ -17,7 +17,9 @@ presentation -> domain
 - Imports may point from `presentation` to `domain`, and from `data` to `domain`.
 - Domain must not import `data`, `presentation`, Flutter, or transport implementations.
 - Presentation may consume domain interfaces and client-state outputs, but never construct infrastructure.
-- Infrastructure implementations, protocol clients, repositories, and their dependencies may only be constructed in the approved application composition root. Features receive abstractions through constructors or approved dependency injection. Do not create service locators or hidden global singletons.
+- Infrastructure implementations, protocol clients, repositories, and their dependencies are
+  registered in the manual `GetIt` injection container. Widgets and use cases resolve registered
+  dependencies through `sl<Type>()`; they never instantiate infrastructure directly.
 
 ## Feature structure
 
@@ -38,6 +40,14 @@ lib/
       widgets/
       state/
   shared/
+    constants/
+    failures/
+    navigation/
+    state/
+    theme/
+    usecase/
+  injection_container.dart
+  main.dart
 ```
 
 Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a folder when the first file that belongs there exists.
@@ -54,7 +64,17 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 ## File rules
 
 - One public class or model per file.
+- Use these suffixes: `.widget.dart`, `.section.dart`, `.screen.dart`, `.usecase.dart`,
+  `.params.dart`, `.entity.dart`, `.model.dart`, `.actions.dart`, `.middleware.dart`,
+  `.reducer.dart`, `.selectors.dart`, `.state.dart`, `.viewmodel.dart`, `.repository.dart`, and
+  `_remote.datasource.dart`/`_local.datasource.dart`.
+- Use `feature.repository.dart` for implementations and `Ifeature.repository.dart` for domain
+  interfaces. Keep use-case params in `domain/usecases/params/`, never in the use-case file.
 - Every data model has a corresponding domain entity in `domain/entities/`, and the model extends that entity. Models own serialization; entities remain Flutter- and infrastructure-independent.
+- When a generated JSON model extends a concrete entity and needs typed model fields for nested
+  serialization, its constructor forwards those fields through an explicit `super(...)` initializer
+  (for example, `: super(level: level, health: health, ...)`). This is intentional model-boundary
+  boilerplate required by `json_serializable`; it is not a general constructor pattern.
 - Actions are the only permitted multi-class file exception, because action declarations and their closely related action value types are intentionally grouped.
 - A `StatefulWidget` and its paired `State<T>` class may also share a file.
 - Keep use cases to one public operation.
@@ -62,6 +82,68 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
 - Protocol DTOs must not cross into widgets or domain entities.
 - Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong in the feature's `data` boundary or an explicitly approved client-infrastructure area. Convert them to Flutter-facing models before they enter domain or presentation code.
+
+## Screens, sections, and widgets
+
+- A Screen is the sole top-level content for its context.
+- A Section is bespoke content nested inside a Screen alongside sibling content.
+- A Widget is a reusable or repeatable unit with one cohesive purpose.
+- Routability and the presence of a ViewModel do not decide the classification.
+- Screens and Sections resolve their own DI-registered dependencies; do not thread them through
+  constructor props from a parent.
+- Reusable widgets receive data and callbacks as props and remain dumb.
+
+## Redux flow
+
+- Use Redux when a value is read by another screen, drives a use case, or must persist beyond one
+  widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
+- The normal chain is `Screen/Section -> ViewModel -> Action -> Middleware -> ResultAction ->
+  Reducer -> AppState -> StoreConnector`.
+- Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
+- ViewModels are thin connectors resolved through DI; they read selectors and create dispatch
+  callbacks without re-deriving business state.
+- The store is built exactly once through `CreateStore`; every `StoreConnector` uses
+  `distinct: true`.
+- Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.
+- Middleware calls `next(action)` before dispatching handler results so handlers see reduced state.
+- Middleware handlers accept only `Store<AppState>` and the typed Action; raw values and
+  `BuildContext` are not handler parameters.
+- Use cases and services are resolved via `sl<Type>()` in middleware handlers.
+- To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.
+
+## Feature call chain
+
+Feature business logic follows `Middleware -> UseCase -> Repository -> Datasource`.
+Repositories coordinate local and remote datasources; a use case never chooses between them.
+One-off I/O belongs to the owning feature datasource, not a generic service.
+
+## Dependency injection
+
+- Register shared dependencies first in `lib/injection_container.dart`, then call each feature's
+  injection container.
+- Register concrete implementations behind domain interfaces.
+- Register use cases as DI dependencies and construct them with repository interfaces.
+- Register ViewModels with `registerFactoryParam` when they need a Redux `Store`.
+- Call dependency initialization once before `runApp`.
+
+## Services
+
+- Do not create a generic feature service layer.
+- App-wide plumbing without business rules belongs in `shared/utils/` and is DI-registered; it is
+  not wrapped in a use case.
+- Feature-specific orchestration engines also belong in `shared/utils/` when they coordinate work
+  across a feature's layers. The feature folder remains reserved for datasources, models/entities,
+  repositories, use cases, presentation, and state.
+- One-off I/O belongs in the owning feature datasource.
+
+## Theming and layout
+
+- Colors and text styles come from `Theme.of(context)` and the approved app theme.
+- Spacing and icon sizes come from shared layout constants or theme extensions, never inline widget
+  literals once a token exists.
+- Corner radii come from button themes or the shared shape theme extension.
+- Widgets receive data and callbacks through props; visual styling comes from the theme, not from
+  constructor parameters or hidden DI lookups.
 
 ### JSON models and generated code
 

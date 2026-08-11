@@ -14,10 +14,41 @@
 
 - Mirror the source tree under `test/`.
 - Add a dedicated test file for each source unit with behavior or failure logic; group trivial declarations with their owning behavior test.
-- Keep ordinary client fixtures close to the feature that owns them. Cross-side protocol fixtures are an explicit exception and live in the shared protocol area; those fixtures take precedence for contract tests.
+- Keep ordinary client fixtures in `test/features/<feature>/fixtures/`, close to the feature that
+  owns them. Use descriptive `.fixture.dart` names and share builders only within that feature.
+  Cross-side protocol fixtures are an explicit exception and live in `protocol/fixtures/`; those
+  canonical fixtures take precedence for contract tests.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
+- Group tests by method or behavior. Do not nest groups, and keep every test inside a group.
+- Define `setUp` per group, or in `main` when setup is shared by the whole file.
+- Test descriptions name the actual method or action. Use literal Dart syntax for equality
+  conditions, including enum values and null checks.
+- Primitive properties use two assertions in order: `isA<T>()`, then the exact expected value.
+- Test files mirror source files under `test/`, and fixtures live beside the feature test that owns
+  them. Cross-side protocol fixtures remain in `protocol/fixtures/`.
+
+## Layer-specific tests
+
+- Models have an identity group proving they extend the correct entity and a methods group for
+  `fromJson`/`toJson` or other mapping methods.
+- Use cases have one group named `Usecase [UseCaseName] returns the correct value`. Mock the
+  repository interface and test success and every relevant failure pass-through.
+- Repositories have an identity group and one behavior group per method, including exact datasource
+  calls and symmetric no-call branches.
+- Reducers test handled actions and a separate unhandled-action pass-through case.
+- Datasource tests cover every distinct catch, guard, explicit throw, and malformed-input branch.
+- Widget tests use stable keys or semantics, build the smallest real app/store context, and stub
+  every dependency read during build. Do not write snapshot tests.
+
+## Test naming
+
+- Use `contains` for structural widget presence, `displays` for visible text, and `calls` or
+  `dispatches` for side effects.
+- Use “in state” for values inside `AppState`; reserve “in the store” for the `Store` instance.
+- Add “with correct parameters” when the test verifies a configured state rather than bare
+  presence.
 
 ## Widget tests
 

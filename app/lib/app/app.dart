@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
-import '../shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// The root Flutter application for DovahLink.
 class DovahLinkApp extends StatelessWidget {

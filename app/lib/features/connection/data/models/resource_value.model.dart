@@ -1,6 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import '../../domain/entities/resource_value.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/resource_value.entity.dart';
 import 'json_map.dart';
 import 'protocol_format_exception.dart';
 

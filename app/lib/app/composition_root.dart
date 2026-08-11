@@ -1,7 +1,7 @@
 import 'package:redux/redux.dart';
 
-import '../shared/state/app_state.dart';
-import '../shared/state/create_store.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/state/create_store.dart';
 
 /// Composes application-wide dependencies before Flutter starts.
 class AppCompositionRoot {
@@ -9,5 +9,5 @@ class AppCompositionRoot {
   const AppCompositionRoot();
 
   /// Builds the Redux store used by [DovahLinkApp].
-  Store<AppState> createStore() => CreateStore()();
+  Store<AppState> createStore() => const CreateStore()();
 }

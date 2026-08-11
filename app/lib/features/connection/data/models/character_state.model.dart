@@ -1,9 +1,11 @@
+// ignore_for_file: overridden_fields
+
 import 'package:json_annotation/json_annotation.dart';
 
-import '../../domain/entities/character_state.entity.dart';
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
-import 'resource_value.model.dart';
+import 'package:dovahlink_client/features/connection/data/models/json_map.dart';
+import 'package:dovahlink_client/features/connection/data/models/protocol_format_exception.dart';
+import 'package:dovahlink_client/features/connection/data/models/resource_value.model.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/character_state.entity.dart';
 
 part 'character_state.model.g.dart';
 
@@ -16,7 +18,7 @@ class CharacterStateModel extends CharacterStateEntity {
     required this.health,
     required this.magicka,
     required this.stamina,
-  });
+  }) : super(level: level, health: health, magicka: magicka, stamina: stamina);
 
   /// Decodes and validates one character state payload.
   factory CharacterStateModel.fromJson(JsonMap json) {

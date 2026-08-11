@@ -1,23 +1,42 @@
+import 'package:equatable/equatable.dart';
+
 /// Protocol message values after wire decoding.
-abstract class ProtocolEnvelopeEntity {
+class ProtocolEnvelopeEntity extends Equatable {
   /// Creates a protocol envelope contract.
-  const ProtocolEnvelopeEntity();
+  const ProtocolEnvelopeEntity({
+    required this.protocolVersion,
+    required this.messageType,
+    required this.messageId,
+    required this.sessionId,
+    required this.correlationId,
+    required this.payload,
+  });
 
   /// The negotiated protocol version for this message.
-  int get protocolVersion;
+  final int protocolVersion;
 
   /// The canonical message type.
-  String get messageType;
+  final String messageType;
 
   /// The unique message identifier for the session.
-  String get messageId;
+  final String messageId;
 
   /// The server-issued session identifier, when available.
-  String? get sessionId;
+  final String? sessionId;
 
   /// The identifier of the message being answered, when correlated.
-  String? get correlationId;
+  final String? correlationId;
 
   /// The message-specific payload.
-  Map<String, dynamic> get payload;
+  final Map<String, dynamic> payload;
+
+  @override
+  List<Object?> get props => [
+    protocolVersion,
+    messageType,
+    messageId,
+    sessionId,
+    correlationId,
+    payload,
+  ];
 }

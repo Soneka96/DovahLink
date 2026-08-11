@@ -1,7 +1,7 @@
 import 'package:redux/redux.dart';
 
-import 'app_reducer.dart';
-import 'app_state.dart';
+import 'package:dovahlink_client/shared/state/app_reducer.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Builds the application's Redux store.
 class CreateStore {

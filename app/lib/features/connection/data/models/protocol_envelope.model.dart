@@ -1,8 +1,10 @@
+// ignore_for_file: overridden_fields
+
 import 'package:json_annotation/json_annotation.dart';
 
-import '../../domain/entities/protocol_envelope.entity.dart';
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client/features/connection/data/models/json_map.dart';
+import 'package:dovahlink_client/features/connection/data/models/protocol_format_exception.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/protocol_envelope.entity.dart';
 
 part 'protocol_envelope.model.g.dart';
 
@@ -17,7 +19,14 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
     required this.sessionId,
     required this.correlationId,
     required this.payload,
-  });
+  }) : super(
+         protocolVersion: protocolVersion,
+         messageType: messageType,
+         messageId: messageId,
+         sessionId: sessionId,
+         correlationId: correlationId,
+         payload: payload,
+       );
 
   /// Decodes and validates one protocol envelope.
   factory ProtocolEnvelopeModel.fromJson(JsonMap json) {

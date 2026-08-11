@@ -38,6 +38,10 @@ These rules apply to every DovahLink area: the Flutter client, SKSE bridge, prot
 - Root-level configuration belongs only to repository-wide tooling; it must not become a dumping ground for implementation code.
 - Generated files belong in the area that owns their source and must never be hand-edited.
 - For Dart JSON models, use `json_serializable` with `build_runner`; keep generated output beside its source and regenerate it instead of editing it manually.
+- Flutter conventions are the complete set in `ai/context/flutter/architecture.md`,
+  `dart-style.md`, `testing.md`, and `error-handling.md`; do not replace them with a summary.
+- The Flutter baseline uses `flutter_redux`/`redux`, `fpdart` for `Either`, `equatable` for value
+  equality, `get_it` for manual DI, and `mocktail` for tests when those concerns are implemented.
 - Keep one public model or class per file; only action declaration files and the documented Flutter `StatefulWidget`/`State<T>` pairing may contain multiple related classes.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
 - `protocol/fixtures/` contains canonical cross-side fixtures; `integration/` contains scenarios and harnesses that consume them.
