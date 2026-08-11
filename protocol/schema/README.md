@@ -170,6 +170,26 @@ Contains one ordered update from `baseRevision` to `revision` for one subscribed
 
 Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. v1 events contain complete post-change state, not partial patches.
 
+### `character` state area
+
+The v1 `character` state area contains a complete read-only snapshot of the player's
+current level and three resource pools:
+
+```json
+{
+  "level": 12,
+  "health": {"current": 180.0, "maximum": 220.0},
+  "magicka": {"current": 90.0, "maximum": 120.0},
+  "stamina": {"current": 140.0, "maximum": 160.0}
+}
+```
+
+The `level`, `health`, `magicka`, and `stamina` fields are required in the
+payload and may be `null` when the bridge cannot provide a trustworthy value.
+When a resource is present, `current` and `maximum` are required finite JSON
+numbers. Values are game units; the protocol does not infer percentages or
+replace unavailable values with zeroes.
+
 ### `error`
 
 Reports a structured failure without exposing infrastructure exceptions:

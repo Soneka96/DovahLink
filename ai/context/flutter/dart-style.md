@@ -30,3 +30,8 @@
 ## Documentation
 
 Document non-obvious decisions and compatibility constraints at the boundary where they matter. Do not add comments that merely restate the code.
+
+- Add concise `///` documentation to every public class, entity, model, typedef, constructor, property, factory, and method.
+- Describe purpose and contract, not implementation; include unavailable, nullable, unit, lifecycle, or compatibility meaning when relevant.
+- Use Dart doc links such as `[CharacterStateEntity]` and `[toJson]` when referring to another documented symbol.
+- Private helpers need documentation when their validation, ownership, or compatibility behavior is not obvious from their name.

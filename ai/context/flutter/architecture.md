@@ -53,13 +53,24 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 ## File rules
 
-- One class per file.
-- The only exception is a `StatefulWidget` and its paired `State<T>` class.
+- One public class or model per file.
+- Every data model has a corresponding domain entity in `domain/entities/`, and the model extends that entity. Models own serialization; entities remain Flutter- and infrastructure-independent.
+- Actions are the only permitted multi-class file exception, because action declarations and their closely related action value types are intentionally grouped.
+- A `StatefulWidget` and its paired `State<T>` class may also share a file.
 - Keep use cases to one public operation.
 - Keep view models as thin presentation connectors; business logic belongs in domain or state logic.
 - Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
 - Protocol DTOs must not cross into widgets or domain entities.
 - Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong in the feature's `data` boundary or an explicitly approved client-infrastructure area. Convert them to Flutter-facing models before they enter domain or presentation code.
+
+### JSON models and generated code
+
+- Use `json_serializable` for Dart models that map to or from JSON; do not hand-write repetitive `fromJson`/`toJson` mappings for protocol DTOs.
+- Run generation with `dart run build_runner build` from the owning Flutter project.
+- Generated `.g.dart` files belong beside the source model in the owning area and must never be hand-edited.
+- `json_serializable` is a mapping tool, not the protocol contract. The canonical schema remains in `protocol/schema/`, and shared examples remain in `protocol/fixtures/`.
+- Keep semantic validation outside generated code: protocol versions, revisions, message/payload pairing, session identity, finite values, security limits, and recovery rules must be validated by handwritten boundary code.
+- Configure generated models to preserve required-versus-unavailable distinctions; a missing required field must not silently become `null`.
 
 ## Navigation and state
 

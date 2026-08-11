@@ -37,6 +37,8 @@ These rules apply to every DovahLink area: the Flutter client, SKSE bridge, prot
 - `tooling/` is reserved for maintainer-approved repository scripts and validation tools.
 - Root-level configuration belongs only to repository-wide tooling; it must not become a dumping ground for implementation code.
 - Generated files belong in the area that owns their source and must never be hand-edited.
+- For Dart JSON models, use `json_serializable` with `build_runner`; keep generated output beside its source and regenerate it instead of editing it manually.
+- Keep one public model or class per file; only action declaration files and the documented Flutter `StatefulWidget`/`State<T>` pairing may contain multiple related classes.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
 - `protocol/fixtures/` contains canonical cross-side fixtures; `integration/` contains scenarios and harnesses that consume them.
 

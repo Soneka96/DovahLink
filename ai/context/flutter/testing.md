@@ -6,6 +6,8 @@
 - Widgets and sections should have behavior-focused tests rather than snapshots.
 - Screens should test the important user-visible states, failure states, and accessibility behavior.
 - Protocol mapping tests belong at the client boundary and should use representative wire fixtures.
+- Tests for JSON models must consume representative protocol fixtures and assert both generated `fromJson` decoding and generated `toJson` round-tripping. Generated source itself is not hand-tested or edited; handwritten boundary validation is tested explicitly.
+- Model tests must also assert that each model is usable as its corresponding domain entity; entity behavior tests belong beside the entity when the entity contains behavior beyond value declarations.
 - Client-boundary tests must assert both accepted and rejected messages, emitted recovery requests, correlation IDs, session-generation invalidation, suppression of stale publications, malformed or unsupported protocol messages, duplicate and stale messages, revision gaps, snapshot recovery, and late messages after disposal.
 
 ## Test structure

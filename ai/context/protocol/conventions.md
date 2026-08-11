@@ -75,6 +75,7 @@ Capability identifiers and state-area identifiers are canonical protocol values.
 ## Boundary rules
 
 - Serialization and deserialization happen at the protocol adapters, not inside game-state extraction or Flutter widgets.
+- Flutter protocol adapters may use generated `json_serializable` models, but generated mapping never replaces the canonical schema or handwritten semantic validation at the client boundary.
 - Transport framing is separate from message meaning.
 - Authentication, pairing, and transport errors must not be confused with game-state errors.
 - Unknown message types and optional fields must fail safely without corrupting known state.
