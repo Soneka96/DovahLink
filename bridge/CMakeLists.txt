@@ -23,6 +23,7 @@ add_library(dovahlink_bridge_core STATIC
     protocol/json_field_decoders.cpp
     protocol/messages.cpp
     security/csprng.cpp
+    security/token_store.cpp
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
@@ -31,6 +32,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::json bcrypt)
 add_executable(dovahlink_bridge_tests
     security/limits_test.cpp
     security/csprng_test.cpp
+    security/token_store_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
     protocol/json_field_decoders_test.cpp
