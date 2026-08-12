@@ -1,12 +1,40 @@
 # DovahLink
 
-## Your Dragonborn's second screen.
+<p align="center">
+  <img src="branding/dovahlink-bridge-header.png" alt="DovahLink Bridge — second-screen companion for Skyrim" width="100%" />
+</p>
 
-> Hey, you're finally connected.
+<p align="center"><strong>Your Dragonborn's second screen.</strong></p>
 
-DovahLink is an open-source companion platform for modded Skyrim. It is intended to connect Skyrim's live game state with a second monitor, tablet, or phone so players can build the companion interface that fits their playthrough.
+<p align="center">
+  <a href="https://www.nexusmods.com/skyrimspecialedition/mods/188165">The DovahLink Bridge is now available on Nexus Mods</a>
+</p>
 
-The project is starting with the smallest useful question: can Skyrim communicate reliably with an external device?
+DovahLink is an open-source companion platform for modded Skyrim. It connects Skyrim's live game state with a second monitor, tablet, or phone so players can build the companion interface that fits their playthrough.
+
+The first public release focuses on the foundation: a reliable local connection between Skyrim and an external client, with read-only character information.
+
+## Current release
+
+The [DovahLink Bridge is published on Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `0.1.0`.
+
+It currently provides:
+
+- Local, authenticated communication between Skyrim and one external client
+- Read-only character state with the player's current level
+- Clear handling for unsupported runtimes and failed connections
+- A Vortex-ready installation package
+
+The bridge currently supports Steam Skyrim Special Edition `1.6.1170` with SKSE64 `2.2.6`. The companion client is developed in this repository but is not included in the Nexus download yet.
+
+## Visual identity
+
+DovahLink uses a shared visual language across the Skyrim bridge and companion app:
+
+<p align="center">
+  <img src="branding/dovahlink-bridge.png" alt="DovahLink Bridge branding" width="49%" />
+  <img src="branding/dovahlink-app.png" alt="DovahLink app branding" width="49%" />
+</p>
 
 ## Planned direction
 
@@ -17,7 +45,7 @@ The project is starting with the smallest useful question: can Skyrim communicat
 - Customizable companion layouts
 - Support for heavily modded load orders
 
-These are product goals, not promises for the first release.
+These are product goals, not promises for the current release.
 
 ## Project shape
 
