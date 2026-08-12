@@ -90,6 +90,63 @@ capabilities.
 
 The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can reconnect and display the chosen value without presenting stale data as current, and setup is reproducible.
 
+## 1.5 Live State Synchronization Foundation
+
+**Status:** Planned
+
+### Outcome
+
+The bridge can deliver live state to a connected client as an ongoing push alongside its existing
+pull-based snapshots, with different kinds of data updated at their own natural rate and
+reliability guarantee, from state already read once and shared across whichever clients are
+connected.
+
+### Scope and behavior
+
+- Classify outbound state into rate classes as maximum update frequencies, not mandatory send
+  cadences, publishing only when a value actually changes: Fast (roughly 10-20 Hz, e.g.
+  position/direction), Medium (roughly 5-10 Hz, e.g. health/stamina/magicka), Slow (roughly 1-2 Hz,
+  miscellaneous stats), and event-driven (inventory, equipment, quests, discoveries, loaded
+  cells/chunks).
+- Prefer a native Skyrim event for any value that has one; fall back to a bridge-owned,
+  per-class-throttled sampling hook only where no suitable event exists.
+- Distinguish replaceable state (latest-value-wins, coalesced by key) from reliable events (quest
+  completed, item acquired, discovery, chunk/cell load, command results, errors), which stay
+  ordered and are never silently dropped; a client that cannot keep up with reliable delivery is
+  disconnected and required to reconnect rather than buffered indefinitely.
+- Move connection delivery onto an asynchronous read/write model so a push can reach a client
+  independent of that client's own next request, replacing Phase 1's purely request/response
+  connection loop.
+- Keep one shared, plugin-lifetime state store per data area, read from Skyrim once and served to
+  every connected client, extending the pattern Phase 1's character state store already
+  establishes.
+
+### Dependencies and boundaries
+
+- This phase extends the Phase 1 bridge foundation's transport and application layers using only
+  the state Phase 1 already exposes (`character`/level); it does not add new player-facing fields
+  -- that selection remains Phase 4's decision.
+- This phase does not implement concurrent multi-client fan-out; it introduces the internal state
+  and delivery model that later makes Phase 17's multi-client support straightforward, while the
+  one-connected-client limit stays in place.
+- Heavy or large resources (maps, tiles, large assets) are not designed or delivered here; keeping
+  them off the live state stream is the only requirement this phase carries, and their transfer and
+  caching design belongs to Phase 7.
+- Exact outbound queue capacities and executor/threading topology are deliberately not fixed here;
+  they follow from profiling once the mechanism above is built, not from advance estimation.
+- Does not add LAN/remote transport, pairing, or weaken the loopback-only restriction.
+
+### Acceptance criteria
+
+A connected, subscribed client receives an initial snapshot per state area followed only by
+updates or deltas at that area's actual rate without needing to poll; a reliable event is never
+lost or reordered even under load, and a client that cannot consume reliable events in time is
+disconnected rather than allowed to stall the bridge; replaceable state under load coalesces to the
+latest value per key rather than queuing every intermediate update; loaded-cell/chunk state is
+delivered as lightweight live/event data, never through a heavy-resource path; and integration
+scenarios cover push delivery, reliable-event ordering under load, and reconnect-after-unhealthy-
+client behavior that Phase 1's snapshot-only scenarios could not exercise.
+
 ## 2. PC / Second-Screen Baseline
 
 **Status:** Planned

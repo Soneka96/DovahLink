@@ -155,3 +155,42 @@ Evaluated directly against the pinned commit's source
 
 All adapted code will carry the required MIT attribution for SkyrimWebSocket
 (`3d42b908b6060774f3da68f53ed7107b914c740d`) at the point it is introduced, per `TASK.md`.
+
+## Live event delivery is deferred to Phase 1.5
+
+`application/event_coalescer.hpp` and `application/outbound_queue.hpp` exist and are unit-tested,
+but neither is wired into `application/connection_session.cpp`'s connection loop. In Phase 1, a
+connected and subscribed client sees a level change only by asking again -- a fresh `subscribe` or
+`snapshot_request` -- never as an unprompted `state_event`. `RunConnectionSession` stays purely
+request/response: it never writes to a socket except in direct reply to a message it just read.
+
+This is a deliberate, roadmap-tracked deferral, not an oversight. Delivering an unprompted push
+requires a connection to write independent of its own next read, which the current synchronous,
+one-blocking-call-at-a-time `WebSocketSession` cannot do without either an unsafe concurrent write
+against Boost.Beast's "shared objects: unsafe" `websocket::stream`, or a rewrite onto Beast's async
+API. That rewrite, along with the outbound-lane and rate-class design it enables, is
+[`ROADMAP.md`](../ROADMAP.md)'s Phase 1.5, Live State Synchronization Foundation. The architecture
+already agreed for that phase, recorded here so Phase 1.5 does not have to rediscover it:
+
+- Rewrite `WebSocketSession`'s blocking `Accept`/`ReadMessage`/`WriteMessage` onto Beast's async API
+  using C++20/23 coroutines (`co_await`), not callback-based composed operations: coroutine code
+  stays close to `RunConnectionSession`'s current linear shape, which callback chains would not.
+  One outstanding async read and one outstanding async write on the same `websocket::stream` is a
+  documented-safe pattern; two of either at once, or a blocking call mixed with an async one, is
+  not.
+- Prefer a single-threaded `io_context` for as long as it holds; only introduce a strand (a
+  mechanism that serializes a connection's own async operations across multiple threads) once
+  multiple networking threads are actually required, not in advance.
+- Replace the two-lane `OutboundQueue` (`control` / `event`) with three, named `controlMessages`,
+  `reliableEvents`, and `stateUpdates` -- deliberately not "event queue" for either of the latter
+  two, since a health update is not the same kind of thing as a quest completion.
+  `stateUpdates` keeps today's `EventCoalescer` latest-value-wins-per-key behavior. `reliableEvents`
+  stays ordered and is never silently overwritten or dropped; if it fills, delivery is prioritized
+  over `stateUpdates` and, if a client still cannot keep up, that client is marked unhealthy and
+  disconnected rather than buffered indefinitely or allowed to block the bridge.
+- Publish a value only when it changes. Prefer an existing native Skyrim event for any field that
+  has one; fall back to one bridge-owned, per-rate-class-throttled sampling hook only where no
+  suitable event exists. A rate class (Fast/Medium/Slow) names a maximum publish frequency, not a
+  mandatory one.
+- Exact lane capacities are deliberately not decided yet; they follow from profiling once this is
+  built, not advance estimation.
