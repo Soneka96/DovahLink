@@ -22,6 +22,7 @@ find_package(boost_json CONFIG REQUIRED)
 add_library(dovahlink_bridge_core STATIC
     application/character_state.cpp
     application/character_state_store.cpp
+    application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
     application/event_coalescer.cpp
@@ -68,6 +69,7 @@ target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core C
 add_executable(dovahlink_bridge_tests
     application/character_state_store_test.cpp
     application/character_state_test.cpp
+    application/connection_session_test.cpp
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp

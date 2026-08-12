@@ -47,9 +47,25 @@ public:
     explicit WebSocketSession(boost::asio::ip::tcp::socket socket);
 
     // Performs the WebSocket accept handshake with compression disabled,
-    // the documented timeouts configured, and the maximum inbound message
-    // size bounded to bridge/security/limits.hpp's kMaxInboundFrameBytes.
+    // the maximum inbound message size bounded to bridge/security/
+    // limits.hpp's kMaxInboundFrameBytes, and Beast's idle-read timeout
+    // initialized to kHandshakeTimeout (5s). Beast's own handshake_timeout
+    // option only covers the WebSocket protocol upgrade itself (the HTTP
+    // Upgrade exchange completed inside this call); it has no separate
+    // concept of "the first application-level read waits less time than
+    // later ones", so the 5-second wait for the caller's first message
+    // (hello) is implemented by starting idle_timeout at kHandshakeTimeout
+    // rather than kIdleTimeout. The caller must call SwitchToIdleTimeout
+    // once authentication succeeds, or every read after the first will
+    // still only be allowed 5 seconds.
     [[nodiscard]] std::expected<void, SessionError> Accept();
+
+    // Re-applies Beast's idle-read timeout to kIdleTimeout (60s), replacing
+    // the kHandshakeTimeout (5s) window Accept() started with. Call this
+    // once authentication succeeds (ai/context/protocol/security.md's
+    // "60-second idle connection timeout without a valid heartbeat or
+    // message" applies from that point on, not before).
+    void SwitchToIdleTimeout();
 
     // Reads one message. Rejects (and does not return the content of) a
     // binary frame; the caller treats that as a protocol violation.

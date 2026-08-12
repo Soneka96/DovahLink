@@ -2,6 +2,8 @@
 
 #include "security/hex.hpp"
 
+#include <windows.h>
+
 #include <bcrypt.h>
 
 namespace dovahlink::security {

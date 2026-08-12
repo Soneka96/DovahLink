@@ -7,7 +7,7 @@
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/websocket/error.hpp>
-#include <boost/beast/websocket/permessage_deflate.hpp>
+#include <boost/beast/websocket/option.hpp>
 #include <boost/beast/websocket/rfc6455.hpp>
 
 #include <utility>
@@ -24,7 +24,9 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
 
     boost::beast::websocket::stream_base::timeout timeoutOptions;
     timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
-    timeoutOptions.idle_timeout = security::kIdleTimeout;
+    // Starts at the 5-second handshake window, not the 60-second idle one --
+    // see this method's declaration comment in websocket_session.hpp.
+    timeoutOptions.idle_timeout = security::kHandshakeTimeout;
     timeoutOptions.keep_alive_pings = false;
     ws_.set_option(timeoutOptions);
 
@@ -36,6 +38,14 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
         return std::unexpected(SessionError::kHandshakeFailed);
     }
     return {};
+}
+
+void WebSocketSession::SwitchToIdleTimeout() {
+    boost::beast::websocket::stream_base::timeout timeoutOptions;
+    timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
+    timeoutOptions.idle_timeout = security::kIdleTimeout;
+    timeoutOptions.keep_alive_pings = false;
+    ws_.set_option(timeoutOptions);
 }
 
 std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {

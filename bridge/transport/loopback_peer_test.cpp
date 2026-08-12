@@ -49,14 +49,19 @@ TEST_CASE("IsAcceptablePeerAddress rejects the IPv4 unspecified address", "[tran
     CHECK_FALSE(IsAcceptablePeerAddress(boost::asio::ip::make_address("0.0.0.0")));
 }
 
-TEST_CASE("IsAcceptablePeerAddress accepts the IPv4-mapped IPv6 loopback address",
+TEST_CASE("IsAcceptablePeerAddress rejects the IPv4-mapped IPv6 loopback address",
           "[transport][loopback_peer]") {
-    // ::ffff:127.0.0.1 represents the same loopback host as 127.0.0.1, in the
-    // form a dual-stack IPv6 socket could observe it; is_loopback() is
-    // documented to special-case IPv4-mapped addresses rather than only
-    // recognizing ::1 literally, and this security-sensitive check must
-    // agree with that rather than have a gap for this representation.
-    CHECK(IsAcceptablePeerAddress(boost::asio::ip::make_address("::ffff:127.0.0.1")));
+    // Verified directly against the vendored Boost.Asio source
+    // (address_v6::is_loopback, boost/asio/ip/impl/address_v6.ipp): it only
+    // matches the literal 16 bytes of ::1, with no special case for
+    // IPv4-mapped addresses -- a prior version of this test assumed
+    // otherwise and was wrong, caught by actually running it. This
+    // representation is also unreachable in practice here regardless:
+    // LoopbackListener always binds the specific address 127.0.0.1 or ::1,
+    // never a dual-stack wildcard socket, so remote_endpoint() cannot
+    // observe an IPv4-mapped peer address from a real connection to this
+    // bridge.
+    CHECK_FALSE(IsAcceptablePeerAddress(boost::asio::ip::make_address("::ffff:127.0.0.1")));
 }
 
 TEST_CASE("AcceptLoopbackOnly returns a valid socket for a real IPv4 loopback peer",

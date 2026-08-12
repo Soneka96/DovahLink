@@ -6,7 +6,7 @@
 //     before a message could be decoded
 //   - kFrameTooLarge is the caller's signal to close immediately without
 //     routing it through the 3-violations/30s throttle
-//     (application::ViolationTracker, Step 14), which is reserved for
+//     (security::ViolationTracker, Step 14), which is reserved for
 //     violations discovered after a safe message was already decoded
 //
 // WebSocketSession has no dependency on ViolationTracker (transport does not
@@ -36,7 +36,7 @@
 #include <thread>
 #include <utility>
 
-using dovahlink::application::ViolationTracker;
+using dovahlink::security::ViolationTracker;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
@@ -71,7 +71,7 @@ TEST_CASE("a message within the frame size limit is read normally", "[transport]
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     clientWs.text(true);
@@ -119,7 +119,7 @@ TEST_CASE("a message exactly at the frame size limit is accepted, not rejected",
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     clientWs.text(true);
@@ -167,7 +167,7 @@ TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarg
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     clientWs.text(true);

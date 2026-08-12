@@ -74,10 +74,12 @@ TEST_CASE("ProcessInboundMessage answers ping with pong and resets the idle time
     REQUIRE(result.responses[0].correlationId.has_value());
     CHECK(*result.responses[0].correlationId == "message-ping-1");
 
-    // The 60s idle deadline was reset to start+30s+60s by RecordActivity;
-    // without it, the original deadline (start+60s from MarkAuthenticated)
-    // would already be exceeded at start+90s.
-    CHECK_FALSE(fixture.timeout.IsTimedOut(start + std::chrono::seconds(90)));
+    // The 60s idle deadline was reset to start+30s+60s=start+90s by
+    // RecordActivity. Checking at start+65s: after the original deadline
+    // (start+60s from MarkAuthenticated, which would already have expired
+    // without RecordActivity) but still before the new one, so this can
+    // only pass if RecordActivity actually moved the deadline.
+    CHECK_FALSE(fixture.timeout.IsTimedOut(start + std::chrono::seconds(65)));
 }
 
 TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a snapshot",

@@ -131,7 +131,14 @@ TEST_CASE("MarkRecovered clears the recovery mark and allows publishing again",
     coalescer.MarkRecovered("character");
     CHECK_FALSE(coalescer.NeedsRecovery("character"));
 
-    REQUIRE(queue.DequeueEvent().has_value());  // free a slot
+    // Drain every filler first: DequeueEvent is FIFO, so freeing only one
+    // slot and publishing "fresh-event" would enqueue it behind the
+    // remaining 111 fillers, and the very next dequeue would still return
+    // one of those, not "fresh-event" -- caught by actually running this
+    // test, which a single freed slot did not.
+    for (std::size_t i = 0; i < dovahlink::security::kReservedEventSlots; ++i) {
+        REQUIRE(queue.DequeueEvent().has_value());
+    }
     coalescer.PublishEvent("character", "fresh-event");
     coalescer.Flush();
     CHECK(queue.DequeueEvent() == "fresh-event");

@@ -31,16 +31,18 @@ std::expected<LoopbackListener, ListenerError> LoopbackListener::Create(boost::a
         return std::unexpected(ListenerError::kBindFailed);
     }
 
-    // Allows rebinding a port still lingering in TIME_WAIT from a previous
-    // listener (e.g. across quick restarts during development). This does
-    // not let two sockets listen on the same port simultaneously -- that
-    // would need SO_REUSEPORT, a different option -- so it does not weaken
-    // the one-connected-client or loopback-only guarantees.
-    acceptor.set_option(boost::asio::socket_base::reuse_address(true), ec);
-    if (ec) {
-        return std::unexpected(ListenerError::kBindFailed);
-    }
-
+    // SO_REUSEADDR is deliberately NOT set here. On POSIX it would only
+    // permit rebinding a port still lingering in TIME_WAIT; on Windows it
+    // has much looser semantics and can let a second socket bind to a port
+    // an existing socket is actively listening on, silently defeating the
+    // "one listener per port" guarantee this bridge relies on (confirmed by
+    // an actual failing test: a second LoopbackListener::Create on an
+    // already-bound port succeeded instead of returning kBindFailed, until
+    // this option was removed). Windows' actual TIME_WAIT-only equivalent
+    // is SO_EXCLUSIVEADDRUSE, not needed here since binding without
+    // SO_REUSEADDR already fails closed the way this bridge needs; a quick
+    // dev-loop restart hitting TIME_WAIT is a minor, rare inconvenience,
+    // not a correctness requirement.
     acceptor.bind(endpoint, ec);
     if (ec) {
         return std::unexpected(ListenerError::kBindFailed);

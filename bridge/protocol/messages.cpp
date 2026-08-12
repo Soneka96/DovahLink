@@ -188,12 +188,12 @@ boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& p
     boost::json::array accepted;
     accepted.reserve(payload.acceptedStateAreas.size());
     for (const std::string& area : payload.acceptedStateAreas) {
-        accepted.push_back(area);
+        accepted.push_back(boost::json::value(area));
     }
     boost::json::array rejected;
     rejected.reserve(payload.rejectedStateAreas.size());
     for (const std::string& area : payload.rejectedStateAreas) {
-        rejected.push_back(area);
+        rejected.push_back(boost::json::value(area));
     }
     boost::json::object obj;
     obj["acceptedStateAreas"] = std::move(accepted);

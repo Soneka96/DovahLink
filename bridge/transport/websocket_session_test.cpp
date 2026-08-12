@@ -55,7 +55,7 @@ TEST_CASE("Accept completes a real WebSocket handshake over loopback",
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
 
     serverThread.join();
 
@@ -95,7 +95,7 @@ TEST_CASE("a text message from the client is read on the server", "[transport][w
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     clientWs.text(true);
@@ -141,7 +141,7 @@ TEST_CASE("a text message from the server is read on the client", "[transport][w
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     boost::beast::flat_buffer buffer;
@@ -188,7 +188,7 @@ TEST_CASE("ReadMessage fails when the client closes the connection abruptly with
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     // Tear down the underlying TCP connection directly, bypassing the
@@ -235,7 +235,7 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     // The server's Close() sends a close frame; Beast's client-side read
@@ -250,6 +250,64 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
     REQUIRE_FALSE(serverAcceptEc);
     REQUIRE(serverHandshakeResult.has_value());
     CHECK(readEc == boost::beast::websocket::error::closed);
+}
+
+TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
+          "[transport][websocket_session]") {
+    // The actual timeout durations (5s handshake vs. 60s idle) are not
+    // exercised here -- a unit test cannot wait real seconds to prove a
+    // timeout fires (ai/context/skse/testing.md: do not rely on timing
+    // sleeps) -- and are verified by code inspection instead, matching this
+    // file's existing precedent for Beast options that have no simple
+    // runtime-introspectable accessor (see the compression-disabled note in
+    // websocket_session.hpp). This proves only that re-applying the option
+    // mid-session is a safe, message-preserving operation, exercising the
+    // one thing that IS observable: does a message sent after the switch
+    // still arrive correctly.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    boost::system::error_code serverAcceptEc;
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::unexpected(SessionError::kReadFailed);
+
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        session.SwitchToIdleTimeout();
+        serverReadResult = session.ReadMessage();
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(std::string("after switch")), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    REQUIRE(serverHandshakeResult.has_value());
+    REQUIRE(serverReadResult.has_value());
+    CHECK(*serverReadResult == "after switch");
 }
 
 TEST_CASE("a binary frame from the client is rejected, not returned as a message",
@@ -283,7 +341,7 @@ TEST_CASE("a binary frame from the client is rejected, not returned as a message
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
-    clientWs.handshake(handshakeEc, "127.0.0.1", "/");
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
     clientWs.binary(true);

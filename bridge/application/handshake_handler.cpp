@@ -1,6 +1,7 @@
 #include "application/handshake_handler.hpp"
 
 #include "protocol/messages.hpp"
+#include "security/csprng.hpp"
 #include "security/hex.hpp"
 
 #include <algorithm>
