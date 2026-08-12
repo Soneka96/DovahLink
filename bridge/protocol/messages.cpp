@@ -146,6 +146,20 @@ std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const
     return CapabilitiesPayload{.capabilities = std::move(capabilities)};
 }
 
+boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload) {
+    boost::json::array capabilities;
+    capabilities.reserve(payload.capabilities.size());
+    for (const Capability& capability : payload.capabilities) {
+        boost::json::object capObj;
+        capObj["id"] = capability.id;
+        capObj["version"] = capability.version;
+        capabilities.push_back(std::move(capObj));
+    }
+    boost::json::object obj;
+    obj["capabilities"] = std::move(capabilities);
+    return obj;
+}
+
 std::expected<SubscribePayload, MessageError> DecodeSubscribePayload(const boost::json::object& payload) {
     auto stateAreas = DecodeStringArray(RequireField(payload, "stateAreas"), "stateAreas");
     if (!stateAreas) {
@@ -168,6 +182,23 @@ std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload
         .acceptedStateAreas = std::move(*accepted),
         .rejectedStateAreas = std::move(*rejected),
     };
+}
+
+boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload) {
+    boost::json::array accepted;
+    accepted.reserve(payload.acceptedStateAreas.size());
+    for (const std::string& area : payload.acceptedStateAreas) {
+        accepted.push_back(area);
+    }
+    boost::json::array rejected;
+    rejected.reserve(payload.rejectedStateAreas.size());
+    for (const std::string& area : payload.rejectedStateAreas) {
+        rejected.push_back(area);
+    }
+    boost::json::object obj;
+    obj["acceptedStateAreas"] = std::move(accepted);
+    obj["rejectedStateAreas"] = std::move(rejected);
+    return obj;
 }
 
 std::expected<SnapshotRequestPayload, MessageError> DecodeSnapshotRequestPayload(
@@ -214,6 +245,15 @@ std::expected<StateSnapshotPayload, MessageError> DecodeStateSnapshotPayload(
         .occurredAt = std::move(*occurredAt),
         .data = dataValue->get_object(),
     };
+}
+
+boost::json::object EncodeStateSnapshotPayload(const StateSnapshotPayload& payload) {
+    boost::json::object obj;
+    obj["stateArea"] = payload.stateArea;
+    obj["revision"] = payload.revision;
+    obj["occurredAt"] = payload.occurredAt;
+    obj["data"] = payload.data;
+    return obj;
 }
 
 std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boost::json::object& payload) {
@@ -348,6 +388,35 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     obj["retryable"] = payload.retryable;
     obj["details"] = payload.details.has_value() ? *payload.details : boost::json::value(nullptr);
     return obj;
+}
+
+Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t protocolVersion,
+                             std::optional<std::string> sessionId, std::string code, std::string message,
+                             bool retryable) {
+    boost::json::object payload = EncodeErrorPayload(ErrorPayload{
+        .code = std::move(code),
+        .message = std::move(message),
+        .retryable = retryable,
+        .details = std::nullopt,
+    });
+    auto envelope = BuildEnvelope(protocolVersion, std::string(message_type::kError), sessionId,
+                                   originalEnvelope.messageId, payload);
+    if (envelope.has_value()) {
+        return std::move(*envelope);
+    }
+    // GenerateOpaqueId failed inside BuildEnvelope -- unreachable in
+    // practice (security/csprng.hpp). A fixed, non-random messageId here is
+    // the one place this function cannot honor the "cryptographically
+    // random messageId" requirement, since the same broken primitive would
+    // fail identically on any retry.
+    return Envelope{
+        .protocolVersion = protocolVersion,
+        .messageType = std::string(message_type::kError),
+        .messageId = "csprng-unavailable",
+        .sessionId = std::move(sessionId),
+        .correlationId = originalEnvelope.messageId,
+        .payload = std::move(payload),
+    };
 }
 
 }  // namespace dovahlink::protocol

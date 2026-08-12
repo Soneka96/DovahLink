@@ -1,11 +1,9 @@
 #include "application/handshake_handler.hpp"
 
 #include "protocol/messages.hpp"
-#include "security/csprng.hpp"
 #include "security/hex.hpp"
 
 #include <algorithm>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -39,7 +37,10 @@
 //   one-time token on a doomed attempt -- unavoidable given
 //   TokenStore::TryConsume's required atomic compare-and-consume (TASK.md),
 //   which rules out a non-consuming "peek" that could check session
-//   capacity first.
+//   capacity first. Both the session ID and this response's messageId are
+//   generated together, before TryCreateSession runs, so a CSPRNG failure
+//   at that point never leaves a session created that the client can never
+//   learn the ID of.
 // - Handshake-timeout closure (checking ConnectionTimeoutTracker::IsTimedOut
 //   independent of a message actually arriving) is not this function's job;
 //   this function only runs once a hello message has already been read.
@@ -49,35 +50,13 @@ namespace dovahlink::application {
 
 namespace {
 
-constexpr std::size_t kOpaqueIdBytes = 16;  // 128 bits: ample collision resistance for an opaque ID.
-
-// Generates a fresh cryptographically random hex-encoded ID, used for both
-// messageId and sessionId (protocol/schema/README.md requires both to be
-// cryptographically random). nullopt only if the underlying CNG call fails
-// (security::GenerateRandomBytes), a condition that codebase already treats
-// as unreachable in practice and does not unit-test (security/csprng.hpp).
-std::optional<std::string> GenerateOpaqueId() {
-    auto bytes = security::GenerateRandomBytes(kOpaqueIdBytes);
-    if (!bytes.has_value()) {
-        return std::nullopt;
-    }
-    return security::EncodeHex(*bytes);
-}
-
-protocol::Envelope BuildErrorEnvelope(const protocol::Envelope& helloEnvelope, std::string messageId,
-                                       std::string code, std::string message, bool retryable) {
-    return protocol::Envelope{
-        .protocolVersion = 0,
-        .messageType = std::string(protocol::message_type::kError),
-        .messageId = std::move(messageId),
-        .sessionId = std::nullopt,  // no session exists yet on any hello-handling path.
-        .correlationId = helloEnvelope.messageId,
-        .payload = protocol::EncodeErrorPayload(protocol::ErrorPayload{
-            .code = std::move(code),
-            .message = std::move(message),
-            .retryable = retryable,
-            .details = std::nullopt,
-        }),
+HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, std::string message,
+                      bool retryable) {
+    return HandshakeResult{
+        .response = protocol::BuildErrorEnvelope(helloEnvelope, /*protocolVersion=*/0,
+                                                  /*sessionId=*/std::nullopt, std::move(code),
+                                                  std::move(message), retryable),
+        .closeConnection = true,
     };
 }
 
@@ -87,45 +66,19 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                              security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                              ConnectionId connection, ConnectionTimeoutTracker& timeoutTracker,
                              std::chrono::steady_clock::time_point now) {
-    auto responseMessageId = GenerateOpaqueId();
-    if (!responseMessageId.has_value()) {
-        // See GenerateOpaqueId's doc: unreachable in practice. A fixed,
-        // non-random ID here is the one place this function cannot honor
-        // the "cryptographically random messageId" requirement, because the
-        // same broken primitive that failed here would fail identically if
-        // retried for a "proper" error response.
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, "csprng-unavailable", "internal_error",
-                                            "Unable to establish a secure connection", false),
-            .closeConnection = true,
-        };
-    }
-
     if (helloEnvelope.protocolVersion != 0) {
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "malformed_message",
-                                            "hello must use protocolVersion 0", false),
-            .closeConnection = true,
-        };
+        return Fail(helloEnvelope, "malformed_message", "hello must use protocolVersion 0", false);
     }
 
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "malformed_message",
-                                            "Malformed hello payload", false),
-            .closeConnection = true,
-        };
+        return Fail(helloEnvelope, "malformed_message", "Malformed hello payload", false);
     }
 
     bool versionSupported = std::ranges::find(hello->supportedProtocolVersions, kSupportedProtocolVersion) !=
                              hello->supportedProtocolVersions.end();
     if (!versionSupported) {
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "unsupported_version",
-                                            "No mutually supported protocol version", false),
-            .closeConnection = true,
-        };
+        return Fail(helloEnvelope, "unsupported_version", "No mutually supported protocol version", false);
     }
 
     // A structurally invalid presented token (not valid hex) can never
@@ -138,34 +91,19 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     if (!consumed) {
         bool limitExceeded = tokenThrottle.RecordFailureAndCheckLimit(now);
         if (limitExceeded) {
-            return HandshakeResult{
-                .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "rate_limited",
-                                                "Too many failed token attempts", true),
-                .closeConnection = true,
-            };
+            return Fail(helloEnvelope, "rate_limited", "Too many failed token attempts", true);
         }
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "unauthenticated",
-                                            "Invalid or expired one-time token", false),
-            .closeConnection = true,
-        };
+        return Fail(helloEnvelope, "unauthenticated", "Invalid or expired one-time token", false);
     }
 
-    auto sessionId = GenerateOpaqueId();
-    if (!sessionId.has_value()) {
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "internal_error",
-                                            "Unable to establish a secure connection", false),
-            .closeConnection = true,
-        };
+    auto sessionId = security::GenerateOpaqueId();
+    auto responseMessageId = security::GenerateOpaqueId();
+    if (!sessionId.has_value() || !responseMessageId.has_value()) {
+        return Fail(helloEnvelope, "internal_error", "Unable to establish a secure connection", false);
     }
 
     if (!sessionManager.TryCreateSession(connection, *sessionId)) {
-        return HandshakeResult{
-            .response = BuildErrorEnvelope(helloEnvelope, *responseMessageId, "unauthorized",
-                                            "Another client is already connected", true),
-            .closeConnection = true,
-        };
+        return Fail(helloEnvelope, "unauthorized", "Another client is already connected", true);
     }
 
     timeoutTracker.MarkAuthenticated(now);

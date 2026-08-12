@@ -257,6 +257,98 @@ TEST_CASE("EncodeErrorPayload round-trips a payload with details actually presen
     CHECK(*roundTripped->details == *original.details);
 }
 
+TEST_CASE("BuildErrorEnvelope answers the original message and encodes a decodable payload",
+          "[protocol][messages]") {
+    auto originalEnvelope = DecodeFixtureEnvelope("connection/hello.json");
+
+    auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
+        originalEnvelope, /*protocolVersion=*/0, /*sessionId=*/std::nullopt, "unauthenticated",
+        "Invalid or expired one-time token", /*retryable=*/false);
+
+    CHECK(errorEnvelope.protocolVersion == 0);
+    CHECK(errorEnvelope.messageType == "error");
+    CHECK_FALSE(errorEnvelope.messageId.empty());
+    CHECK_FALSE(errorEnvelope.sessionId.has_value());
+    REQUIRE(errorEnvelope.correlationId.has_value());
+    CHECK(*errorEnvelope.correlationId == originalEnvelope.messageId);
+
+    auto error = dovahlink::protocol::DecodeErrorPayload(errorEnvelope.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+    CHECK_FALSE(error->retryable);
+}
+
+TEST_CASE("BuildErrorEnvelope carries the caller's protocolVersion and sessionId through unchanged",
+          "[protocol][messages]") {
+    auto originalEnvelope = DecodeFixtureEnvelope("subscriptions/subscribe.json");
+
+    auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
+        originalEnvelope, /*protocolVersion=*/1, /*sessionId=*/std::string("session-1"), "rate_limited",
+        "Inbound message rate exceeded 100 messages per second", /*retryable=*/true);
+
+    CHECK(errorEnvelope.protocolVersion == 1);
+    REQUIRE(errorEnvelope.sessionId.has_value());
+    CHECK(*errorEnvelope.sessionId == "session-1");
+}
+
+TEST_CASE("EncodeCapabilitiesPayload round-trips the capabilities-bridge fixture's payload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-bridge.json");
+    auto original = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
+    REQUIRE(original.has_value());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeCapabilitiesPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeCapabilitiesPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    REQUIRE(roundTripped->capabilities.size() == 1);
+    CHECK(roundTripped->capabilities[0].id == "state.character");
+    CHECK(roundTripped->capabilities[0].version == 1);
+}
+
+TEST_CASE("EncodeCapabilitiesPayload round-trips an empty capabilities list", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-client.json");
+    auto original = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
+    REQUIRE(original.has_value());
+    REQUIRE(original->capabilities.empty());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeCapabilitiesPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeCapabilitiesPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->capabilities.empty());
+}
+
+TEST_CASE("EncodeSubscriptionAckPayload round-trips the subscription-ack fixture's payload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
+    auto original = dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
+    REQUIRE(original.has_value());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeSubscriptionAckPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeSubscriptionAckPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->acceptedStateAreas == original->acceptedStateAreas);
+    CHECK(roundTripped->rejectedStateAreas == original->rejectedStateAreas);
+}
+
+TEST_CASE("EncodeStateSnapshotPayload round-trips the character-state-snapshot fixture's payload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("state/character/character-state-snapshot.json");
+    auto original = dovahlink::protocol::DecodeStateSnapshotPayload(envelope.payload);
+    REQUIRE(original.has_value());
+
+    boost::json::object encoded = dovahlink::protocol::EncodeStateSnapshotPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeStateSnapshotPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->stateArea == original->stateArea);
+    CHECK(roundTripped->revision == original->revision);
+    CHECK(roundTripped->occurredAt == original->occurredAt);
+    CHECK(roundTripped->data == original->data);
+}
+
 // Hand-built malformed payload cases: these test the codec's rejection behavior for
 // rules distinctive to each message type and are not stored as fixtures, matching
 // protocol/fixtures/README.md (fixtures model valid or documented wire scenarios).

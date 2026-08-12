@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace dovahlink::security {
@@ -18,5 +19,15 @@ namespace dovahlink::security {
 // fail, which cannot be forced deterministically without a mockable seam this
 // thin, single-call wrapper does not have. Reviewed by inspection instead.
 [[nodiscard]] std::optional<std::vector<std::uint8_t>> GenerateRandomBytes(std::size_t size);
+
+// Generates a fresh cryptographically random, hex-encoded opaque identifier
+// (128 bits / 16 bytes -- ample collision resistance for a protocol
+// messageId or sessionId, deliberately smaller than the 256-bit one-time
+// token since an ID is not a secret being guessed, only something that must
+// not collide). protocol/schema/README.md requires both messageId and
+// sessionId to be "cryptographically random"; this is the one place that
+// requirement is implemented. nullopt only if GenerateRandomBytes fails
+// (see its own docs on that being unreachable in practice).
+[[nodiscard]] std::optional<std::string> GenerateOpaqueId();
 
 }  // namespace dovahlink::security

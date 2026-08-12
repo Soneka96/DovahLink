@@ -1,6 +1,7 @@
 #include "protocol/envelope.hpp"
 
 #include "protocol/json_field_decoders.hpp"
+#include "security/csprng.hpp"
 
 #include <boost/json/object.hpp>
 #include <boost/json/serialize.hpp>
@@ -109,6 +110,24 @@ std::string EncodeEnvelope(const Envelope& envelope) {
                                                                 : boost::json::value(nullptr);
     obj["payload"] = envelope.payload;
     return boost::json::serialize(obj);
+}
+
+std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string messageType,
+                                       std::optional<std::string> sessionId,
+                                       std::optional<std::string> correlationId,
+                                       boost::json::object payload) {
+    auto messageId = security::GenerateOpaqueId();
+    if (!messageId.has_value()) {
+        return std::nullopt;
+    }
+    return Envelope{
+        .protocolVersion = protocolVersion,
+        .messageType = std::move(messageType),
+        .messageId = std::move(*messageId),
+        .sessionId = std::move(sessionId),
+        .correlationId = std::move(correlationId),
+        .payload = std::move(payload),
+    };
 }
 
 }  // namespace dovahlink::protocol

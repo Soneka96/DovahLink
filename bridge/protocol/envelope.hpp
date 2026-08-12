@@ -39,4 +39,17 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
 // payload-specific Decode*Payload functions.
 std::string EncodeEnvelope(const Envelope& envelope);
 
+// Builds a complete envelope with a fresh cryptographically random
+// messageId (security::GenerateOpaqueId), for any outbound message type.
+// `payload` is already built by the caller via the registered
+// Encode*Payload functions in messages.hpp. Returns nullopt only if
+// GenerateOpaqueId fails -- an unreachable-in-practice CSPRNG failure, see
+// security/csprng.hpp -- in which case the caller must not send a
+// non-compliant message and should fall back to its own error handling
+// (see messages.hpp's BuildErrorEnvelope for the pattern this follows).
+std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string messageType,
+                                       std::optional<std::string> sessionId,
+                                       std::optional<std::string> correlationId,
+                                       boost::json::object payload);
+
 }  // namespace dovahlink::protocol

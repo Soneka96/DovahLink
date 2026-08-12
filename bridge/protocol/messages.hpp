@@ -1,6 +1,7 @@
 #pragma once
 
 #include "protocol/decode_error.hpp"
+#include "protocol/envelope.hpp"
 
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
@@ -70,6 +71,7 @@ struct CapabilitiesPayload {
     std::vector<Capability> capabilities;
 };
 std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload);
+boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload);
 
 struct SubscribePayload {
     std::vector<std::string> stateAreas;
@@ -82,6 +84,7 @@ struct SubscriptionAckPayload {
 };
 std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload(
     const boost::json::object& payload);
+boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload);
 
 struct SnapshotRequestPayload {
     std::string stateArea;
@@ -98,6 +101,7 @@ struct StateSnapshotPayload {
 };
 std::expected<StateSnapshotPayload, MessageError> DecodeStateSnapshotPayload(
     const boost::json::object& payload);
+boost::json::object EncodeStateSnapshotPayload(const StateSnapshotPayload& payload);
 
 struct StateEventPayload {
     std::string stateArea;
@@ -138,5 +142,22 @@ std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::
 // optional" (protocol/schema/README.md) means the value may be null, not
 // that the key may be omitted from a v1 message this codebase produces.
 boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
+
+// Builds a complete `error` envelope answering `originalEnvelope`.
+// `sessionId` is the caller's choice: nullopt for a pre-session rejection
+// (e.g. answering hello), the active session's ID once one exists.
+// `protocolVersion` is likewise the caller's choice: 0 while still
+// negotiating, the selected version afterward.
+//
+// Always succeeds: if the underlying messageId generation
+// (security::GenerateOpaqueId) fails -- an unreachable-in-practice CSPRNG
+// failure, see security/csprng.hpp -- this falls back to a fixed sentinel
+// messageId rather than propagate the failure to the caller. An error
+// report is already a degraded channel; every caller independently
+// reimplementing the same "what if we can't even report the error"
+// fallback would just duplicate this one decision.
+Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t protocolVersion,
+                             std::optional<std::string> sessionId, std::string code, std::string message,
+                             bool retryable);
 
 }  // namespace dovahlink::protocol

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 
+using dovahlink::security::GenerateOpaqueId;
 using dovahlink::security::GenerateRandomBytes;
 
 TEST_CASE("GenerateRandomBytes returns the requested number of bytes (256-bit token size)",
@@ -42,4 +43,23 @@ TEST_CASE("GenerateRandomBytes output is not all zero bytes", "[security][csprng
     REQUIRE(bytes.has_value());
     bool allZero = std::all_of(bytes->begin(), bytes->end(), [](std::uint8_t b) { return b == 0; });
     CHECK_FALSE(allZero);
+}
+
+TEST_CASE("GenerateOpaqueId produces a 32-character lowercase hex string (128 bits)",
+          "[security][csprng]") {
+    auto id = GenerateOpaqueId();
+    REQUIRE(id.has_value());
+    CHECK(id->size() == 32);
+    bool allHex = std::all_of(id->begin(), id->end(), [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+    CHECK(allHex);
+}
+
+TEST_CASE("GenerateOpaqueId produces different IDs across calls", "[security][csprng]") {
+    auto first = GenerateOpaqueId();
+    auto second = GenerateOpaqueId();
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(*first != *second);
 }
