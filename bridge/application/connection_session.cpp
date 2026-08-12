@@ -39,6 +39,16 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         return;
     }
 
+    if (timeout.IsTimedOut(std::chrono::steady_clock::now())) {
+        // The hello itself arrived, but only after trickling in slowly
+        // enough to keep each individual OS-level socket read
+        // (WebSocketSession::SetReadTimeout) from firing on its own. This is
+        // the message-layer backstop HandleHello's own doc comment expects
+        // "whatever owns the read loop" to provide.
+        ws.Close();
+        return;
+    }
+
     auto parsedHello = protocol::ParseBoundedJson(*rawHello);
     if (!parsedHello.has_value()) {
         ws.Close();

@@ -247,6 +247,45 @@ TEST_CASE("ProcessInboundMessage closes the connection on the 3rd protocol viola
     CHECK(third.closeConnection);
 }
 
+TEST_CASE("ProcessInboundMessage closes with no response once the connection's timeout window "
+          "has already elapsed, even for an otherwise-valid message",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto start = SteadyClock::now();
+    fixture.timeout = ConnectionTimeoutTracker(start);
+    fixture.timeout.MarkAuthenticated(start);
+
+    // 60s idle deadline from MarkAuthenticated(start) is start+60s; this
+    // proves the check applies to a message that would otherwise be
+    // perfectly valid (a fresh, unseen ping), not just to already-invalid
+    // input.
+    auto result = fixture.Process(PingMessage("message-ping-late"), start + std::chrono::seconds(61));
+
+    CHECK(result.closeConnection);
+    CHECK(result.responses.empty());
+    // The early return must skip replay tracking too, not just skip sending
+    // a response: a message from a connection that's about to be closed
+    // anyway must not be recorded as seen.
+    CHECK(fixture.replayGuard.Count() == 0);
+}
+
+TEST_CASE("ProcessInboundMessage still processes an otherwise-valid message just before the "
+          "timeout deadline",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto start = SteadyClock::now();
+    fixture.timeout = ConnectionTimeoutTracker(start);
+    fixture.timeout.MarkAuthenticated(start);
+
+    // 60s idle deadline from MarkAuthenticated(start) is start+60s;
+    // start+59s is not yet timed out, the negation of the case above.
+    auto result = fixture.Process(PingMessage("message-ping-on-time"), start + std::chrono::seconds(59));
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "pong");
+}
+
 TEST_CASE("ProcessInboundMessage counts a handler-produced error as a protocol violation, "
           "not just a dispatcher-level rejection",
           "[application][message_dispatcher]") {

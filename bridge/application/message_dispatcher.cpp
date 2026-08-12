@@ -33,6 +33,14 @@
 //   malformed_message: there is no canonical code for "message type not
 //   valid in this context", and receiving hello, or any bridge-to-client-
 //   only type, on an already-authenticated connection is exactly that.
+// - The timeout check runs before anything else, including parsing: a
+//   message that only arrived because the client trickled bytes slowly
+//   enough to keep each individual OS-level socket read
+//   (WebSocketSession::SetReadTimeout) from firing on its own must still be
+//   rejected once the cumulative idle/handshake window has elapsed. Closed
+//   with no response, the same category as frame_too_large and the session
+//   message cap: there is nothing left to correlate a response against once
+//   the connection is already past its allowed window.
 
 namespace dovahlink::application {
 
@@ -96,6 +104,10 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, const std::s
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
+    if (timeoutTracker.IsTimedOut(steadyNow)) {
+        return DispatchResult{.closeConnection = true};
+    }
+
     auto parsed = protocol::ParseBoundedJson(rawMessage);
     if (!parsed.has_value()) {
         if (parsed.error() == protocol::BoundedJsonError::kFrameTooLarge) {

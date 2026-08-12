@@ -17,6 +17,7 @@
 #include <boost/beast/websocket/stream.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <chrono>
 #include <string>
 #include <thread>
 #include <utility>
@@ -204,5 +205,70 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     REQUIRE_FALSE(serverAcceptEc);
     CHECK(readEc);
     // The real token was never consumed by a rejected attempt.
+    CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives after the handshake "
+          "deadline, even though no single socket read ever timed out",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    SessionManager sessionManager;
+    FakeCharacterStateProvider stateProvider;
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    // Each gap below is well under the 5-second handshake timeout, so no
+    // individual OS-level socket read (WebSocketSession::SetReadTimeout)
+    // ever fires. Sending pings in between (which the server's Beast read
+    // absorbs transparently without returning to RunConnectionSession)
+    // pushes the cumulative time before hello arrives past the 5-second
+    // window anyway, proving the application-level ConnectionTimeoutTracker
+    // check catches what SO_RCVTIMEO alone cannot.
+    boost::system::error_code pingEc;
+    std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+    clientWs.ping({}, pingEc);
+    REQUIRE_FALSE(pingEc);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+    clientWs.ping({}, pingEc);
+    REQUIRE_FALSE(pingEc);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2200));
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken));
+
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    // The server closed without ever answering hello: no hello_ack, no
+    // error -- the same "close with no response" behavior as an oversized
+    // frame or the session message cap.
+    CHECK(readEc);
     CHECK(tokenStore.IsAvailable());
 }
