@@ -31,6 +31,18 @@ on `windows-2022`, and sets up the MSVC 2022 developer environment before config
 dev machine should match these same versions for a reproducible build; the workflow has not yet
 been exercised by an actual push, so treat it as unverified until it runs once in CI.
 
+The reference dev machine's Visual Studio 2022 Community install bundles a working CMake, Ninja,
+and `vcvarsall.bat` under `%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\...` (see
+`Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake,Ninja}` and
+`VC\Auxiliary\Build\vcvarsall.bat`), along with a bundled vcpkg at `VC\vcpkg` usable as
+`VCPKG_ROOT`. These are not on `PATH` by default. A local build/test run is possible without any
+separate toolchain install by importing `vcvarsall.bat x64`'s environment and configuring with
+`cmake --preset windows-x64-debug`; `dovahlink_bridge_tests.exe` can then be built and run directly
+(`dovahlink_bridge_game_state`, which needs the full CommonLibSSE-NG build, is not required for
+running the test suite). This was used starting partway through Phase 1 to move from static review
+to actual compilation and test execution, which surfaced and fixed several real bugs static review
+had missed.
+
 ## Dependency baselines
 
 One dependency is not vcpkg-managed: `bcrypt.lib`, the Windows SDK import library for CNG

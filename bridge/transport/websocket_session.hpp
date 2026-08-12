@@ -3,6 +3,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/websocket/stream.hpp>
 
+#include <chrono>
 #include <expected>
 #include <string>
 
@@ -29,13 +30,14 @@ enum class SessionError {
 // Wraps one accepted TCP connection as a WebSocket session with the Phase 1
 // framing rules from ai/context/protocol/security.md: compression disabled,
 // binary frames rejected (only UTF-8 JSON text messages are accepted and
-// sent), and the documented handshake/idle timeouts
-// (bridge/security/limits.hpp) enforced by Boost.Beast's own timeout
-// mechanism. Beast's built-in keep-alive pings are deliberately left off:
-// DovahLink's liveness proof is the registered `ping`/`pong` application
-// message pair (protocol/schema/README.md), not the WebSocket protocol's
-// own control-frame ping/pong, so enabling both would be a redundant,
-// overlapping liveness mechanism.
+// sent), and the documented handshake/idle timeouts (bridge/security/
+// limits.hpp) enforced at the OS socket level -- see SetReadTimeout for why
+// this class does not rely on Boost.Beast's own stream_base::timeout option
+// to do this, even though it still sets that option too. Beast's built-in
+// keep-alive pings are deliberately left off: DovahLink's liveness proof is
+// the registered `ping`/`pong` application message pair (protocol/schema/
+// README.md), not the WebSocket protocol's own control-frame ping/pong, so
+// enabling both would be a redundant, overlapping liveness mechanism.
 //
 // Compression being off is verified by code inspection (the explicit
 // `client_enable = false, server_enable = false` in Accept), not by a
@@ -48,21 +50,16 @@ public:
 
     // Performs the WebSocket accept handshake with compression disabled,
     // the maximum inbound message size bounded to bridge/security/
-    // limits.hpp's kMaxInboundFrameBytes, and Beast's idle-read timeout
-    // initialized to kHandshakeTimeout (5s). Beast's own handshake_timeout
-    // option only covers the WebSocket protocol upgrade itself (the HTTP
-    // Upgrade exchange completed inside this call); it has no separate
-    // concept of "the first application-level read waits less time than
-    // later ones", so the 5-second wait for the caller's first message
-    // (hello) is implemented by starting idle_timeout at kHandshakeTimeout
-    // rather than kIdleTimeout. The caller must call SwitchToIdleTimeout
-    // once authentication succeeds, or every read after the first will
-    // still only be allowed 5 seconds.
+    // limits.hpp's kMaxInboundFrameBytes, and the read timeout bounded to
+    // kHandshakeTimeout (5s) -- see SetReadTimeout. The caller must call
+    // SwitchToIdleTimeout once authentication succeeds, or every
+    // subsequent read stays bounded to 5 seconds instead of the 60-second
+    // idle window.
     [[nodiscard]] std::expected<void, SessionError> Accept();
 
-    // Re-applies Beast's idle-read timeout to kIdleTimeout (60s), replacing
-    // the kHandshakeTimeout (5s) window Accept() started with. Call this
-    // once authentication succeeds (ai/context/protocol/security.md's
+    // Switches the read timeout to kIdleTimeout (60s), replacing the
+    // kHandshakeTimeout (5s) window Accept() started with. Call this once
+    // authentication succeeds (ai/context/protocol/security.md's
     // "60-second idle connection timeout without a valid heartbeat or
     // message" applies from that point on, not before).
     void SwitchToIdleTimeout();
@@ -78,6 +75,25 @@ public:
     void Close();
 
 private:
+    // The single place that owns "how long may a blocking operation on
+    // this connection wait before giving up." Sets Beast's own
+    // stream_base::timeout option (handshake_timeout fixed at
+    // kHandshakeTimeout, idle_timeout set to `timeout`, keep_alive_pings
+    // left off) purely for documentation/consistency -- it does not by
+    // itself bound this class's synchronous accept/read/write calls, or
+    // the graceful-close wait inside Beast's own internal error handling,
+    // because Beast only arms that option's timer for its asynchronous
+    // API. The actual enforcement is an OS-level receive timeout
+    // (SO_RCVTIMEO) applied directly to the underlying socket, which
+    // bounds every blocking recv() this stream performs no matter which
+    // Beast code path makes it, including ones inside Beast's own
+    // internals this class has no direct call site for. Called from
+    // Accept() (kHandshakeTimeout, before the accept handshake itself so
+    // that wait is bounded too) and SwitchToIdleTimeout() (kIdleTimeout).
+    // If the enforcement mechanism or window values ever need to change,
+    // this is the only place that needs to.
+    void SetReadTimeout(std::chrono::steady_clock::duration timeout);
+
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> ws_;
 };
 

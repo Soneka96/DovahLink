@@ -10,11 +10,28 @@
 #include <boost/beast/websocket/option.hpp>
 #include <boost/beast/websocket/rfc6455.hpp>
 
+#include <winsock2.h>
+
+#include <chrono>
+#include <cstdint>
 #include <utility>
 
 namespace dovahlink::transport {
 
 WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket) : ws_(std::move(socket)) {}
+
+void WebSocketSession::SetReadTimeout(std::chrono::steady_clock::duration timeout) {
+    boost::beast::websocket::stream_base::timeout timeoutOptions;
+    timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
+    timeoutOptions.idle_timeout = timeout;
+    timeoutOptions.keep_alive_pings = false;
+    ws_.set_option(timeoutOptions);
+
+    auto timeoutMs = static_cast<std::uint32_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(timeout).count());
+    ::setsockopt(ws_.next_layer().native_handle(), SOL_SOCKET, SO_RCVTIMEO,
+                 reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+}
 
 std::expected<void, SessionError> WebSocketSession::Accept() {
     boost::beast::websocket::permessage_deflate compressionOptions;
@@ -22,15 +39,11 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
     compressionOptions.server_enable = false;
     ws_.set_option(compressionOptions);
 
-    boost::beast::websocket::stream_base::timeout timeoutOptions;
-    timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
-    // Starts at the 5-second handshake window, not the 60-second idle one --
-    // see this method's declaration comment in websocket_session.hpp.
-    timeoutOptions.idle_timeout = security::kHandshakeTimeout;
-    timeoutOptions.keep_alive_pings = false;
-    ws_.set_option(timeoutOptions);
-
     ws_.read_message_max(security::kMaxInboundFrameBytes);
+
+    // Applied before accept() itself so the WebSocket upgrade handshake's
+    // own wait is bounded too, not just reads that come after it.
+    SetReadTimeout(security::kHandshakeTimeout);
 
     boost::beast::error_code ec;
     ws_.accept(ec);
@@ -40,13 +53,7 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
     return {};
 }
 
-void WebSocketSession::SwitchToIdleTimeout() {
-    boost::beast::websocket::stream_base::timeout timeoutOptions;
-    timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
-    timeoutOptions.idle_timeout = security::kIdleTimeout;
-    timeoutOptions.keep_alive_pings = false;
-    ws_.set_option(timeoutOptions);
-}
+void WebSocketSession::SwitchToIdleTimeout() { SetReadTimeout(security::kIdleTimeout); }
 
 std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
     boost::beast::flat_buffer buffer;

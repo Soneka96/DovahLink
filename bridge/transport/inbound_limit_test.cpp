@@ -178,6 +178,24 @@ TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarg
     // read before rejecting; either is consistent with rejection happening
     // on the server side, so it is not asserted here.
 
+    // Gracefully shut down the client's send side once the (rejected)
+    // message has been written, rather than leaving the socket open and
+    // never sending anything more. On the server side, Beast's rejection
+    // path (do_fail) sends a close frame and then waits for the peer to
+    // also close before it can report message_too_big -- confirmed by
+    // reproducing the alternative directly: without this, that wait has no
+    // bound in Beast's synchronous API and stalls until the OS's own
+    // default TCP timeout gives up (observed: ~2 minutes), surfacing a
+    // generic failure instead of kFrameTooLarge. This shutdown_send is
+    // what lets that wait resolve immediately and correctly (an abrupt
+    // close() instead of a graceful shutdown was tried too and is not
+    // enough -- it produces a reset rather than the clean EOF do_fail
+    // needs to see before it will report the original error). See
+    // transport/websocket_session.cpp's SetReadTimeout for the production
+    // fix covering a peer that never does this.
+    boost::system::error_code clientShutdownEc;
+    clientWs.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send, clientShutdownEc);
+
     serverThread.join();
 
     REQUIRE_FALSE(serverAcceptEc);

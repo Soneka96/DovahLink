@@ -1,5 +1,6 @@
 #include "transport/websocket_session.hpp"
 
+#include "security/limits.hpp"
 #include "transport/listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -13,6 +14,7 @@
 #include <boost/beast/websocket/stream.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <chrono>
 #include <expected>
 #include <string>
 #include <thread>
@@ -254,16 +256,13 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
 
 TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
           "[transport][websocket_session]") {
-    // The actual timeout durations (5s handshake vs. 60s idle) are not
-    // exercised here -- a unit test cannot wait real seconds to prove a
-    // timeout fires (ai/context/skse/testing.md: do not rely on timing
-    // sleeps) -- and are verified by code inspection instead, matching this
-    // file's existing precedent for Beast options that have no simple
-    // runtime-introspectable accessor (see the compression-disabled note in
-    // websocket_session.hpp). This proves only that re-applying the option
-    // mid-session is a safe, message-preserving operation, exercising the
-    // one thing that IS observable: does a message sent after the switch
-    // still arrive correctly.
+    // This test only proves re-applying the timeout option mid-session is a
+    // safe, message-preserving operation -- does a message sent after the
+    // switch still arrive correctly. The 60-second idle window itself is
+    // not separately re-proven with a real 60+ second wait (see the tests
+    // below this one, which do prove the mechanism fires, using the
+    // 5-second handshake window instead -- both windows go through the
+    // same SetReadTimeout, so proving one proves the mechanism).
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -308,6 +307,126 @@ TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
     REQUIRE(serverHandshakeResult.has_value());
     REQUIRE(serverReadResult.has_value());
     CHECK(*serverReadResult == "after switch");
+}
+
+TEST_CASE("ReadMessage fails within the handshake timeout when the client sends nothing",
+          "[transport][websocket_session]") {
+    // Proves the actual production fix: SetReadTimeout's OS-level
+    // SO_RCVTIMEO genuinely bounds a stalled read. Before that fix, this
+    // exact scenario (a WebSocket-handshaked peer that never sends an
+    // application message) had no enforced bound at all in this class's
+    // synchronous API -- Boost.Beast's own stream_base::timeout option is
+    // only armed by its asynchronous operations, confirmed against the
+    // vendored source and by directly reproducing an unbounded stall
+    // elsewhere (transport/inbound_limit_test.cpp's frame-too-large test,
+    // which stalled for the OS's own default of roughly two minutes until
+    // this fix). security::kHandshakeTimeout is 5 seconds; this asserts
+    // comfortably under that with margin, not an exact bound, since exact
+    // OS-level timer precision is not this test's concern.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    boost::system::error_code serverAcceptEc;
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::chrono::steady_clock::duration serverReadDuration{};
+
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        auto start = std::chrono::steady_clock::now();
+        serverReadResult = session.ReadMessage();
+        serverReadDuration = std::chrono::steady_clock::now() - start;
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately sends nothing and does not close, simulating
+    // a hung or unresponsive peer -- the case that used to stall.
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+    CHECK(serverReadDuration < std::chrono::seconds(20));
+}
+
+TEST_CASE("a client that sends an oversized frame and never closes still gets a bounded failure",
+          "[transport][websocket_session]") {
+    // The scenario transport/inbound_limit_test.cpp's frame-too-large test
+    // avoids by having the client gracefully close after writing (needed
+    // there to observe the specific kFrameTooLarge error cleanly). This
+    // test covers the case that test does not: a peer that never
+    // cooperates at all. Before the SO_RCVTIMEO fix, Beast's internal
+    // do_fail()/teardown() sequence (triggered once it detects the
+    // oversized frame) would wait unboundedly for this peer to close back,
+    // observed to take roughly two minutes before falling back to a
+    // generic OS-level failure. The exact resulting SessionError is not
+    // asserted -- only that the connection slot is not held hostage.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    boost::system::error_code serverAcceptEc;
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::chrono::steady_clock::duration serverReadDuration{};
+
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        auto start = std::chrono::steady_clock::now();
+        serverReadResult = session.ReadMessage();
+        serverReadDuration = std::chrono::steady_clock::now() - start;
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    std::string oversized(dovahlink::security::kMaxInboundFrameBytes + 1, 'x');
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(oversized), writeEc);
+    // Deliberately no close/shutdown of any kind after this.
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+    CHECK(serverReadDuration < std::chrono::seconds(20));
 }
 
 TEST_CASE("a binary frame from the client is rejected, not returned as a message",
