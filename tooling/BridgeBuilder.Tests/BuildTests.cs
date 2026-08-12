@@ -47,6 +47,23 @@ public sealed class BuildTests
     }
 
     [Fact]
+    public async Task ExecutesAQuotedBatchFilePathContainingSpaces()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string batchFile = Path.Combine(temporaryDirectory.Path, "build helper.bat");
+        File.WriteAllText(batchFile, "@echo off\necho quoted-path-ok\n");
+        var output = new List<string>();
+
+        int exitCode = await new ProcessCommandRunner().RunAsync(
+            $"call \"{batchFile}\"",
+            temporaryDirectory.Path,
+            output.Add);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(output, line => line.Trim() == "quoted-path-ok");
+    }
+
+    [Fact]
     public async Task BuildsAVortexReadyArchiveFromTheReleaseArtifacts()
     {
         using var temporaryDirectory = new TemporaryDirectory();
@@ -62,6 +79,10 @@ public sealed class BuildTests
 
         Assert.Equal("DovahLink-Bridge-0.1.0.zip", result.Plan.ArchiveName);
         Assert.True(File.Exists(result.ArchivePath));
+        Assert.StartsWith(
+            Path.Combine(temporaryDirectory.Path, "tooling", "out"),
+            result.ArchivePath,
+            StringComparison.OrdinalIgnoreCase);
         Assert.Equal(Path.Combine(temporaryDirectory.Path, "bridge"), runner.WorkingDirectory);
         Assert.Contains("windows-x64-release", runner.Command);
         Assert.Empty(Directory.GetDirectories(Path.Combine(temporaryDirectory.Path, "tooling", "out"), ".staging-*"));

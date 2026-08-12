@@ -31,10 +31,10 @@ public sealed class ProcessCommandRunner : ICommandRunner
                 CreateNoWindow = true,
             },
         };
-        process.StartInfo.ArgumentList.Add("/d");
-        process.StartInfo.ArgumentList.Add("/s");
-        process.StartInfo.ArgumentList.Add("/c");
-        process.StartInfo.ArgumentList.Add(command);
+        // Pass the complete command as raw cmd.exe arguments. ArgumentList
+        // escapes the quotes inside a /c command as backslashes, causing
+        // cmd.exe to look for a literal path such as \"C:\\Program Files...\".
+        process.StartInfo.Arguments = $"/d /s /c {command}";
 
         process.Start();
         Task outputTask = ForwardLinesAsync(process.StandardOutput, onOutput);
