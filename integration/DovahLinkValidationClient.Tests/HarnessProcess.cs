@@ -17,8 +17,11 @@ public sealed class HarnessProcess : IDisposable
     private readonly StringBuilder _stderr = new();
 
     // `token` becomes the harness's DOVAHLINK_BRIDGE_TOKEN; pass null to
-    // test the missing-token startup path.
-    public HarnessProcess(string? token)
+    // test the missing-token startup path. `extraEnvironmentVariables` sets
+    // additional harness-only variables (e.g. DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS
+    // for the token-expiry scenario) without a dedicated constructor
+    // parameter per knob.
+    public HarnessProcess(string? token, IReadOnlyDictionary<string, string>? extraEnvironmentVariables = null)
     {
         var startInfo = new ProcessStartInfo(LocateHarnessExe())
         {
@@ -31,6 +34,13 @@ public sealed class HarnessProcess : IDisposable
         if (token is not null)
         {
             startInfo.EnvironmentVariables["DOVAHLINK_BRIDGE_TOKEN"] = token;
+        }
+        if (extraEnvironmentVariables is not null)
+        {
+            foreach ((string key, string value) in extraEnvironmentVariables)
+            {
+                startInfo.EnvironmentVariables[key] = value;
+            }
         }
 
         _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start the bridge harness process.");

@@ -9,9 +9,14 @@
 // transitions."
 //
 // Reads DOVAHLINK_BRIDGE_TOKEN the same way the real plugin does and listens
-// on the same documented port (application/bridge_config.hpp). Once ready,
-// prints "READY" and reads newline-delimited commands from stdin so a
-// scenario can change the underlying level on demand:
+// on the same documented port (application/bridge_config.hpp). An optional
+// DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS overrides TokenStore's normal 5-minute
+// expiry -- harness-only, deliberately not a plugin/production setting
+// (bridge/README.md's Phase 1 token supply is unconfigurable by design) --
+// so a scenario can prove real expiry behavior over a short, real wait
+// instead of either sleeping 5 minutes or not testing it end to end at all.
+// Once ready, prints "READY" and reads newline-delimited commands from
+// stdin so a scenario can change the underlying level on demand:
 //
 //   increase_level   Increments the harness's own level counter and pushes
 //                    the new value into the shared character state store,
@@ -41,8 +46,10 @@
 
 #include <boost/asio/io_context.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -51,11 +58,35 @@ namespace {
 using dovahlink::application::kBridgePort;
 using dovahlink::application::kTokenEnvVar;
 
+constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
+
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
 public:
     void RegisterAll() override {}
     void UnregisterAll() override {}
 };
+
+// nullopt (TokenStore's own default, 5 minutes) unless the harness-only
+// override is set to a positive integer; any unset, empty, or malformed
+// value is silently treated as "no override" rather than a fatal error --
+// unlike DOVAHLINK_BRIDGE_TOKEN, this is a test convenience, not a security
+// value with an atomic-or-unavailable contract.
+std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
+    const dovahlink::security::EnvironmentReader& env) {
+    auto raw = env.Read(kTokenTtlEnvVar);
+    if (!raw.has_value() || raw->empty()) {
+        return std::nullopt;
+    }
+    try {
+        long long seconds = std::stoll(*raw);
+        if (seconds <= 0) {
+            return std::nullopt;
+        }
+        return std::chrono::seconds(seconds);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
 
 }  // namespace
 
@@ -85,7 +116,8 @@ int main() {
     auto listenerV6 = std::move(*listenerV6Result);
 
     dovahlink::transport::ConnectionSlot connectionSlot;
-    dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
+    auto tokenTtl = ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
+    dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes), tokenTtl);
     dovahlink::security::FailedTokenThrottle tokenThrottle;
     dovahlink::application::SessionManager sessionManager;
     dovahlink::application::CharacterStateStore characterStateStore;

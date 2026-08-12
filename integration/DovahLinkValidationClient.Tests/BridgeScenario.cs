@@ -76,4 +76,23 @@ public static class BridgeScenario
             throw new TimeoutException($"Harness did not exit after quit. Stderr: {harness.StandardError}");
         }
     }
+
+    // Runs `count` separate failed-token connection attempts against
+    // `harness`, one after another (FailedTokenThrottle is one instance
+    // shared across the harness's whole lifetime, not per-connection --
+    // security/throttle.hpp -- so this is what "N recent failures" means).
+    // Each connection is fully torn down before the next, since a failed
+    // hello always closes the connection (handshake_handler.cpp's design
+    // note: no retry on the same socket).
+    public static async Task RecordFailedTokenAttemptsAsync(int count, string wrongButValidHexToken)
+    {
+        for (int attempt = 1; attempt <= count; attempt++)
+        {
+            await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeUri);
+            await connection.SendAsync(HelloEnvelope(wrongButValidHexToken, $"message-hello-fail-{attempt}"));
+            await connection.ReceiveAsync();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
+            await connection.CloseAsync();
+        }
+    }
 }
