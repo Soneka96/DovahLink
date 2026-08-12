@@ -15,6 +15,7 @@
 
 #include "SKSE/SKSE.h"
 
+#include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
@@ -39,13 +40,8 @@
 
 namespace {
 
-// bridge/README.md's documented default loopback port. Phase 1 has no
-// configuration-loading mechanism yet (TASK.md does not require one for
-// the first proof, only that a default be chosen and documented), so this
-// is the only value used.
-constexpr std::uint16_t kBridgePort = 58231;
-
-constexpr const char* kTokenEnvVar = "DOVAHLINK_BRIDGE_TOKEN";
+using dovahlink::application::kBridgePort;
+using dovahlink::application::kTokenEnvVar;
 
 // Minimal file logging, the standard CommonLibSSE-NG plugin setup: one log
 // file under the SKSE log directory. Kept to the bare minimum this project

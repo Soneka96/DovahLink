@@ -89,6 +89,14 @@ add_library(dovahlink_bridge_plugin SHARED plugin/dovahlink_bridge_plugin.cpp)
 target_compile_definitions(dovahlink_bridge_plugin PRIVATE __CMAKE_COMMONLIBSSE_PLUGIN=1)
 target_link_libraries(dovahlink_bridge_plugin PRIVATE dovahlink_bridge_game_state)
 
+# Skyrim-independent test harness: runs the real Coordinator/BridgeTransport/
+# BridgeWorkerPool stack against a fake character level instead of a running
+# Skyrim process, so integration/'s .NET validation client has something real
+# to connect to without requiring Skyrim. Links dovahlink_bridge_core only,
+# same as the test binary -- no CommonLibSSE-NG dependency.
+add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)
+target_link_libraries(dovahlink_bridge_harness PRIVATE dovahlink_bridge_core)
+
 add_executable(dovahlink_bridge_tests
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
@@ -112,6 +120,7 @@ add_executable(dovahlink_bridge_tests
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
+    harness/dovahlink_bridge_harness_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
     security/hex_test.cpp
@@ -131,6 +140,7 @@ add_executable(dovahlink_bridge_tests
 target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)
 target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
+    DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
 )
 
 include(CTest)
