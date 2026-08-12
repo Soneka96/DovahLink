@@ -88,7 +88,31 @@ capabilities.
 
 ### Acceptance criteria
 
-The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can reconnect and display the chosen value without presenting stale data as current, and setup is reproducible.
+The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can authenticate and display the chosen value without presenting stale data as current, a connection attempt that fails before the one-time token is consumed can retry and still succeed, and setup is reproducible. Reconnecting a client that has already completed one successful session, without restarting the bridge, is a known Phase 1 limitation (see Phase 1.25) and is not part of this phase's acceptance bar.
+
+## 1.25 Local Device Pairing and Reconnection
+
+**Status:** Planned
+
+### Outcome
+
+A device that has already paired once with a running bridge can reconnect after a disconnect — a network blip, an app restart, a crash — without restarting Skyrim, using its own stored credential instead of the one-time bootstrap token.
+
+### Scope and behavior
+
+- Issue a device-scoped credential to a client once it successfully authenticates with the Phase 1 one-time bootstrap token, distinct in kind from that token.
+- Store the device credential in secure local storage on the client, not the bridge, so it survives the client's own process restart.
+- Accept a valid, previously-issued device credential as an alternate path to a new session, without requiring or consuming the original bootstrap token again.
+- Define revocation and expiry for a device credential: explicit unpairing, and a bridge/plugin restart invalidating every device credential issued by that bridge instance (a fresh bootstrap token is required after any restart regardless of stored device credentials).
+- Keep the original one-time bootstrap token exactly as Phase 1 approved it: single-use for the entire bridge process lifetime. This phase adds a second, separate credential; it does not loosen the first.
+
+### Dependencies and boundaries
+
+This phase depends on the Phase 1 bridge foundation and its one-time bootstrap token. It does not weaken the loopback-only restriction or add LAN/remote pairing — that remains gated behind the separate LAN design `ai/context/protocol/security.md` already names. It does not become a general multi-client pairing system; Phase 17 (Multi-Client Support) is a separate, later concern that may build on this if needed. This entry records the feature's shape for later; it is not implemented by adding this roadmap entry.
+
+### Acceptance criteria
+
+A client that has paired once can disconnect and later reconnect using its stored device credential alone, without a new bootstrap token or a Skyrim restart, and receives a fresh session and snapshot exactly as a first-time connection would. The original bootstrap token remains single-use for the bridge's whole lifetime regardless of device credential issuance or use. A revoked, expired, or bridge-restart-invalidated device credential is rejected clearly and requires a fresh pairing through a new bootstrap token.
 
 ## 1.5 Live State Synchronization Foundation
 

@@ -121,6 +121,22 @@ bytes is treated identically to "no token available" -- never a partial or best-
 decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
 which owns clearing them after consumption or expiry.
 
+### Known limitation: no reconnect after a successful session, within one bridge lifetime
+
+`TokenStore` has no awareness of session lifecycle: `TryConsume` marks the token consumed
+permanently, and nothing -- not `RunConnectionSession`'s cleanup, not a disconnect, not a
+timeout -- ever makes it available again. This is deliberate (TASK.md: "consume a valid token
+atomically, and clear token material after consumption"), not an oversight, but it has a real
+consequence: once one connection successfully authenticates, no later connection -- the same
+client reconnecting after a network blip or app restart, or any other client -- can ever
+authenticate again until the bridge process itself restarts with a freshly generated token. A
+connection attempt that fails *before* consuming the token (wrong token, version mismatch) does
+not spend it, so a retry after a failed attempt still works; only a retry after a *successful*
+session does not. See `ROADMAP.md`'s Phase 1.25, Local Device Pairing and Reconnection, for the
+planned fix -- a separate, device-scoped credential issued after a successful pairing, stored on
+the client, so a reconnect never needs the one-time bootstrap token again. That phase leaves this
+token's semantics exactly as documented here.
+
 ## SkyrimWebSocket reference
 
 - Reference release: [`v1.15.1`](https://github.com/andreyvelsk/SkyrimWebSocket/releases/tag/v1.15.1)
