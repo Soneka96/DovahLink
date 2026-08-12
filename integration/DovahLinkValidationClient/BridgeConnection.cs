@@ -78,6 +78,11 @@ public sealed class BridgeConnection : IAsyncDisposable
     // blocked until its handshake-phase socket timeout lapses (seconds, not
     // instant) waiting for an acknowledgment that never comes; a
     // well-behaved client always completes it.
+    // Simulates a real network drop (crash, lost connection) rather than a
+    // graceful close: the socket is torn down immediately with no closing
+    // handshake at all, unlike CloseAsync.
+    public void Abort() => _socket.Abort();
+
     public async Task CloseAsync(CancellationToken cancellationToken = default)
     {
         try
