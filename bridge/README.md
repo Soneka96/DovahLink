@@ -76,8 +76,16 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
 - CMake integration, confirmed against the pinned port and upstream source rather than assumed:
   `find_package(CommonLibSSE CONFIG REQUIRED)` exposes the target `CommonLibSSE::CommonLibSSE`. The
   port also installs a `CommonLibSSE.cmake` helper module providing `add_commonlibsse_plugin(...)`,
-  which generates the `SKSEPluginInfo` metadata block automatically; the actual SKSE plugin binary
-  step should use it instead of hand-writing that block.
+  which is documented to auto-generate the `SKSEPluginInfo` metadata block -- **do not use it at
+  this pinned commit.** Its generated `__<target>Plugin.cpp` contains `#include "REL/Relocation.h"`
+  before `#include "SKSE/SKSE.h"`, but at the pinned upstream commit, `REL/Relocation.h` requires
+  namespace aliases (`REL::stl`, `REL::WinAPI`) that are only established partway through
+  `SKSE/SKSE.h`'s own header chain (`SKSE/Impl/PCH.h`) -- confirmed directly against the vendored
+  source, and by reproducing the resulting cascade of "'stl' is not a class or namespace" / missing
+  `std::span` / invalid `sv`-literal errors when actually built. `bridge/plugin/
+  dovahlink_bridge_plugin.cpp` includes `SKSE/SKSE.h` first (the order `PCH.h` actually requires)
+  and declares the `SKSEPluginInfo` block itself instead of using the macro; see that file and its
+  CMakeLists.txt target for the working pattern.
 - Player level: `RE::PlayerCharacter::GetSingleton()` (declared in `RE/P/PlayerCharacter.h`,
   reachable via the umbrella header `RE/Skyrim.h`) inherits `GetLevel() const` (returns
   `std::uint16_t`) from `RE::Actor`, confirmed by reading both headers at the pinned commit.

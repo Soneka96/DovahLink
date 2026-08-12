@@ -68,6 +68,27 @@ add_library(dovahlink_bridge_game_state STATIC
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
+# The real SKSE plugin binary. Deliberately NOT using add_commonlibsse_plugin:
+# that macro auto-generates a small __<target>Plugin.cpp containing
+# `#include "REL/Relocation.h"` before `#include "SKSE/SKSE.h"`, but
+# REL/Relocation.h (at this project's pinned CommonLibSSE-NG source commit --
+# see bridge/README.md) requires namespace aliases (REL::stl, REL::WinAPI)
+# that are only established partway through SKSE/SKSE.h's own precompiled-
+# header chain (SKSE/Impl/PCH.h) -- confirmed directly against the vendored
+# source, and by reproducing the resulting cascade of "'stl' is not a class
+# or namespace" / missing std::span / invalid "sv" literal errors when built
+# via that macro. plugin/dovahlink_bridge_plugin.cpp includes SKSE/SKSE.h
+# first (the order PCH.h actually requires) and declares the SKSEPluginInfo
+# block itself instead, sidestepping the auto-generated file entirely.
+# USE_ADDRESS_LIBRARY is what that plugin info block declares, matching
+# TASK.md's approved Address-Library-based toolchain; the plugin's own
+# runtime guard (game_state/runtime_guard.hpp, checked in SKSEPluginLoad) is
+# what actually restricts DovahLink to the one approved runtime -- Address
+# Library capability is not the same as DovahLink support.
+add_library(dovahlink_bridge_plugin SHARED plugin/dovahlink_bridge_plugin.cpp)
+target_compile_definitions(dovahlink_bridge_plugin PRIVATE __CMAKE_COMMONLIBSSE_PLUGIN=1)
+target_link_libraries(dovahlink_bridge_plugin PRIVATE dovahlink_bridge_game_state)
+
 add_executable(dovahlink_bridge_tests
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
