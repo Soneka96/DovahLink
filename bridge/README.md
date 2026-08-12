@@ -210,3 +210,48 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
   mandatory one.
 - Exact lane capacities are deliberately not decided yet; they follow from profiling once this is
   built, not advance estimation.
+
+## Manual verification record template
+
+TASK.md requires this record before Phase 1 can be declared complete. Nothing here can substitute
+for it: it requires a real Skyrim process, which no automated test in this repository uses (per
+`ai/context/skse/testing.md`). Copy this section, fill in every field from an actual run using
+`integration/DovahLinkValidationClient` (see `integration/README.md`), and record the result in
+`TASK.md` or wherever the maintainer keeps the final record.
+
+```text
+Date:
+Skyrim runtime and distribution:
+SKSE version:
+Address Library version:
+CommonLibSSE-NG pinned commit (bridge/README.md's "Dependency baselines"):
+Bridge build (git commit / branch):
+Compiler, CMake, Ninja versions used for this build:
+Load order and mod-manager conditions:
+
+Installation and launch steps taken:
+
+Expected plugin startup behavior:
+Observed plugin startup behavior:
+
+Initial level snapshot result (expected vs. observed):
+
+Level-increase result, observed by requesting a fresh snapshot after a level-up
+(unprompted push delivery is Roadmap Phase 1.5, not part of this record):
+
+Disconnect result (expected vs. observed):
+Reconnect result for an attempt made BEFORE the one-time token was consumed
+(expected vs. observed). Reconnecting a client that already completed one
+successful session requires restarting the bridge -- record that this was
+not exercised, per Roadmap Phase 1.25:
+
+Stale-state behavior (expected vs. observed):
+
+Invalid token behavior (expected vs. observed):
+Expired token behavior (expected vs. observed):
+Reused token behavior (expected vs. observed):
+
+Clean Skyrim shutdown result (expected vs. observed):
+
+Known limitations observed during this run:
+```
