@@ -60,15 +60,28 @@ public sealed class BridgeConnection : IAsyncDisposable
     // Best-effort: any failure (already aborted, bridge closed first,
     // timed out) is swallowed rather than thrown, since a failed graceful
     // close must never prevent DisposeAsync from releasing the socket.
+    //
+    // When the bridge closed first (State == CloseReceived, observed via
+    // ReceiveAsync throwing on its close frame), only this side's own close
+    // frame is still needed to complete the handshake -- CloseOutputAsync,
+    // not another full CloseAsync round trip. Skipping this and just
+    // dropping the socket leaves the bridge's own synchronous ws_.close()
+    // blocked until its handshake-phase socket timeout lapses (seconds, not
+    // instant) waiting for an acknowledgment that never comes; a
+    // well-behaved client always completes it.
     public async Task CloseAsync(CancellationToken cancellationToken = default)
     {
-        if (_socket.State != WebSocketState.Open)
-        {
-            return;
-        }
         try
         {
-            await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, cancellationToken);
+            switch (_socket.State)
+            {
+                case WebSocketState.Open:
+                    await _socket.CloseAsync(WebSocketCloseStatus.NormalClosure, string.Empty, cancellationToken);
+                    break;
+                case WebSocketState.CloseReceived:
+                    await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, string.Empty, cancellationToken);
+                    break;
+            }
         }
         catch (Exception)
         {
