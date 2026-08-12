@@ -31,4 +31,10 @@ bool ViolationTracker::RecordViolationAndCheckLimit(std::chrono::steady_clock::t
     return counter_.RecordEvent(now) >= kMaxProtocolViolations;
 }
 
+InboundMessageRateLimiter::InboundMessageRateLimiter() : counter_(kInboundMessageRateWindow) {}
+
+bool InboundMessageRateLimiter::RecordMessageAndCheckLimit(std::chrono::steady_clock::time_point now) {
+    return counter_.RecordEvent(now) > kMaxInboundMessagesPerSecond;
+}
+
 }  // namespace dovahlink::security

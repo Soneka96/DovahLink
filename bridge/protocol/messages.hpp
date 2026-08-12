@@ -143,11 +143,15 @@ std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::
 // that the key may be omitted from a v1 message this codebase produces.
 boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
 
-// Builds a complete `error` envelope answering `originalEnvelope`.
-// `sessionId` is the caller's choice: nullopt for a pre-session rejection
-// (e.g. answering hello), the active session's ID once one exists.
-// `protocolVersion` is likewise the caller's choice: 0 while still
-// negotiating, the selected version afterward.
+// Builds a complete `error` envelope. `correlationId` is typically the
+// messageId of the message being answered, or nullopt when there is no
+// correlation -- including when the input could not even be decoded far
+// enough to learn its own messageId (see protocol/schema/README.md:
+// correlationId is "Message ID being answered, or null when there is no
+// correlation"). `sessionId` is the caller's choice: nullopt for a
+// pre-session rejection (e.g. answering hello), the active session's ID
+// once one exists. `protocolVersion` is likewise the caller's choice: 0
+// while still negotiating, the selected version afterward.
 //
 // Always succeeds: if the underlying messageId generation
 // (security::GenerateOpaqueId) fails -- an unreachable-in-practice CSPRNG
@@ -156,7 +160,7 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
 // report is already a degraded channel; every caller independently
 // reimplementing the same "what if we can't even report the error"
 // fallback would just duplicate this one decision.
-Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t protocolVersion,
+Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64_t protocolVersion,
                              std::optional<std::string> sessionId, std::string code, std::string message,
                              bool retryable);
 

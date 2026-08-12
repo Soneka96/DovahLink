@@ -16,6 +16,7 @@ inline constexpr std::size_t kMaxArrayItems = 128;
 inline constexpr std::size_t kMaxObjectMembers = 64;
 
 inline constexpr std::size_t kMaxInboundMessagesPerSecond = 100;
+inline constexpr std::chrono::seconds kInboundMessageRateWindow{1};
 inline constexpr std::size_t kMaxMessagesPerSession = 10'000;
 inline constexpr std::size_t kMaxConnectedClients = 1;
 

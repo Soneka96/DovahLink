@@ -262,7 +262,7 @@ TEST_CASE("BuildErrorEnvelope answers the original message and encodes a decodab
     auto originalEnvelope = DecodeFixtureEnvelope("connection/hello.json");
 
     auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
-        originalEnvelope, /*protocolVersion=*/0, /*sessionId=*/std::nullopt, "unauthenticated",
+        originalEnvelope.messageId, /*protocolVersion=*/0, /*sessionId=*/std::nullopt, "unauthenticated",
         "Invalid or expired one-time token", /*retryable=*/false);
 
     CHECK(errorEnvelope.protocolVersion == 0);
@@ -283,10 +283,25 @@ TEST_CASE("BuildErrorEnvelope carries the caller's protocolVersion and sessionId
     auto originalEnvelope = DecodeFixtureEnvelope("subscriptions/subscribe.json");
 
     auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
-        originalEnvelope, /*protocolVersion=*/1, /*sessionId=*/std::string("session-1"), "rate_limited",
+        originalEnvelope.messageId, /*protocolVersion=*/1, /*sessionId=*/std::string("session-1"), "rate_limited",
         "Inbound message rate exceeded 100 messages per second", /*retryable=*/true);
 
     CHECK(errorEnvelope.protocolVersion == 1);
+    REQUIRE(errorEnvelope.sessionId.has_value());
+    CHECK(*errorEnvelope.sessionId == "session-1");
+}
+
+TEST_CASE("BuildErrorEnvelope accepts a nullopt correlationId for input that could not be decoded",
+          "[protocol][messages]") {
+    // Undecodable input (not even valid JSON, or missing/mistyped required
+    // envelope fields) has no trustworthy messageId to correlate against --
+    // this is why correlationId is a plain parameter rather than requiring
+    // a whole original Envelope.
+    auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
+        /*correlationId=*/std::nullopt, /*protocolVersion=*/1, /*sessionId=*/std::string("session-1"),
+        "malformed_message", "Malformed message", false);
+
+    CHECK_FALSE(errorEnvelope.correlationId.has_value());
     REQUIRE(errorEnvelope.sessionId.has_value());
     CHECK(*errorEnvelope.sessionId == "session-1");
 }

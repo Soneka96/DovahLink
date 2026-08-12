@@ -37,7 +37,9 @@ public:
 // nothing to send back." A non-nullopt return is always an error envelope
 // (malformed_message or unsupported_capability) that always succeeds to
 // build (see messages.hpp's BuildErrorEnvelope); the caller is expected to
-// close the connection on either.
+// count it as a protocol violation (see application/message_dispatcher.hpp),
+// not necessarily close immediately -- the connection only closes once
+// ai/context/protocol/security.md's 3-in-30s violation limit is reached.
 [[nodiscard]] std::optional<protocol::Envelope> HandleClientCapabilities(
     const protocol::Envelope& capabilitiesEnvelope, const std::string& sessionId);
 
@@ -47,8 +49,10 @@ public:
 // snapshot before events for each accepted state area"). `snapshots` is
 // empty whenever `subscriptionAck` turned out to be an error envelope
 // instead of a genuine ack (malformed payload, or an internal_error if a
-// response could not be built) -- the caller is expected to close the
-// connection in that case.
+// response could not be built) -- the caller is expected to count that as
+// a protocol violation (see application/message_dispatcher.hpp), not
+// necessarily close immediately -- the connection only closes once
+// ai/context/protocol/security.md's 3-in-30s violation limit is reached.
 struct SubscribeResult {
     protocol::Envelope subscriptionAck;
     std::vector<protocol::Envelope> snapshots;

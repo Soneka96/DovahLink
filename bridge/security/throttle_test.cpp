@@ -8,6 +8,7 @@
 #include <vector>
 
 using dovahlink::security::FailedTokenThrottle;
+using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::RateWindowCounter;
 using dovahlink::security::ViolationTracker;
 
@@ -146,4 +147,38 @@ TEST_CASE("ViolationTracker does not close the connection once the window has pa
     // 61s after t0: both prior violations (0s, 1s) are more than 30s old and prune
     // away, so this is only the 1st violation within the window.
     CHECK_FALSE(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(61)));
+}
+
+TEST_CASE("InboundMessageRateLimiter allows the first 100 messages within one second",
+          "[security][throttle]") {
+    InboundMessageRateLimiter limiter;
+    Clock::time_point t0 = Clock::now();
+
+    for (int i = 0; i < 100; ++i) {
+        CHECK_FALSE(limiter.RecordMessageAndCheckLimit(t0));
+    }
+}
+
+TEST_CASE("InboundMessageRateLimiter rejects the 101st message within one second",
+          "[security][throttle]") {
+    InboundMessageRateLimiter limiter;
+    Clock::time_point t0 = Clock::now();
+
+    for (int i = 0; i < 100; ++i) {
+        REQUIRE_FALSE(limiter.RecordMessageAndCheckLimit(t0));
+    }
+    CHECK(limiter.RecordMessageAndCheckLimit(t0));
+}
+
+TEST_CASE("InboundMessageRateLimiter allows messages again once a second has passed",
+          "[security][throttle]") {
+    InboundMessageRateLimiter limiter;
+    Clock::time_point t0 = Clock::now();
+
+    for (int i = 0; i < 100; ++i) {
+        REQUIRE_FALSE(limiter.RecordMessageAndCheckLimit(t0));
+    }
+    REQUIRE(limiter.RecordMessageAndCheckLimit(t0));  // 101st, blocked
+
+    CHECK_FALSE(limiter.RecordMessageAndCheckLimit(t0 + std::chrono::seconds(1) + std::chrono::milliseconds(1)));
 }

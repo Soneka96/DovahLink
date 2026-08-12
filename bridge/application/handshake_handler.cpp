@@ -53,7 +53,7 @@ namespace {
 HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, std::string message,
                       bool retryable) {
     return HandshakeResult{
-        .response = protocol::BuildErrorEnvelope(helloEnvelope, /*protocolVersion=*/0,
+        .response = protocol::BuildErrorEnvelope(helloEnvelope.messageId, /*protocolVersion=*/0,
                                                   /*sessionId=*/std::nullopt, std::move(code),
                                                   std::move(message), retryable),
         .closeConnection = true,

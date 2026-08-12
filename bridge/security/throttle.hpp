@@ -56,4 +56,19 @@ private:
     RateWindowCounter counter_;
 };
 
+// Per-connection inbound message rate throttle: 100 messages per second
+// (ai/context/protocol/security.md, bridge/security/limits.hpp). One
+// instance per connection.
+class InboundMessageRateLimiter {
+public:
+    InboundMessageRateLimiter();
+
+    // Records one inbound message at `now`. Returns true once this message
+    // exceeds the allowed rate and must be rejected.
+    [[nodiscard]] bool RecordMessageAndCheckLimit(std::chrono::steady_clock::time_point now);
+
+private:
+    RateWindowCounter counter_;
+};
+
 }  // namespace dovahlink::security

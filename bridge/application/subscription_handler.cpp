@@ -49,12 +49,12 @@ std::optional<protocol::Envelope> HandleClientCapabilities(const protocol::Envel
                                                              const std::string& sessionId) {
     auto capabilities = protocol::DecodeCapabilitiesPayload(capabilitiesEnvelope.payload);
     if (!capabilities.has_value()) {
-        return protocol::BuildErrorEnvelope(capabilitiesEnvelope, kSupportedProtocolVersion, sessionId,
+        return protocol::BuildErrorEnvelope(capabilitiesEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                              "malformed_message", "Malformed capabilities payload", false);
     }
     for (const protocol::Capability& capability : capabilities->capabilities) {
         if (capability.id != kCharacterCapabilityId) {
-            return protocol::BuildErrorEnvelope(capabilitiesEnvelope, kSupportedProtocolVersion, sessionId,
+            return protocol::BuildErrorEnvelope(capabilitiesEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                                  "unsupported_capability",
                                                  "Unregistered capability: " + capability.id, false);
         }
@@ -68,7 +68,7 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
     auto subscribe = protocol::DecodeSubscribePayload(subscribeEnvelope.payload);
     if (!subscribe.has_value()) {
         return SubscribeResult{
-            .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope, kSupportedProtocolVersion,
+            .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, kSupportedProtocolVersion,
                                                               sessionId, "malformed_message",
                                                               "Malformed subscribe payload", false),
         };
@@ -102,7 +102,7 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
             BuildCharacterSnapshotEnvelope(sessionId, subscribeEnvelope.messageId, stateProvider, revisions, now);
         if (!snapshot.has_value()) {
             return SubscribeResult{
-                .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope, kSupportedProtocolVersion,
+                .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, kSupportedProtocolVersion,
                                                                   sessionId, "internal_error",
                                                                   "Unable to build state snapshot", false),
             };
@@ -119,7 +119,7 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
         }));
     if (!ackEnvelope.has_value()) {
         return SubscribeResult{
-            .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope, kSupportedProtocolVersion,
+            .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, kSupportedProtocolVersion,
                                                               sessionId, "internal_error",
                                                               "Unable to build response", false),
         };
@@ -134,11 +134,11 @@ protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotReque
                                           RevisionTracker& revisions, std::chrono::system_clock::time_point now) {
     auto request = protocol::DecodeSnapshotRequestPayload(snapshotRequestEnvelope.payload);
     if (!request.has_value()) {
-        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope, kSupportedProtocolVersion, sessionId,
+        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                              "malformed_message", "Malformed snapshot_request payload", false);
     }
     if (request->stateArea != protocol::state_area::kCharacter) {
-        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope, kSupportedProtocolVersion, sessionId,
+        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                              "unsupported_capability",
                                              "Unknown state area: " + request->stateArea, false);
     }
@@ -146,7 +146,7 @@ protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotReque
     auto snapshot = BuildCharacterSnapshotEnvelope(sessionId, snapshotRequestEnvelope.messageId, stateProvider,
                                                     revisions, now);
     if (!snapshot.has_value()) {
-        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope, kSupportedProtocolVersion, sessionId,
+        return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                              "internal_error", "Unable to build state snapshot", false);
     }
     return std::move(*snapshot);

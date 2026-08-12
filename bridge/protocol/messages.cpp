@@ -390,7 +390,7 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     return obj;
 }
 
-Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t protocolVersion,
+Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64_t protocolVersion,
                              std::optional<std::string> sessionId, std::string code, std::string message,
                              bool retryable) {
     boost::json::object payload = EncodeErrorPayload(ErrorPayload{
@@ -399,8 +399,8 @@ Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t proto
         .retryable = retryable,
         .details = std::nullopt,
     });
-    auto envelope = BuildEnvelope(protocolVersion, std::string(message_type::kError), sessionId,
-                                   originalEnvelope.messageId, payload);
+    auto envelope =
+        BuildEnvelope(protocolVersion, std::string(message_type::kError), sessionId, correlationId, payload);
     if (envelope.has_value()) {
         return std::move(*envelope);
     }
@@ -414,7 +414,7 @@ Envelope BuildErrorEnvelope(const Envelope& originalEnvelope, std::int64_t proto
         .messageType = std::string(message_type::kError),
         .messageId = "csprng-unavailable",
         .sessionId = std::move(sessionId),
-        .correlationId = originalEnvelope.messageId,
+        .correlationId = std::move(correlationId),
         .payload = std::move(payload),
     };
 }
