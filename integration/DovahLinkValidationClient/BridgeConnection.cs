@@ -21,7 +21,16 @@ public sealed class BridgeConnection : IAsyncDisposable
 
     public async Task SendAsync(Envelope envelope, CancellationToken cancellationToken = default)
     {
-        byte[] bytes = Encoding.UTF8.GetBytes(envelope.Encode());
+        await SendRawTextAsync(envelope.Encode(), cancellationToken);
+    }
+
+    // Sends text that does not necessarily decode as a valid Envelope --
+    // for deliberately malformed/oversized/limit-violating input, which
+    // Envelope.Encode() cannot produce by construction (it always emits a
+    // well-formed envelope).
+    public async Task SendRawTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
         await _socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
     }
 
