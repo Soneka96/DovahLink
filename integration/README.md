@@ -1,10 +1,9 @@
 # DovahLink integration tests
 
 This directory holds the independent validation client and the deterministic end-to-end scenarios
-that exercise the Skyrim bridge's real protocol behavior (TASK.md: "Use a separate PowerShell/.NET
-WebSocket validation client under `integration/`"). Everything here is a separate protocol
+that exercise the Skyrim bridge's real protocol behavior. Everything here is a separate protocol
 consumer, hand-written with `System.Text.Json`; nothing links against or shares code with the
-bridge's own C++ codec, per TASK.md's explicit requirement.
+bridge's own C++ codec.
 
 ## Contents
 
@@ -44,8 +43,8 @@ genuine live proof would cost minutes of suite time for no additional confidence
 
 ## Running the manual validation client
 
-For manual verification against a real, running Skyrim + SKSE + DovahLink Bridge plugin (TASK.md's
-required manual verification record; see `bridge/README.md`'s template):
+For manual verification against a real, running Skyrim + SKSE + DovahLink Bridge plugin, use the
+record template in `bridge/README.md`:
 
 ```bash
 cd integration/DovahLinkValidationClient

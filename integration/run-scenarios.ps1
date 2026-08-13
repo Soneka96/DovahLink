@@ -2,8 +2,7 @@
 # DovahLinkValidationClient.Tests scenario against it. Each test launches
 # and tears down its own harness instance (see HarnessProcess.cs); this
 # script's job is only to make sure the harness executable exists first and
-# to give a human a single command to run everything (TASK.md: "Use a
-# separate PowerShell/.NET WebSocket validation client under integration/").
+# to give a human a single command to run every validation scenario.
 #
 # Usage: powershell -File integration/run-scenarios.ps1
 

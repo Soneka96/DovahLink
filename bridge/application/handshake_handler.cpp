@@ -36,9 +36,10 @@
 //   names this exact case; `unauthorized` is the closest semantic fit among
 //   protocol/schema/README.md's registered codes. Note this does spend the
 //   one-time token on a doomed attempt -- unavoidable given
-//   TokenStore::TryConsume's required atomic compare-and-consume (TASK.md),
-//   which rules out a non-consuming "peek" that could check session
-//   capacity first. Both the session ID and this response's messageId are
+//   TokenStore::TryConsume's required atomic compare-and-consume
+//   (ai/context/protocol/security.md), which rules out a non-consuming
+//   "peek" that could check session capacity first. Both the session ID and
+//   this response's messageId are
 //   generated together, before TryCreateSession runs, so a CSPRNG failure
 //   at that point never leaves a session created that the client can never
 //   learn the ID of.

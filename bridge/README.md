@@ -13,7 +13,7 @@ bridge code is written. It is the human-readable record; the pins below are enfo
 
 Phase 1 supports exactly one runtime: Steam Skyrim `1.6.1170` with SKSE `2.2.6`. Every other
 runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initialization. See
-[`ARCHITECTURE.md`](../ARCHITECTURE.md) and `TASK.md` for the approval behind this scope.
+[`PRODUCT.md`](../PRODUCT.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for this scope.
 
 ## Toolchain
 
@@ -39,9 +39,7 @@ and `vcvarsall.bat` under `%ProgramFiles%\Microsoft Visual Studio\2022\Community
 separate toolchain install by importing `vcvarsall.bat x64`'s environment and configuring with
 `cmake --preset windows-x64-debug`; `dovahlink_bridge_tests.exe` can then be built and run directly
 (`dovahlink_bridge_game_state`, which needs the full CommonLibSSE-NG build, is not required for
-running the test suite). This was used starting partway through Phase 1 to move from static review
-to actual compilation and test execution, which surfaced and fixed several real bugs static review
-had missed.
+running the test suite).
 
 ## Dependency baselines
 
@@ -110,23 +108,22 @@ private range (49152-65535) to avoid collision with common local dev-tool ports 
 
 ## One-time token supply
 
-Per TASK.md's "supply the development token out of band through the launch environment," the
-bridge reads its expected one-time token (256-bit, per TASK.md) from the `DOVAHLINK_BRIDGE_TOKEN`
-environment variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
+The bridge reads its expected one-time token from the `DOVAHLINK_BRIDGE_TOKEN` environment
+variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
 `0x` prefix, no separators). Hex was chosen over base64 to avoid pulling in an encoding dependency
 this codebase does not otherwise need and to keep the value trivially assembled by a developer
 launch script (`$env:DOVAHLINK_BRIDGE_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Max 256) })`
 or equivalent). A variable that is unset, empty, not valid hex, or does not decode to exactly 32
 bytes is treated identically to "no token available" -- never a partial or best-effort value. The
 decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
-which owns clearing them after consumption or expiry.
+which owns clearing them after consumption or expiry. The required token length, source, and
+failure behavior are defined in [`ai/context/protocol/security.md`](../ai/context/protocol/security.md).
 
 ### Known limitation: no reconnect after a successful session, within one bridge lifetime
 
 `TokenStore` has no awareness of session lifecycle: `TryConsume` marks the token consumed
 permanently, and nothing -- not `RunConnectionSession`'s cleanup, not a disconnect, not a
-timeout -- ever makes it available again. This is deliberate (TASK.md: "consume a valid token
-atomically, and clear token material after consumption"), not an oversight, but it has a real
+timeout -- ever makes it available again. This is deliberate, not an oversight, but it has a real
 consequence: once one connection successfully authenticates, no later connection -- the same
 client reconnecting after a network blip or app restart, or any other client -- can ever
 authenticate again until the bridge process itself restarts with a freshly generated token. A
@@ -142,7 +139,7 @@ token's semantics exactly as documented here.
 - Reference release: [`v1.15.1`](https://github.com/andreyvelsk/SkyrimWebSocket/releases/tag/v1.15.1)
 - Resolved immutable commit: `3d42b908b6060774f3da68f53ed7107b914c740d`
 - License: MIT, copyright (c) 2026 andreyvelsk. Any adopted or adapted source retains its
-  original MIT notice per `TASK.md`.
+  original MIT notice.
 
 ### Adopt / adapt / exclude evaluation
 
@@ -158,19 +155,19 @@ Evaluated directly against the pinned commit's source
 | `EventBus::Install()` registering SKSE event sinks once after `kDataLoaded` and reacting to engine events instead of polling | **Adapt** | The registration technique (install a sink once, on the game thread, after data is loaded) is the right shape for registering `RE::LevelIncrease::Event`. The surrounding machinery — a generic per-key version counter and a shared resolver cache (`EventBus::CachedValue`, `ResolveCached`) for arbitrary polled fields — is excluded: it is a generic event/caching framework built to support many polled fields, and DovahLink has exactly one push-only event with no polling to optimize. |
 | `PlayerReader::ReadLevel()`'s call, `RE::PlayerCharacter::GetSingleton()->GetLevel()` | **Adapt** | Confirms the correct CommonLib API for reading the player's level. Reused as a technique inside DovahLink's own level adapter; not copied, since the surrounding function returns `nlohmann::json` for a generic polled-field system DovahLink doesn't have. |
 | `CMakeLists.txt`'s general SKSE-plugin shape (`target_compile_features(cxx_std_23)`, `target_precompile_headers`, copy-to-mods-folder post-build step) | **Adapt** | Confirms a working C++23 CommonLib-plugin CMake shape. DovahLink adapts the compile-feature and PCH lines; the automatic copy-into-the-Skyrim-install step is deliberately not reused (see Exclude below) and CommonLibSSE-NG is consumed as a pinned vcpkg port, not a git submodule as this reference does. |
-| Wire protocol: flat `{"type": ..., "id": ...}` messages, client-declared push frequency, `sendOnChange` | **Exclude** | TASK.md excludes SkyrimWebSocket's wire protocol outright. The canonical DovahLink protocol (`protocol/schema/README.md`) is the only cross-side contract. |
-| `command` message family: `equip`, `unequip`, `use`, `read_book`, `drop`, `favorite*`, hotkey and quest mutation, `player_marker_set`, `fast_travel` | **Exclude** | Mutable game commands. Phase 1 is read-only (`PRODUCT.md`, `ARCHITECTURE.md`); TASK.md explicitly excludes them. |
-| JSON library: `nlohmann-json` | **Exclude** | TASK.md commits Phase 1 to Boost.JSON as the one JSON library; adopting a second JSON library is explicitly forbidden without a new maintainer decision. |
+| Wire protocol: flat `{"type": ..., "id": ...}` messages, client-declared push frequency, `sendOnChange` | **Exclude** | The canonical DovahLink protocol (`protocol/schema/README.md`) is the only cross-side contract; the reference wire protocol is not adopted. |
+| `command` message family: `equip`, `unequip`, `use`, `read_book`, `drop`, `favorite*`, hotkey and quest mutation, `player_marker_set`, `fast_travel` | **Exclude** | Mutable game commands are outside the read-only Phase 1 scope defined by `PRODUCT.md` and `ARCHITECTURE.md`. |
+| JSON library: `nlohmann-json` | **Exclude** | The bridge uses Boost.JSON for protocol data; adopting a second JSON library would require a new maintainer decision. |
 | `[Server] ListenAddress` INI key, default `127.0.0.1` but documented to accept `0.0.0.0` for "remote debugging" | **Exclude** | Wildcard/LAN configuration. DovahLink's only configurable transport value is the port; the listening address is never configurable (`ai/context/protocol/security.md`). |
 | Authentication: none — any peer that reaches the port can subscribe, query, or send commands | **Exclude** | DovahLink requires one-time token authentication before any `hello_ack`. This reference has nothing to adapt here; the token/session design is built fresh against `protocol/schema/README.md` and `ai/context/protocol/security.md`. |
-| Global static ownership (`g_ioc`, `g_server`, `g_ioThread`, `g_workGuard` as file-scope statics in `plugin.cpp`, detached I/O thread, no shutdown listener) | **Exclude** | TASK.md explicitly excludes global ownership. DovahLink requires one coordinator owning registrations, queues, workers, and transport, with the full documented shutdown barrier (`ai/context/skse/architecture.md`) — this reference has no equivalent shutdown path to adapt from. |
-| Crash-handler installation (`SetUnhandledExceptionFilter`, minidump writing) gated on log level | **Exclude** | TASK.md explicitly excludes crash-handler installation. |
-| Per-subscription polling at a client-declared frequency (minimum 50 ms) as the mechanism for delivering any field, including level | **Exclude** | TASK.md excludes worker-side game polling. DovahLink publishes level changes only from `RE::LevelIncrease::Event`. |
+| Global static ownership (`g_ioc`, `g_server`, `g_ioThread`, `g_workGuard` as file-scope statics in `plugin.cpp`, detached I/O thread, no shutdown listener) | **Exclude** | DovahLink requires one coordinator owning registrations, queues, workers, and transport, with the full documented shutdown barrier (`ai/context/skse/architecture.md`) — this reference has no equivalent shutdown path to adapt from. |
+| Crash-handler installation (`SetUnhandledExceptionFilter`, minidump writing) gated on log level | **Exclude** | Crash-handler installation is outside the documented Phase 1 scope. |
+| Per-subscription polling at a client-declared frequency (minimum 50 ms) as the mechanism for delivering any field, including level | **Exclude** | DovahLink publishes level changes from `RE::LevelIncrease::Event` and does not use worker-side game polling. |
 | `directxtk`, `rapidcsv` dependencies | **Exclude** | Unrelated to DovahLink's Phase 1 scope (no rendering overlay, no CSV-driven data); not pulled in. |
 | `FieldRegistry` / per-field-key generic resolver system (`GameReader`, `InventoryReader`, `MagicReader`, `HotkeyReader`, `QuestReader`) | **Exclude** | A general key-addressable field API is exactly the "generic event framework or speculative service layer" `ai/context/skse/architecture.md` and `ARCHITECTURE.md` reject for Phase 1. DovahLink exposes one state area (`character`) through its own protocol mapping, not a generic field registry. |
 
 All adapted code will carry the required MIT attribution for SkyrimWebSocket
-(`3d42b908b6060774f3da68f53ed7107b914c740d`) at the point it is introduced, per `TASK.md`.
+(`3d42b908b6060774f3da68f53ed7107b914c740d`) at the point it is introduced.
 
 ## Live event delivery is deferred to Phase 1.5
 
@@ -213,11 +210,11 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
 
 ## Manual verification record template
 
-TASK.md requires this record before Phase 1 can be declared complete. Nothing here can substitute
-for it: it requires a real Skyrim process, which no automated test in this repository uses (per
-`ai/context/skse/testing.md`). Copy this section, fill in every field from an actual run using
-`integration/DovahLinkValidationClient` (see `integration/README.md`), and record the result in
-`TASK.md` or wherever the maintainer keeps the final record.
+Use this template to record a real Skyrim run before declaring Phase 1 complete. Nothing here can
+substitute for that run: it requires a real Skyrim process, which no automated test in this
+repository uses (per `ai/context/skse/testing.md`). Copy this section, fill in every field from an
+actual run using `integration/DovahLinkValidationClient` (see `integration/README.md`), and keep the
+completed record with the release evidence.
 
 ```text
 Date:

@@ -82,7 +82,7 @@ target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core C
 # first (the order PCH.h actually requires) and declares the SKSEPluginInfo
 # block itself instead, sidestepping the auto-generated file entirely.
 # USE_ADDRESS_LIBRARY is what that plugin info block declares, matching
-# TASK.md's approved Address-Library-based toolchain; the plugin's own
+# the project's Address-Library-based toolchain; the plugin's own
 # runtime guard (game_state/runtime_guard.hpp, checked in SKSEPluginLoad) is
 # what actually restricts DovahLink to the one approved runtime -- Address
 # Library capability is not the same as DovahLink support.
