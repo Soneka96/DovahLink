@@ -9,81 +9,64 @@
 
 namespace dovahlink::transport {
 
+/// Identifies listener setup failures.
 enum class ListenerError {
+    /// The loopback address could not be opened, bound, or started.
     kBindFailed,
 };
 
+/// Identifies failures while accepting or validating a connection.
 enum class AcceptError {
+    /// The TCP accept operation failed.
     kAcceptFailed,
-    // The connection was closed because its remote address could not be
-    // confirmed as loopback -- including the case where the remote address
-    // could not be determined at all, which fails closed the same way.
+    /// The peer was not confirmed to be a loopback address.
     kNonLoopbackPeerRejected,
 };
 
-// True if `address` is an acceptable peer address for the Phase 1 loopback
-// proof. See ai/context/protocol/security.md: "The bridge must reject
-// connections whose remote address is not loopback during this phase." This
-// is checked explicitly by AcceptLoopbackOnly as defense in depth beyond the
-// listener only ever binding to loopback addresses (see class docs below);
-// it is a free function so it can be tested directly against synthetic
-// addresses without needing an actual non-loopback connection to originate.
+/// Returns whether an address is allowed for the loopback-only listener.
 [[nodiscard]] bool IsAcceptablePeerAddress(const boost::asio::ip::address& address);
 
-// A TCP acceptor bound to loopback only, per ai/context/protocol/security.md:
-// "Keep the listening address permanently restricted to 127.0.0.1 and ::1
-// during Phase 1... Allow only a documented loopback port setting; it must
-// never alter the listening address."
-//
-// There is deliberately no way to construct this bound to any other
-// address: Create takes only an IP version selector (which loopback
-// address, v4 or v6) and a port. No raw address string or endpoint is
-// accepted anywhere in this API, so a non-loopback bind is not just
-// rejected at runtime, it has no code path to reach at all.
+/// Owns a TCP acceptor permanently bound to an IPv4 or IPv6 loopback address.
 class LoopbackListener {
 public:
+    /// Selects the loopback address family used by a listener.
     enum class IpVersion {
-        kV4,  // binds 127.0.0.1
-        kV6,  // binds ::1
+        /// Binds `127.0.0.1`.
+        kV4,
+        /// Binds `::1`.
+        kV6,
     };
 
-    // Opens, binds, and starts listening on `port` for the selected loopback
-    // address. Returns ListenerError::kBindFailed if any step fails (for
-    // example, the port is already in use).
+    /// Opens, binds, and listens on the selected loopback address and port.
     static std::expected<LoopbackListener, ListenerError> Create(boost::asio::io_context& ioc,
                                                                    IpVersion version,
                                                                    std::uint16_t port);
 
+    /// Transfers listener ownership from another instance.
     LoopbackListener(LoopbackListener&&) = default;
-    /**
- * @brief Transfers the listener state from another instance.
- *
- * @return LoopbackListener& This instance after assignment.
- */
-LoopbackListener& operator=(LoopbackListener&&) = default;
+    /// Transfers listener ownership from another instance.
+    LoopbackListener& operator=(LoopbackListener&&) = default;
+    /// Prevents copying the underlying acceptor.
     LoopbackListener(const LoopbackListener&) = delete;
+    /// Prevents copying the underlying acceptor.
     LoopbackListener& operator=(const LoopbackListener&) = delete;
 
-    // The acceptor, for use by whatever drives the accept loop (a later step).
+    /// Returns mutable access to the underlying acceptor.
     [[nodiscard]] boost::asio::ip::tcp::acceptor& Acceptor();
 
-    // Accepts one connection and validates its remote address with
-    // IsAcceptablePeerAddress, closing and rejecting it otherwise rather
-    // than returning a socket for a peer that should never have been able
-    // to reach this listener in the first place.
+    /// Accepts one socket and rejects peers that are not loopback addresses.
     [[nodiscard]] std::expected<boost::asio::ip::tcp::socket, AcceptError> AcceptLoopbackOnly();
 
-    // The endpoint actually bound: always 127.0.0.1 or ::1 at the requested
-    // port, never anything else (see class docs). Throws boost::system::
-    // system_error in principle (it calls the throwing acceptor accessor),
-    // but that is unreachable through this type's public API: the only way
-    // to obtain a LoopbackListener is a successful Create, which guarantees
-    // the acceptor is already open and bound.
+    /// Returns the endpoint actually bound by the listener.
+    /// The endpoint is always loopback; the underlying accessor may throw if
+    /// the acceptor is not open, which cannot occur after successful `Create`.
     [[nodiscard]] boost::asio::ip::tcp::endpoint LocalEndpoint() const;
 
 private:
+    /// Stores an already-open TCP acceptor.
     explicit LoopbackListener(boost::asio::ip::tcp::acceptor acceptor);
 
+    /// Owned TCP acceptor bound to the loopback endpoint.
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 
