@@ -1,8 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/character_state.entity.dart';
 import 'package:dovahlink_client/features/connection/data/models/character_state.model.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/character_state.entity.dart';
 
+/// Exercises character-state model decoding, encoding, and validation.
 void main() {
   group('CharacterStateModel', () {
     test('parses and serializes level and resource pools', () {
