@@ -136,8 +136,9 @@ connected.
   per-class-throttled sampling hook only where no suitable event exists.
 - Distinguish replaceable state (latest-value-wins, coalesced by key) from reliable events (quest
   completed, item acquired, discovery, chunk/cell load, command results, errors), which stay
-  ordered and are never silently dropped; a client that cannot keep up with reliable delivery is
-  disconnected and required to reconnect rather than buffered indefinitely.
+  ordered and are never silently dropped within a healthy connection session. A client that cannot
+  keep up is explicitly disconnected rather than buffered indefinitely; any events still queued at
+  that session boundary are discarded and are not replayed into the next session.
 - Move connection delivery onto an asynchronous read/write model so a push can reach a client
   independent of that client's own next request, replacing Phase 1's purely request/response
   connection loop.
@@ -147,9 +148,9 @@ connected.
 
 ### Dependencies and boundaries
 
-- This phase extends the Phase 1 bridge foundation's transport and application layers using only
-  the state Phase 1 already exposes (`character`/level); it does not add new player-facing fields
-  -- that selection remains Phase 4's decision.
+- This phase depends on the Phase 1 bridge foundation and Phase 1.25's device-credential reconnect
+  path. It uses only the state Phase 1 already exposes (`character`/level); it does not add new
+  player-facing fields -- that selection remains Phase 4's decision.
 - This phase does not implement concurrent multi-client fan-out; it introduces the internal state
   and delivery model that later makes Phase 17's multi-client support straightforward, while the
   one-connected-client limit stays in place.
@@ -159,17 +160,22 @@ connected.
 - Exact outbound queue capacities and executor/threading topology are deliberately not fixed here;
   they follow from profiling once the mechanism above is built, not from advance estimation.
 - Does not add LAN/remote transport, pairing, or weaken the loopback-only restriction.
+- Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
+  state snapshots and does not replay the previous session's queued events. Durable cross-session
+  delivery would require a separately approved acknowledgement, persistence, and replay contract.
 
 ### Acceptance criteria
 
 A connected, subscribed client receives an initial snapshot per state area followed only by
-updates or deltas at that area's actual rate without needing to poll; a reliable event is never
-lost or reordered even under load, and a client that cannot consume reliable events in time is
-disconnected rather than allowed to stall the bridge; replaceable state under load coalesces to the
-latest value per key rather than queuing every intermediate update; loaded-cell/chunk state is
-delivered as lightweight live/event data, never through a heavy-resource path; and integration
-scenarios cover push delivery, reliable-event ordering under load, and reconnect-after-unhealthy-
-client behavior that Phase 1's snapshot-only scenarios could not exercise.
+complete state events at that area's actual rate without needing to poll; each `state_event.data`
+contains the complete post-change state rather than a patch. Reliable events delivered within a
+healthy session are not lost or reordered; a client that cannot consume them in time is explicitly
+disconnected rather than allowed to stall the bridge, and queued events end with that session.
+Replaceable state under load coalesces to the latest value per key rather than queuing every
+intermediate update; loaded-cell/chunk state is delivered as lightweight live/event data, never
+through a heavy-resource path; and integration scenarios cover push delivery, reliable-event
+ordering and explicit disconnect under load, then device-credential reconnection with fresh
+snapshots rather than replay of the unhealthy session's queued events.
 
 ## 2. PC / Second-Screen Baseline
 
