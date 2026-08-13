@@ -2,67 +2,88 @@ using System.Diagnostics;
 
 namespace DovahLink.BridgeBuilder.Build;
 
-/// <summary>Runs external commands and forwards their output.</summary>
+/// <summary>Runs structured external commands and forwards their output.</summary>
 public interface ICommandRunner
 {
-    /// <summary>
-    /// Executes a command in the specified working directory.
-    /// </summary>
-    /// <param name="command">The command to execute.</param>
-    /// <param name="workingDirectory">The directory in which to execute the command.</param>
-    /// <param name="onOutput">The callback invoked for each line of command output, or <see langword="null"/> to ignore output.</param>
+    /// <summary>Executes a structured command.</summary>
+    /// <param name="command">The executable, arguments, working directory, and environment to apply.</param>
+    /// <param name="onStandardOutput">The callback invoked for each standard-output line, or <see langword="null"/>.</param>
+    /// <param name="onStandardError">The callback invoked for each standard-error line, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">The token used to cancel command execution.</param>
-    /// <returns>The command's exit code.</returns>
+    /// <returns>The process exit code.</returns>
     Task<int> RunAsync(
-        string command,
-        string workingDirectory,
-        Action<string>? onOutput,
+        BuildCommand command,
+        Action<string>? onStandardOutput,
+        Action<string>? onStandardError,
         CancellationToken cancellationToken = default);
 }
 
-/// <summary>Runs commands through the Windows command shell.</summary>
+/// <summary>Runs structured commands as direct child processes.</summary>
 public sealed class ProcessCommandRunner : ICommandRunner
 {
-    /// <summary>
-    /// Executes a command in the specified working directory and forwards its output.
-    /// </summary>
-    /// <param name="onOutput">The callback invoked for each line written to standard output or standard error.</param>
-    /// <returns>The command's exit code.</returns>
+    /// <summary>Terminates a process tree after cancellation.</summary>
+    private readonly Action<Process> terminateProcess;
+
+    /// <summary>Creates a runner that terminates the complete child process tree.</summary>
+    public ProcessCommandRunner()
+        : this(process => process.Kill(entireProcessTree: true))
+    {
+    }
+
+    /// <summary>Creates a runner with a controllable process-termination seam.</summary>
+    /// <param name="terminateProcess">The action used to terminate a running child process.</param>
+    internal ProcessCommandRunner(Action<Process> terminateProcess)
+    {
+        this.terminateProcess = terminateProcess;
+    }
+
+    /// <inheritdoc/>
     public async Task<int> RunAsync(
-        string command,
-        string workingDirectory,
-        Action<string>? onOutput,
+        BuildCommand command,
+        Action<string>? onStandardOutput,
+        Action<string>? onStandardError,
         CancellationToken cancellationToken = default)
     {
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe",
-                WorkingDirectory = workingDirectory,
+                FileName = command.ExecutablePath,
+                WorkingDirectory = command.WorkingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             },
         };
-        // Pass the complete command as raw cmd.exe arguments. ArgumentList
-        // escapes the quotes inside a /c command as backslashes, causing
-        // cmd.exe to look for a literal path such as \"C:\\Program Files...\".
-        process.StartInfo.Arguments = $"/d /s /c {command}";
+        foreach (string argument in command.Arguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
+        foreach ((string key, string value) in command.EnvironmentVariables)
+        {
+            process.StartInfo.Environment[key] = value;
+        }
 
         process.Start();
-        Task outputTask = ForwardLinesAsync(process.StandardOutput, onOutput);
-        Task errorTask = ForwardLinesAsync(process.StandardError, onOutput);
+        Task outputTask = ForwardLinesAsync(process.StandardOutput, onStandardOutput);
+        Task errorTask = ForwardLinesAsync(process.StandardError, onStandardError);
         try
         {
             await process.WaitForExitAsync(cancellationToken);
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited)
+            try
             {
-                process.Kill(entireProcessTree: true);
+                if (!process.HasExited)
+                {
+                    terminateProcess(process);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // The process exited between the state check and termination.
             }
 
             await process.WaitForExitAsync(CancellationToken.None);
@@ -74,9 +95,7 @@ public sealed class ProcessCommandRunner : ICommandRunner
         return process.ExitCode;
     }
 
-    /// <summary>
-    /// Forwards each line read from a stream to the output callback.
-    /// </summary>
+    /// <summary>Forwards each line read from a stream to the supplied callback.</summary>
     /// <param name="reader">The reader supplying the lines.</param>
     /// <param name="onOutput">The callback invoked for each line, when provided.</param>
     private static async Task ForwardLinesAsync(StreamReader reader, Action<string>? onOutput)

@@ -63,17 +63,29 @@ public sealed class BridgeBuildCoordinator
         ArtifactPlan plan = ArtifactPlan.Create(
             BridgeVersion.FromVcpkgManifest(await File.ReadAllTextAsync(manifestPath, cancellationToken)),
             request.Channel);
-        VisualStudioToolchain toolchain = toolchainProvider();
+        VisualStudioToolchain toolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
 
         onOutput?.Invoke("Building the DovahLink bridge Release target...");
-        int exitCode = await commandRunner.RunAsync(
-            BuildCommand.Create(toolchain),
-            bridgeRoot,
+        var environmentLines = new List<string>();
+        int environmentExitCode = await commandRunner.RunAsync(
+            BuildCommand.CreateEnvironmentImport(toolchain),
+            environmentLines.Add,
             onOutput,
             cancellationToken);
-        if (exitCode != 0)
+        if (environmentExitCode != 0)
         {
-            throw new InvalidOperationException($"The bridge build failed with exit code {exitCode}.");
+            throw new InvalidOperationException(
+                $"Visual Studio environment initialization failed with exit code {environmentExitCode}.");
+        }
+
+        IReadOnlyDictionary<string, string> buildEnvironment = VisualStudioEnvironment.Create(environmentLines, toolchain);
+        foreach (BuildCommand command in BuildCommand.CreateReleaseBuild(bridgeRoot, buildEnvironment))
+        {
+            int exitCode = await commandRunner.RunAsync(command, onOutput, onOutput, cancellationToken);
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException($"The bridge build failed with exit code {exitCode}.");
+            }
         }
 
         string buildOutputRoot = Path.Combine(bridgeRoot, "build", ReleaseBuildDirectory);

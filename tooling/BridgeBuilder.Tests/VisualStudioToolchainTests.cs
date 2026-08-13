@@ -33,6 +33,44 @@ public sealed class VisualStudioToolchainTests
             VisualStudioToolchainLocator.Find([temporaryDirectory.Path]));
     }
 
+    /// <summary>Rejects a direct toolchain value whose environment script is missing.</summary>
+    [Fact]
+    public void ValidateRejectsAMissingEnvironmentScript()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string vcpkgRoot = Path.Combine(temporaryDirectory.Path, "vcpkg");
+        Directory.CreateDirectory(vcpkgRoot);
+
+        Assert.Throws<InvalidOperationException>(() => VisualStudioToolchainLocator.Validate(
+            new VisualStudioToolchain(Path.Combine(temporaryDirectory.Path, "missing.bat"), vcpkgRoot)));
+    }
+
+    /// <summary>Rejects an existing batch file that is not the supported Visual Studio environment script.</summary>
+    [Fact]
+    public void ValidateRejectsAnUnexpectedEnvironmentScriptName()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string batchPath = Path.Combine(temporaryDirectory.Path, "other.bat");
+        string vcpkgRoot = Path.Combine(temporaryDirectory.Path, "vcpkg");
+        File.WriteAllText(batchPath, "@echo off");
+        Directory.CreateDirectory(vcpkgRoot);
+
+        Assert.Throws<InvalidOperationException>(() => VisualStudioToolchainLocator.Validate(
+            new VisualStudioToolchain(batchPath, vcpkgRoot)));
+    }
+
+    /// <summary>Rejects a direct toolchain value whose bundled vcpkg directory is missing.</summary>
+    [Fact]
+    public void ValidateRejectsAMissingVcpkgDirectory()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        string vcvarsallPath = Path.Combine(temporaryDirectory.Path, "vcvarsall.bat");
+        File.WriteAllText(vcvarsallPath, "@echo off");
+
+        Assert.Throws<InvalidOperationException>(() => VisualStudioToolchainLocator.Validate(
+            new VisualStudioToolchain(vcvarsallPath, Path.Combine(temporaryDirectory.Path, "missing-vcpkg"))));
+    }
+
     /// <summary>Creates and removes an isolated temporary directory for a test.</summary>
     private sealed class TemporaryDirectory : IDisposable
     {
