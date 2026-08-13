@@ -40,7 +40,8 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener) {
         }
 
         boost::asio::ip::tcp::socket socket = std::move(*accepted);
-        if (!slot_.TryAcquire()) {
+        auto slotLease = slot_.TryAcquire();
+        if (!slotLease.has_value()) {
             // Phase 1 allows exactly one connected client
             // (ai/context/protocol/security.md); reject without a WebSocket
             // handshake, matching ConnectionSlot's documented contract.
@@ -52,7 +53,6 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener) {
         ConnectionId connection = nextConnectionId_.fetch_add(1, std::memory_order_relaxed);
         transport::WebSocketSession session(std::move(socket));
         RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_);
-        slot_.Release();
     }
 }
 

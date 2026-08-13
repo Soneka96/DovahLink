@@ -105,12 +105,14 @@ TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
 
     fixture.pool.Stop();
     fixture.pool.Join();
+    CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
 TEST_CASE("BridgeWorkerPool closes a new connection before any handshake when the slot is already occupied",
           "[application][bridge_worker_pool]") {
     Fixture fixture;
-    REQUIRE(fixture.slot.TryAcquire());  // simulate an already-active connection.
+    auto occupiedLease = fixture.slot.TryAcquire();  // simulate an already-active connection.
+    REQUIRE(occupiedLease.has_value());
     fixture.pool.Start();
 
     boost::asio::io_context clientIoc;
@@ -124,9 +126,10 @@ TEST_CASE("BridgeWorkerPool closes a new connection before any handshake when th
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     CHECK(handshakeEc);  // the server closed the raw socket before ever handshaking.
 
-    fixture.slot.Release();
+    occupiedLease.reset();
     fixture.pool.Stop();
     fixture.pool.Join();
+    CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
 TEST_CASE("BridgeWorkerPool Stop and Join terminate promptly with no active connections",
