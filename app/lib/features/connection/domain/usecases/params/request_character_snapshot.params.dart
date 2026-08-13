@@ -10,6 +10,7 @@ class RequestCharacterSnapshotParams extends Equatable {
   /// Creates snapshot-request parameters.
   const RequestCharacterSnapshotParams({this.knownRevision});
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [knownRevision];
 }

@@ -24,6 +24,7 @@ class CharacterStateEntity extends Equatable {
   /// The player's stamina pool, or `null` when unavailable.
   final ResourceValueEntity? stamina;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [level, health, magicka, stamina];
 }

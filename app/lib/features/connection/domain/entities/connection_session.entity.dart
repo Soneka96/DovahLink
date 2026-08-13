@@ -14,6 +14,7 @@ class ConnectionSessionEntity extends Equatable {
   /// The protocol version selected during negotiation.
   final int protocolVersion;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [sessionId, protocolVersion];
 }

@@ -19,6 +19,7 @@ class RequestCharacterSnapshotUseCase
   /// Repository this use case delegates to.
   final IConnectionRepository _repository;
 
+  /// See [UseCase.call].
   @override
   Future<Either<Failure, CharacterSnapshotEntity>> call(
     RequestCharacterSnapshotParams params,
