@@ -13,6 +13,7 @@ using dovahlink::security::TokenStore;
 
 namespace {
 
+/// Builds a deterministic token-sized byte sequence from a seed value.
 std::vector<std::uint8_t> MakeToken(std::uint8_t seed) {
     std::vector<std::uint8_t> token(32);
     for (std::size_t i = 0; i < token.size(); ++i) {
@@ -50,8 +51,8 @@ TEST_CASE("a wrong guess does not block a later correct guess", "[security][toke
 
 TEST_CASE("an empty presented token trivially matches an empty expected token", "[security][token_store]") {
     // Documents current behavior rather than asserting it is desirable: in
-    // practice the token provider (Step 33) always supplies a real 256-bit
-    // token, so an empty expected token is a construction bug in the caller,
+    // practice the token provider always supplies a real 256-bit token, so an
+    // empty expected token is a construction bug in the caller,
     // not user-controlled input this store needs to defend against.
     TokenStore store(std::vector<std::uint8_t>{});
     CHECK(store.TryConsume(std::vector<std::uint8_t>{}));
@@ -90,7 +91,7 @@ TEST_CASE("IsAvailable is false after a successful consume", "[security][token_s
 
 TEST_CASE("exactly one concurrent TryConsume attempt succeeds", "[security][token_store]") {
     // Uses a spin barrier to maximize actual thread overlap rather than a
-    // timing sleep to approximate concurrency (ai/context/skse/testing.md).
+    // timing sleep to approximate concurrency.
     auto token = MakeToken(1);
     TokenStore store(token);
 

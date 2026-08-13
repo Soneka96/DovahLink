@@ -10,7 +10,7 @@ using dovahlink::security::GenerateRandomBytes;
 
 TEST_CASE("GenerateRandomBytes returns the requested number of bytes (256-bit token size)",
           "[security][csprng]") {
-    auto bytes = GenerateRandomBytes(32);  // 256 bits, per TASK.md's one-time token size.
+    auto bytes = GenerateRandomBytes(32);  // 256-bit one-time token size.
     REQUIRE(bytes.has_value());
     CHECK(bytes->size() == 32);
 }

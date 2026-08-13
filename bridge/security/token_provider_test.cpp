@@ -19,8 +19,10 @@ constexpr const char* kVarName = "DOVAHLINK_BRIDGE_TOKEN";
 constexpr const char* kValidHexToken =
     "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
+/// Stores named environment values for token-provider tests.
 class FakeEnvironmentReader : public EnvironmentReader {
 public:
+    /// @copydoc EnvironmentReader::Read
     [[nodiscard]] std::optional<std::string> Read(std::string_view name) const override {
         auto it = values_.find(std::string(name));
         if (it == values_.end()) {
@@ -29,9 +31,11 @@ public:
         return it->second;
     }
 
+    /// Sets or replaces one environment value.
     void Set(std::string name, std::string value) { values_[std::move(name)] = std::move(value); }
 
 private:
+    /// Test environment values keyed by variable name.
     std::unordered_map<std::string, std::string> values_;
 };
 

@@ -13,6 +13,7 @@ using dovahlink::security::RateWindowCounter;
 using dovahlink::security::ViolationTracker;
 
 namespace {
+/// Clock type used for deterministic sliding-window assertions.
 using Clock = std::chrono::steady_clock;
 }  // namespace
 
@@ -48,7 +49,7 @@ TEST_CASE("RateWindowCounter prunes an event exactly `window` old", "[security][
 
 TEST_CASE("RateWindowCounter is safe under concurrent recording", "[security][throttle]") {
     // Uses a spin barrier to maximize actual thread overlap rather than a timing
-    // sleep to approximate concurrency (ai/context/skse/testing.md). This proves
+    // sleep to approximate concurrency. This proves
     // the mutex prevents corruption/crashes under contention; it does not depend
     // on a specific interleaving, since concurrent callers may race on which
     // steady_clock::now() reading reaches the lock first.
