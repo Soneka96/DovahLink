@@ -12,15 +12,20 @@ using dovahlink::game_state::LevelIncreaseHandler;
 
 namespace {
 
+/// Provides a mutable raw level value to handler tests.
 class FakeLevelAccessor : public LevelAccessor {
 public:
+    /// Stores the initial raw level value returned by ReadLevel.
     explicit FakeLevelAccessor(std::optional<std::int64_t> value) : value_(value) {}
 
+    /// @copydoc LevelAccessor::ReadLevel
     [[nodiscard]] std::optional<std::int64_t> ReadLevel() const override { return value_; }
 
+    /// Changes the raw level returned by later ReadLevel calls.
     void SetValue(std::optional<std::int64_t> value) { value_ = value; }
 
 private:
+    /// Raw level value, including the unavailable state.
     std::optional<std::int64_t> value_;
 };
 
@@ -29,10 +34,13 @@ private:
 // RE::LevelIncrease::Event pointer or a PlayerCharacter*, so a regression
 // that tried to forward the raw event through this seam would fail to
 // compile, not silently pass.
+/// Captures the owned level values published by the handler.
 class FakeLevelEventSink : public LevelEventSink {
 public:
+    /// @copydoc LevelEventSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override { received.push_back(level); }
 
+    /// Values received from the handler, in publication order.
     std::vector<std::optional<std::int64_t>> received;
 };
 

@@ -10,13 +10,17 @@ using dovahlink::game_state::LevelAccessor;
 
 namespace {
 
+/// Returns the configured raw level for adapter tests.
 class FakeLevelAccessor : public LevelAccessor {
 public:
+    /// Stores the raw level value returned by ReadLevel.
     explicit FakeLevelAccessor(std::optional<std::int64_t> value) : value_(value) {}
 
+    /// @copydoc LevelAccessor::ReadLevel
     [[nodiscard]] std::optional<std::int64_t> ReadLevel() const override { return value_; }
 
 private:
+    /// Raw level value, including the unavailable state.
     std::optional<std::int64_t> value_;
 };
 
