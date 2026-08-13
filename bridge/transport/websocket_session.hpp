@@ -2,6 +2,7 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/websocket/stream.hpp>
 
 #include <atomic>
@@ -29,7 +30,7 @@ enum class SessionError {
 
 /// Owns one accepted TCP connection and applies the Phase 1 WebSocket rules:
 /// compression and WebSocket keep-alive pings are disabled, only text frames
-/// are accepted, and handshake/idle receive timeouts are enforced.
+/// are accepted, and handshake/idle I/O timeouts are enforced.
 class WebSocketSession {
 public:
     /// Owns the TCP socket shared between the worker and shutdown path.
@@ -49,7 +50,7 @@ public:
         boost::asio::io_context& ioContext_;
 
         /// Worker-owned WebSocket stream and its accepted TCP socket.
-        boost::beast::websocket::stream<boost::asio::ip::tcp::socket> stream_;
+        boost::beast::websocket::stream<boost::beast::tcp_stream> stream_;
 
         /// Whether executor-owned cancellation has been requested.
         std::atomic<bool> shutdownRequested_{false};
@@ -93,11 +94,20 @@ private:
     /// Reports whether cancellation has disabled further session operations.
     [[nodiscard]] bool IsShutdownRequested() const noexcept;
 
-    /// Applies Beast's timeout policy for the next asynchronous stream operation.
-    void SetReadTimeout(std::chrono::steady_clock::duration timeout);
+    /// Updates the WebSocket inactivity policy for the current session phase.
+    void SetTimeoutPolicy(std::chrono::steady_clock::duration timeout);
+
+    /// Restarts the lower-layer deadline for one write or close operation.
+    void ArmWriteTimeout(std::chrono::steady_clock::duration timeout);
+
+    /// Disables lower-layer deadlines before a WebSocket-managed read.
+    void DisableWriteTimeout();
 
     /// Shared owner of the worker-confined WebSocket state.
     SocketHandle socket_;
+
+    /// Deadline applied to writes in the current session phase.
+    std::chrono::steady_clock::duration operationTimeout_;
 };
 
 }  // namespace dovahlink::transport

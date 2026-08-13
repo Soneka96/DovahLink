@@ -110,6 +110,54 @@ TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake",
     CHECK(handshake.error() == SessionError::kHandshakeFailed);
 }
 
+TEST_CASE("Accept times out when a TCP peer never sends a WebSocket upgrade",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    boost::asio::io_context serverIoc;
+    auto listener = LoopbackListener::Create(serverIoc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    std::promise<WebSocketSession::SocketHandle> socketPublished;
+    auto socketHandle = socketPublished.get_future();
+    auto server = std::async(std::launch::async, [&] {
+        boost::system::error_code acceptEc;
+        auto acceptedSocket = listener->Acceptor().accept(acceptEc);
+        if (acceptEc) {
+            return std::pair{std::expected<void, SessionError>(
+                                 std::unexpected(SessionError::kHandshakeFailed)),
+                             std::chrono::steady_clock::duration{}};
+        }
+
+        auto sharedSocket = WebSocketSession::CreateSocket(std::move(acceptedSocket));
+        WebSocketSession session(sharedSocket);
+        socketPublished.set_value(sharedSocket);
+        auto start = std::chrono::steady_clock::now();
+        auto handshake = session.Accept();
+        return std::pair{handshake, std::chrono::steady_clock::now() - start};
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto activeSocket = socketHandle.get();
+    auto completion = server.wait_for(20s);
+    if (completion != std::future_status::ready) {
+        activeSocket->Shutdown();
+        server.wait();
+    }
+
+    REQUIRE(completion == std::future_status::ready);
+    auto [handshake, duration] = server.get();
+    REQUIRE_FALSE(handshake.has_value());
+    CHECK(handshake.error() == SessionError::kHandshakeFailed);
+    CHECK(duration < 20s);
+}
+
 TEST_CASE("a text message from the client is read on the server", "[transport][websocket_session]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
@@ -200,6 +248,71 @@ TEST_CASE("a text message from the server is read on the client", "[transport][w
     REQUIRE(serverWriteResult.has_value());
     REQUIRE_FALSE(readEc);
     CHECK(boost::beast::buffers_to_string(buffer.data()) == "hello from server");
+}
+
+TEST_CASE("WriteMessage closes a connection that stops accepting bytes",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    boost::asio::io_context serverIoc;
+    auto listener = LoopbackListener::Create(serverIoc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    std::promise<WebSocketSession::SocketHandle> socketPublished;
+    auto socketHandle = socketPublished.get_future();
+    std::binary_semaphore clientReady{0};
+    auto server = std::async(std::launch::async, [&] {
+        boost::system::error_code acceptEc;
+        auto acceptedSocket = listener->Acceptor().accept(acceptEc);
+        if (acceptEc) {
+            return std::pair{std::expected<void, SessionError>(
+                                 std::unexpected(SessionError::kHandshakeFailed)),
+                             std::chrono::steady_clock::duration{}};
+        }
+
+        auto sharedSocket = WebSocketSession::CreateSocket(std::move(acceptedSocket));
+        WebSocketSession session(sharedSocket);
+        socketPublished.set_value(sharedSocket);
+        auto handshake = session.Accept();
+        if (!handshake.has_value()) {
+            return std::pair{std::expected<void, SessionError>(
+                                 std::unexpected(SessionError::kHandshakeFailed)),
+                             std::chrono::steady_clock::duration{}};
+        }
+
+        clientReady.acquire();
+        std::string payload(16 * 1024 * 1024, 'x');
+        auto start = std::chrono::steady_clock::now();
+        auto write = session.WriteMessage(payload);
+        return std::pair{write, std::chrono::steady_clock::now() - start};
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    clientWs.next_layer().set_option(boost::asio::socket_base::receive_buffer_size(1024));
+    clientReady.release();
+
+    auto activeSocket = socketHandle.get();
+    auto completion = server.wait_for(20s);
+    if (completion != std::future_status::ready) {
+        activeSocket->Shutdown();
+        server.wait();
+    }
+
+    REQUIRE(completion == std::future_status::ready);
+    auto [write, duration] = server.get();
+    REQUIRE_FALSE(write.has_value());
+    CHECK(write.error() == SessionError::kWriteFailed);
+    CHECK(duration < 20s);
 }
 
 TEST_CASE("ReadMessage fails when the client closes the connection abruptly "
@@ -297,6 +410,63 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
     CHECK(readEc == boost::beast::websocket::error::closed);
 }
 
+TEST_CASE("Close times out when the peer never answers the close frame",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    boost::asio::io_context serverIoc;
+    auto listener = LoopbackListener::Create(serverIoc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    std::promise<WebSocketSession::SocketHandle> socketPublished;
+    auto socketHandle = socketPublished.get_future();
+    std::binary_semaphore clientReady{0};
+    auto server = std::async(std::launch::async, [&] {
+        boost::system::error_code acceptEc;
+        auto acceptedSocket = listener->Acceptor().accept(acceptEc);
+        if (acceptEc) {
+            return std::pair{false, std::chrono::steady_clock::duration{}};
+        }
+
+        auto sharedSocket = WebSocketSession::CreateSocket(std::move(acceptedSocket));
+        WebSocketSession session(sharedSocket);
+        socketPublished.set_value(sharedSocket);
+        if (!session.Accept().has_value()) {
+            return std::pair{false, std::chrono::steady_clock::duration{}};
+        }
+
+        clientReady.acquire();
+        auto start = std::chrono::steady_clock::now();
+        session.Close();
+        return std::pair{true, std::chrono::steady_clock::now() - start};
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    clientReady.release();
+
+    auto activeSocket = socketHandle.get();
+    auto completion = server.wait_for(20s);
+    if (completion != std::future_status::ready) {
+        activeSocket->Shutdown();
+        server.wait();
+    }
+
+    REQUIRE(completion == std::future_status::ready);
+    auto [reachedClose, duration] = server.get();
+    REQUIRE(reachedClose);
+    CHECK(duration < 20s);
+}
+
 TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read", "[transport][websocket_session]") {
     // This test proves that reapplying the timeout option mid-session is
     // message-preserving; the long idle duration is not waited out here.
@@ -349,7 +519,7 @@ TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read", "[transport]
 TEST_CASE("ReadMessage fails within the handshake timeout when the client "
           "sends nothing",
           "[transport][websocket_session]") {
-    // Proves the production timeout boundary: SetReadTimeout's Beast policy
+    // Proves the production timeout boundary: the session's Beast policy
     // genuinely bounds a stalled asynchronous read. This exact scenario (a
     // WebSocket-handshaked peer that never sends an application message)
     // previously had no enforced bound in this class's synchronous API.

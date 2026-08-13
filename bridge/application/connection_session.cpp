@@ -54,10 +54,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     auto postReadNow = steadyNow();
     if (timeout.IsTimedOut(postReadNow)) {
         // The hello itself arrived, but only after trickling in slowly
-        // enough to keep the WebSocket operation's inactivity timeout
-        // (WebSocketSession::SetReadTimeout) from firing on its own. This is
-        // the message-layer backstop HandleHello's own doc comment expects
-        // "whatever owns the read loop" to provide.
+        // enough to keep the WebSocket operation's inactivity timeout from
+        // firing on its own. This is the message-layer backstop HandleHello's
+        // own doc comment expects "whatever owns the read loop" to provide.
         ws.Close();
         return;
     }

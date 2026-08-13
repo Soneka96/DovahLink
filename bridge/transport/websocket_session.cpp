@@ -42,7 +42,8 @@ boost::beast::error_code RunOperation(boost::asio::io_context& ioContext, StartO
 }  // namespace
 
 WebSocketSession::Socket::Socket(boost::asio::ip::tcp::socket socket)
-    : ioContext_(static_cast<boost::asio::io_context&>(socket.get_executor().context())), stream_(std::move(socket)) {}
+    : ioContext_(static_cast<boost::asio::io_context&>(socket.get_executor().context())),
+      stream_(boost::beast::tcp_stream(std::move(socket))) {}
 
 void WebSocketSession::Socket::Shutdown() noexcept {
     if (shutdownRequested_.exchange(true, std::memory_order_acq_rel)) {
@@ -56,11 +57,13 @@ void WebSocketSession::Socket::Shutdown() noexcept {
             if (!activeSocket) {
                 return;
             }
-            boost::beast::error_code ec;
-            auto& tcpSocket = activeSocket->stream_.next_layer();
-            tcpSocket.cancel(ec);
-            tcpSocket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
-            tcpSocket.close(ec);
+            try {
+                auto& tcpStream = activeSocket->stream_.next_layer();
+                tcpStream.cancel();
+                tcpStream.close();
+            } catch (...) {
+                // Cancellation remains best-effort at this noexcept boundary.
+            }
         });
     } catch (...) {
         // Shutdown is a best-effort noexcept boundary. A pending operation still
@@ -71,7 +74,8 @@ void WebSocketSession::Socket::Shutdown() noexcept {
 WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket)
     : WebSocketSession(CreateSocket(std::move(socket))) {}
 
-WebSocketSession::WebSocketSession(SocketHandle socket) : socket_(std::move(socket)) {
+WebSocketSession::WebSocketSession(SocketHandle socket)
+    : socket_(std::move(socket)), operationTimeout_(security::kHandshakeTimeout) {
     static_cast<void>(RequireSocket(socket_));
 }
 
@@ -90,12 +94,21 @@ bool WebSocketSession::IsShutdownRequested() const noexcept {
     return socket_->shutdownRequested_.load(std::memory_order_acquire);
 }
 
-void WebSocketSession::SetReadTimeout(std::chrono::steady_clock::duration timeout) {
+void WebSocketSession::SetTimeoutPolicy(std::chrono::steady_clock::duration timeout) {
+    operationTimeout_ = timeout;
     boost::beast::websocket::stream_base::timeout timeoutOptions;
     timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
     timeoutOptions.idle_timeout = timeout;
     timeoutOptions.keep_alive_pings = false;
     socket_->stream_.set_option(timeoutOptions);
+}
+
+void WebSocketSession::ArmWriteTimeout(std::chrono::steady_clock::duration timeout) {
+    boost::beast::get_lowest_layer(socket_->stream_).expires_after(timeout);
+}
+
+void WebSocketSession::DisableWriteTimeout() {
+    boost::beast::get_lowest_layer(socket_->stream_).expires_never();
 }
 
 std::expected<void, SessionError> WebSocketSession::Accept() {
@@ -112,7 +125,7 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
 
     // Applied before accept() itself so the WebSocket upgrade handshake's
     // own wait is bounded too, not just reads that come after it.
-    SetReadTimeout(security::kHandshakeTimeout);
+    SetTimeoutPolicy(security::kHandshakeTimeout);
 
     auto ec = RunOperation(socket_->ioContext_,
                            [this](auto completion) { socket_->stream_.async_accept(std::move(completion)); });
@@ -124,7 +137,7 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
 
 void WebSocketSession::SwitchToIdleTimeout() {
     if (!IsShutdownRequested()) {
-        SetReadTimeout(security::kIdleTimeout);
+        SetTimeoutPolicy(security::kIdleTimeout);
     }
 }
 
@@ -132,6 +145,7 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
     if (IsShutdownRequested()) {
         return std::unexpected(SessionError::kReadFailed);
     }
+    DisableWriteTimeout();
     boost::beast::flat_buffer buffer;
     auto ec = RunOperation(socket_->ioContext_, [this, &buffer](auto completion) {
         socket_->stream_.async_read(buffer, std::move(completion));
@@ -152,6 +166,7 @@ std::expected<void, SessionError> WebSocketSession::WriteMessage(const std::stri
     if (IsShutdownRequested()) {
         return std::unexpected(SessionError::kWriteFailed);
     }
+    ArmWriteTimeout(operationTimeout_);
     socket_->stream_.text(true);
     auto ec = RunOperation(socket_->ioContext_, [this, &text](auto completion) {
         socket_->stream_.async_write(boost::asio::buffer(text), std::move(completion));
@@ -166,6 +181,7 @@ void WebSocketSession::Close() {
     if (IsShutdownRequested()) {
         return;
     }
+    ArmWriteTimeout(security::kHandshakeTimeout);
     static_cast<void>(RunOperation(socket_->ioContext_, [this](auto completion) {
         socket_->stream_.async_close(boost::beast::websocket::close_code::normal, std::move(completion));
     }));
