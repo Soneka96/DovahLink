@@ -48,10 +48,17 @@ public sealed class BuildTests
             "Visual Studio & tools");
         File.WriteAllText(toolchain.VcvarsallPath, "@echo off\nset DOVAHLINK_TEST_ENV=imported\n");
         BuildCommand command = BuildCommand.CreateEnvironmentImport(toolchain);
+        BuildCommand restrictedSearchCommand = command with
+        {
+            EnvironmentVariables = new Dictionary<string, string>
+            {
+                ["NoDefaultCurrentDirectoryInExePath"] = "1",
+            },
+        };
         var output = new List<string>();
         var errors = new List<string>();
 
-        int exitCode = await new ProcessCommandRunner().RunAsync(command, output.Add, errors.Add);
+        int exitCode = await new ProcessCommandRunner().RunAsync(restrictedSearchCommand, output.Add, errors.Add);
 
         Assert.True(exitCode == 0, string.Join(Environment.NewLine, errors));
         Assert.DoesNotContain(toolchain.VcvarsallPath, command.Arguments);
@@ -161,9 +168,9 @@ public sealed class BuildTests
             "ping -n 30 127.0.0.1 >nul\n");
         var command = new BuildCommand(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            ["/d", "/c", Path.GetFileName(batchPath)],
+            ["/d", "/c", $".\\{Path.GetFileName(batchPath)}"],
             temporaryDirectory.Path,
-            new Dictionary<string, string>());
+            new Dictionary<string, string> { ["NoDefaultCurrentDirectoryInExePath"] = "1" });
         using var cancellation = new CancellationTokenSource();
         Task<int> runTask = new ProcessCommandRunner().RunAsync(command, null, null, cancellation.Token);
         DateTime startDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);

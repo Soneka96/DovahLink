@@ -25,7 +25,7 @@ public sealed record BuildCommand(
         string commandInterpreter = Path.Combine(Environment.SystemDirectory, "cmd.exe");
         return new BuildCommand(
             commandInterpreter,
-            ["/d", "/c", "call vcvarsall.bat x64 >nul && set"],
+            ["/d", "/c", "call .\\vcvarsall.bat x64 >nul && set"],
             Path.GetDirectoryName(validated.VcvarsallPath)!,
             new Dictionary<string, string>());
     }

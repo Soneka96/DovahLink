@@ -19,3 +19,11 @@ Follow the shared documentation rules in `ai/context/common.md`.
   remain attached to that declaration.
 - Use ordinary `//` comments inside a method for implementation reasoning. Do not mix `//` comments
   into an XML documentation block.
+
+## Process execution
+
+- When invoking a script through `cmd.exe`, do not rely on the working directory for command
+  lookup. Use an explicit relative path such as `.\script.bat` for a script in the working
+  directory, or a validated absolute path.
+- Pass dynamic arguments and environment values as structured process data rather than
+  interpolating them into shell command text.
