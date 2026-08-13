@@ -11,6 +11,7 @@
 
 namespace {
 
+/// Loads and decodes one protocol envelope fixture for envelope assertions.
 dovahlink::protocol::Envelope DecodeFixture(const std::string& relativePath) {
     return dovahlink::protocol::test_support::DecodeFixtureEnvelope(relativePath);
 }

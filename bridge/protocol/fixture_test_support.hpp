@@ -11,17 +11,11 @@
 #include <string>
 #include <utility>
 
-// Test-only helpers for loading protocol/fixtures/*.json files by path relative to
-// that directory. DOVAHLINK_FIXTURES_DIR is defined by bridge/CMakeLists.txt. Not
-// part of dovahlink_bridge_core: only test .cpp files include this header.
+// Test-only helpers for loading canonical protocol fixtures from the configured
+// fixture directory.
 namespace dovahlink::protocol::test_support {
 
-/**
- * @brief Reads a protocol fixture file from the configured fixtures directory.
- *
- * @param relativePath Path to the fixture relative to DOVAHLINK_FIXTURES_DIR.
- * @return std::string The complete binary contents of the fixture.
- */
+/// Reads a protocol fixture file as its complete binary contents.
 inline std::string ReadFixture(const std::string& relativePath) {
     std::filesystem::path path = std::filesystem::path(DOVAHLINK_FIXTURES_DIR) / relativePath;
     std::ifstream file(path, std::ios::binary);
@@ -31,12 +25,7 @@ inline std::string ReadFixture(const std::string& relativePath) {
     return buffer.str();
 }
 
-/**
- * @brief Decodes a protocol envelope from a fixture file.
- *
- * @param relativePath Path to the fixture relative to the configured fixtures directory.
- * @return Envelope decoded from the fixture contents.
- */
+/// Reads and decodes a protocol envelope fixture.
 inline Envelope DecodeFixtureEnvelope(const std::string& relativePath) {
     auto parsed = ParseBoundedJson(ReadFixture(relativePath));
     REQUIRE(parsed.has_value());

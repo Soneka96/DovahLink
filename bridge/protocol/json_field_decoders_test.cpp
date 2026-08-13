@@ -10,6 +10,7 @@ using dovahlink::protocol::DecodeNonNegativeInt;
 
 namespace {
 
+/// Parses a short JSON value used as decoder-test input.
 boost::json::value Json(const char* text) { return boost::json::parse(text); }
 
 }  // namespace
