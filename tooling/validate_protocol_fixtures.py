@@ -27,17 +27,18 @@ REQUIRED_FIELDS = (
 
 
 class FixtureError(ValueError):
+    """Indicate that a protocol fixture violates the envelope contract."""
+
     pass
 
 
 def validate_envelope(name: str, message: object) -> None:
-    """
-    Validate a protocol message against the v1 envelope contract.
-    
-    Parameters:
-        name (str): Fixture name used in validation error messages.
-        message (object): Parsed JSON value to validate.
-    
+    """Validate a protocol message against the v1 envelope contract.
+
+    Args:
+        name: Fixture name used in validation error messages.
+        message: Parsed JSON value to validate.
+
     Raises:
         FixtureError: If the value is not a valid protocol message envelope.
     """
@@ -82,14 +83,13 @@ def validate_envelope(name: str, message: object) -> None:
 
 
 def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
-    """
-    Validate all JSON protocol fixtures in a directory.
-    
-    Parameters:
-    	fixtures_dir (Path): Directory containing the fixture files.
-    
+    """Validate all JSON protocol fixtures in a directory.
+
+    Args:
+        fixtures_dir: Directory containing the fixture files.
+
     Returns:
-    	list[str]: Relative paths of the validated fixture files.
+        Relative paths of the validated fixture files.
     """
     fixture_files = sorted(fixtures_dir.rglob("*.json"))
     if not fixture_files:
@@ -106,11 +106,10 @@ def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
 
 
 def main() -> int:
-    """
-    Validate all protocol fixtures and report the result.
-    
+    """Validate all protocol fixtures and report the result.
+
     Returns:
-    	int: `0` if all fixtures satisfy the envelope contract, `1` if validation or JSON parsing fails.
+        `0` if all fixtures satisfy the envelope contract, or `1` if validation or JSON parsing fails.
     """
     try:
         checked = validate_all()
