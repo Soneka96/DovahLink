@@ -18,7 +18,7 @@ object per message; framing is not part of the JSON payload.
 
 | Field | Type | Required | Meaning |
 |---|---|---:|---|
-| `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
+| `protocolVersion` | non-negative integer | yes | `0` for pre-negotiation `hello`, `hello_ack`, and errors sent before a version is selected; after `hello_ack` selects v1, every message uses `1`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
@@ -218,6 +218,11 @@ Required payload fields: `code`, `message`, `retryable`. `details` is nullable a
 
 Canonical v1 error codes include `malformed_message`, `frame_too_large`, `unsupported_version`, `unsupported_capability`, `unauthenticated`, `unauthorized`, `replayed_message`, `stale_session`, `rate_limited`, and `internal_error`. Error codes are for branching; diagnostic messages are not.
 
+An error sent before version negotiation completes uses `protocolVersion: 0`. If no session has
+been established on that socket, its `sessionId` is also `null`; this includes
+`unsupported_version` and authentication failures. After a successful `hello_ack`, errors use the
+selected protocol version (`1` in v1) and the active session identity.
+
 ### `ping` and `pong`
 
 Carry no application state. They prove liveness for the current `sessionId`.
@@ -227,7 +232,9 @@ Carry no application state. They prove liveness for the current `sessionId`.
 ## Session and recovery rules
 
 1. The connecting client sends `hello` using `protocolVersion: 0`.
-2. The bridge selects the highest mutually supported protocol version and replies with `hello_ack`; if none exists, the connection ends with `unsupported_version`.
+2. The bridge selects the highest mutually supported protocol version and replies with `hello_ack`;
+   if none exists, the bridge replies with an `unsupported_version` error using
+   `protocolVersion: 0` and `sessionId: null`, then ends the connection.
 3. They exchange `capabilities` using the selected version.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.

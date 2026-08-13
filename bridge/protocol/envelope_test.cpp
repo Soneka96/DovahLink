@@ -8,6 +8,7 @@
 #include <boost/json/value.hpp>
 
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -57,15 +58,31 @@ TEST_CASE("error-stale-session fixture decodes with a non-null sessionId", "[pro
     CHECK(*envelope.sessionId == "session-2");
 }
 
-TEST_CASE("state-snapshot-unknown-field fixture decodes, ignoring the unrecognized top-level field",
+TEST_CASE("state-snapshot-unknown-field fixture decodes, ignoring the "
+          "unrecognized top-level field",
           "[protocol][envelope]") {
     auto envelope = DecodeFixture("state/character/state-snapshot-unknown-field.json");
     CHECK(envelope.messageType == "state_snapshot");
     REQUIRE(envelope.payload.if_contains("stateArea"));
 }
 
-// Hand-built malformed cases: these test the codec's rejection behavior rather than
-// model a valid or documented wire scenario, so they are not stored as fixtures.
+TEST_CASE("every canonical JSON fixture is recursively discovered and decodes "
+          "as an envelope",
+          "[protocol][envelope][fixtures]") {
+    const std::vector<std::string> fixturePaths = dovahlink::protocol::test_support::DiscoverFixturePaths();
+    REQUIRE_FALSE(fixturePaths.empty());
+
+    for (const std::string& fixturePath : fixturePaths) {
+        CAPTURE(fixturePath);
+        auto envelope = DecodeFixture(fixturePath);
+        CHECK_FALSE(envelope.messageType.empty());
+        CHECK_FALSE(envelope.messageId.empty());
+    }
+}
+
+// Hand-built malformed cases: these test the codec's rejection behavior rather
+// than model a valid or documented wire scenario, so they are not stored as
+// fixtures.
 
 TEST_CASE("a non-object top-level value is rejected", "[protocol][envelope]") {
     auto parsed = dovahlink::protocol::ParseBoundedJson("[1, 2, 3]");
@@ -217,7 +234,8 @@ TEST_CASE("a message with unknown top-level fields still decodes", "[protocol][e
 // A bug that omitted or mistyped a field would fail these at the decode
 // step, not just at a hand-rolled field comparison.
 
-TEST_CASE("EncodeEnvelope round-trips the hello-ack fixture (non-null sessionId and correlationId)",
+TEST_CASE("EncodeEnvelope round-trips the hello-ack fixture (non-null "
+          "sessionId and correlationId)",
           "[protocol][envelope]") {
     auto original = DecodeFixture("connection/hello-ack.json");
 
@@ -236,8 +254,7 @@ TEST_CASE("EncodeEnvelope round-trips the hello-ack fixture (non-null sessionId 
     CHECK(roundTripped->payload == original.payload);
 }
 
-TEST_CASE("EncodeEnvelope round-trips a null sessionId as JSON null, not a string",
-          "[protocol][envelope]") {
+TEST_CASE("EncodeEnvelope round-trips a null sessionId as JSON null, not a string", "[protocol][envelope]") {
     auto original = DecodeFixture("errors/error-unauthenticated-invalid-token.json");
     REQUIRE_FALSE(original.sessionId.has_value());
 
@@ -255,8 +272,7 @@ TEST_CASE("EncodeEnvelope round-trips a null sessionId as JSON null, not a strin
     CHECK_FALSE(roundTripped->sessionId.has_value());
 }
 
-TEST_CASE("EncodeEnvelope round-trips a non-null sessionId from an error fixture",
-          "[protocol][envelope]") {
+TEST_CASE("EncodeEnvelope round-trips a non-null sessionId from an error fixture", "[protocol][envelope]") {
     auto original = DecodeFixture("errors/error-stale-session.json");
     REQUIRE(original.sessionId.has_value());
 
