@@ -2,23 +2,25 @@ using System.Diagnostics;
 
 namespace DovahLink.BridgeBuilder.Build;
 
+/// <summary>Runs external commands and forwards their output.</summary>
 public interface ICommandRunner
 {
     /// <summary>
-        /// Executes a command in the specified working directory.
-        /// </summary>
-        /// <param name="command">The command to execute.</param>
-        /// <param name="workingDirectory">The directory in which to execute the command.</param>
-        /// <param name="onOutput">The callback invoked for each line of command output, or <see langword="null"/> to ignore output.</param>
-        /// <param name="cancellationToken">The token used to cancel command execution.</param>
-        /// <returns>The command's exit code.</returns>
-        Task<int> RunAsync(
+    /// Executes a command in the specified working directory.
+    /// </summary>
+    /// <param name="command">The command to execute.</param>
+    /// <param name="workingDirectory">The directory in which to execute the command.</param>
+    /// <param name="onOutput">The callback invoked for each line of command output, or <see langword="null"/> to ignore output.</param>
+    /// <param name="cancellationToken">The token used to cancel command execution.</param>
+    /// <returns>The command's exit code.</returns>
+    Task<int> RunAsync(
         string command,
         string workingDirectory,
         Action<string>? onOutput,
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Runs commands through the Windows command shell.</summary>
 public sealed class ProcessCommandRunner : ICommandRunner
 {
     /// <summary>

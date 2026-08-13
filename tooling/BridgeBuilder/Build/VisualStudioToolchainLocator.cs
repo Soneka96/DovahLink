@@ -1,5 +1,6 @@
 namespace DovahLink.BridgeBuilder.Build;
 
+/// <summary>Locates supported Visual Studio and bundled vcpkg installations.</summary>
 public static class VisualStudioToolchainLocator
 {
     /// <summary>

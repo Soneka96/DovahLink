@@ -1,7 +1,15 @@
 namespace DovahLink.BridgeBuilder.Packaging;
 
+/// <summary>Maps one build output file to its path inside the package.</summary>
+/// <param name="SourceName">The file name in the build output directory.</param>
+/// <param name="ArchivePath">The destination path inside the archive.</param>
 public sealed record ArtifactFile(string SourceName, string ArchivePath);
 
+/// <summary>Describes the files and name of one bridge package.</summary>
+/// <param name="Version">The bridge version being packaged.</param>
+/// <param name="Channel">The package channel.</param>
+/// <param name="ArchiveName">The generated archive file name.</param>
+/// <param name="Files">The runtime files included in the archive.</param>
 public sealed record ArtifactPlan(
     BridgeVersion Version,
     PackageChannel Channel,

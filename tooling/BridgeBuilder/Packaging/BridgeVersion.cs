@@ -2,6 +2,10 @@ using System.Text.Json;
 
 namespace DovahLink.BridgeBuilder.Packaging;
 
+/// <summary>Represents a non-negative semantic bridge version.</summary>
+/// <param name="Major">The major version.</param>
+/// <param name="Minor">The minor version.</param>
+/// <param name="Patch">The patch version.</param>
 public readonly record struct BridgeVersion(int Major, int Minor, int Patch)
 {
     /// <summary>
@@ -66,9 +70,7 @@ public readonly record struct BridgeVersion(int Major, int Minor, int Patch)
         return new BridgeVersion(major, minor, patch);
     }
 
-    /// <summary>
-/// Formats the bridge version as a period-separated major, minor, and patch version.
-/// </summary>
-/// <returns>The version in <c>MAJOR.MINOR.PATCH</c> format.</returns>
-public override string ToString() => $"{Major}.{Minor}.{Patch}";
+    /// <summary>Formats the bridge version as MAJOR.MINOR.PATCH.</summary>
+    /// <returns>The version in <c>MAJOR.MINOR.PATCH</c> format.</returns>
+    public override string ToString() => $"{Major}.{Minor}.{Patch}";
 }

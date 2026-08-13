@@ -3,15 +3,26 @@ using DovahLink.BridgeBuilder.Packaging;
 
 namespace DovahLink.BridgeBuilder.Build;
 
+/// <summary>Describes the repository and channel for one bridge build.</summary>
+/// <param name="RepositoryRoot">The repository root containing the bridge sources.</param>
+/// <param name="Channel">The package channel to build.</param>
 public sealed record BridgeBuildRequest(string RepositoryRoot, PackageChannel Channel);
 
+/// <summary>Contains the packaging plan and archive produced by a bridge build.</summary>
+/// <param name="Plan">The files and version included in the package.</param>
+/// <param name="ArchivePath">The path to the created ZIP archive.</param>
 public sealed record BridgeBuildResult(ArtifactPlan Plan, string ArchivePath);
 
+/// <summary>Coordinates bridge compilation and artifact packaging.</summary>
 public sealed class BridgeBuildCoordinator
 {
+    /// <summary>The configured Release build output directory name.</summary>
     private const string ReleaseBuildDirectory = "windows-x64-release";
 
+    /// <summary>Runs the external build command.</summary>
     private readonly ICommandRunner commandRunner;
+
+    /// <summary>Provides the Visual Studio toolchain used by the build.</summary>
     private readonly Func<VisualStudioToolchain> toolchainProvider;
 
     /// <summary>

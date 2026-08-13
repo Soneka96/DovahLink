@@ -3,16 +3,34 @@ using DovahLink.BridgeBuilder.Packaging;
 
 namespace DovahLink.BridgeBuilder.Ui;
 
+/// <summary>Displays bridge build controls, progress, and results.</summary>
 public sealed class MainForm : Form
 {
+    /// <summary>The repository being built.</summary>
     private readonly string repositoryRoot;
+
+    /// <summary>Coordinates bridge compilation and packaging.</summary>
     private readonly BridgeBuildCoordinator coordinator;
+
+    /// <summary>Tracks the build state shown by the form.</summary>
     private readonly BuildViewModel viewModel = new();
+
+    /// <summary>Cancels a build when the form closes.</summary>
     private readonly CancellationTokenSource buildCancellation = new();
+
+    /// <summary>Starts a beta build.</summary>
     private readonly Button betaButton = new() { Text = "Build Beta", AutoSize = true };
+
+    /// <summary>Starts a release build.</summary>
     private readonly Button releaseButton = new() { Text = "Build Release", AutoSize = true };
+
+    /// <summary>Opens the output directory after a successful build.</summary>
     private readonly Button openOutputButton = new() { Text = "Open Output Folder", AutoSize = true, Enabled = false };
+
+    /// <summary>Displays the current build status.</summary>
     private readonly Label statusLabel = new() { AutoSize = true, Text = "Ready" };
+
+    /// <summary>Displays build command output.</summary>
     private readonly TextBox outputLog = new()
     {
         Multiline = true,

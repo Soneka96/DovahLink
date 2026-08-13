@@ -1,5 +1,6 @@
 using DovahLink.BridgeBuilder.Ui;
 
+// Initializes the WinForms application and opens the builder window.
 ApplicationConfiguration.Initialize();
 
 try

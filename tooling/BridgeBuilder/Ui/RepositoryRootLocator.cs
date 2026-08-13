@@ -1,5 +1,6 @@
 namespace DovahLink.BridgeBuilder.Ui;
 
+/// <summary>Finds the repository root used by the Bridge Builder.</summary>
 public static class RepositoryRootLocator
 {
     /// <summary>
