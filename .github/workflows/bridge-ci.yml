@@ -5,11 +5,16 @@ on:
     branches: [main]
     paths:
       - "bridge/**"
+      - "protocol/**"
       - ".github/workflows/bridge-ci.yml"
   pull_request:
     paths:
       - "bridge/**"
+      - "protocol/**"
       - ".github/workflows/bridge-ci.yml"
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
@@ -20,6 +25,8 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install pinned CMake and Ninja
         run: |

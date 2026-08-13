@@ -5,13 +5,13 @@ loopback client through the DovahLink protocol. See
 [`ai/context/skse/architecture.md`](../ai/context/skse/architecture.md) for its internal
 boundaries and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for how it fits the rest of the project.
 
-This document records the Phase 1 toolchain, dependency, and reuse decisions required before any
-bridge code is written. It is the human-readable record; the pins below are enforced by
-`vcpkg.json`, `vcpkg-configuration.json`, and `CMakePresets.json` once the build is established.
+This document records the toolchain, dependency, and reuse decisions used for the published Phase 1
+bridge release, version `0.1.0`. It is the human-readable record; the pins below are enforced by
+`vcpkg.json`, `vcpkg-configuration.json`, and `CMakePresets.json`.
 
 ## Supported runtime
 
-Phase 1 supports exactly one runtime: Steam Skyrim `1.6.1170` with SKSE `2.2.6`. Every other
+Bridge version `0.1.0` supports exactly one runtime: Steam Skyrim `1.6.1170` with SKSE `2.2.6`. Every other
 runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initialization. See
 [`PRODUCT.md`](../PRODUCT.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for this scope.
 
@@ -28,18 +28,13 @@ runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initializati
 
 `.github/workflows/bridge-ci.yml` installs CMake `4.4.2` and Ninja `1.13.2` exactly via Chocolatey
 on `windows-2022`, and sets up the MSVC 2022 developer environment before configuring. A local
-dev machine should match these same versions for a reproducible build; the workflow has not yet
-been exercised by an actual push, so treat it as unverified until it runs once in CI.
+dev machine should match these same versions for a reproducible build.
 
-The reference dev machine's Visual Studio 2022 Community install bundles a working CMake, Ninja,
-and `vcvarsall.bat` under `%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\...` (see
-`Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake,Ninja}` and
-`VC\Auxiliary\Build\vcvarsall.bat`), along with a bundled vcpkg at `VC\vcpkg` usable as
-`VCPKG_ROOT`. These are not on `PATH` by default. A local build/test run is possible without any
-separate toolchain install by importing `vcvarsall.bat x64`'s environment and configuring with
-`cmake --preset windows-x64-debug`; `dovahlink_bridge_tests.exe` can then be built and run directly
-(`dovahlink_bridge_game_state`, which needs the full CommonLibSSE-NG build, is not required for
-running the test suite).
+Visual Studio 2022 installations with the Desktop development with C++ workload bundle CMake,
+Ninja, `vcvarsall.bat`, and vcpkg, but do not place all of them on `PATH` by default.
+`integration/run-scenarios.ps1` uses Visual Studio Installer's `vswhere.exe` to find a complete
+Community, Professional, or Enterprise installation, imports its x64 developer environment, and
+then configures with `cmake --preset windows-x64-debug`.
 
 ## Dependency baselines
 
@@ -112,8 +107,22 @@ The bridge reads its expected one-time token from the `DOVAHLINK_BRIDGE_TOKEN` e
 variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
 `0x` prefix, no separators). Hex was chosen over base64 to avoid pulling in an encoding dependency
 this codebase does not otherwise need and to keep the value trivially assembled by a developer
-launch script (`$env:DOVAHLINK_BRIDGE_TOKEN = -join ((1..32) | ForEach-Object { "{0:x2}" -f (Get-Random -Max 256) })`
-or equivalent). A variable that is unset, empty, not valid hex, or does not decode to exactly 32
+launch script using a cryptographically secure generator:
+
+```powershell
+$tokenBytes = [byte[]]::new(32)
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+    $rng.GetBytes($tokenBytes)
+    $env:DOVAHLINK_BRIDGE_TOKEN = [BitConverter]::ToString($tokenBytes).Replace("-", "").ToLowerInvariant()
+}
+finally {
+    $rng.Dispose()
+    [Array]::Clear($tokenBytes, 0, $tokenBytes.Length)
+}
+```
+
+A variable that is unset, empty, not valid hex, or does not decode to exactly 32
 bytes is treated identically to "no token available" -- never a partial or best-effort value. The
 decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
 which owns clearing them after consumption or expiry. The required token length, source, and
@@ -203,7 +212,9 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
   revision metadata is assigned. `reliableEvents` stays ordered and is never silently overwritten
   or dropped; if it fills, delivery is prioritized over `stateUpdates` and, if a client still
   cannot keep up, that client is marked unhealthy and disconnected rather than buffered
-  indefinitely or allowed to block the bridge.
+  indefinitely or allowed to block the bridge. Reliable events are scoped to the authenticated
+  session: disconnecting discards any events still queued for that session, and reconnecting starts
+  from fresh snapshots rather than replaying the discarded queue.
 - Publish a value only when it changes. Prefer an existing native Skyrim event for any field that
   has one; fall back to one bridge-owned, per-rate-class-throttled sampling hook only where no
   suitable event exists. A rate class (Fast/Medium/Slow) names a maximum publish frequency, not a
@@ -214,11 +225,11 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
 
 ## Manual verification record template
 
-Use this template to record a real Skyrim run before declaring Phase 1 complete. Nothing here can
-substitute for that run: it requires a real Skyrim process, which no automated test in this
-repository uses (per `ai/context/skse/testing.md`). Copy this section, fill in every field from an
-actual run using `integration/DovahLinkValidationClient` (see `integration/README.md`), and keep the
-completed record with the release evidence.
+Use this template to record real Skyrim verification for a release. Nothing here can substitute for
+that run: it requires a real Skyrim process, which no automated test in this repository uses (per
+`ai/context/skse/testing.md`). Copy this section, fill in every field from an actual run using
+`integration/DovahLinkValidationClient` (see `integration/README.md`), and keep the completed record
+with the release evidence.
 
 ```text
 Date:

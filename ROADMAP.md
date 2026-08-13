@@ -62,7 +62,7 @@ real transport access.
 
 ## 1. Skyrim Bridge Foundation
 
-**Status:** Next
+**Status:** Complete
 
 ### Outcome
 
@@ -92,7 +92,7 @@ The reuse decisions are documented, the bridge follows the approved lifecycle an
 
 ## 1.25 Local Device Pairing and Reconnection
 
-**Status:** Planned
+**Status:** Next
 
 ### Outcome
 
@@ -709,7 +709,7 @@ Every improvement names the measured problem it solves, preserves or deliberatel
 ### Outcome
 
 DovahLink's pinned `commonlibsse-ng-flatrim` dependency remains reproducible, supported, and
-deliberately maintained before public release.
+deliberately maintained before the next public release.
 
 ### Scope and behavior
 
@@ -720,7 +720,7 @@ deliberately maintained before public release.
 - Update the pinned registry baseline, package version, or source commit only after the bridge,
   toolchain, protocol, and in-game compatibility checks pass.
 - Record the reviewed dependency versions, upgrade decision, validation results, and any known
-  limitations before public release.
+  limitations before the next public release.
 - Define a fallback plan for a stale or unavailable package, including a deliberately reviewed direct
   source pin if the package route can no longer provide a validated build.
 
@@ -734,7 +734,7 @@ decisions.
 
 The exact pinned dependency builds reproducibly, its upstream and package-registry status has been
 reviewed, the chosen version has passed the required bridge and manual runtime checks, and the
-upgrade or retention decision is documented before public release.
+upgrade or retention decision is documented before the next public release.
 
 ## Deferred possibilities
 

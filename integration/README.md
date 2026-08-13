@@ -46,9 +46,10 @@ genuine live proof would cost minutes of suite time for no additional confidence
 For manual verification against a real, running Skyrim + SKSE + DovahLink Bridge plugin, use the
 record template in `bridge/README.md`:
 
-```bash
+```powershell
 cd integration/DovahLinkValidationClient
-DOVAHLINK_BRIDGE_TOKEN=<the same hex token the plugin was launched with> dotnet run
+$env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token the plugin was launched with>"
+dotnet run
 ```
 
 It connects, negotiates `hello`/`hello_ack`, exchanges capabilities, subscribes to `character`, and
