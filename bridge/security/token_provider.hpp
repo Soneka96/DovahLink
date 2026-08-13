@@ -30,7 +30,7 @@ public:
 
 /// Reads and hex-decodes a 256-bit one-time token from an environment value.
 /// Invalid, empty, unset, or incorrectly sized values return `std::nullopt`;
-/// intermediate text is cleared before returning.
+/// intermediate plaintext is cleared on every normal and exceptional exit.
 [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadTokenFromEnvironment(
     const EnvironmentReader& env, std::string_view variableName);
 

@@ -2,6 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <windows.h>
+
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -9,6 +12,7 @@
 using dovahlink::security::EnvironmentReader;
 using dovahlink::security::kTokenBytes;
 using dovahlink::security::ReadTokenFromEnvironment;
+using dovahlink::security::WindowsEnvironmentReader;
 
 namespace {
 
@@ -40,6 +44,30 @@ private:
 };
 
 }  // namespace
+
+TEST_CASE("WindowsEnvironmentReader returns the exact process environment value",
+          "[security][token_provider]") {
+    constexpr const char* kReaderTestVar = "DOVAHLINK_TOKEN_PROVIDER_READER_TEST";
+    REQUIRE(SetEnvironmentVariableA(kReaderTestVar, "reader-value") != 0);
+    std::unique_ptr<const char, void (*)(const char*)> clearVariable(
+        kReaderTestVar,
+        [](const char* name) noexcept { (void)SetEnvironmentVariableA(name, nullptr); });
+
+    WindowsEnvironmentReader env;
+    auto value = env.Read(kReaderTestVar);
+
+    REQUIRE(value.has_value());
+    CHECK(*value == "reader-value");
+}
+
+TEST_CASE("WindowsEnvironmentReader returns nullopt for an unset process environment variable",
+          "[security][token_provider]") {
+    constexpr const char* kReaderTestVar = "DOVAHLINK_TOKEN_PROVIDER_MISSING_TEST";
+    REQUIRE(SetEnvironmentVariableA(kReaderTestVar, nullptr) != 0);
+
+    WindowsEnvironmentReader env;
+    CHECK_FALSE(env.Read(kReaderTestVar).has_value());
+}
 
 TEST_CASE("ReadTokenFromEnvironment decodes a valid 64-character hex token to 32 bytes",
           "[security][token_provider]") {

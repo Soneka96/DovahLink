@@ -4,6 +4,8 @@
 
 #include <windows.h>
 
+#include <memory>
+
 namespace dovahlink::security {
 
 namespace {
@@ -13,11 +15,11 @@ namespace {
 // hex text read from the environment carries the same secret material and
 // should not be left for normal deallocation to reclaim without wiping it
 /// Overwrites and clears an intermediate secret string.
-void SecureClearString(std::string& value) {
-    if (!value.empty()) {
-        SecureZeroMemory(value.data(), value.size());
+void SecureClearString(std::string* value) noexcept {
+    if (!value->empty()) {
+        SecureZeroMemory(value->data(), value->size());
     }
-    value.clear();
+    value->clear();
 }
 
 }  // namespace
@@ -29,22 +31,26 @@ std::optional<std::string> WindowsEnvironmentReader::Read(std::string_view name)
         return std::nullopt;
     }
     std::string value(needed, '\0');
+    std::unique_ptr<std::string, void (*)(std::string*)> clearValue(&value, SecureClearString);
     DWORD written = GetEnvironmentVariableA(nameStr.c_str(), value.data(), needed);
     if (written == 0 || written >= needed) {
         return std::nullopt;
     }
     value.resize(written);
-    return value;
+    return std::optional<std::string>(std::in_place, value);
 }
 
 std::optional<std::vector<std::uint8_t>> ReadTokenFromEnvironment(const EnvironmentReader& env,
                                                                     std::string_view variableName) {
     auto raw = env.Read(variableName);
-    if (!raw.has_value() || raw->empty()) {
+    if (!raw.has_value()) {
+        return std::nullopt;
+    }
+    std::unique_ptr<std::string, void (*)(std::string*)> clearRaw(&*raw, SecureClearString);
+    if (raw->empty()) {
         return std::nullopt;
     }
     auto decoded = DecodeHex(*raw);
-    SecureClearString(*raw);
     if (!decoded.has_value() || decoded->size() != kTokenBytes) {
         return std::nullopt;
     }
