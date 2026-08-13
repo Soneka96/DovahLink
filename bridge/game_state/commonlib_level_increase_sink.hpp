@@ -6,41 +6,23 @@
 
 namespace dovahlink::game_state {
 
-// The one CommonLib-touching file for the level-increase boundary (see
-// ai/context/skse/architecture.md: "Game-state adapters are the only bridge
-// components that may depend directly on CommonLib or Skyrim runtime
-// types"). Deliberately ignores RE::LevelIncrease::Event's own fields
-// (event->player, event->newLevel, confirmed at
-// RE/L/LevelIncrease.h in the pinned CommonLibSSE-NG source): per
-// level_adapter.hpp's design, the trustworthy level always comes from
-// re-reading current state through the adapter, never from a value or
-// borrowed pointer handed in by the event. No RE:: pointer from the event
-// is ever captured or retained past ProcessEvent's return.
+/// Receives Skyrim level-increase events and forwards them to a level handler.
 class CommonLibLevelIncreaseSink : public RE::BSTEventSink<RE::LevelIncrease::Event> {
 public:
+    /// Binds the sink to the handler that captures and publishes current level state.
     explicit CommonLibLevelIncreaseSink(LevelIncreaseHandler& handler);
 
-    // Per ai/context/skse/cpp-style.md, a game-thread callback must not let
-    // an exception escape it; Coordinator::RunContained
-    // (application/coordinator.hpp) exists to wrap exactly this kind of
-    // callback body. This class does not hold a Coordinator reference --
-    // that wiring belongs to whichever later step connects this sink to a
-    // live coordinator (the SKSE plugin entry point) -- so containment is a
-    // known, intentional gap here, not an oversight, until that wiring
-    // exists.
+    /// Captures current state through the handler and continues event-source processing.
     RE::BSEventNotifyControl ProcessEvent(const RE::LevelIncrease::Event* event,
                                            RE::BSTEventSource<RE::LevelIncrease::Event>* eventSource) override;
 
-    // Wraps RE::LevelIncrease::GetEventSource()->AddEventSink/RemoveEventSink.
-    // Registration and unregistration under the real SKSE lifecycle
-    // (kDataLoaded, plugin unload) cannot be exercised without Skyrim -- see
-    // ai/context/skse/testing.md's "Reserve manual in-game checks for
-    // runtime hooks, event timing... that cannot be represented in unit
-    // tests" -- and belong in the manual verification record instead.
+    /// Registers this sink with the Skyrim level-increase event source.
     void Register();
+    /// Unregisters this sink from the Skyrim level-increase event source.
     void Unregister();
 
 private:
+    /// Handler that owns the application-facing level-capture behavior.
     LevelIncreaseHandler& handler_;
 };
 

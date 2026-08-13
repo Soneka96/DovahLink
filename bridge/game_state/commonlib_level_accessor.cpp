@@ -4,11 +4,6 @@
 
 namespace dovahlink::game_state {
 
-/**
- * @brief Retrieves the current player's level.
- *
- * @return The player's level, or `std::nullopt` if the player is unavailable.
- */
 std::optional<std::int64_t> CommonLibLevelAccessor::ReadLevel() const {
     auto* player = RE::PlayerCharacter::GetSingleton();
     if (!player) {
