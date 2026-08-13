@@ -53,31 +53,21 @@ constexpr std::array<std::string_view, 4> kAllowedMessageTypes = {
     protocol::message_type::kSnapshotRequest,
 };
 
-/**
- * @brief Determines whether a message type is allowed by the inbound protocol.
- *
- * @param messageType Message type to check.
- * @return `true` if the message type is allowed, `false` otherwise.
- */
+/// Reports whether an inbound message type is allowed after authentication.
+/// @param messageType Canonical message-type identifier.
+/// @return `true` when a handler exists for the type.
 bool IsAllowedMessageType(std::string_view messageType) {
     return std::ranges::find(kAllowedMessageTypes, messageType) != kAllowedMessageTypes.end();
 }
 
-/**
- * @brief Builds an error response for a rejected protocol request.
- *
- * Records the protocol violation and indicates whether the connection should
- * close after the violation limit is reached.
- *
- * @param correlationId Identifier correlating the error with the rejected request.
- * @param sessionId Session identifier associated with the request.
- * @param code Protocol error code.
- * @param message Human-readable error message.
- * @param retryable Whether the request may be retried.
- * @param violations Tracker used to record the violation.
- * @param steadyNow Current steady-clock time used for violation tracking.
- * @return Dispatch result containing the error response and the connection-close decision.
- */
+/// Builds a protocol error and records the rejection as a violation.
+/// @param correlationId Message ID being rejected, when available.
+/// @param sessionId Authenticated session identifier.
+/// @param code Canonical protocol error code.
+/// @param message Safe diagnostic message.
+/// @param retryable Whether the client may retry.
+/// @param violations Violation tracker to update.
+/// @param steadyNow Current monotonic time.
 DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId, std::string code,
                        std::string message, bool retryable, security::ViolationTracker& violations,
                        std::chrono::steady_clock::time_point steadyNow) {
@@ -91,14 +81,7 @@ DispatchResult Reject(std::optional<std::string> correlationId, const std::strin
 
 // Wraps a handler's response(s): if the first (or only) response turned out
 // to be an error envelope, it counts as a protocol violation, matching how
-/**
- * @brief Wraps a handler response and applies protocol-violation handling to error responses.
- *
- * Error responses count toward the violation limit and may cause the connection to close.
- *
- * @param firstResponse Response produced by the handler.
- * @return Dispatch result containing the response and connection-close status.
- */
+/// Wraps a handler response and counts an error response as a violation.
 DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::ViolationTracker& violations,
                                     std::chrono::steady_clock::time_point steadyNow) {
     bool isError = firstResponse.messageType == protocol::message_type::kError;
@@ -108,13 +91,9 @@ DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::V
     return result;
 }
 
-/**
- * @brief Builds a pong response correlated with an incoming ping.
- *
- * @param pingEnvelope Envelope of the ping being acknowledged.
- * @param sessionId Session identifier to include in the response.
- * @return A pong envelope, or an internal error envelope if construction fails.
- */
+/// Builds a pong response correlated with an incoming ping.
+/// @param pingEnvelope Envelope of the ping being acknowledged.
+/// @param sessionId Authenticated session identifier.
 protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::string& sessionId) {
     auto envelope = protocol::BuildEnvelope(kSupportedProtocolVersion, std::string(protocol::message_type::kPong),
                                              sessionId, pingEnvelope.messageId, boost::json::object{});
@@ -129,16 +108,7 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
                                          "internal_error", "Unable to build response", false);
 }
 
-}  /**
- * @brief Validates and dispatches one inbound protocol message.
- *
- * @param rawMessage The encoded inbound message.
- * @param sessionId The session associated with the connection.
- * @param connection The connection receiving the message.
- * @param steadyNow Current monotonic time used for timeout, activity, and rate-limit checks.
- * @param wallNow Current wall-clock time used by state-related handlers.
- * @return DispatchResult Containing zero or more responses and an indication that the connection must close.
- */
+}
 
 DispatchResult ProcessInboundMessage(const std::string& rawMessage, const std::string& sessionId,
                                       ConnectionId connection, SessionManager& sessionManager,
