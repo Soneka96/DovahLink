@@ -17,19 +17,22 @@
 
 ## Documentation
 
-Document non-obvious decisions and compatibility constraints at the boundary where they matter. Do not add comments that merely restate the code.
+Follow the shared documentation rules in `ai/context/common.md`.
 
-- Add concise `///` documentation to every public class, entity, model, typedef, constructor,
-  property, parameter field, factory, method, and enum member.
-- Describe purpose and contract, not implementation; include unavailable, nullable, unit, lifecycle, or compatibility meaning when relevant.
+- Add concise `///` documentation directly above every handwritten class, extension, enum and enum
+  member, typedef, constructor, property, field, parameter field, factory, method, and function,
+  regardless of visibility. This includes private helpers and test helpers.
 - Use Dart doc links such as `[CharacterStateEntity]` when referring to another documented symbol,
   and fully qualify member links such as `[CharacterStateModel.toJson]`. Add the declaring import
   even when the link is its only reference.
-- Coupled classes cross-reference in one direction: Model to Entity, UseCase to repository
+- Describe dependencies in the architectural direction: Model to Entity, UseCase to repository
   interface, and repository implementation to repository interface. Domain never imports data.
-- Private non-obvious helpers use a short `//` comment immediately above the declaration. Missing
-  implementation uses `// TODO: ...` immediately above the declaration. Do not place explanatory
-  comments between statements or widgets.
+- A model and its sole entity or a ViewModel and its sole screen may cross-reference each other when
+  the pairing is explicit and exclusive. Do not name other consumers.
+- When an override keeps the inherited contract unchanged, use a short doc reference to the
+  overridden member instead of copying its documentation.
+- Missing implementation uses `// TODO: ...` immediately above the declaration. Explanatory
+  implementation comments remain inside the method beside the decision they explain.
 
 ## Baseline Dart rules
 
