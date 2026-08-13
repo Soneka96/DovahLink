@@ -1,3 +1,33 @@
 {
-    "cmake.sourceDirectory": "C:/Projects/DovahLink/bridge"
+    "cmake.sourceDirectory": "${workspaceFolder}/bridge",
+    "cmake.useCMakePresets": "always",
+    "cmake.exportCompileCommandsFile": true,
+    "files.exclude": {
+        "**/bridge/build/**": true,
+        "**/bridge/vcpkg_installed/**": true,
+        "**/app/build/**": true,
+        "**/app/.dart_tool/**": true,
+        "**/app/**/ephemeral/**": true
+    },
+    "search.exclude": {
+        "**/bridge/build/**": true,
+        "**/bridge/vcpkg_installed/**": true,
+        "**/app/build/**": true,
+        "**/app/.dart_tool/**": true,
+        "**/app/**/ephemeral/**": true
+    },
+    "files.watcherExclude": {
+        "**/bridge/build/**": true,
+        "**/bridge/vcpkg_installed/**": true,
+        "**/app/build/**": true,
+        "**/app/.dart_tool/**": true,
+        "**/app/**/ephemeral/**": true
+    },
+    "dart.analysisExcludedFolders": [
+        "${workspaceFolder}/app/build",
+        "${workspaceFolder}/app/.dart_tool",
+        "${workspaceFolder}/app/linux/flutter/ephemeral",
+        "${workspaceFolder}/app/windows/flutter/ephemeral",
+        "${workspaceFolder}/app/macos/Flutter/ephemeral"
+    ]
 }

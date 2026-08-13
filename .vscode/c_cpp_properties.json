@@ -1,21 +1,17 @@
 {
     "configurations": [
         {
-            "name": "Win32",
-            "includePath": [
-                "${workspaceFolder}/**"
+            "name": "DovahLink",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compileCommands": [
+                "${workspaceFolder}/bridge/build/windows-x64-debug/compile_commands.json",
+                "${workspaceFolder}/bridge/build/windows-x64-release/compile_commands.json"
             ],
-            "defines": [
-                "_DEBUG",
-                "UNICODE",
-                "_UNICODE"
-            ],
-            "windowsSdkVersion": "10.0.26100.0",
-            "compilerPath": "cl.exe",
-            "cStandard": "c23",
-            "cppStandard": "c++23",
-            "intelliSenseMode": "windows-msvc-x64"
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ],
-    "version": 4
+    "version": 4,
+    "enableConfigurationSquiggles": true
 }

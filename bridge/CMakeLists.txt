@@ -6,6 +6,7 @@ project(DovahLinkBridge LANGUAGES CXX)
 # recorded in bridge/README.md; this file only declares the floor CMake
 # needs to understand the presets and dependencies below.
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
