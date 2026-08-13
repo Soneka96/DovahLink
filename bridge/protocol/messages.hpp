@@ -13,22 +13,14 @@
 #include <string_view>
 #include <vector>
 
-// The registered v1 DovahLink message payload codecs. See protocol/schema/README.md.
-//
-// Each Decode* function here validates and converts the payload of one registered
-// message type (an already-decoded Envelope::payload, see envelope.hpp) into a
-// DovahLink-owned value. This layer only validates structural shape (required
-// fields, types); it does not enforce stateful business rules that depend on
-// prior state, such as the state-event revision sequencing rules in
-// protocol/schema/README.md ("revision must equal baseRevision + 1", stale/gap
-// detection) -- those belong to the application layer (see
-// ai/context/skse/architecture.md), which is the only layer that knows a
-// session's current revision.
-//
-// occurredAt is validated as a non-empty string only. It is documented as "not
-// an ordering source", so full RFC 3339 parsing is not required for Phase 1.
 namespace dovahlink::protocol {
 
+// Payload codecs validate structural shape and types only. Stateful rules such
+// as revision sequencing and stale/gap detection belong to the application
+// layer. occurredAt is required to be a non-empty string but is not parsed as
+// an ordering source.
+
+/// Identifiers for the registered protocol message types.
 namespace message_type {
 inline constexpr std::string_view kHello = "hello";
 inline constexpr std::string_view kHelloAck = "hello_ack";
@@ -43,125 +35,190 @@ inline constexpr std::string_view kPing = "ping";
 inline constexpr std::string_view kPong = "pong";
 }  // namespace message_type
 
+/// Identifiers for registered state areas.
 namespace state_area {
 inline constexpr std::string_view kCharacter = "character";
 }  // namespace state_area
 
+/// Reports a message-payload decoding failure.
 using MessageError = DecodeError;
 
+/// Decoded client authentication and protocol-version negotiation data.
 struct HelloPayload {
+    /// Endpoint role declared by the client.
     std::string endpoint;
+    /// Protocol versions supported by the client.
     std::vector<std::int64_t> supportedProtocolVersions;
+    /// Authentication method identifier.
     std::string authMethod;
+    /// Authentication token supplied by the client.
     std::string authToken;
 };
-std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::object& payload);
 
+/// Decodes a client hello payload and validates its supported authentication form.
+std::expected<HelloPayload, MessageError> DecodeHelloPayload(
+    const boost::json::object& payload);
+
+/// Encoded response to a successful protocol-version negotiation.
 struct HelloAckPayload {
+    /// Protocol version selected by the bridge.
     std::int64_t selectedProtocolVersion = 0;
 };
-std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::json::object& payload);
+
+/// Decodes a hello acknowledgment payload.
+std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(
+    const boost::json::object& payload);
+
+/// Encodes a hello acknowledgment payload.
 boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload);
 
+/// Advertised capability identifier and version.
 struct Capability {
+    /// Stable capability identifier.
     std::string id;
+    /// Capability schema or implementation version.
     std::int64_t version = 0;
 };
+
+/// Collection of capabilities advertised by an endpoint.
 struct CapabilitiesPayload {
+    /// Capabilities included in the message.
     std::vector<Capability> capabilities;
 };
-std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload);
+
+/// Decodes a capabilities payload.
+std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(
+    const boost::json::object& payload);
+
+/// Encodes a capabilities payload.
 boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload);
 
+/// Client request for state-area subscriptions.
 struct SubscribePayload {
+    /// State areas requested by the client.
     std::vector<std::string> stateAreas;
 };
-std::expected<SubscribePayload, MessageError> DecodeSubscribePayload(const boost::json::object& payload);
 
+/// Decodes a subscription request payload.
+std::expected<SubscribePayload, MessageError> DecodeSubscribePayload(
+    const boost::json::object& payload);
+
+/// Bridge response listing accepted and rejected subscription areas.
 struct SubscriptionAckPayload {
+    /// State areas accepted by the bridge.
     std::vector<std::string> acceptedStateAreas;
+    /// State areas rejected by the bridge.
     std::vector<std::string> rejectedStateAreas;
 };
+
+/// Decodes a subscription acknowledgment payload.
 std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload(
     const boost::json::object& payload);
+
+/// Encodes a subscription acknowledgment payload.
 boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload);
 
+/// Client request for a state snapshot and optional known revision.
 struct SnapshotRequestPayload {
+    /// State area whose snapshot is requested.
     std::string stateArea;
+    /// Client's latest known revision, when available.
     std::optional<std::int64_t> knownRevision;
 };
+
+/// Decodes a snapshot request payload.
 std::expected<SnapshotRequestPayload, MessageError> DecodeSnapshotRequestPayload(
     const boost::json::object& payload);
 
+/// State snapshot payload establishing a revision baseline.
 struct StateSnapshotPayload {
+    /// State area represented by the snapshot.
     std::string stateArea;
+    /// Revision established by the snapshot.
     std::int64_t revision = 0;
+    /// Human-readable event timestamp; not an ordering source.
     std::string occurredAt;
+    /// State-area-specific snapshot data.
     boost::json::object data;
 };
+
+/// Decodes a state snapshot payload.
 std::expected<StateSnapshotPayload, MessageError> DecodeStateSnapshotPayload(
     const boost::json::object& payload);
+
+/// Encodes a state snapshot payload.
 boost::json::object EncodeStateSnapshotPayload(const StateSnapshotPayload& payload);
 
+/// State event payload advancing a state area from one revision to another.
 struct StateEventPayload {
+    /// State area represented by the event.
     std::string stateArea;
+    /// Revision immediately preceding this event.
     std::int64_t baseRevision = 0;
+    /// Revision established by this event.
     std::int64_t revision = 0;
+    /// Human-readable event timestamp; not an ordering source.
     std::string occurredAt;
+    /// State-area-specific event data.
     boost::json::object data;
 };
-std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boost::json::object& payload);
 
-// The character state area's resource pools (health/magicka/stamina).
+/// Decodes a state event payload's structural fields.
+std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(
+    const boost::json::object& payload);
+
+/// Current and maximum values for one character resource pool.
 struct ResourceValue {
+    /// Current resource amount.
     double current = 0.0;
+    /// Maximum resource amount.
     double maximum = 0.0;
 };
 
-// The character state area's data, decoded from a state_snapshot/state_event
-// payload's `data` field when stateArea == state_area::kCharacter. health,
-// magicka, and stamina are always nullopt in Phase 1 (see TASK.md).
+/// Decoded character state-area data.
 struct CharacterState {
+    /// Character level, or unavailable when encoded as JSON null.
     std::optional<std::int64_t> level;
+    /// Health resource values, or unavailable when encoded as JSON null.
     std::optional<ResourceValue> health;
+    /// Magicka resource values, or unavailable when encoded as JSON null.
     std::optional<ResourceValue> magicka;
+    /// Stamina resource values, or unavailable when encoded as JSON null.
     std::optional<ResourceValue> stamina;
 };
-std::expected<CharacterState, MessageError> DecodeCharacterState(const boost::json::object& data);
 
+/// Decodes character state-area data from a snapshot or event payload.
+std::expected<CharacterState, MessageError> DecodeCharacterState(
+    const boost::json::object& data);
+
+/// Structured error information returned by the bridge.
 struct ErrorPayload {
+    /// Stable machine-readable error code.
     std::string code;
+    /// Human-readable error description.
     std::string message;
+    /// Whether retrying the failed operation is allowed.
     bool retryable = false;
-    // Present only when the source payload's "details" is present and non-null.
+    /// Optional structured error details; absent represents JSON null on decode.
     std::optional<boost::json::value> details;
 };
-std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::object& payload);
-// Always emits the `details` key, as `null` when absent, matching the
-// canonical fixtures (protocol/fixtures/errors/*.json) -- "nullable and
-// optional" (protocol/schema/README.md) means the value may be null, not
-// that the key may be omitted from a v1 message this codebase produces.
+
+/// Decodes an error payload.
+std::expected<ErrorPayload, MessageError> DecodeErrorPayload(
+    const boost::json::object& payload);
+
+/// Encodes an error payload, always including its nullable details field.
 boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
 
-// Builds a complete `error` envelope. `correlationId` is typically the
-// messageId of the message being answered, or nullopt when there is no
-// correlation -- including when the input could not even be decoded far
-// enough to learn its own messageId (see protocol/schema/README.md:
-// correlationId is "Message ID being answered, or null when there is no
-// correlation"). `sessionId` is the caller's choice: nullopt for a
-// pre-session rejection (e.g. answering hello), the active session's ID
-// once one exists. `protocolVersion` is likewise the caller's choice: 0
-// while still negotiating, the selected version afterward.
-//
-// Always succeeds: if the underlying messageId generation
-// (security::GenerateOpaqueId) fails -- an unreachable-in-practice CSPRNG
-// failure, see security/csprng.hpp -- this falls back to a fixed sentinel
-// messageId rather than propagate the failure to the caller. An error
-// report is already a degraded channel; every caller independently
-// reimplementing the same "what if we can't even report the error"
-// fallback would just duplicate this one decision.
-Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64_t protocolVersion,
-                             std::optional<std::string> sessionId, std::string code, std::string message,
-                             bool retryable);
+/// Builds a complete error envelope and always returns a usable envelope.
+/// Uses the `csprng-unavailable` sentinel message ID if secure ID generation
+/// fails. `correlationId` identifies the message being answered or is null when
+/// there is no correlation; `sessionId` is null before a session exists and is
+/// otherwise the active session ID. `protocolVersion` is 0 during negotiation
+/// and the selected version afterward.
+Envelope BuildErrorEnvelope(std::optional<std::string> correlationId,
+                            std::int64_t protocolVersion,
+                            std::optional<std::string> sessionId, std::string code,
+                            std::string message, bool retryable);
 
 }  // namespace dovahlink::protocol

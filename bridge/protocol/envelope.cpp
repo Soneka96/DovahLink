@@ -13,23 +13,12 @@ namespace dovahlink::protocol {
 
 namespace {
 
-/**
- * @brief Creates an unexpected result containing an envelope error.
- *
- * @param reason Description of the error.
- * @return std::unexpected<EnvelopeError> containing the supplied reason.
- */
+/// Creates an unexpected result containing an envelope error.
 std::unexpected<EnvelopeError> Fail(std::string reason) {
     return std::unexpected(EnvelopeError{std::move(reason)});
 }
 
-}  /**
- * @brief Validates and decodes a JSON envelope.
- *
- * @param message JSON value containing the envelope.
- * @return The decoded envelope, or an error describing the first validation failure.
- */
-
+}
 std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& message) {
     if (!message.is_object()) {
         return Fail("envelope must be a JSON object");
@@ -110,14 +99,6 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
     };
 }
 
-/**
- * @brief Serializes an envelope to a JSON string.
- *
- * Optional session and correlation identifiers are represented as JSON null values when absent.
- *
- * @param envelope Envelope to serialize.
- * @return JSON representation of the envelope.
- */
 std::string EncodeEnvelope(const Envelope& envelope) {
     boost::json::object obj;
     obj["protocolVersion"] = envelope.protocolVersion;
@@ -131,16 +112,6 @@ std::string EncodeEnvelope(const Envelope& envelope) {
     return boost::json::serialize(obj);
 }
 
-/**
- * @brief Constructs an envelope with a generated message identifier.
- *
- * @param protocolVersion Protocol version associated with the envelope.
- * @param messageType Message type associated with the envelope.
- * @param sessionId Optional session identifier.
- * @param correlationId Optional identifier correlating this message with another message.
- * @param payload Message payload.
- * @return The constructed envelope, or an empty optional if message identifier generation fails.
- */
 std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string messageType,
                                        std::optional<std::string> sessionId,
                                        std::optional<std::string> correlationId,

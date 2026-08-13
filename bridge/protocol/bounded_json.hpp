@@ -7,21 +7,21 @@
 
 namespace dovahlink::protocol {
 
+/// Identifies the first input-size or JSON-shape limit violated during parsing.
 enum class BoundedJsonError {
+    /// The complete inbound frame exceeds the configured byte limit.
     kFrameTooLarge,
+    /// The input is not valid JSON or exceeds the parser's nesting limit.
     kInvalidJson,
+    /// A JSON string or object key exceeds the configured byte limit.
     kStringTooLong,
+    /// A JSON array exceeds the configured item limit.
     kArrayTooLong,
+    /// A JSON object exceeds the configured member limit.
     kTooManyObjectMembers,
 };
 
-// Parses one JSON text against the Phase 1 input limits in bridge/security/limits.hpp,
-// rejecting oversized, malformed, or over-limit input before it reaches message-specific
-// decoding. See ai/context/protocol/security.md.
-//
-// A frame over kMaxInboundFrameBytes is rejected without being parsed at all. Nesting deeper
-// than kMaxJsonNestingDepth is enforced by Boost.JSON's own parser and surfaces as
-// kInvalidJson, since the parse simply fails; it has no dedicated error code here.
+/// Parses one JSON text while enforcing all inbound size and nesting limits.
 std::expected<boost::json::value, BoundedJsonError> ParseBoundedJson(std::string_view text);
 
 }  // namespace dovahlink::protocol

@@ -12,12 +12,7 @@ namespace dovahlink::protocol {
 
 namespace {
 
-/**
- * @brief Checks a JSON value and its descendants against configured size limits.
- *
- * @param value JSON value to validate, including nested arrays, objects, and object keys.
- * @return The first detected limit violation, or `std::nullopt` when all limits are satisfied.
- */
+/// Finds the first configured size-limit violation in a JSON value tree.
 std::optional<BoundedJsonError> FindLimitViolation(const boost::json::value& value) {
     switch (value.kind()) {
         case boost::json::kind::string: {
@@ -58,15 +53,7 @@ std::optional<BoundedJsonError> FindLimitViolation(const boost::json::value& val
     }
 }
 
-}  /**
- * @brief Parses JSON while enforcing inbound size, nesting, and value limits.
- *
- * @param text JSON document to parse.
- * @return Parsed JSON value on success; otherwise the applicable
- *         `BoundedJsonError` for an oversized frame, invalid JSON, or a
- *         limit violation.
- */
-
+}
 std::expected<boost::json::value, BoundedJsonError> ParseBoundedJson(std::string_view text) {
     if (text.size() > security::kMaxInboundFrameBytes) {
         return std::unexpected(BoundedJsonError::kFrameTooLarge);
