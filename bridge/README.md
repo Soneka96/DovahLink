@@ -180,15 +180,18 @@ request/response: it never writes to a socket except in direct reply to a messag
 
 This is a deliberate, roadmap-tracked deferral, not an oversight. Delivering an unprompted push
 requires a connection to write independent of its own next read, which the current synchronous,
-one-blocking-call-at-a-time `WebSocketSession` cannot do without either an unsafe concurrent write
-against Boost.Beast's "shared objects: unsafe" `websocket::stream`, or a rewrite onto Beast's async
-API. That rewrite, along with the outbound-lane and rate-class design it enables, is
+one-operation-at-a-time session loop cannot do without an unsafe concurrent write against
+Boost.Beast's "shared objects: unsafe" `websocket::stream`. `WebSocketSession` now runs each
+operation through Beast's async API for safe cancellation and timeouts, but its public facade and
+`RunConnectionSession` remain deliberately linear. The full-duplex loop, along with the
+outbound-lane and rate-class design it enables, is
 [`ROADMAP.md`](../ROADMAP.md)'s Phase 1.5, Live State Synchronization Foundation. The architecture
 already agreed for that phase, recorded here so Phase 1.5 does not have to rediscover it:
 
-- Rewrite `WebSocketSession`'s blocking `Accept`/`ReadMessage`/`WriteMessage` onto Beast's async API
-  using C++20/23 coroutines (`co_await`), not callback-based composed operations: coroutine code
-  stays close to `RunConnectionSession`'s current linear shape, which callback chains would not.
+- Refactor the linear session facade and `RunConnectionSession` into a full-duplex async loop using
+  C++20/23 coroutines (`co_await`): coroutine code stays close to the current linear control flow,
+  while the existing executor-owned async transport operations already provide safe cancellation
+  and bounded I/O.
   One outstanding async read and one outstanding async write on the same `websocket::stream` is a
   documented-safe pattern; two of either at once, or a blocking call mixed with an async one, is
   not.
@@ -198,7 +201,10 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
 - Replace the two-lane `OutboundQueue` (`control` / `event`) with three, named `controlMessages`,
   `reliableEvents`, and `stateUpdates` -- deliberately not "event queue" for either of the latter
   two, since a health update is not the same kind of thing as a quest completion.
-  `stateUpdates` keeps today's `EventCoalescer` latest-value-wins-per-key behavior. `reliableEvents`
+  `stateUpdates` coalesces raw owned state latest-value-wins per key before revision metadata is
+  assigned. Today's `EventCoalescer` stages already-assigned events and therefore rejects
+  replacement in favor of fresh-snapshot recovery; it must not coalesce serialized revisions.
+  `reliableEvents`
   stays ordered and is never silently overwritten or dropped; if it fills, delivery is prioritized
   over `stateUpdates` and, if a client still cannot keep up, that client is marked unhealthy and
   disconnected rather than buffered indefinitely or allowed to block the bridge.

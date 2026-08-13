@@ -1,16 +1,20 @@
 #include "application/event_coalescer.hpp"
 
 #include "application/outbound_queue.hpp"
+#include "application/revision_tracker.hpp"
 #include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
+#include <utility>
 
 using dovahlink::application::EnqueueResult;
 using dovahlink::application::EventCoalescer;
 using dovahlink::application::OutboundQueue;
+using dovahlink::application::RevisionTracker;
 
 TEST_CASE("Flush delivers a published event into the queue's event lane", "[application][event_coalescer]") {
     OutboundQueue queue;
@@ -23,19 +27,40 @@ TEST_CASE("Flush delivers a published event into the queue's event lane", "[appl
     CHECK(queue.DequeueEvent() == "event-1");
 }
 
-TEST_CASE("publishing twice for the same area before Flush coalesces to the latest",
+TEST_CASE("publishing a second assigned event for one area requires snapshot recovery",
           "[application][event_coalescer]") {
     OutboundQueue queue;
     EventCoalescer coalescer(queue);
 
-    coalescer.PublishEvent("character", "stale-event");
-    coalescer.PublishEvent("character", "latest-event");
-    CHECK(coalescer.PendingCount() == 1);
+    CHECK(coalescer.PublishEvent("character", "first-assigned-event"));
+    CHECK_FALSE(coalescer.PublishEvent("character", "replacement-with-dependent-revision"));
+    CHECK(coalescer.PendingCount() == 0);
+    CHECK(coalescer.NeedsRecovery("character"));
 
     coalescer.Flush();
 
-    CHECK(queue.EventLaneSize() == 1);
-    CHECK(queue.DequeueEvent() == "latest-event");
+    CHECK(queue.EventLaneSize() == 0);
+}
+
+TEST_CASE("attempted replacement never delivers an event with a missing base revision",
+          "[application][event_coalescer]") {
+    OutboundQueue queue;
+    EventCoalescer coalescer(queue);
+    RevisionTracker revisions;
+    REQUIRE(revisions.StartSnapshot("character") == 1);
+
+    auto first = revisions.NextEvent("character");
+    REQUIRE(first == std::make_pair(std::int64_t{1}, std::int64_t{2}));
+    REQUIRE(coalescer.PublishEvent("character", "base-1-revision-2"));
+
+    auto second = revisions.NextEvent("character");
+    REQUIRE(second == std::make_pair(std::int64_t{2}, std::int64_t{3}));
+    CHECK_FALSE(coalescer.PublishEvent("character", "base-2-revision-3"));
+
+    coalescer.Flush();
+    CHECK_FALSE(queue.DequeueEvent().has_value());
+    CHECK(coalescer.NeedsRecovery("character"));
+    CHECK(revisions.StartSnapshot("character") == 4);
 }
 
 TEST_CASE("publishing for different areas keeps them independent", "[application][event_coalescer]") {
@@ -168,7 +193,7 @@ TEST_CASE("Flush handles a mix of successful and failed areas in the same call",
     CHECK(queue.EventLaneSize() == dovahlink::security::kReservedEventSlots);
 }
 
-TEST_CASE("coalescing still works normally for an area after it recovers",
+TEST_CASE("an attempted replacement requires recovery again after an area recovers",
           "[application][event_coalescer]") {
     OutboundQueue queue;
     for (std::size_t i = 0; i < dovahlink::security::kReservedEventSlots; ++i) {
@@ -184,12 +209,13 @@ TEST_CASE("coalescing still works normally for an area after it recovers",
         REQUIRE(queue.DequeueEvent().has_value());  // fully drain, so the next flush fits.
     }
 
-    coalescer.PublishEvent("character", "stale-event");
-    coalescer.PublishEvent("character", "latest-event");
-    CHECK(coalescer.PendingCount() == 1);
+    CHECK(coalescer.PublishEvent("character", "first-assigned-event"));
+    CHECK_FALSE(coalescer.PublishEvent("character", "replacement-assigned-event"));
+    CHECK(coalescer.PendingCount() == 0);
+    CHECK(coalescer.NeedsRecovery("character"));
 
     coalescer.Flush();
-    CHECK(queue.DequeueEvent() == "latest-event");
+    CHECK_FALSE(queue.DequeueEvent().has_value());
 }
 
 TEST_CASE("recovery on one area does not affect an unrelated area", "[application][event_coalescer]") {
@@ -206,6 +232,36 @@ TEST_CASE("recovery on one area does not affect an unrelated area", "[applicatio
     // A different, unrelated area may still be staged even though "character" cannot be.
     CHECK(coalescer.PublishEvent("location", "location-event"));
     CHECK(coalescer.PendingCount() == 1);
+}
+
+TEST_CASE("Flush preserves one area's recovery state while delivering another area",
+          "[application][event_coalescer]") {
+    OutboundQueue queue;
+    EventCoalescer coalescer(queue);
+
+    REQUIRE(coalescer.PublishEvent("character", "character-revision-2"));
+    REQUIRE_FALSE(coalescer.PublishEvent("character", "character-revision-3"));
+    REQUIRE(coalescer.NeedsRecovery("character"));
+    REQUIRE(coalescer.PublishEvent("location", "location-revision-2"));
+
+    coalescer.Flush();
+
+    CHECK(coalescer.NeedsRecovery("character"));
+    CHECK(coalescer.PendingCount() == 0);
+    CHECK(queue.DequeueEvent() == "location-revision-2");
+}
+
+TEST_CASE("MarkRecovered does not discard an event that is still pending",
+          "[application][event_coalescer]") {
+    OutboundQueue queue;
+    EventCoalescer coalescer(queue);
+
+    REQUIRE(coalescer.PublishEvent("character", "pending-event"));
+    coalescer.MarkRecovered("character");
+    CHECK(coalescer.PendingCount() == 1);
+
+    coalescer.Flush();
+    CHECK(queue.DequeueEvent() == "pending-event");
 }
 
 TEST_CASE("Flush only affects areas with a staged event", "[application][event_coalescer]") {

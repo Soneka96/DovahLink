@@ -3,14 +3,16 @@
 #include "application/outbound_queue.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace dovahlink::application {
 
-/// Coalesces pending state events before they enter the bounded event lane.
-/// A failed enqueue drops the event and requires a fresh snapshot before publication resumes.
+/// Stages assigned state events before they enter the bounded event lane.
+/// Replacement or a failed enqueue drops the staged event and requires a fresh
+/// snapshot before publication resumes. State changes must be coalesced before
+/// revision metadata is assigned and the resulting event is published here.
 /// One instance belongs to one connection and is not thread-safe.
 class EventCoalescer {
 public:
@@ -18,10 +20,10 @@ public:
     /// @param queue Outbound queue owned by the connection.
     explicit EventCoalescer(OutboundQueue& queue);
 
-    /// Replaces the pending event for a state area.
+    /// Stages one assigned event for a state area.
     /// @param stateArea Canonical state-area identifier.
     /// @param message Serialized event message.
-    /// @return `false` when recovery is required and the event is rejected.
+    /// @return `false` when recovery is required, including an attempted replacement.
     bool PublishEvent(std::string stateArea, std::string message);
 
     /// Attempts to enqueue every pending event and marks failed areas for recovery.
@@ -43,11 +45,8 @@ private:
     /// Outbound queue receiving flushed events.
     OutboundQueue& queue_;
 
-    /// Latest pending event for each state area.
-    std::unordered_map<std::string, std::string> pendingByArea_;
-
-    /// State areas awaiting snapshot recovery.
-    std::unordered_set<std::string> needsRecovery_;
+    /// Per-area pending message, or no message while snapshot recovery is required.
+    std::unordered_map<std::string, std::optional<std::string>> stateByArea_;
 };
 
 }  // namespace dovahlink::application
