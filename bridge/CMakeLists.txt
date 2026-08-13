@@ -28,10 +28,8 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
-    application/event_coalescer.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
-    application/outbound_queue.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
@@ -107,11 +105,9 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
-    application/event_coalescer_test.cpp
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
-    application/outbound_queue_test.cpp
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp

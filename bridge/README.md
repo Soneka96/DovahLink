@@ -151,7 +151,7 @@ Evaluated directly against the pinned commit's source
 
 | Part | Decision | Reason |
 |---|---|---|
-| `WsSession`'s Beast session shape: `websocket::stream` + `flat_buffer` + a `deque<string>` write queue with a `writing_` flag serializing async writes | **Adapt** | A correct, idiomatic Beast idiom for avoiding concurrent writes on one stream. DovahLink's session differs enough (envelope framing, bounded lanes, size/limit enforcement, auth/session state) that the code is rewritten, but the write-serialization technique is reused. |
+| `WsSession`'s Beast session shape: `websocket::stream`, `flat_buffer`, and asynchronous I/O | **Adapt** | DovahLink rewrites the session around `websocket::stream<tcp_stream>`, bounded input, cancellation, and operation deadlines. Phase 1 remains linear with one operation at a time; the reference `deque<string>` write queue and `writing_` flag are not adopted, because outbound queueing belongs to Phase 1.5. |
 | `WsServer`'s acceptor loop (construct `tcp::acceptor` on an explicit endpoint, async-accept, hand the socket to a session) | **Adapt** | Sound minimal Asio acceptor pattern. DovahLink adapts it to bind only `127.0.0.1`/`::1` (never a configurable address) and to enforce the one-connected-client limit at accept time, which this reference does not do. |
 | `EventBus::Install()` registering SKSE event sinks once after `kDataLoaded` and reacting to engine events instead of polling | **Adapt** | The registration technique (install a sink once, on the game thread, after data is loaded) is the right shape for registering `RE::LevelIncrease::Event`. The surrounding machinery — a generic per-key version counter and a shared resolver cache (`EventBus::CachedValue`, `ResolveCached`) for arbitrary polled fields — is excluded: it is a generic event/caching framework built to support many polled fields, and DovahLink has exactly one push-only event with no polling to optimize. |
 | `PlayerReader::ReadLevel()`'s call, `RE::PlayerCharacter::GetSingleton()->GetLevel()` | **Adapt** | Confirms the correct CommonLib API for reading the player's level. Reused as a technique inside DovahLink's own level adapter; not copied, since the surrounding function returns `nlohmann::json` for a generic polled-field system DovahLink doesn't have. |
@@ -172,11 +172,10 @@ All adapted code will carry the required MIT attribution for SkyrimWebSocket
 
 ## Live event delivery is deferred to Phase 1.5
 
-`application/event_coalescer.hpp` and `application/outbound_queue.hpp` exist and are unit-tested,
-but neither is wired into `application/connection_session.cpp`'s connection loop. In Phase 1, a
-connected and subscribed client sees a level change only by asking again -- a fresh `subscribe` or
-`snapshot_request` -- never as an unprompted `state_event`. `RunConnectionSession` stays purely
-request/response: it never writes to a socket except in direct reply to a message it just read.
+Phase 1 does not implement an outbound event queue or coalescer. A connected and subscribed client
+sees a level change only by asking again -- a fresh `subscribe` or `snapshot_request` -- never as an
+unprompted `state_event`. `RunConnectionSession` stays purely request/response: it never writes to a
+socket except in direct reply to a message it just read.
 
 This is a deliberate, roadmap-tracked deferral, not an oversight. Delivering an unprompted push
 requires a connection to write independent of its own next read, which the current synchronous,
@@ -198,22 +197,20 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
 - Prefer a single-threaded `io_context` for as long as it holds; only introduce a strand (a
   mechanism that serializes a connection's own async operations across multiple threads) once
   multiple networking threads are actually required, not in advance.
-- Replace the two-lane `OutboundQueue` (`control` / `event`) with three, named `controlMessages`,
-  `reliableEvents`, and `stateUpdates` -- deliberately not "event queue" for either of the latter
-  two, since a health update is not the same kind of thing as a quest completion.
-  `stateUpdates` coalesces raw owned state latest-value-wins per key before revision metadata is
-  assigned. Today's `EventCoalescer` stages already-assigned events and therefore rejects
-  replacement in favor of fresh-snapshot recovery; it must not coalesce serialized revisions.
-  `reliableEvents`
-  stays ordered and is never silently overwritten or dropped; if it fills, delivery is prioritized
-  over `stateUpdates` and, if a client still cannot keep up, that client is marked unhealthy and
-  disconnected rather than buffered indefinitely or allowed to block the bridge.
+- Separate outbound traffic into `controlMessages`, `reliableEvents`, and `stateUpdates` --
+  deliberately not one generic event queue, since a health update is not the same kind of thing as
+  a quest completion. `stateUpdates` coalesces raw owned state latest-value-wins per key before
+  revision metadata is assigned. `reliableEvents` stays ordered and is never silently overwritten
+  or dropped; if it fills, delivery is prioritized over `stateUpdates` and, if a client still
+  cannot keep up, that client is marked unhealthy and disconnected rather than buffered
+  indefinitely or allowed to block the bridge.
 - Publish a value only when it changes. Prefer an existing native Skyrim event for any field that
   has one; fall back to one bridge-owned, per-rate-class-throttled sampling hook only where no
   suitable event exists. A rate class (Fast/Medium/Slow) names a maximum publish frequency, not a
   mandatory one.
-- Exact lane capacities are deliberately not decided yet; they follow from profiling once this is
-  built, not advance estimation.
+- The approved 128-message outbound security bound remains the ceiling unless a separately approved
+  protocol-limit change replaces it. How Phase 1.5 divides that bound among its three categories
+  follows profiling once the real delivery mechanism exists, not advance estimation.
 
 ## Manual verification record template
 
