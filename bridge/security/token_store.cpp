@@ -23,19 +23,20 @@ bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<st
 }
 
 // Overwrites the buffer's contents before releasing it, using a Windows API
-/// Overwrites a byte buffer and releases its storage.
-void SecureClear(std::vector<std::uint8_t>& buffer) {
+/// Overwrites a byte buffer without performing a potentially throwing reallocation.
+void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
     if (!buffer.empty()) {
         SecureZeroMemory(buffer.data(), buffer.size());
     }
     buffer.clear();
-    buffer.shrink_to_fit();
 }
 
 }
 TokenStore::TokenStore(std::vector<std::uint8_t> expectedToken,
                         std::chrono::steady_clock::duration timeToLive)
-    : token_(std::move(expectedToken)), expiresAt_(std::chrono::steady_clock::now() + timeToLive) {}
+    : token_(std::move(expectedToken)),
+      expiresAt_(std::chrono::steady_clock::now() + timeToLive),
+      consumed_(token_.empty()) {}
 
 TokenStore::~TokenStore() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -54,8 +55,36 @@ bool TokenStore::IsAvailableLocked() {
     return true;
 }
 
-bool TokenStore::TryConsume(const std::vector<std::uint8_t>& presented) {
-    std::lock_guard<std::mutex> lock(mutex_);
+TokenStore::Reservation::Reservation(TokenStore& store, std::unique_lock<std::mutex> lock) noexcept
+    : store_(&store), lock_(std::move(lock)) {}
+
+TokenStore::Reservation::Reservation(Reservation&& other) noexcept
+    : store_(other.store_), lock_(std::move(other.lock_)) {
+    other.store_ = nullptr;
+}
+
+TokenStore::Reservation& TokenStore::Reservation::operator=(Reservation&& other) noexcept {
+    if (this != &other) {
+        lock_ = std::move(other.lock_);
+        store_ = other.store_;
+        other.store_ = nullptr;
+    }
+    return *this;
+}
+
+void TokenStore::Reservation::Commit() {
+    if (store_ == nullptr) {
+        return;
+    }
+    store_->consumed_ = true;
+    SecureClear(store_->token_);
+    store_ = nullptr;
+    lock_.unlock();
+}
+
+std::optional<TokenStore::Reservation> TokenStore::TryReserve(
+    const std::vector<std::uint8_t>& presented) {
+    std::unique_lock<std::mutex> lock(mutex_);
 
     // ponytail: the availability check below returns before the constant-time
     // compare, so an already-consumed/expired store rejects faster than a live
@@ -64,15 +93,13 @@ bool TokenStore::TryConsume(const std::vector<std::uint8_t>& presented) {
     // Acceptable for the current loopback-only pairing constraints; revisit if
     // a future pairing design needs this state distinction hidden too.
     if (!IsAvailableLocked()) {
-        return false;
+        return std::nullopt;
     }
     if (!ConstantTimeEquals(token_, presented)) {
-        return false;
+        return std::nullopt;
     }
 
-    consumed_ = true;
-    SecureClear(token_);
-    return true;
+    return Reservation(*this, std::move(lock));
 }
 
 bool TokenStore::IsAvailable() {

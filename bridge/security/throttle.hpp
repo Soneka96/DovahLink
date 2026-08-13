@@ -16,7 +16,13 @@ public:
     /// Records an event and returns the active event count including it.
     [[nodiscard]] std::size_t RecordEvent(std::chrono::steady_clock::time_point now);
 
+    /// Returns the active event count without recording a new event.
+    [[nodiscard]] std::size_t ActiveCount(std::chrono::steady_clock::time_point now);
+
 private:
+    /// Removes timestamps outside the active window while locked.
+    void PruneLocked(std::chrono::steady_clock::time_point now);
+
     /// Serializes access to the counter state.
     std::mutex mutex_;
     /// Duration for which an event remains in the active window.
@@ -31,8 +37,11 @@ public:
     /// Creates a throttle using the configured failed-token window.
     FailedTokenThrottle();
 
-    /// Records a failed attempt and reports whether the configured limit is exceeded.
-    [[nodiscard]] bool RecordFailureAndCheckLimit(std::chrono::steady_clock::time_point now);
+    /// Reports whether authentication attempts are currently blocked.
+    [[nodiscard]] bool IsBlocked(std::chrono::steady_clock::time_point now);
+
+    /// Records one failed authentication attempt.
+    void RecordFailure(std::chrono::steady_clock::time_point now);
 
 private:
     /// Counter tracking failed attempts across all connections.

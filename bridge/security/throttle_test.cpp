@@ -47,6 +47,15 @@ TEST_CASE("RateWindowCounter prunes an event exactly `window` old", "[security][
     CHECK(counter.RecordEvent(t0 + std::chrono::seconds(10)) == 1);
 }
 
+TEST_CASE("RateWindowCounter reports active events without recording another", "[security][throttle]") {
+    RateWindowCounter counter(std::chrono::seconds(10));
+    Clock::time_point t0 = Clock::now();
+
+    REQUIRE(counter.RecordEvent(t0) == 1);
+    CHECK(counter.ActiveCount(t0 + std::chrono::seconds(1)) == 1);
+    CHECK(counter.ActiveCount(t0 + std::chrono::seconds(2)) == 1);
+}
+
 TEST_CASE("RateWindowCounter is safe under concurrent recording", "[security][throttle]") {
     // Uses a spin barrier to maximize actual thread overlap rather than a timing
     // sleep to approximate concurrency. This proves
@@ -89,18 +98,20 @@ TEST_CASE("FailedTokenThrottle allows the first 5 failures within the window", "
     Clock::time_point t0 = Clock::now();
 
     for (int i = 0; i < 5; ++i) {
-        CHECK_FALSE(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(i)));
+        CHECK_FALSE(throttle.IsBlocked(t0 + std::chrono::seconds(i)));
+        throttle.RecordFailure(t0 + std::chrono::seconds(i));
     }
 }
 
-TEST_CASE("FailedTokenThrottle rejects the 6th failure within the window", "[security][throttle]") {
+TEST_CASE("FailedTokenThrottle blocks the 6th attempt before validation", "[security][throttle]") {
     FailedTokenThrottle throttle;
     Clock::time_point t0 = Clock::now();
 
     for (int i = 0; i < 5; ++i) {
-        REQUIRE_FALSE(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(i)));
+        REQUIRE_FALSE(throttle.IsBlocked(t0 + std::chrono::seconds(i)));
+        throttle.RecordFailure(t0 + std::chrono::seconds(i));
     }
-    CHECK(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(5)));
+    CHECK(throttle.IsBlocked(t0 + std::chrono::seconds(5)));
 }
 
 TEST_CASE("FailedTokenThrottle allows attempts again once the window has fully passed",
@@ -109,13 +120,14 @@ TEST_CASE("FailedTokenThrottle allows attempts again once the window has fully p
     Clock::time_point t0 = Clock::now();
 
     for (int i = 0; i < 5; ++i) {
-        REQUIRE_FALSE(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(i)));
+        REQUIRE_FALSE(throttle.IsBlocked(t0 + std::chrono::seconds(i)));
+        throttle.RecordFailure(t0 + std::chrono::seconds(i));
     }
-    REQUIRE(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(5)));  // 6th, blocked
+    REQUIRE(throttle.IsBlocked(t0 + std::chrono::seconds(5)));
 
-    // 121s after t0: every attempt above (0s..5s) is more than 60s old and prunes away,
-    // so this is the only event within the window.
-    CHECK_FALSE(throttle.RecordFailureAndCheckLimit(t0 + std::chrono::seconds(121)));
+    // Blocked checks do not record another failure or extend the window.
+    CHECK(throttle.IsBlocked(t0 + std::chrono::seconds(6)));
+    CHECK_FALSE(throttle.IsBlocked(t0 + std::chrono::seconds(65)));
 }
 
 TEST_CASE("ViolationTracker does not close the connection for the first two violations",

@@ -64,15 +64,19 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout, steadyNow);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
-        // HandleHello never creates a session on a failure path; nothing to
-        // invalidate.
         ws.Close();
         return;
     }
 
-    // HandleHello's success path always sets a sessionId (see its own
-    // contract); handshake.closeConnection being false already proves this
-    // is the success path.
+    if (!handshake.sessionLease.has_value() || !handshake.response.sessionId.has_value()) {
+        ws.Close();
+        return;
+    }
+
+    // The lease keeps the authenticated session valid for exactly this
+    // connection scope and invalidates it on every exit path.
+    auto sessionLease = std::move(handshake.sessionLease);
+
     std::string sessionId = *handshake.response.sessionId;
 
     ws.SwitchToIdleTimeout();
@@ -113,7 +117,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         }
     }
 
-    sessionManager.InvalidateSession(connection);
+    sessionLease.reset();
     ws.Close();
 }
 

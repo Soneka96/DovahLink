@@ -7,6 +7,7 @@
 #include "security/token_store.hpp"
 
 #include <chrono>
+#include <optional>
 
 namespace dovahlink::application {
 
@@ -18,11 +19,14 @@ struct HandshakeResult {
     /// Response envelope to send to the client.
     protocol::Envelope response;
 
+    /// Ownership of the authenticated session on success.
+    std::optional<SessionManager::Lease> sessionLease;
+
     /// Whether the connection must close after sending `response`.
     bool closeConnection = false;
 };
 
-/// Validates one decoded hello, throttles failures, and atomically consumes the token on success.
+/// Validates one decoded hello and consumes the token only after session admission succeeds.
 /// Successful handshakes bind a new session to `connection`; failures close the connection.
 /// @param helloEnvelope Decoded client hello envelope.
 /// @param tokenStore One-time token store.

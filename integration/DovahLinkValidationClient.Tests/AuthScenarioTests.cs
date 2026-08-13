@@ -76,7 +76,7 @@ public class AuthScenarioTests
         // The harness-only TTL override (bridge/harness/dovahlink_bridge_harness.cpp)
         // exists specifically so this scenario can prove real expiry
         // end to end without sleeping out TokenStore's normal 5-minute
-        // default; TryConsume's own expiry arithmetic is already covered
+        // default; TryReserve's own expiry arithmetic is already covered
         // at the unit level by security/token_store_test.cpp.
         using var harness = new HarnessProcess(
             BridgeScenario.ValidHexToken,
@@ -104,7 +104,7 @@ public class AuthScenarioTests
     public async Task StructurallyInvalidTokenIsRejectedAsUnauthenticated()
     {
         // Distinct from "valid hex, wrong value" (every other test here):
-        // handshake_handler.cpp skips TryConsume entirely when hex decoding
+        // handshake_handler.cpp skips TryReserve entirely when hex decoding
         // itself fails, a different branch producing the same wire error.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
         Assert.Equal("READY", await harness.ReadLineAsync());
@@ -124,9 +124,9 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
-    /// <summary>Verifies that the sixth failed token attempt is rate limited.</summary>
+    /// <summary>Verifies that the sixth authentication attempt is rate limited.</summary>
     [Fact]
-    public async Task SixthFailedTokenAttemptWithinTheWindowIsRateLimited()
+    public async Task SixthAuthenticationAttemptWithinTheWindowIsRateLimited()
     {
         // FailedTokenThrottle is one instance shared across every connection
         // attempt for the harness's whole lifetime (security/throttle.hpp),
@@ -153,18 +153,10 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
-    /// <summary>Verifies that a correct token succeeds after failed attempts.</summary>
+    /// <summary>Verifies that throttling occurs before even a correct token is validated.</summary>
     [Fact]
-    public async Task CorrectTokenStillSucceedsImmediatelyAfterFiveFailedAttempts()
+    public async Task CorrectTokenIsRateLimitedAfterFiveFailedAttempts()
     {
-        // Documents actual behavior, not an asserted requirement:
-        // handshake_handler.cpp only checks/records the failed-attempt
-        // throttle inside the "token did not match" branch, so a correct
-        // token bypasses it entirely regardless of how many recent
-        // failures preceded it. Worth a second look against
-        // ai/context/protocol/security.md's literal "further attempts are
-        // rejected until the window expires" -- this test makes that gap
-        // visible rather than asserting it is the intended behavior.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
         Assert.Equal("READY", await harness.ReadLineAsync());
 
@@ -173,10 +165,16 @@ public class AuthScenarioTests
 
         await using BridgeConnection sixth = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
         await sixth.SendAsync(BridgeScenario.HelloEnvelope(BridgeScenario.ValidHexToken, "message-hello-correct-after-failures"));
-        Envelope helloAck = await sixth.ReceiveAsync();
-        Assert.Equal("hello_ack", helloAck.MessageType);
+        Envelope rateLimited = await sixth.ReceiveAsync();
+        Assert.Equal("error", rateLimited.MessageType);
+        Assert.Equal("rate_limited", rateLimited.Payload["code"]!.GetValue<string>());
+        Assert.True(rateLimited.Payload["retryable"]!.GetValue<bool>());
 
-        await BridgeScenario.CloseAndQuitAsync(harness, sixth);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sixth.ReceiveAsync());
+        await sixth.CloseAsync();
+
+        await harness.WriteLineAsync("quit");
+        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>Verifies that the single connection slot rejects a second client.</summary>

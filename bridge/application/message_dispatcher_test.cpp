@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <optional>
 #include <string>
 
 using dovahlink::application::CharacterSnapshot;
@@ -38,6 +39,8 @@ public:
 struct Fixture {
     /// Tracks the session used by the dispatcher.
     SessionManager sessions;
+    /// Owns the authenticated session for the fixture lifetime.
+    std::optional<SessionManager::Lease> sessionLease;
     /// Rejects duplicate inbound message IDs.
     ReplayGuard replayGuard;
     /// Tracks protocol violations for the session.
@@ -52,7 +55,9 @@ struct Fixture {
     RevisionTracker revisions;
 
     /// Creates the fixture with its test session already authenticated.
-    Fixture() { REQUIRE(sessions.TryCreateSession(kConnection, kSessionId)); }
+    Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId)) {
+        REQUIRE(sessionLease.has_value());
+    }
 
     /// Processes a raw message using the fixture's authenticated session.
     DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {

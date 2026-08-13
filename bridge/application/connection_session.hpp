@@ -9,7 +9,7 @@
 namespace dovahlink::application {
 
 /// Runs one accepted connection through authentication, message handling, and cleanup.
-/// Every exit after session creation invalidates that session before the socket closes.
+/// Session ownership is scope-bound so every exit after authentication invalidates it.
 /// @param ws Accepted WebSocket session.
 /// @param tokenStore Plugin-lifetime one-time token store.
 /// @param tokenThrottle Plugin-lifetime failed-token throttle.

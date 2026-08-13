@@ -26,23 +26,17 @@
 // - All three of protocol/fixtures/errors/error-unauthenticated-*.json use
 //   the same wire `code: "unauthenticated"`; only their diagnostic
 //   `message` text differs, and message text is explicitly "not for
-//   branching" (protocol/schema/README.md). security::TokenStore::TryConsume
-//   itself cannot distinguish invalid/expired/reused (a single bool), so a
+//   branching" (protocol/schema/README.md). security::TokenStore::TryReserve
+//   itself intentionally does not distinguish invalid/expired/reused, so a
 //   single generic message covers all three without losing any
 //   client-observable information.
 // - A session slot already occupied (the one-connected-client limit) maps
 //   to `unauthorized`: the presented token was valid, but this connection
 //   is not currently permitted to hold a session. No canonical error code
 //   names this exact case; `unauthorized` is the closest semantic fit among
-//   protocol/schema/README.md's registered codes. Note this does spend the
-//   one-time token on a doomed attempt -- unavoidable given
-//   TokenStore::TryConsume's required atomic compare-and-consume
-//   (ai/context/protocol/security.md), which rules out a non-consuming
-//   "peek" that could check session capacity first. Both the session ID and
-//   this response's messageId are
-//   generated together, before TryCreateSession runs, so a CSPRNG failure
-//   at that point never leaves a session created that the client can never
-//   learn the ID of.
+//   protocol/schema/README.md's registered codes. TokenStore::Reservation
+//   keeps the matching token unchanged until session admission commits, so
+//   this retryable failure does not spend the one-time token.
 // - Handshake-timeout closure (checking ConnectionTimeoutTracker::IsTimedOut
 //   independent of a message actually arriving) is not this function's job;
 //   this function only runs once a hello message has already been read.
@@ -63,6 +57,7 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, 
         .response = protocol::BuildErrorEnvelope(helloEnvelope.messageId, /*protocolVersion=*/0,
                                                   /*sessionId=*/std::nullopt, std::move(code),
                                                   std::move(message), retryable),
+        .sessionLease = std::nullopt,
         .closeConnection = true,
     };
 }
@@ -88,18 +83,21 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, "unsupported_version", "No mutually supported protocol version", false);
     }
 
+    if (tokenThrottle.IsBlocked(now)) {
+        return Fail(helloEnvelope, "rate_limited", "Too many failed token attempts", true);
+    }
+
     // A structurally invalid presented token (not valid hex) can never
     // match the stored token; treat it as an immediate failed attempt
-    // without a TryConsume call, matching this codebase's existing
+    // without a TryReserve call, matching this codebase's existing
     // accepted precedent for Phase 1's timing-side-channel posture (see
-    // token_store.cpp's "ponytail:" comment on TryConsume).
+    // token_store.cpp's "ponytail:" comment on TryReserve).
     auto presentedBytes = security::DecodeHex(hello->authToken);
-    bool consumed = presentedBytes.has_value() && tokenStore.TryConsume(*presentedBytes);
-    if (!consumed) {
-        bool limitExceeded = tokenThrottle.RecordFailureAndCheckLimit(now);
-        if (limitExceeded) {
-            return Fail(helloEnvelope, "rate_limited", "Too many failed token attempts", true);
-        }
+    auto tokenReservation = presentedBytes.has_value()
+                                ? tokenStore.TryReserve(*presentedBytes)
+                                : std::optional<security::TokenStore::Reservation>{};
+    if (!tokenReservation.has_value()) {
+        tokenThrottle.RecordFailure(now);
         return Fail(helloEnvelope, "unauthenticated", "Invalid or expired one-time token", false);
     }
 
@@ -109,23 +107,27 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, "internal_error", "Unable to establish a secure connection", false);
     }
 
-    if (!sessionManager.TryCreateSession(connection, *sessionId)) {
+    protocol::Envelope response{
+        .protocolVersion = 0,
+        .messageType = std::string(protocol::message_type::kHelloAck),
+        .messageId = *responseMessageId,
+        .sessionId = sessionId,
+        .correlationId = helloEnvelope.messageId,
+        .payload = protocol::EncodeHelloAckPayload(
+            protocol::HelloAckPayload{.selectedProtocolVersion = kSupportedProtocolVersion}),
+    };
+
+    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId);
+    if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, "unauthorized", "Another client is already connected", true);
     }
 
+    tokenReservation->Commit();
     timeoutTracker.MarkAuthenticated(now);
 
     return HandshakeResult{
-        .response =
-            protocol::Envelope{
-                .protocolVersion = 0,
-                .messageType = std::string(protocol::message_type::kHelloAck),
-                .messageId = *responseMessageId,
-                .sessionId = std::move(sessionId),
-                .correlationId = helloEnvelope.messageId,
-                .payload = protocol::EncodeHelloAckPayload(
-                    protocol::HelloAckPayload{.selectedProtocolVersion = kSupportedProtocolVersion}),
-            },
+        .response = std::move(response),
+        .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
     };
 }
