@@ -24,13 +24,9 @@ using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
 
-// These tests use two real loopback sockets (client and server) with an
-// actual Boost.Beast WebSocket handshake on each side, on a background
-// thread for the server, matching this project's testing convention that
-// transport code is proven against real sockets. Catch2 assertions are
-// deliberately never called from the background thread (not documented as
-// thread-safe); results are captured into variables and checked only after
-// the thread is joined back onto the main test thread.
+// These tests use two real loopback sockets and a real Boost.Beast handshake.
+// Server-thread results are captured and asserted only after the thread joins,
+// keeping Catch2 assertions on the main test thread.
 
 TEST_CASE("Accept completes a real WebSocket handshake over loopback",
           "[transport][websocket_session]") {
@@ -256,13 +252,8 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
 
 TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
           "[transport][websocket_session]") {
-    // This test only proves re-applying the timeout option mid-session is a
-    // safe, message-preserving operation -- does a message sent after the
-    // switch still arrive correctly. The 60-second idle window itself is
-    // not separately re-proven with a real 60+ second wait (see the tests
-    // below this one, which do prove the mechanism fires, using the
-    // 5-second handshake window instead -- both windows go through the
-    // same SetReadTimeout, so proving one proves the mechanism).
+    // This test proves that reapplying the timeout option mid-session is
+    // message-preserving; the long idle duration is not waited out here.
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -311,16 +302,14 @@ TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
 
 TEST_CASE("ReadMessage fails within the handshake timeout when the client sends nothing",
           "[transport][websocket_session]") {
-    // Proves the actual production fix: SetReadTimeout's OS-level
+    // Proves the production timeout boundary: SetReadTimeout's OS-level
     // SO_RCVTIMEO genuinely bounds a stalled read. Before that fix, this
     // exact scenario (a WebSocket-handshaked peer that never sends an
     // application message) had no enforced bound at all in this class's
     // synchronous API -- Boost.Beast's own stream_base::timeout option is
     // only armed by its asynchronous operations, confirmed against the
     // vendored source and by directly reproducing an unbounded stall
-    // elsewhere (transport/inbound_limit_test.cpp's frame-too-large test,
-    // which stalled for the OS's own default of roughly two minutes until
-    // this fix). security::kHandshakeTimeout is 5 seconds; this asserts
+    // security::kHandshakeTimeout is 5 seconds; this asserts
     // comfortably under that with margin, not an exact bound, since exact
     // OS-level timer precision is not this test's concern.
     boost::asio::io_context ioc;
@@ -370,11 +359,8 @@ TEST_CASE("ReadMessage fails within the handshake timeout when the client sends 
 
 TEST_CASE("a client that sends an oversized frame and never closes still gets a bounded failure",
           "[transport][websocket_session]") {
-    // The scenario transport/inbound_limit_test.cpp's frame-too-large test
-    // avoids by having the client gracefully close after writing (needed
-    // there to observe the specific kFrameTooLarge error cleanly). This
-    // test covers the case that test does not: a peer that never
-    // cooperates at all. Before the SO_RCVTIMEO fix, Beast's internal
+    // This covers a peer that never cooperates after sending an oversized
+    // frame. Before the SO_RCVTIMEO fix, Beast's internal
     // do_fail()/teardown() sequence (triggered once it detects the
     // oversized frame) would wait unboundedly for this peer to close back,
     // observed to take roughly two minutes before falling back to a

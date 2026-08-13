@@ -1,19 +1,7 @@
-// Closes out Group I (transport) by proving the last piece of
-// ai/context/protocol/security.md's transport requirements not yet covered:
-// "The bridge must reject connections whose remote address is not loopback
-// during this phase." Steps 26-28 already proved real loopback binding and
-// framing extensively with real sockets; what remained was this explicit
-// remote-address check.
-//
-// A genuinely non-loopback peer cannot be originated in a unit test (there
-// is no way to spoof a connection's source address without raw sockets and
-// real routing infrastructure, which would not belong in this test suite
-// even if it were possible). IsAcceptablePeerAddress is a free, pure
-// function specifically so the rejection logic itself can be proven
-// directly against synthetic addresses, per ai/context/integration/
-// testing.md's general preference for fakes where a real end-to-end check
-// is not practical -- while the acceptance path (a real loopback peer) is
-// still proven with a real socket, matching the rest of Group I.
+// A genuinely non-loopback peer cannot be originated in this test suite
+// without raw sockets and routing infrastructure. The pure address predicate
+// is therefore tested with synthetic addresses, while accepted loopback peers
+// are still verified through real sockets.
 
 #include "transport/listener.hpp"
 

@@ -1,19 +1,8 @@
-// Proves the Phase 1 input-limit and violation-closure rules from
-// ai/context/protocol/security.md work together as intended:
-//   - a frame within bridge/security/limits.hpp's kMaxInboundFrameBytes is
-//     read normally (transport::WebSocketSession, Step 27/28)
-//   - a frame exceeding it is rejected as SessionError::kFrameTooLarge
-//     before a message could be decoded
-//   - kFrameTooLarge is the caller's signal to close immediately without
-//     routing it through the 3-violations/30s throttle
-//     (security::ViolationTracker, Step 14), which is reserved for
-//     violations discovered after a safe message was already decoded
-//
-// WebSocketSession has no dependency on ViolationTracker (transport does not
-// depend on this particular application-layer policy type); the last test
-// below demonstrates the intended calling convention a future coordinator
-// step will implement, using both real components together rather than
-// asserting the convention only in documentation.
+// Proves that inbound frame limits are enforced before message decoding and
+// that kFrameTooLarge is handled as an immediate-close signal rather than a
+// post-decode protocol-violation strike. The transport remains independent of
+// the application-layer ViolationTracker; the final test models the boundary
+// convention explicitly with both production components.
 
 #include "transport/listener.hpp"
 #include "transport/websocket_session.hpp"
@@ -205,7 +194,7 @@ TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarg
 }
 
 TEST_CASE("kFrameTooLarge closes immediately without consuming a violation strike, matching the "
-          "documented calling convention a coordinator will implement",
+          "documented immediate-close calling convention",
           "[transport][inbound_limit]") {
     // Demonstrates the intended policy: kFrameTooLarge -> close now, do not
     // touch the throttle; every other SessionError -> record a violation and

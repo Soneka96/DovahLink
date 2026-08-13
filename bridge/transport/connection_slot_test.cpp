@@ -42,7 +42,7 @@ TEST_CASE("Release is a no-op when the slot was never acquired", "[transport][co
 
 TEST_CASE("exactly one concurrent TryAcquire attempt succeeds", "[transport][connection_slot]") {
     // Uses a spin barrier to maximize actual thread overlap rather than a
-    // timing sleep to approximate concurrency (ai/context/skse/testing.md).
+    // timing sleep to approximate concurrency.
     ConnectionSlot slot;
 
     constexpr int kAttempts = 16;
