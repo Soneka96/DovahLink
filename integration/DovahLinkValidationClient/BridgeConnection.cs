@@ -3,13 +3,15 @@ using System.Text;
 
 namespace DovahLinkValidationClient;
 
+/// <summary>
 /// Independently sends and receives complete text messages over the bridge WebSocket.
+/// </summary>
 public sealed class BridgeConnection : IAsyncDisposable
 {
-    /// The default time allowed for one complete inbound message.
+    /// <summary>The default time allowed for one complete inbound message.</summary>
     private static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromSeconds(10);
 
-    /// The WebSocket owned by this connection.
+    /// <summary>The WebSocket owned by this connection.</summary>
     private readonly ClientWebSocket _socket = new();
 
     /// <summary>

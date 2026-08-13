@@ -3,14 +3,11 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-// Phase 1 only proves the pull side of state delivery (subscribe and
-// snapshot_request); a level change reaching an already-subscribed client
-// as an unprompted state_event is deferred to Roadmap Phase 1.5
-// (bridge/README.md's "Live event delivery is deferred to Phase 1.5"). No
-// scenario here sends increase_level and expects a push -- every visibility
-// check goes through a fresh subscribe or snapshot_request instead.
+/// <summary>Exercises character subscription, snapshots, and state-area validation.</summary>
+/// <remarks>Phase 1 validates pull-based delivery; unsolicited state events are deferred.</remarks>
 public class StateScenarioTests
 {
+    /// <summary>Verifies subscription acknowledgment and the initial revision-one snapshot.</summary>
     [Fact]
     public async Task SubscribeToCharacterReturnsAcceptedAckThenSnapshotAtRevisionOne()
     {
@@ -38,8 +35,7 @@ public class StateScenarioTests
         Assert.False(string.IsNullOrEmpty(snapshot.Payload["occurredAt"]!.GetValue<string>()));
         JsonObject data = snapshot.Payload["data"]!.AsObject();
         Assert.Equal(5, data["level"]!.GetValue<int>());
-        // TASK.md: health/magicka/stamina are explicitly null in Phase 1,
-        // never a placeholder value.
+        // Health, magicka, and stamina are explicitly unavailable in Phase 1.
         Assert.Null(data["health"]);
         Assert.Null(data["magicka"]);
         Assert.Null(data["stamina"]);
@@ -47,6 +43,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an unknown state area is rejected without a snapshot.</summary>
     [Fact]
     public async Task UnregisteredStateAreaIsRejectedInSubscriptionAckWithoutASnapshot()
     {
@@ -75,6 +72,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies mixed state-area subscription acceptance and rejection.</summary>
     [Fact]
     public async Task MixedSubscribeAcceptsRegisteredAreaAndRejectsUnknownOneWithOneSnapshotOnly()
     {
@@ -103,6 +101,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that a later snapshot reflects a level change and higher revision.</summary>
     [Fact]
     public async Task SnapshotRequestAfterIncreaseLevelReturnsTheNewValueAtAHigherRevision()
     {
@@ -135,6 +134,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that duplicate subscription areas are acknowledged once.</summary>
     [Fact]
     public async Task DuplicateAreasInSubscribeAreDedupedInTheAckAndYieldExactlyOneSnapshot()
     {
@@ -165,6 +165,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an empty state-area list produces no snapshot.</summary>
     [Fact]
     public async Task EmptyStateAreasListIsAcknowledgedWithNoSnapshot()
     {
@@ -188,6 +189,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that each pull advances the revision without a state change.</summary>
     [Fact]
     public async Task RevisionAdvancesOnEachPullEvenWithoutAnInterveningStateChange()
     {
@@ -217,6 +219,7 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an unknown snapshot area returns an unsupported-capability error.</summary>
     [Fact]
     public async Task SnapshotRequestForAnUnregisteredAreaReturnsUnsupportedCapabilityError()
     {

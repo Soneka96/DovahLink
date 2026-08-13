@@ -3,23 +3,18 @@ using System.Text;
 
 namespace DovahLinkValidationClient.Tests;
 
-// Launches the Skyrim-independent bridge harness
-// (bridge/harness/dovahlink_bridge_harness.cpp) as a real subprocess so
-// scenarios exercise the real bridge stack without requiring Skyrim. Each
-// test gets its own instance: the harness enforces Phase 1's one-connected-
-// client limit, so instances cannot be shared across tests running in the
-// same process.
+/// <summary>Launches and controls one deterministic bridge harness subprocess.</summary>
 public sealed class HarnessProcess : IDisposable
 {
+    /// <summary>The default time allowed for one harness output line.</summary>
     private static readonly TimeSpan DefaultReadTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>The running harness process.</summary>
     private readonly Process _process;
+
+    /// <summary>Standard-error output captured from the harness.</summary>
     private readonly StringBuilder _stderr = new();
 
-    // `token` becomes the harness's DOVAHLINK_BRIDGE_TOKEN; pass null to
-    // test the missing-token startup path. `extraEnvironmentVariables` sets
-    // additional harness-only variables (e.g. DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS
-    // for the token-expiry scenario) without a dedicated constructor
     /// <summary>
     /// Starts the bridge harness with redirected standard streams and the specified environment configuration.
     /// </summary>
@@ -49,11 +44,6 @@ public sealed class HarnessProcess : IDisposable
 
         _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start the bridge harness process.");
 
-        // Drained continuously via the event-based API, not read on demand:
-        // if stderr fills its OS pipe buffer with nothing reading it, the
-        // harness blocks on its own write, deadlocking the whole test.
-        // Captured rather than discarded so a failing test can inspect
-        // StandardError for why.
         _process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is not null)
@@ -64,10 +54,9 @@ public sealed class HarnessProcess : IDisposable
         _process.BeginErrorReadLine();
     }
 
-    // Diagnostic output captured from the harness's stderr so far.
+    /// <summary>Diagnostic output captured from the harness's standard error stream.</summary>
     public string StandardError => _stderr.ToString();
 
-    // Bounded by `timeout` (default 10s): a harness that never writes a
     /// <summary>
     /// Reads a line from the harness output within the specified timeout.
     /// </summary>
@@ -115,6 +104,7 @@ public sealed class HarnessProcess : IDisposable
         }
     }
 
+    /// <summary>The harness process exit code.</summary>
     public int ExitCode => _process.ExitCode;
 
     /// <summary>
@@ -130,11 +120,6 @@ public sealed class HarnessProcess : IDisposable
         _process.Dispose();
     }
 
-    // Walks up from the test's own output directory to the repo root, then
-    // into the C++ build output -- the same executable
-    // bridge/harness/dovahlink_bridge_harness_test.cpp locates via CMake's
-    // DOVAHLINK_HARNESS_EXE compile definition, just found by directory
-    // search instead since MSBuild has no equivalent generator expression
     /// <summary>
     /// Locates the Windows debug-build DovahLink bridge harness executable.
     /// </summary>

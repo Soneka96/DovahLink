@@ -4,18 +4,10 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-// ai/context/integration/testing.md requires covering "concurrent
-// token-consumption attempts and concurrent proof-client attempts" as two
-// separate items. Only the second is testable here: transport/connection_slot.hpp's
-// ConnectionSlot::TryAcquire runs in BridgeWorkerPool's accept loop before a
-// WebSocketSession is even constructed, so at most one connection can ever
-// reach the point of reading a hello message at a time -- two sockets
-// racing to present the same token to TokenStore::TryConsume cannot happen
-// through the live pipeline. That property is proven at the right layer
-// instead, by security/token_store_test.cpp's "exactly one concurrent
-// TryConsume attempt succeeds".
+/// <summary>Exercises authentication, token lifetime, and connection-slot scenarios.</summary>
 public class AuthScenarioTests
 {
+    /// <summary>Verifies that a rejected token does not consume the real token.</summary>
     [Fact]
     public async Task InvalidTokenIsRejectedAndTheRealTokenStaysAvailable()
     {
@@ -45,6 +37,7 @@ public class AuthScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, secondConnection);
     }
 
+    /// <summary>Verifies that a one-time token cannot authenticate twice.</summary>
     [Fact]
     public async Task ReusedTokenIsRejectedOnASecondConnection()
     {
@@ -76,6 +69,7 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that an expired token is rejected by the bridge.</summary>
     [Fact]
     public async Task TokenIsRejectedAfterItsShortenedTtlElapses()
     {
@@ -105,6 +99,7 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that a structurally invalid token is unauthenticated.</summary>
     [Fact]
     public async Task StructurallyInvalidTokenIsRejectedAsUnauthenticated()
     {
@@ -129,6 +124,7 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that the sixth failed token attempt is rate limited.</summary>
     [Fact]
     public async Task SixthFailedTokenAttemptWithinTheWindowIsRateLimited()
     {
@@ -157,6 +153,7 @@ public class AuthScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that a correct token succeeds after failed attempts.</summary>
     [Fact]
     public async Task CorrectTokenStillSucceedsImmediatelyAfterFiveFailedAttempts()
     {
@@ -182,6 +179,7 @@ public class AuthScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, sixth);
     }
 
+    /// <summary>Verifies that the single connection slot rejects a second client.</summary>
     [Fact]
     public async Task SecondClientCannotConnectWhileFirstHoldsTheOneConnectionSlot()
     {
@@ -207,6 +205,7 @@ public class AuthScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, first);
     }
 
+    /// <summary>Verifies that concurrent connection attempts allow exactly one winner.</summary>
     [Fact]
     public async Task ConcurrentConnectionAttemptsRaceForTheOneSlotAndExactlyOneWins()
     {
@@ -232,6 +231,7 @@ public class AuthScenarioTests
         // process, already a documented, safe fallback (HarnessProcess.Dispose).
     }
 
+    /// <summary>Attempts one connection and hello exchange, returning whether it succeeds.</summary>
     private static async Task<bool> TryConnectAndHelloAsync(Uri uri)
     {
         try

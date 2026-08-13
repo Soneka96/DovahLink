@@ -3,14 +3,16 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
+/// <summary>Exercises initial protocol negotiation and session establishment.</summary>
 public class NegotiationScenarioTests
 {
-    // Matches the token used by bridge/harness/dovahlink_bridge_harness_test.cpp
-    // and the other C++ real-socket tests; any 64-hex-character value works,
-    // since the harness accepts whatever it was launched with.
+    /// <summary>A valid one-time token for the negotiation harness.</summary>
     private const string ValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
+
+    /// <summary>The loopback endpoint exposed by the negotiation harness.</summary>
     private static readonly Uri BridgeUri = new("ws://127.0.0.1:58231/");
 
+    /// <summary>Verifies that hello receives an acknowledged session and version.</summary>
     [Fact]
     public async Task HelloReceivesHelloAckWithSessionIdAndSelectedVersion()
     {

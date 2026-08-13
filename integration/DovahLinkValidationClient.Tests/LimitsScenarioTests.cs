@@ -3,20 +3,29 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
+/// <summary>Exercises protocol size, shape, violation, and rate limits.</summary>
 public class LimitsScenarioTests
 {
-    // Every limit value here matches bridge/security/limits.hpp exactly
-    // (ai/context/protocol/security.md is the source of truth); a
-    // maintainer-approved change there must be mirrored here too.
+    /// <summary>The maximum inbound WebSocket frame size.</summary>
     private const int MaxInboundFrameBytes = 1024 * 1024;
+
+    /// <summary>The maximum permitted JSON nesting depth.</summary>
     private const int MaxJsonNestingDepth = 32;
+
+    /// <summary>The maximum permitted string length in bytes.</summary>
     private const int MaxStringLengthBytes = 4 * 1024;
+
+    /// <summary>The maximum permitted array item count.</summary>
     private const int MaxArrayItems = 128;
+
+    /// <summary>The maximum permitted object member count.</summary>
     private const int MaxObjectMembers = 64;
 
+    /// <summary>Wraps raw JSON payload text in a protocol envelope.</summary>
     private static string EnvelopeWithRawPayload(string sessionId, string rawPayloadJson, string messageId = "message-limit-1") =>
         $$"""{"protocolVersion": 1, "messageType": "ping", "messageId": "{{messageId}}", "sessionId": "{{sessionId}}", "correlationId": null, "payload": {{rawPayloadJson}}}""";
 
+    /// <summary>Verifies that invalid JSON is rejected as a malformed message.</summary>
     [Fact]
     public async Task TextThatIsNotValidJsonIsRejectedAsMalformedMessage()
     {
@@ -36,6 +45,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an oversized frame closes the connection without a response.</summary>
     [Fact]
     public async Task FrameLargerThanTheLimitClosesTheConnectionWithNoResponse()
     {
@@ -61,6 +71,7 @@ public class LimitsScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that excessive JSON nesting is rejected.</summary>
     [Fact]
     public async Task NestingDeeperThanTheLimitIsRejectedAsMalformedMessage()
     {
@@ -84,6 +95,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an oversized string value is rejected.</summary>
     [Fact]
     public async Task StringLongerThanTheLimitIsRejectedAsMalformedMessage()
     {
@@ -103,6 +115,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an oversized object key is rejected.</summary>
     [Fact]
     public async Task ObjectMemberKeyLongerThanTheLimitIsRejectedAsMalformedMessage()
     {
@@ -125,6 +138,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an oversized array is rejected.</summary>
     [Fact]
     public async Task ArrayLongerThanTheLimitIsRejectedAsMalformedMessage()
     {
@@ -144,6 +158,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an object with too many members is rejected.</summary>
     [Fact]
     public async Task ObjectWithTooManyMembersIsRejectedAsMalformedMessage()
     {
@@ -163,6 +178,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that string and array values at their limits are accepted.</summary>
     [Fact]
     public async Task StringAndArrayExactlyAtTheLimitAreAcceptedNormally()
     {
@@ -189,6 +205,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an object at the member-count limit is accepted.</summary>
     [Fact]
     public async Task ObjectWithExactlyTheMaxMemberCountIsAcceptedNormally()
     {
@@ -207,6 +224,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that a disallowed message type is rejected.</summary>
     [Fact]
     public async Task DisallowedMessageTypeIsRejectedAsMalformedMessage()
     {
@@ -228,6 +246,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that valid non-object JSON is rejected as malformed.</summary>
     [Fact]
     public async Task ValidJsonThatIsNotAnEnvelopeObjectIsRejectedAsMalformedMessage()
     {
@@ -249,6 +268,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that different violation types share one violation limit.</summary>
     [Fact]
     public async Task DifferentViolationTypesAccumulateTowardTheSameThreeInThirtySecondLimit()
     {
@@ -283,6 +303,7 @@ public class LimitsScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that a duplicate message identifier is rejected as replayed.</summary>
     [Fact]
     public async Task DuplicateMessageIdIsRejectedAsReplayedMessage()
     {
@@ -312,6 +333,7 @@ public class LimitsScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that the third violation closes the connection after its error.</summary>
     [Fact]
     public async Task ThirdProtocolViolationWithin30SecondsClosesTheConnectionAfterItsOwnErrorResponse()
     {
@@ -359,6 +381,7 @@ public class LimitsScenarioTests
     // TTL override touched (harness main() only) -- a disproportionate
     // change for what the unit test already proves.
 
+    /// <summary>Verifies that the 101st message in one second is rate limited.</summary>
     [Fact]
     public async Task The101stMessageWithinOneSecondIsRateLimited()
     {

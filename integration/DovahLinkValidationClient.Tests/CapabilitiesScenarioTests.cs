@@ -3,8 +3,10 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
+/// <summary>Exercises capability negotiation and validation scenarios.</summary>
 public class CapabilitiesScenarioTests
 {
+    /// <summary>Verifies that the bridge advertises the registered character capability.</summary>
     [Fact]
     public async Task BridgeAdvertisesTheOneRegisteredCharacterCapability()
     {
@@ -23,6 +25,7 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an empty client capability list receives no response.</summary>
     [Fact]
     public async Task EmptyClientCapabilitiesListIsAcceptedWithNoResponse()
     {
@@ -45,6 +48,7 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that a registered client capability receives no response.</summary>
     [Fact]
     public async Task RegisteredCapabilityIdIsAcceptedWithNoResponse()
     {
@@ -68,6 +72,7 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an unknown capability is rejected without closing the connection.</summary>
     [Fact]
     public async Task UnregisteredCapabilityIdIsRejectedWithoutClosingTheConnection()
     {
@@ -96,6 +101,7 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that one unknown entry rejects an otherwise valid capability list.</summary>
     [Fact]
     public async Task OneUnregisteredIdAmongOthersStillRejectsTheWholeMessage()
     {
@@ -120,6 +126,7 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that negotiation fails when no protocol version overlaps.</summary>
     [Fact]
     public async Task HelloWithNoMutuallySupportedVersionIsRejectedAndClosesTheConnection()
     {

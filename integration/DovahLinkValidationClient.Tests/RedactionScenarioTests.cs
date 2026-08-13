@@ -3,22 +3,16 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-// ai/context/protocol/security.md: "Never disclose pairing secrets,
-// authentication material, filesystem paths, or raw infrastructure
-// exceptions in protocol messages." This scans every response text from a
-// representative set of failure paths -- not just the fields a well-formed
-// error is expected to have, but the entire raw payload -- for the
-// forbidden patterns below, plus the harness's own stderr output. The C++
-// side already builds every error message from static, hand-written
-// strings rather than ever echoing exception text (bridge/README.md's and
-// ai/context/skse/cpp-style.md's own conventions), so this is confirming
-// that property holds from an independent, external observer's point of
-// view, not just trusting the source.
+/// <summary>Verifies that protocol and harness diagnostics redact sensitive details.</summary>
 public class RedactionScenarioTests
 {
+    /// <summary>The token that must never appear in observed output.</summary>
     private const string SecretToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
+
+    /// <summary>A second token that must never appear in observed output.</summary>
     private const string WrongToken = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
+    /// <summary>Patterns representing secrets, paths, and raw infrastructure details.</summary>
     private static readonly string[] ForbiddenPatterns =
     [
         SecretToken,
@@ -35,6 +29,7 @@ public class RedactionScenarioTests
         "0x",                  // a raw pointer/address in an exception message
     ];
 
+    /// <summary>Verifies that responses and harness output contain no sensitive details.</summary>
     [Fact]
     public async Task NoResponseOrHarnessOutputEverContainsASecretPathOrRawException()
     {
@@ -88,6 +83,7 @@ public class RedactionScenarioTests
         }
     }
 
+    /// <summary>Serializes an envelope into the text inspected by the redaction test.</summary>
     private static string EnvelopeText(Envelope envelope) =>
         $"{envelope.MessageType}|{envelope.MessageId}|{envelope.SessionId}|{envelope.CorrelationId}|{envelope.Payload.ToJsonString()}";
 }

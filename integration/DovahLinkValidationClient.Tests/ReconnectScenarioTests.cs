@@ -4,25 +4,11 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-// Genuine "disconnect a successful session, then reconnect the same way" is
-// not possible in Phase 1 and so is not tested here: the one-time token is
-// consumed for the bridge process's entire lifetime, not per session
-// (bridge/README.md's "Known limitation: no reconnect after a successful
-// session"). What IS real and tested: a connection attempt that fails
-// before ever consuming the token can still be followed by a successful
-// one (already covered by AuthScenarioTests' InvalidTokenIsRejectedAndTheRealTokenStaysAvailable
-// and ReusedTokenIsRejectedOnASecondConnection), the handshake timeout,
-// stale_session rejection, and that an abrupt disconnect mid-request
-// doesn't wedge or crash the bridge.
-//
-// The 60s idle timeout is deliberately not re-proven live here either, for
-// the same reason the 10,000-message session cap wasn't in
-// LimitsScenarioTests.cs: application/connection_timeout_tracker_test.cpp
-// already proves the exact 60-second boundary with an injected clock, and a
-// real 60+ second wait buys no additional confidence in the same logic for
-// over a minute of suite time.
+/// <summary>Exercises handshake timeout, stale-session, and abrupt-disconnect recovery.</summary>
+/// <remarks>Successful-session reconnect and the full idle timeout remain outside Phase 1.</remarks>
 public class ReconnectScenarioTests
 {
+    /// <summary>Verifies that a client that never sends hello is closed.</summary>
     [Fact]
     public async Task AClientThatNeverSendsHelloIsClosedWithinTheHandshakeTimeout()
     {
@@ -70,6 +56,7 @@ public class ReconnectScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, second);
     }
 
+    /// <summary>Verifies that a foreign session identifier is rejected as stale.</summary>
     [Fact]
     public async Task ForeignSessionIdOnAnAuthenticatedConnectionIsRejectedAsStaleSession()
     {
@@ -100,6 +87,7 @@ public class ReconnectScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>Verifies that an abrupt disconnect leaves the bridge usable.</summary>
     [Fact]
     public async Task AbruptDisconnectMidRequestLeavesTheBridgeHealthyForTheNextConnectionAttempt()
     {
