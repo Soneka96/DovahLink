@@ -21,6 +21,11 @@ public:
     /// @return New revision assigned to the snapshot.
     std::int64_t StartSnapshot(const std::string& stateArea);
 
+    /// Calculates the next snapshot revision without changing tracker state.
+    /// @param stateArea Canonical state-area identifier.
+    /// @return Revision that the next committed snapshot will receive.
+    [[nodiscard]] std::int64_t NextSnapshotRevision(const std::string& stateArea) const;
+
     /// Advances a state area for its next event.
     /// @param stateArea Canonical state-area identifier.
     /// @return Base and new revision, or no value before a baseline exists.

@@ -21,6 +21,14 @@ TEST_CASE("StartSnapshot establishes revision 1 for a fresh area", "[application
     CHECK(tracker.StartSnapshot(kCharacter) == 1);
 }
 
+TEST_CASE("NextSnapshotRevision reports revision 1 without establishing a baseline",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+
+    CHECK(tracker.NextSnapshotRevision(kCharacter) == 1);
+    CHECK_FALSE(tracker.CurrentRevision(kCharacter).has_value());
+}
+
 TEST_CASE("CurrentRevision reflects the revision after StartSnapshot", "[application][revision_tracker]") {
     RevisionTracker tracker;
     tracker.StartSnapshot(kCharacter);
@@ -73,6 +81,17 @@ TEST_CASE("a recovery snapshot continues the sequence rather than restarting it"
     // Queue loss triggers a recovery snapshot; it must not restart at 1.
     std::int64_t recoveryRevision = tracker.StartSnapshot(kCharacter);
     CHECK(recoveryRevision == 4);
+}
+
+TEST_CASE("NextSnapshotRevision previews a recovery revision without advancing the sequence",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kCharacter);
+    tracker.NextEvent(kCharacter);
+    tracker.NextEvent(kCharacter);
+
+    CHECK(tracker.NextSnapshotRevision(kCharacter) == 4);
+    CHECK(tracker.CurrentRevision(kCharacter) == 3);
 }
 
 TEST_CASE("NextEvent correctly continues from a recovery snapshot's new baseline",

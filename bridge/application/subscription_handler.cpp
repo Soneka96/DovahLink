@@ -5,6 +5,8 @@
 #include "protocol/messages.hpp"
 
 #include <algorithm>
+#include <cassert>
+#include <type_traits>
 #include <utility>
 
 namespace dovahlink::application {
@@ -14,20 +16,41 @@ namespace {
 constexpr std::string_view kCharacterCapabilityId = "state.character";
 constexpr std::int64_t kCharacterCapabilityVersion = 1;
 
-/// Builds a character snapshot at a fresh revision and request correlation.
+static_assert(std::is_nothrow_move_constructible_v<protocol::Envelope>);
+static_assert(std::is_nothrow_move_constructible_v<SubscribeResult>);
+
+/// Prepares a character snapshot at the next revision without committing it.
 /// @param correlationId Message ID that caused the snapshot, when applicable.
-std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
+/// @param snapshotBuilder Builds the fallible envelope before revision commit.
+std::optional<protocol::Envelope> PrepareCharacterSnapshot(
     const std::string& sessionId, std::optional<std::string> correlationId,
-    const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
-    std::chrono::system_clock::time_point now) {
-    std::int64_t revision = revisions.StartSnapshot(std::string(protocol::state_area::kCharacter));
-    protocol::StateSnapshotPayload payload = BuildCharacterSnapshotPayload(
-        stateProvider.CurrentCharacterSnapshot(), revision, FormatTimestamp(now));
-    return protocol::BuildEnvelope(kSupportedProtocolVersion, std::string(protocol::message_type::kStateSnapshot),
-                                    sessionId, std::move(correlationId),
-                                    protocol::EncodeStateSnapshotPayload(payload));
+    const CharacterStateProvider& stateProvider, const RevisionTracker& revisions,
+    const std::string& stateArea, std::int64_t& revision,
+    std::chrono::system_clock::time_point now, SnapshotEnvelopeBuilder& snapshotBuilder) {
+    CharacterSnapshot snapshot = stateProvider.CurrentCharacterSnapshot();
+    revision = revisions.NextSnapshotRevision(stateArea);
+    return snapshotBuilder(sessionId, std::move(correlationId), snapshot, revision, now);
 }
 
+/// Commits the previously prepared character snapshot revision.
+void CommitCharacterSnapshot(RevisionTracker& revisions, const std::string& stateArea,
+                             std::int64_t revision) {
+    std::int64_t committedRevision = revisions.StartSnapshot(stateArea);
+    assert(committedRevision == revision);
+    (void)committedRevision;
+}
+
+}
+
+std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
+    const std::string& sessionId, std::optional<std::string> correlationId,
+    const CharacterSnapshot& snapshot, std::int64_t revision,
+    std::chrono::system_clock::time_point now) {
+    protocol::StateSnapshotPayload payload =
+        BuildCharacterSnapshotPayload(snapshot, revision, FormatTimestamp(now));
+    return protocol::BuildEnvelope(kSupportedProtocolVersion, std::string(protocol::message_type::kStateSnapshot),
+                                   sessionId, std::move(correlationId),
+                                   protocol::EncodeStateSnapshotPayload(payload));
 }
 
 std::optional<protocol::Envelope> BuildBridgeCapabilities(const std::string& sessionId) {
@@ -64,7 +87,8 @@ std::optional<protocol::Envelope> HandleClientCapabilities(const protocol::Envel
 
 SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, const std::string& sessionId,
                                  const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
-                                 std::chrono::system_clock::time_point now) {
+                                 std::chrono::system_clock::time_point now,
+                                 SnapshotEnvelopeBuilder& snapshotBuilder) {
     auto subscribe = protocol::DecodeSubscribePayload(subscribeEnvelope.payload);
     if (!subscribe.has_value()) {
         return SubscribeResult{
@@ -96,20 +120,7 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
     // be empty or contain "character" -- a loop building "one snapshot per
     // accepted area" would have nothing to iterate over beyond this single
     // case.
-    std::vector<protocol::Envelope> snapshots;
-    if (!accepted.empty()) {
-        auto snapshot =
-            BuildCharacterSnapshotEnvelope(sessionId, subscribeEnvelope.messageId, stateProvider, revisions, now);
-        if (!snapshot.has_value()) {
-            return SubscribeResult{
-                .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, kSupportedProtocolVersion,
-                                                                  sessionId, "internal_error",
-                                                                  "Unable to build state snapshot", false),
-            };
-        }
-        snapshots.push_back(std::move(*snapshot));
-    }
-
+    const std::string stateArea(protocol::state_area::kCharacter);
     auto ackEnvelope = protocol::BuildEnvelope(
         kSupportedProtocolVersion, std::string(protocol::message_type::kSubscriptionAck), sessionId,
         subscribeEnvelope.messageId,
@@ -125,13 +136,30 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
         };
     }
 
+    std::vector<protocol::Envelope> snapshots;
+    if (!accepted.empty()) {
+        std::int64_t revision = 0;
+        auto snapshot = PrepareCharacterSnapshot(sessionId, subscribeEnvelope.messageId, stateProvider, revisions,
+                                                 stateArea, revision, now, snapshotBuilder);
+        if (!snapshot.has_value()) {
+            return SubscribeResult{
+                .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, kSupportedProtocolVersion,
+                                                                  sessionId, "internal_error",
+                                                                  "Unable to build state snapshot", false),
+            };
+        }
+        snapshots.push_back(std::move(*snapshot));
+        CommitCharacterSnapshot(revisions, stateArea, revision);
+    }
+
     return SubscribeResult{.subscriptionAck = std::move(*ackEnvelope), .snapshots = std::move(snapshots)};
 }
 
 protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotRequestEnvelope,
                                           const std::string& sessionId,
                                           const CharacterStateProvider& stateProvider,
-                                          RevisionTracker& revisions, std::chrono::system_clock::time_point now) {
+                                          RevisionTracker& revisions, std::chrono::system_clock::time_point now,
+                                          SnapshotEnvelopeBuilder& snapshotBuilder) {
     auto request = protocol::DecodeSnapshotRequestPayload(snapshotRequestEnvelope.payload);
     if (!request.has_value()) {
         return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, kSupportedProtocolVersion, sessionId,
@@ -143,12 +171,14 @@ protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotReque
                                              "Unknown state area: " + request->stateArea, false);
     }
 
-    auto snapshot = BuildCharacterSnapshotEnvelope(sessionId, snapshotRequestEnvelope.messageId, stateProvider,
-                                                    revisions, now);
+    std::int64_t revision = 0;
+    auto snapshot = PrepareCharacterSnapshot(sessionId, snapshotRequestEnvelope.messageId, stateProvider, revisions,
+                                             request->stateArea, revision, now, snapshotBuilder);
     if (!snapshot.has_value()) {
         return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                              "internal_error", "Unable to build state snapshot", false);
     }
+    CommitCharacterSnapshot(revisions, request->stateArea, revision);
     return std::move(*snapshot);
 }
 

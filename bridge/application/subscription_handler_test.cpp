@@ -9,6 +9,8 @@
 #include <boost/json/parse.hpp>
 
 #include <chrono>
+#include <cstdint>
+#include <new>
 #include <optional>
 #include <string>
 
@@ -39,6 +41,13 @@ private:
     CharacterSnapshot snapshot_;
 };
 
+/// Simulates an exception while capturing application-owned character state.
+class ThrowingCharacterStateProvider : public CharacterStateProvider {
+public:
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
+    [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { throw std::bad_alloc{}; }
+};
+
 /// Builds a session-bound envelope from a JSON object payload.
 Envelope BuildEnvelopeWithPayload(std::string messageType, const std::string& jsonPayload,
                                    std::string messageId = "message-1") {
@@ -50,6 +59,20 @@ Envelope BuildEnvelopeWithPayload(std::string messageType, const std::string& js
         .correlationId = std::nullopt,
         .payload = boost::json::parse(jsonPayload).get_object(),
     };
+}
+
+/// Simulates secure message-ID generation failing during snapshot envelope construction.
+std::optional<Envelope> FailSnapshotIdGeneration(const std::string&, std::optional<std::string>,
+                                                 const CharacterSnapshot&, std::int64_t,
+                                                 std::chrono::system_clock::time_point) {
+    return std::nullopt;
+}
+
+/// Simulates allocation failing while the snapshot payload or envelope is serialized.
+std::optional<Envelope> ThrowDuringSnapshotSerialization(const std::string&, std::optional<std::string>,
+                                                         const CharacterSnapshot&, std::int64_t,
+                                                         std::chrono::system_clock::time_point) {
+    throw std::bad_alloc{};
 }
 
 }  // namespace
@@ -137,12 +160,49 @@ TEST_CASE("HandleSubscribe accepts character and returns its snapshot", "[applic
     REQUIRE(snapshot.has_value());
     CHECK(snapshot->stateArea == "character");
     CHECK(snapshot->revision == 1);
+    CHECK(revisions.CurrentRevision("character") == 1);
 
     auto characterState = dovahlink::protocol::DecodeCharacterState(snapshot->data);
     REQUIRE(characterState.has_value());
     REQUIRE(characterState->level.has_value());
     CHECK(*characterState->level == 12);
     CHECK_FALSE(characterState->health.has_value());
+}
+
+TEST_CASE("HandleSubscribe does not commit a revision when snapshot message-ID generation fails",
+          "[application][subscription_handler]") {
+    FakeCharacterStateProvider provider(CharacterSnapshot{.level = 12});
+    RevisionTracker revisions;
+    auto now = std::chrono::system_clock::now();
+    auto envelope = BuildEnvelopeWithPayload("subscribe", R"({"stateAreas": ["character"]})");
+
+    auto failed = HandleSubscribe(envelope, kSessionId, provider, revisions, now, FailSnapshotIdGeneration);
+
+    auto error = dovahlink::protocol::DecodeErrorPayload(failed.subscriptionAck.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "internal_error");
+    CHECK(failed.snapshots.empty());
+    CHECK_FALSE(revisions.CurrentRevision("character").has_value());
+
+    auto retry = HandleSubscribe(envelope, kSessionId, provider, revisions, now);
+    REQUIRE(retry.snapshots.size() == 1);
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(retry.snapshots[0].payload);
+    REQUIRE(snapshot.has_value());
+    CHECK(snapshot->revision == 1);
+    CHECK(revisions.CurrentRevision("character") == 1);
+}
+
+TEST_CASE("HandleSubscribe does not commit a revision when snapshot serialization throws",
+          "[application][subscription_handler]") {
+    FakeCharacterStateProvider provider(CharacterSnapshot{.level = 12});
+    RevisionTracker revisions;
+    auto now = std::chrono::system_clock::now();
+    auto envelope = BuildEnvelopeWithPayload("subscribe", R"({"stateAreas": ["character"]})");
+
+    CHECK_THROWS_AS(
+        HandleSubscribe(envelope, kSessionId, provider, revisions, now, ThrowDuringSnapshotSerialization),
+        std::bad_alloc);
+    CHECK_FALSE(revisions.CurrentRevision("character").has_value());
 }
 
 TEST_CASE("HandleSubscribe reports an unregistered state area as rejected, not an error",
@@ -232,6 +292,76 @@ TEST_CASE("HandleSnapshotRequest returns a fresh snapshot continuing the revisio
     // Revision continues the sequence from the earlier subscribe snapshot
     // (which was 1), rather than restarting at 1 again.
     CHECK(snapshot->revision == 2);
+    CHECK(revisions.CurrentRevision("character") == 2);
+}
+
+TEST_CASE("HandleSnapshotRequest does not commit a revision when snapshot serialization throws",
+          "[application][subscription_handler]") {
+    FakeCharacterStateProvider provider(CharacterSnapshot{.level = 20});
+    RevisionTracker revisions;
+    auto now = std::chrono::system_clock::now();
+    auto request = BuildEnvelopeWithPayload("snapshot_request", R"({"stateArea": "character"})",
+                                            "message-snapshot-request-1");
+
+    auto first = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
+    auto firstSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(first.payload);
+    REQUIRE(firstSnapshot.has_value());
+    CHECK(firstSnapshot->revision == 1);
+
+    CHECK_THROWS_AS(
+        HandleSnapshotRequest(request, kSessionId, provider, revisions, now, ThrowDuringSnapshotSerialization),
+        std::bad_alloc);
+    CHECK(revisions.CurrentRevision("character") == 1);
+
+    auto recovery = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
+    auto recoverySnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(recovery.payload);
+    REQUIRE(recoverySnapshot.has_value());
+    CHECK(recoverySnapshot->revision == 2);
+    CHECK(revisions.CurrentRevision("character") == 2);
+}
+
+TEST_CASE("HandleSnapshotRequest does not commit a recovery revision when message-ID generation fails",
+          "[application][subscription_handler]") {
+    FakeCharacterStateProvider provider(CharacterSnapshot{.level = 20});
+    RevisionTracker revisions;
+    auto now = std::chrono::system_clock::now();
+    auto request = BuildEnvelopeWithPayload("snapshot_request", R"({"stateArea": "character"})",
+                                            "message-snapshot-request-1");
+
+    auto first = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
+    auto firstSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(first.payload);
+    REQUIRE(firstSnapshot.has_value());
+    CHECK(firstSnapshot->revision == 1);
+
+    auto failed = HandleSnapshotRequest(request, kSessionId, provider, revisions, now,
+                                        FailSnapshotIdGeneration);
+    auto error = dovahlink::protocol::DecodeErrorPayload(failed.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "internal_error");
+    CHECK(revisions.CurrentRevision("character") == 1);
+
+    auto recovery = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
+    auto recoverySnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(recovery.payload);
+    REQUIRE(recoverySnapshot.has_value());
+    CHECK(recoverySnapshot->revision == 2);
+    CHECK(revisions.CurrentRevision("character") == 2);
+}
+
+TEST_CASE("state-capture exceptions leave fresh and existing snapshot revisions unchanged",
+          "[application][subscription_handler]") {
+    ThrowingCharacterStateProvider provider;
+    auto now = std::chrono::system_clock::now();
+    auto subscribe = BuildEnvelopeWithPayload("subscribe", R"({"stateAreas": ["character"]})");
+    auto request = BuildEnvelopeWithPayload("snapshot_request", R"({"stateArea": "character"})");
+
+    RevisionTracker freshRevisions;
+    CHECK_THROWS_AS(HandleSubscribe(subscribe, kSessionId, provider, freshRevisions, now), std::bad_alloc);
+    CHECK_FALSE(freshRevisions.CurrentRevision("character").has_value());
+
+    RevisionTracker existingRevisions;
+    REQUIRE(existingRevisions.StartSnapshot("character") == 1);
+    CHECK_THROWS_AS(HandleSnapshotRequest(request, kSessionId, provider, existingRevisions, now), std::bad_alloc);
+    CHECK(existingRevisions.CurrentRevision("character") == 1);
 }
 
 TEST_CASE("HandleSnapshotRequest rejects an unregistered state area", "[application][subscription_handler]") {

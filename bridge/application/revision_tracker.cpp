@@ -3,10 +3,14 @@
 namespace dovahlink::application {
 
 std::int64_t RevisionTracker::StartSnapshot(const std::string& stateArea) {
-    auto it = currentRevision_.find(stateArea);
-    std::int64_t next = (it == currentRevision_.end()) ? 1 : it->second + 1;
+    std::int64_t next = NextSnapshotRevision(stateArea);
     currentRevision_[stateArea] = next;
     return next;
+}
+
+std::int64_t RevisionTracker::NextSnapshotRevision(const std::string& stateArea) const {
+    auto it = currentRevision_.find(stateArea);
+    return (it == currentRevision_.end()) ? 1 : it->second + 1;
 }
 
 std::optional<std::pair<std::int64_t, std::int64_t>> RevisionTracker::NextEvent(
