@@ -10,12 +10,15 @@
 #include "transport/listener.hpp"
 
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 namespace dovahlink::application {
 
 /// Owns one accept worker per loopback listener and enforces one active client.
-/// `Stop()` closes listeners before `Join()` so blocked accepts can finish.
+/// `Stop()` closes listeners and shuts down the active session socket before
+/// `Join()` so blocked accepts, handshakes, and reads can finish.
 class BridgeWorkerPool : public WorkerPool {
 public:
     /// Creates workers for the two loopback listeners.
@@ -81,6 +84,12 @@ private:
 
     /// Next transport connection identifier.
     std::atomic<ConnectionId> nextConnectionId_{1};
+
+    /// Serializes active-socket publication with shutdown lookup.
+    std::mutex activeSocketMutex_;
+
+    /// Non-owning handle to the active session socket, when one exists.
+    std::weak_ptr<transport::WebSocketSession::Socket> activeSocket_;
 
     /// IPv4 accept worker.
     std::thread threadV4_;

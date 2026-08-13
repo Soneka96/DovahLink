@@ -1,10 +1,13 @@
 #pragma once
 
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/websocket/stream.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <expected>
+#include <memory>
 #include <string>
 
 namespace dovahlink::transport {
@@ -29,8 +32,42 @@ enum class SessionError {
 /// are accepted, and handshake/idle receive timeouts are enforced.
 class WebSocketSession {
 public:
+    /// Owns the TCP socket shared between the worker and shutdown path.
+    class Socket : public std::enable_shared_from_this<Socket> {
+    public:
+        /// Posts cancellation to the socket's event loop without touching Beast
+        /// from the caller.
+        void Shutdown() noexcept;
+
+    private:
+        friend class WebSocketSession;
+
+        /// Takes ownership of one accepted TCP socket.
+        explicit Socket(boost::asio::ip::tcp::socket socket);
+
+        /// Event loop that owns every WebSocket operation and cancellation handler.
+        boost::asio::io_context& ioContext_;
+
+        /// Worker-owned WebSocket stream and its accepted TCP socket.
+        boost::beast::websocket::stream<boost::asio::ip::tcp::socket> stream_;
+
+        /// Whether executor-owned cancellation has been requested.
+        std::atomic<bool> shutdownRequested_{false};
+    };
+
+    /// Shared lifetime handle used to interrupt an active session safely.
+    using SocketHandle = std::shared_ptr<Socket>;
+
     /// Takes ownership of the accepted TCP socket.
     explicit WebSocketSession(boost::asio::ip::tcp::socket socket);
+
+    /// Uses a shared socket whose shutdown handle may be retained by the worker
+    /// pool.
+    /// @param socket Non-null socket handle that outlives the WebSocket stream.
+    explicit WebSocketSession(SocketHandle socket);
+
+    /// Creates a shared shutdown-capable handle for an accepted TCP socket.
+    [[nodiscard]] static SocketHandle CreateSocket(boost::asio::ip::tcp::socket socket);
 
     /// Performs a compression-disabled, size-bounded WebSocket handshake.
     /// Starts the handshake timeout; callers must switch to the idle timeout
@@ -50,11 +87,17 @@ public:
     void Close();
 
 private:
-    /// Applies Beast options and the OS receive timeout for a blocking operation.
+    /// Returns the referenced socket state or rejects an invalid shared handle.
+    static Socket& RequireSocket(const SocketHandle& socket);
+
+    /// Reports whether cancellation has disabled further session operations.
+    [[nodiscard]] bool IsShutdownRequested() const noexcept;
+
+    /// Applies Beast's timeout policy for the next asynchronous stream operation.
     void SetReadTimeout(std::chrono::steady_clock::duration timeout);
 
-    /// Owned WebSocket stream and its underlying TCP socket.
-    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> ws_;
+    /// Shared owner of the worker-confined WebSocket state.
+    SocketHandle socket_;
 };
 
 }  // namespace dovahlink::transport

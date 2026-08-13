@@ -47,19 +47,27 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
 
         ConnectionId connection = nextConnectionId_.fetch_add(1, std::memory_order_relaxed);
         (void)workerRunner([this, connection, socket = std::move(socket)]() mutable {
-            transport::WebSocketSession session(std::move(socket));
+            auto socketHandle = transport::WebSocketSession::CreateSocket(std::move(socket));
+            {
+                std::lock_guard<std::mutex> lock(activeSocketMutex_);
+                activeSocket_ = socketHandle;
+            }
+            if (stopping_.load(std::memory_order_acquire)) {
+                socketHandle->Shutdown();
+                return;
+            }
+
+            transport::WebSocketSession session(std::move(socketHandle));
             RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_);
         });
     }
 }
 
 void BridgeWorkerPool::Start(ContainedWorkRunner workerRunner) {
-    threadV4_ = std::thread([this, workerRunner] {
-        (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV4_, workerRunner); });
-    });
-    threadV6_ = std::thread([this, workerRunner] {
-        (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV6_, workerRunner); });
-    });
+    threadV4_ = std::thread(
+        [this, workerRunner] { (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV4_, workerRunner); }); });
+    threadV6_ = std::thread(
+        [this, workerRunner] { (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV6_, workerRunner); }); });
 }
 
 void BridgeWorkerPool::Stop() {
@@ -67,6 +75,15 @@ void BridgeWorkerPool::Stop() {
     boost::system::error_code ec;
     listenerV4_.Acceptor().close(ec);
     listenerV6_.Acceptor().close(ec);
+
+    transport::WebSocketSession::SocketHandle activeSocket;
+    {
+        std::lock_guard<std::mutex> lock(activeSocketMutex_);
+        activeSocket = activeSocket_.lock();
+    }
+    if (activeSocket) {
+        activeSocket->Shutdown();
+    }
 }
 
 void BridgeWorkerPool::Join() {

@@ -8,6 +8,7 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/websocket/error.hpp>
@@ -16,6 +17,8 @@
 
 #include <chrono>
 #include <expected>
+#include <future>
+#include <semaphore>
 #include <string>
 #include <thread>
 #include <utility>
@@ -28,8 +31,7 @@ using dovahlink::transport::WebSocketSession;
 // Server-thread results are captured and asserted only after the thread joins,
 // keeping Catch2 assertions on the main test thread.
 
-TEST_CASE("Accept completes a real WebSocket handshake over loopback",
-          "[transport][websocket_session]") {
+TEST_CASE("Accept completes a real WebSocket handshake over loopback", "[transport][websocket_session]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -61,6 +63,51 @@ TEST_CASE("Accept completes a real WebSocket handshake over loopback",
     REQUIRE_FALSE(serverAcceptEc);
     REQUIRE(serverHandshakeResult.has_value());
     CHECK_FALSE(handshakeEc);
+}
+
+TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    boost::asio::io_context serverIoc;
+    auto listener = LoopbackListener::Create(serverIoc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    std::promise<WebSocketSession::SocketHandle> socketPublished;
+    auto socketHandle = socketPublished.get_future();
+    std::binary_semaphore acceptPending{0};
+    auto server = std::async(std::launch::async, [&]() -> std::expected<void, SessionError> {
+        boost::system::error_code acceptEc;
+        auto acceptedSocket = listener->Acceptor().accept(acceptEc);
+        if (acceptEc) {
+            return std::unexpected(SessionError::kHandshakeFailed);
+        }
+
+        auto sharedSocket = WebSocketSession::CreateSocket(std::move(acceptedSocket));
+        WebSocketSession session(sharedSocket);
+        socketPublished.set_value(sharedSocket);
+
+        // RunOperation starts async_accept before driving serverIoc. This
+        // marker therefore cannot run until the handshake operation is pending.
+        boost::asio::post(serverIoc, [&acceptPending] { acceptPending.release(); });
+        return session.Accept();
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto activeSocket = socketHandle.get();
+    acceptPending.acquire();
+    activeSocket->Shutdown();
+
+    REQUIRE(server.wait_for(2s) == std::future_status::ready);
+    auto handshake = server.get();
+    REQUIRE_FALSE(handshake.has_value());
+    CHECK(handshake.error() == SessionError::kHandshakeFailed);
 }
 
 TEST_CASE("a text message from the client is read on the server", "[transport][websocket_session]") {
@@ -155,7 +202,8 @@ TEST_CASE("a text message from the server is read on the client", "[transport][w
     CHECK(boost::beast::buffers_to_string(buffer.data()) == "hello from server");
 }
 
-TEST_CASE("ReadMessage fails when the client closes the connection abruptly without a close frame",
+TEST_CASE("ReadMessage fails when the client closes the connection abruptly "
+          "without a close frame",
           "[transport][websocket_session]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
@@ -203,8 +251,7 @@ TEST_CASE("ReadMessage fails when the client closes the connection abruptly with
     CHECK(serverReadResult.error() == SessionError::kReadFailed);
 }
 
-TEST_CASE("Close causes the peer's next read to observe the connection closing",
-          "[transport][websocket_session]") {
+TEST_CASE("Close causes the peer's next read to observe the connection closing", "[transport][websocket_session]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -250,8 +297,7 @@ TEST_CASE("Close causes the peer's next read to observe the connection closing",
     CHECK(readEc == boost::beast::websocket::error::closed);
 }
 
-TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
-          "[transport][websocket_session]") {
+TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read", "[transport][websocket_session]") {
     // This test proves that reapplying the timeout option mid-session is
     // message-preserving; the long idle duration is not waited out here.
     boost::asio::io_context ioc;
@@ -300,18 +346,16 @@ TEST_CASE("SwitchToIdleTimeout does not disrupt a subsequent read",
     CHECK(*serverReadResult == "after switch");
 }
 
-TEST_CASE("ReadMessage fails within the handshake timeout when the client sends nothing",
+TEST_CASE("ReadMessage fails within the handshake timeout when the client "
+          "sends nothing",
           "[transport][websocket_session]") {
-    // Proves the production timeout boundary: SetReadTimeout's OS-level
-    // SO_RCVTIMEO genuinely bounds a stalled read. Before that fix, this
-    // exact scenario (a WebSocket-handshaked peer that never sends an
-    // application message) had no enforced bound at all in this class's
-    // synchronous API -- Boost.Beast's own stream_base::timeout option is
-    // only armed by its asynchronous operations, confirmed against the
-    // vendored source and by directly reproducing an unbounded stall
+    // Proves the production timeout boundary: SetReadTimeout's Beast policy
+    // genuinely bounds a stalled asynchronous read. This exact scenario (a
+    // WebSocket-handshaked peer that never sends an application message)
+    // previously had no enforced bound in this class's synchronous API.
     // security::kHandshakeTimeout is 5 seconds; this asserts
     // comfortably under that with margin, not an exact bound, since exact
-    // OS-level timer precision is not this test's concern.
+    // timer precision is not this test's concern.
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -357,10 +401,11 @@ TEST_CASE("ReadMessage fails within the handshake timeout when the client sends 
     CHECK(serverReadDuration < std::chrono::seconds(20));
 }
 
-TEST_CASE("a client that sends an oversized frame and never closes still gets a bounded failure",
+TEST_CASE("a client that sends an oversized frame and never closes still gets "
+          "a bounded failure",
           "[transport][websocket_session]") {
     // This covers a peer that never cooperates after sending an oversized
-    // frame. Before the SO_RCVTIMEO fix, Beast's internal
+    // frame. Before WebSocketSession drove Beast's asynchronous API, its
     // do_fail()/teardown() sequence (triggered once it detects the
     // oversized frame) would wait unboundedly for this peer to close back,
     // observed to take roughly two minutes before falling back to a
@@ -415,8 +460,7 @@ TEST_CASE("a client that sends an oversized frame and never closes still gets a 
     CHECK(serverReadDuration < std::chrono::seconds(20));
 }
 
-TEST_CASE("a binary frame from the client is rejected, not returned as a message",
-          "[transport][websocket_session]") {
+TEST_CASE("a binary frame from the client is rejected, not returned as a message", "[transport][websocket_session]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());

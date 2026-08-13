@@ -16,7 +16,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <string>
+#include <thread>
 
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::CharacterSnapshot;
@@ -34,7 +36,17 @@ namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
-/// Provides the same catch-all semantics as the coordinator for isolated pool tests.
+/// Builds the valid client hello used by real worker-pool sessions.
+std::string ValidHello() {
+    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
+           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
+           R"("supportedProtocolVersions": [1], "auth": {"method": "one_time_local_token", )"
+           R"("token": ")" +
+           std::string(kValidHexToken) + R"("}}})";
+}
+
+/// Provides the same catch-all semantics as the coordinator for isolated pool
+/// tests.
 ContainedWorkRunner MakeContainedWorkRunner() {
     return [](ContainedWork work) noexcept {
         try {
@@ -53,7 +65,8 @@ public:
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return CharacterSnapshot{.level = 1}; }
 };
 
-/// Owns the real transport and application dependencies shared by worker-pool tests.
+/// Owns the real transport and application dependencies shared by worker-pool
+/// tests.
 struct Fixture {
     /// I/O context supplied to both loopback listeners.
     boost::asio::io_context ioc;
@@ -77,8 +90,7 @@ struct Fixture {
 
 }  // namespace
 
-TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
-          "[application][bridge_worker_pool]") {
+TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection", "[application][bridge_worker_pool]") {
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
@@ -93,11 +105,7 @@ TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    std::string hello = R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
-                        R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-                        R"("supportedProtocolVersions": [1], "auth": {"method": "one_time_local_token", )"
-                        R"("token": ")" +
-                        std::string(kValidHexToken) + R"("}}})";
+    std::string hello = ValidHello();
     clientWs.text(true);
     boost::system::error_code writeEc;
     clientWs.write(boost::asio::buffer(hello), writeEc);
@@ -121,7 +129,8 @@ TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
     CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
-TEST_CASE("BridgeWorkerPool closes a new connection before any handshake when the slot is already occupied",
+TEST_CASE("BridgeWorkerPool closes a new connection before any handshake when "
+          "the slot is already occupied",
           "[application][bridge_worker_pool]") {
     Fixture fixture;
     auto occupiedLease = fixture.slot.TryAcquire();  // simulate an already-active connection.
@@ -145,7 +154,8 @@ TEST_CASE("BridgeWorkerPool closes a new connection before any handshake when th
     CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
-TEST_CASE("BridgeWorkerPool releases the slot and accepts again after contained connection work fails",
+TEST_CASE("BridgeWorkerPool releases the slot and accepts again after "
+          "contained connection work fails",
           "[application][bridge_worker_pool]") {
     Fixture fixture;
     std::atomic<int> containedConnectionFailures{0};
@@ -187,7 +197,8 @@ TEST_CASE("BridgeWorkerPool releases the slot and accepts again after contained 
     CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
-TEST_CASE("BridgeWorkerPool Stop and Join terminate promptly with no active connections",
+TEST_CASE("BridgeWorkerPool Stop and Join terminate promptly with no active "
+          "connections",
           "[application][bridge_worker_pool]") {
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
@@ -198,4 +209,86 @@ TEST_CASE("BridgeWorkerPool Stop and Join terminate promptly with no active conn
     auto elapsed = std::chrono::steady_clock::now() - start;
 
     CHECK(elapsed < std::chrono::seconds(5));
+}
+
+TEST_CASE("BridgeWorkerPool Stop interrupts a connection blocked on the "
+          "WebSocket handshake",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto acceptedDeadline = std::chrono::steady_clock::now() + 2s;
+    while (!fixture.slot.IsOccupied() &&
+           std::chrono::steady_clock::now() < acceptedDeadline) {
+        std::this_thread::yield();
+    }
+    REQUIRE(fixture.slot.IsOccupied());
+
+    auto shutdown = std::async(std::launch::async, [&fixture] {
+        fixture.pool.Stop();
+        fixture.pool.Join();
+    });
+
+    REQUIRE(shutdown.wait_for(2s) == std::future_status::ready);
+    shutdown.get();
+    CHECK_FALSE(fixture.slot.IsOccupied());
+}
+
+TEST_CASE("BridgeWorkerPool Stop interrupts an authenticated session blocked "
+          "on an idle read",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer helloBuffer;
+    boost::system::error_code helloReadEc;
+    clientWs.read(helloBuffer, helloReadEc);
+    REQUIRE_FALSE(helloReadEc);
+    auto parsedHello = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(helloBuffer.data()));
+    REQUIRE(parsedHello.has_value());
+    auto helloAck = dovahlink::protocol::DecodeEnvelope(*parsedHello);
+    REQUIRE(helloAck.has_value());
+    REQUIRE(helloAck->sessionId.has_value());
+    std::string sessionId = *helloAck->sessionId;
+
+    boost::beast::flat_buffer capabilitiesBuffer;
+    boost::system::error_code capabilitiesReadEc;
+    clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+    REQUIRE_FALSE(capabilitiesReadEc);
+
+    auto shutdown = std::async(std::launch::async, [&fixture] {
+        fixture.pool.Stop();
+        fixture.pool.Join();
+    });
+
+    REQUIRE(shutdown.wait_for(2s) == std::future_status::ready);
+    shutdown.get();
+    CHECK_FALSE(fixture.slot.IsOccupied());
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 }

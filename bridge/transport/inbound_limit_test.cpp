@@ -77,8 +77,7 @@ TEST_CASE("a message within the frame size limit is read normally", "[transport]
     CHECK(serverReadResult->size() == withinLimit.size());
 }
 
-TEST_CASE("a message exactly at the frame size limit is accepted, not rejected",
-          "[transport][inbound_limit]") {
+TEST_CASE("a message exactly at the frame size limit is accepted, not rejected", "[transport][inbound_limit]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -125,8 +124,7 @@ TEST_CASE("a message exactly at the frame size limit is accepted, not rejected",
     CHECK(serverReadResult->size() == atLimit.size());
 }
 
-TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarge",
-          "[transport][inbound_limit]") {
+TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarge", "[transport][inbound_limit]") {
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -180,8 +178,8 @@ TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarg
     // close() instead of a graceful shutdown was tried too and is not
     // enough -- it produces a reset rather than the clean EOF do_fail
     // needs to see before it will report the original error). See
-    // transport/websocket_session.cpp's SetReadTimeout for the production
-    // fix covering a peer that never does this.
+    // transport/websocket_session.cpp's asynchronous read timeout for the
+    // production fix covering a peer that never does this.
     boost::system::error_code clientShutdownEc;
     clientWs.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send, clientShutdownEc);
 
@@ -193,7 +191,8 @@ TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarg
     CHECK(serverReadResult.error() == SessionError::kFrameTooLarge);
 }
 
-TEST_CASE("kFrameTooLarge closes immediately without consuming a violation strike, matching the "
+TEST_CASE("kFrameTooLarge closes immediately without consuming a violation "
+          "strike, matching the "
           "documented immediate-close calling convention",
           "[transport][inbound_limit]") {
     // Demonstrates the intended policy: kFrameTooLarge -> close now, do not
