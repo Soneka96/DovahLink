@@ -98,6 +98,21 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    auto start = std::chrono::steady_clock::now();
+    int clockCalls = 0;
+    // Simulate a hello completing at +4s, then authenticated traffic at
+    // +63s. The ping is 59s after authentication and must remain inside
+    // the 60s idle window; using the pre-read time would close it at +60s.
+    auto steadyNow = [&] {
+        ++clockCalls;
+        if (clockCalls == 1) {
+            return start;
+        }
+        if (clockCalls == 2) {
+            return start + std::chrono::seconds(4);
+        }
+        return start + std::chrono::seconds(63);
+    };
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -106,7 +121,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
+                             stateProvider, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -157,6 +173,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     REQUIRE_FALSE(serverAcceptEc);
     // Disconnect must invalidate the session (ai/context/protocol/security.md).
     CHECK_FALSE(sessionManager.IsValidForConnection(sessionId, /*connection=*/1));
+    CHECK(clockCalls >= 4);
 }
 
 TEST_CASE("RunConnectionSession closes without creating a session when the token is invalid",
@@ -170,6 +187,15 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    auto start = std::chrono::steady_clock::now();
+    for (int failure = 0; failure < 4; ++failure) {
+        tokenThrottle.RecordFailure(start + std::chrono::seconds(4));
+    }
+    int clockCalls = 0;
+    auto steadyNow = [&] {
+        ++clockCalls;
+        return clockCalls == 1 ? start : start + std::chrono::seconds(4);
+    };
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -178,7 +204,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
+                             stateProvider, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -211,6 +238,10 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     CHECK(readEc);
     // The real token was never consumed by a rejected attempt.
     CHECK(tokenStore.IsAvailable());
+    // The session's fifth failure occurred at simulated +4s, so all five
+    // remain active at +63s. Recording it at the pre-read start would let
+    // that one expire and incorrectly unblock authentication.
+    CHECK(tokenThrottle.IsBlocked(start + std::chrono::seconds(63)));
 }
 
 TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives after the handshake "

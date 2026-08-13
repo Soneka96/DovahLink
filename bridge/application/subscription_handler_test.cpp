@@ -91,6 +91,17 @@ TEST_CASE("HandleClientCapabilities rejects an unregistered capability", "[appli
     CHECK(error->code == "unsupported_capability");
 }
 
+TEST_CASE("HandleClientCapabilities rejects an unsupported registered capability version",
+          "[application][subscription_handler]") {
+    auto envelope = BuildEnvelopeWithPayload(
+        "capabilities", R"({"capabilities": [{"id": "state.character", "version": 2}]})");
+    auto result = HandleClientCapabilities(envelope, kSessionId);
+    REQUIRE(result.has_value());
+    auto error = dovahlink::protocol::DecodeErrorPayload(result->payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unsupported_capability");
+}
+
 TEST_CASE("HandleClientCapabilities rejects a malformed payload", "[application][subscription_handler]") {
     auto envelope = BuildEnvelopeWithPayload("capabilities", R"({})");
     auto result = HandleClientCapabilities(envelope, kSessionId);

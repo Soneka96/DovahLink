@@ -50,10 +50,13 @@ std::optional<protocol::Envelope> HandleClientCapabilities(const protocol::Envel
                                              "malformed_message", "Malformed capabilities payload", false);
     }
     for (const protocol::Capability& capability : capabilities->capabilities) {
-        if (capability.id != kCharacterCapabilityId) {
+        if (capability.id != kCharacterCapabilityId ||
+            capability.version != kCharacterCapabilityVersion) {
             return protocol::BuildErrorEnvelope(capabilitiesEnvelope.messageId, kSupportedProtocolVersion, sessionId,
                                                  "unsupported_capability",
-                                                 "Unregistered capability: " + capability.id, false);
+                                                 "Unsupported capability: " + capability.id + " version " +
+                                                     std::to_string(capability.version),
+                                                 false);
         }
     }
     return std::nullopt;

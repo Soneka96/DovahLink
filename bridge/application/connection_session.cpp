@@ -25,26 +25,16 @@ void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& e
 
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
                            security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                           ConnectionId connection, const CharacterStateProvider& stateProvider) {
+                           ConnectionId connection, const CharacterStateProvider& stateProvider,
+                           SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
         return;
     }
 
-    auto steadyNow = std::chrono::steady_clock::now();
-    ConnectionTimeoutTracker timeout(steadyNow);
+    ConnectionTimeoutTracker timeout(steadyNow());
 
     auto rawHello = ws.ReadMessage();
     if (!rawHello.has_value()) {
-        ws.Close();
-        return;
-    }
-
-    if (timeout.IsTimedOut(std::chrono::steady_clock::now())) {
-        // The hello itself arrived, but only after trickling in slowly
-        // enough to keep each individual OS-level socket read
-        // (WebSocketSession::SetReadTimeout) from firing on its own. This is
-        // the message-layer backstop HandleHello's own doc comment expects
-        // "whatever owns the read loop" to provide.
         ws.Close();
         return;
     }
@@ -60,8 +50,19 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         return;
     }
 
-    auto handshake =
-        HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout, steadyNow);
+    auto postReadNow = steadyNow();
+    if (timeout.IsTimedOut(postReadNow)) {
+        // The hello itself arrived, but only after trickling in slowly
+        // enough to keep each individual OS-level socket read
+        // (WebSocketSession::SetReadTimeout) from firing on its own. This is
+        // the message-layer backstop HandleHello's own doc comment expects
+        // "whatever owns the read loop" to provide.
+        ws.Close();
+        return;
+    }
+
+    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection,
+                                 timeout, postReadNow);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
@@ -108,7 +109,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
         auto dispatch = ProcessInboundMessage(*raw, sessionId, connection, sessionManager, replayGuard, violations,
                                                rateLimiter, timeout, stateProvider, revisions,
-                                               std::chrono::steady_clock::now(), std::chrono::system_clock::now());
+                                               steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }
