@@ -2,8 +2,10 @@ using DovahLink.BridgeBuilder.Ui;
 
 namespace DovahLink.BridgeBuilder.Tests;
 
+/// <summary>Verifies builder state transitions and repository discovery.</summary>
 public sealed class UiTests
 {
+    /// <summary>Starts ready and prevents concurrent builds.</summary>
     [Fact]
     public void BuildViewModelStartsReadyAndPreventsConcurrentBuilds()
     {
@@ -16,6 +18,7 @@ public sealed class UiTests
         Assert.False(viewModel.State.CanBuild);
     }
 
+    /// <summary>Exposes the archive path after a successful build.</summary>
     [Fact]
     public void BuildViewModelExposesTheSuccessfulArchive()
     {
@@ -30,6 +33,7 @@ public sealed class UiTests
         Assert.True(viewModel.State.CanBuild);
     }
 
+    /// <summary>Exposes failure state and clears a previous archive path.</summary>
     [Fact]
     public void BuildViewModelExposesFailureAndClearsTheArchive()
     {
@@ -44,6 +48,7 @@ public sealed class UiTests
         Assert.True(viewModel.State.CanBuild);
     }
 
+    /// <summary>Finds the repository root from a child directory.</summary>
     [Fact]
     public void FindsTheRepositoryFromAChildDirectory()
     {
@@ -57,6 +62,7 @@ public sealed class UiTests
         Assert.Equal(repositoryRoot, RepositoryRootLocator.Find(childDirectory));
     }
 
+    /// <summary>Rejects a path that is outside a DovahLink repository.</summary>
     [Fact]
     public void RejectsAPathOutsideARepository()
     {
@@ -65,8 +71,10 @@ public sealed class UiTests
         Assert.Throws<InvalidOperationException>(() => RepositoryRootLocator.Find(temporaryDirectory.Path));
     }
 
+    /// <summary>Creates and removes an isolated temporary directory for a test.</summary>
     private sealed class TemporaryDirectory : IDisposable
     {
+        /// <summary>Creates a unique temporary directory.</summary>
         public TemporaryDirectory()
         {
             Path = System.IO.Path.Combine(
@@ -76,8 +84,10 @@ public sealed class UiTests
             Directory.CreateDirectory(Path);
         }
 
+        /// <summary>Gets the temporary directory path.</summary>
         public string Path { get; }
 
+        /// <summary>Removes the temporary directory when the test completes.</summary>
         public void Dispose()
         {
             if (Directory.Exists(Path))

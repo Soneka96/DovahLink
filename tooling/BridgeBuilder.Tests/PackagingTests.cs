@@ -2,8 +2,10 @@ using DovahLink.BridgeBuilder.Packaging;
 
 namespace DovahLink.BridgeBuilder.Tests;
 
+/// <summary>Verifies bridge version parsing and artifact planning.</summary>
 public sealed class PackagingTests
 {
+    /// <summary>Reads a valid bridge version from a vcpkg manifest.</summary>
     [Fact]
     public void ReadsTheBridgeVersionFromTheVcpkgManifest()
     {
@@ -13,6 +15,7 @@ public sealed class PackagingTests
         Assert.Equal("0.1.0", version.ToString());
     }
 
+    /// <summary>Rejects manifest versions outside the supported format.</summary>
     [Theory]
     [InlineData("{}")]
     [InlineData("[]")]
@@ -24,18 +27,21 @@ public sealed class PackagingTests
         Assert.Throws<FormatException>(() => BridgeVersion.FromVcpkgManifest(manifest));
     }
 
+    /// <summary>Rejects malformed manifest JSON.</summary>
     [Fact]
     public void RejectsMalformedManifestJson()
     {
         Assert.Throws<FormatException>(() => BridgeVersion.FromVcpkgManifest("not json"));
     }
 
+    /// <summary>Rejects a version property whose value is not a string.</summary>
     [Fact]
     public void RejectsANonStringVersionProperty()
     {
         Assert.Throws<FormatException>(() => BridgeVersion.FromVcpkgManifest("{\"version-string\":1}"));
     }
 
+    /// <summary>Creates a beta archive name and Vortex-compatible file layout.</summary>
     [Fact]
     public void CreatesTheBetaArtifactNameAndVortexLayout()
     {
@@ -60,6 +66,7 @@ public sealed class PackagingTests
             plan.Files.Select(file => file.ArchivePath));
     }
 
+    /// <summary>Creates a release archive name without the beta suffix.</summary>
     [Fact]
     public void CreatesTheReleaseArtifactNameWithoutTheBetaSuffix()
     {
@@ -69,6 +76,7 @@ public sealed class PackagingTests
         Assert.All(plan.Files, file => Assert.Equal(Path.GetFileName(file.ArchivePath), file.SourceName));
     }
 
+    /// <summary>Rejects package channel values outside the defined enum members.</summary>
     [Fact]
     public void RejectsUnknownPackageChannels()
     {

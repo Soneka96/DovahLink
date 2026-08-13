@@ -4,8 +4,10 @@ using DovahLink.BridgeBuilder.Packaging;
 
 namespace DovahLink.BridgeBuilder.Tests;
 
+/// <summary>Verifies command construction, process execution, and bridge builds.</summary>
 public sealed class BuildTests
 {
+    /// <summary>Builds the release command with the pinned toolchain environment.</summary>
     [Fact]
     public void BuildsTheReleaseCommandWithThePinnedToolchainEnvironment()
     {
@@ -19,6 +21,7 @@ public sealed class BuildTests
         Assert.Contains("cmake --build --preset windows-x64-release --target dovahlink_bridge_plugin", command);
     }
 
+    /// <summary>Preserves toolchain paths that contain spaces in the generated command.</summary>
     [Fact]
     public void QuotesToolchainPathsContainingSpaces()
     {
@@ -30,6 +33,7 @@ public sealed class BuildTests
         Assert.Contains("set \"VCPKG_ROOT=C:\\Program Files\\Visual Studio\\VC\\vcpkg\"", command);
     }
 
+    /// <summary>Forwards process output and returns the process exit code.</summary>
     [Fact]
     public async Task ForwardsProcessOutputAndReturnsTheExitCode()
     {
@@ -46,6 +50,7 @@ public sealed class BuildTests
         Assert.Contains(output, line => line.Trim() == "stderr");
     }
 
+    /// <summary>Executes a batch file whose path contains spaces.</summary>
     [Fact]
     public async Task ExecutesAQuotedBatchFilePathContainingSpaces()
     {
@@ -63,6 +68,7 @@ public sealed class BuildTests
         Assert.Contains(output, line => line.Trim() == "quoted-path-ok");
     }
 
+    /// <summary>Builds a Vortex-ready archive from all release artifacts.</summary>
     [Fact]
     public async Task BuildsAVortexReadyArchiveFromTheReleaseArtifacts()
     {
@@ -99,6 +105,7 @@ public sealed class BuildTests
             archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).OrderBy(path => path));
     }
 
+    /// <summary>Uses the versioned beta name when building a beta archive.</summary>
     [Fact]
     public async Task BuildsBetaArchivesWithTheVersionedBetaName()
     {
@@ -115,6 +122,7 @@ public sealed class BuildTests
         Assert.Equal("DovahLink-Bridge-0.1.0-beta.zip", result.Plan.ArchiveName);
     }
 
+    /// <summary>Fails without creating an archive when a build artifact is missing.</summary>
     [Fact]
     public async Task FailsWithoutCreatingAnArchiveWhenABuildArtifactIsMissing()
     {
@@ -132,6 +140,7 @@ public sealed class BuildTests
         Assert.Empty(Directory.GetDirectories(Path.Combine(temporaryDirectory.Path, "tooling", "out"), ".staging-*"));
     }
 
+    /// <summary>Fails without packaging when the build command returns an error.</summary>
     [Fact]
     public async Task FailsWithoutPackagingWhenTheBuildCommandFails()
     {
@@ -149,6 +158,7 @@ public sealed class BuildTests
         Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
     }
 
+    /// <summary>Reports build progress through the output callback.</summary>
     [Fact]
     public async Task ReportsBuildProgressThroughTheOutputCallback()
     {
@@ -168,6 +178,7 @@ public sealed class BuildTests
         Assert.Contains(output, line => line.StartsWith("Created ", StringComparison.Ordinal));
     }
 
+    /// <summary>Rejects a repository that does not contain the bridge manifest.</summary>
     [Fact]
     public async Task RejectsARepositoryWithoutTheBridgeManifest()
     {
@@ -180,6 +191,9 @@ public sealed class BuildTests
             new BridgeBuildRequest(temporaryDirectory.Path, PackageChannel.Release)));
     }
 
+    /// <summary>Creates the repository files required by the build coordinator tests.</summary>
+    /// <param name="repositoryRoot">The temporary repository root.</param>
+    /// <param name="includeAllArtifacts">Whether to create every expected build artifact.</param>
     private static void CreateBuildInputs(string repositoryRoot, bool includeAllArtifacts)
     {
         string bridgeRoot = Path.Combine(repositoryRoot, "bridge");
@@ -200,12 +214,19 @@ public sealed class BuildTests
         }
     }
 
+    /// <summary>Records command-runner inputs and returns a configured exit code.</summary>
     private sealed class FakeCommandRunner : ICommandRunner
     {
+        /// <summary>Gets the exit code returned by the fake command runner.</summary>
         public int ExitCode { get; init; }
+
+        /// <summary>Gets the last command supplied to the runner.</summary>
         public string? Command { get; private set; }
+
+        /// <summary>Gets the last working directory supplied to the runner.</summary>
         public string? WorkingDirectory { get; private set; }
 
+        /// <summary>Records the command invocation and emits fake build output.</summary>
         public Task<int> RunAsync(
             string command,
             string workingDirectory,
@@ -219,8 +240,10 @@ public sealed class BuildTests
         }
     }
 
+    /// <summary>Creates and removes an isolated temporary directory for a test.</summary>
     private sealed class TemporaryDirectory : IDisposable
     {
+        /// <summary>Creates a unique temporary directory.</summary>
         public TemporaryDirectory()
         {
             Path = System.IO.Path.Combine(
@@ -230,8 +253,10 @@ public sealed class BuildTests
             Directory.CreateDirectory(Path);
         }
 
+        /// <summary>Gets the temporary directory path.</summary>
         public string Path { get; }
 
+        /// <summary>Removes the temporary directory when the test completes.</summary>
         public void Dispose()
         {
             if (Directory.Exists(Path))
