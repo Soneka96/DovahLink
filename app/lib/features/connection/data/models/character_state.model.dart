@@ -9,8 +9,8 @@ import 'package:dovahlink_client/features/connection/domain/entities/character_s
 
 part 'character_state.model.g.dart';
 
-@JsonSerializable(checked: true, explicitToJson: true)
 /// A generated JSON adapter for [CharacterStateEntity].
+@JsonSerializable(checked: true, explicitToJson: true)
 class CharacterStateModel extends CharacterStateEntity {
   /// Creates a decoded character state.
   const CharacterStateModel({

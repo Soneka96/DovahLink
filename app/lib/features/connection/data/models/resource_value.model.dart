@@ -1,13 +1,13 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'package:dovahlink_client/features/connection/data/models/json_map.dart';
+import 'package:dovahlink_client/features/connection/data/models/protocol_format_exception.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/resource_value.entity.dart';
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
 
 part 'resource_value.model.g.dart';
 
-@JsonSerializable(checked: true)
 /// A generated JSON adapter for [ResourceValueEntity].
+@JsonSerializable(checked: true)
 class ResourceValueModel extends ResourceValueEntity {
   /// Creates a resource model in game units.
   const ResourceValueModel({required super.current, required super.maximum});
