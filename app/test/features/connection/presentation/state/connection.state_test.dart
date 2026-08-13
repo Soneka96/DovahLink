@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/connection_
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
+/// Exercises connection-state initialization and copying.
 void main() {
   group('ConnectionState — initial', () {
     test('creates a disconnected state with no session or error', () {

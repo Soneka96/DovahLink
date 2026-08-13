@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
+/// Exercises connection lifecycle reducer transitions.
 void main() {
   const ConnectionSessionEntity session = ConnectionSessionEntity(
     sessionId: 'session-1',
