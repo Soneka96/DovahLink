@@ -14,45 +14,30 @@
 
 namespace dovahlink::application {
 
-// Outcome of processing one inbound message on an authenticated connection:
-// zero or more response envelopes to send (most message types produce
-// exactly one; subscribe can produce subscription_ack plus a snapshot; a
-// hard closure -- the session message cap, or an oversized frame -- produces
-// none, see ProcessInboundMessage's doc), and whether the connection must
-// be closed after sending them.
+/// Contains responses produced while processing one inbound message.
 struct DispatchResult {
+    /// Response envelopes to send in order.
     std::vector<protocol::Envelope> responses;
+
+    /// Whether the connection must close after responses are sent.
     bool closeConnection = false;
 };
 
-// Processes one raw inbound WebSocket text message on an already-
-// authenticated connection (post-hello_ack; hello itself is handled
-// separately by HandleHello -- see handshake_handler.hpp -- this function
-// is never called for it).
-//
-// Applies, in order: bounded JSON parsing and envelope decoding
-// (protocol/bounded_json.hpp, protocol/envelope.hpp), a messageType
-// allowlist (ping, capabilities, subscribe, snapshot_request -- anything
-// else, including hello or a bridge-to-client-only type like state_snapshot,
-// is rejected as malformed_message), session-ID validation (stale_session),
-// replay/session-cap checking (replayed_message, or a hard close at the
-// session message cap with no response -- ai/context/protocol/security.md:
-// "the bridge closes the session before this bound is exceeded"), and
-// per-connection inbound rate limiting (rate_limited). Anything that
-// survives all of that is routed to the matching already-built handler.
-//
-// An oversized frame (protocol::BoundedJsonError::kFrameTooLarge) closes
-// immediately with no response and is not counted as a violation, matching
-// security.md's "do not attempt to send an error over an invalid or
-// oversized frame" -- the same rule transport/websocket_session.hpp already
-// applies at the framing layer. Every other rejection is recorded as one
-// protocol violation (security::ViolationTracker); the connection closes
-// once violations reach security.md's 3-in-30s limit.
-//
-// A successfully routed message resets the idle timeout
-// (ConnectionTimeoutTracker::RecordActivity); a rejected one does not, so a
-// client that never sends anything valid cannot hold the connection open
-// past the idle timeout purely by generating rejections.
+/// Validates the existing session, rate-limits, and dispatches one inbound message.
+/// Oversized frames and exhausted session limits request immediate closure without a response.
+/// @param rawMessage Encoded inbound WebSocket text.
+/// @param sessionId Authenticated session identifier.
+/// @param connection Transport connection identifier.
+/// @param sessionManager Session registry.
+/// @param replayGuard Per-session message-ID guard.
+/// @param violations Per-connection protocol-violation tracker.
+/// @param rateLimiter Per-connection inbound rate limiter.
+/// @param timeoutTracker Connection timeout tracker.
+/// @param stateProvider Source of current character state.
+/// @param revisions Per-session state revision tracker.
+/// @param steadyNow Current monotonic time.
+/// @param wallNow Current wall-clock time.
+/// @return Responses and the connection-close decision.
 [[nodiscard]] DispatchResult ProcessInboundMessage(
     const std::string& rawMessage, const std::string& sessionId, ConnectionId connection,
     SessionManager& sessionManager, ReplayGuard& replayGuard, security::ViolationTracker& violations,

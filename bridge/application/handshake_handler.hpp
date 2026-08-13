@@ -10,36 +10,28 @@
 
 namespace dovahlink::application {
 
-// The only registered protocol version this bridge supports.
-// protocol/schema/README.md: "protocolVersion: 0 is reserved for
-// pre-negotiation hello and hello_ack"; v1 is the only other registered
-// version (protocol/messages.hpp's message_type/state_area registrations).
+/// Only protocol version currently supported by the bridge after negotiation.
 inline constexpr std::int64_t kSupportedProtocolVersion = 1;
 
-// The outcome of processing one hello attempt: exactly one response envelope
-// to send, and whether the connection must be closed after sending it. This
-// step never leaves an unauthenticated connection open for a retry -- every
-// failure path closes, matching security::FailedTokenThrottle's own "one
-// instance shared across every connection attempt" design: retries happen
-// as fresh connections, throttled globally, not as repeated hello messages
-// on one still-open socket (see handshake_handler.cpp for the full
-// reasoning).
+/// Result of processing one client hello message.
 struct HandshakeResult {
+    /// Response envelope to send to the client.
     protocol::Envelope response;
+
+    /// Whether the connection must close after sending `response`.
     bool closeConnection = false;
 };
 
-// Processes exactly one already-decoded envelope that the caller has
-// confirmed has messageType "hello" (routing/dispatch on messageType is the
-// caller's job, not this function's -- see application/coordinator.hpp for
-// where the rest of the connection lifecycle is owned). Validates the
-// requested protocol version, consumes the one-time token, creates the
-// session, and returns either a hello_ack or a mapped error.
-//
-// Does not read or write a socket: the caller sends `response` and closes
-// the connection when `closeConnection` is true. tokenStore, sessionManager,
-// and timeoutTracker are per-connection; tokenThrottle is shared globally
-// across every connection attempt.
+/// Validates one decoded hello, throttles failures, and atomically consumes the token on success.
+/// Successful handshakes bind a new session to `connection`; failures close the connection.
+/// @param helloEnvelope Decoded client hello envelope.
+/// @param tokenStore One-time token store.
+/// @param tokenThrottle Global failed-token throttle.
+/// @param sessionManager Session registry.
+/// @param connection Transport connection identifier.
+/// @param timeoutTracker Connection timeout tracker.
+/// @param now Current monotonic time.
+/// @return Response envelope and close decision for the connection.
 [[nodiscard]] HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                                            security::TokenStore& tokenStore,
                                            security::FailedTokenThrottle& tokenThrottle,

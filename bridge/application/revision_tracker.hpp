@@ -8,43 +8,31 @@
 
 namespace dovahlink::application {
 
-// Assigns the monotonically increasing revision sequence for each state area
-// within one session, per protocol/schema/README.md's state envelope rules:
-// revisions are scoped to one state area and session, reset only by
-// constructing a fresh tracker for a new session (one instance per session),
-// and a snapshot establishes the baseline that events build on with
-// `revision == baseRevision + 1`.
-//
-// This is the bridge's own producer-side sequencing: it is the sole
-// authority assigning revisions, so there is nothing external to validate
-// against -- StartSnapshot and NextEvent cannot themselves be asked to
-// produce a duplicate, stale, or out-of-order revision. NextEvent instead
-// guards the one invariant that could otherwise be violated by a coordinator
-// bug: an event can never be assigned before its area's first snapshot.
-//
-// Not thread-safe: one instance per session, intended to be used serially by
-// that session's own handling.
+/// Assigns monotonically increasing revisions within one session and state area.
+/// Snapshots establish baselines, events advance by one, and recovery continues the sequence.
+/// One instance belongs to one serial connection and is not thread-safe.
 class RevisionTracker {
 public:
+    /// Creates an empty revision tracker.
     RevisionTracker() = default;
 
-    // Establishes a fresh baseline revision for `stateArea` -- either the
-    // area's first snapshot in this session (revision 1), or a recovery
-    // snapshot after queue loss, which continues the same monotonic
-    // sequence rather than restarting it. Returns the revision to publish.
+    /// Starts or advances a snapshot baseline for a state area.
+    /// @param stateArea Canonical state-area identifier.
+    /// @return New revision assigned to the snapshot.
     std::int64_t StartSnapshot(const std::string& stateArea);
 
-    // Returns (baseRevision, revision) for the next event on `stateArea`,
-    // advancing the tracked revision by exactly 1. Returns nullopt if no
-    // baseline has been established yet for this area: an event cannot
-    // precede its area's first snapshot.
+    /// Advances a state area for its next event.
+    /// @param stateArea Canonical state-area identifier.
+    /// @return Base and new revision, or no value before a baseline exists.
     std::optional<std::pair<std::int64_t, std::int64_t>> NextEvent(const std::string& stateArea);
 
-    // The most recently assigned revision for `stateArea`, or nullopt if no
-    // baseline has been established yet.
+    /// Reads the latest revision for a state area.
+    /// @param stateArea Canonical state-area identifier.
+    /// @return Current revision, or no value when untracked.
     [[nodiscard]] std::optional<std::int64_t> CurrentRevision(const std::string& stateArea) const;
 
 private:
+    /// Latest assigned revision for each state area.
     std::unordered_map<std::string, std::int64_t> currentRevision_;
 };
 

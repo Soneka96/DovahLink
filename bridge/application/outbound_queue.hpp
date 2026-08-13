@@ -7,45 +7,55 @@
 
 namespace dovahlink::application {
 
-// The result of attempting to enqueue an outbound message.
+/// Describes the result of an outbound enqueue attempt.
 enum class EnqueueResult {
-    kEnqueued,           // accepted into the lane.
-    kControlLaneFull,    // the control/recovery lane is full; this message was
-                         // NOT enqueued. The caller must mark the client
-                         // unavailable and close the connection
-                         // (ai/context/skse/architecture.md).
-    kEventLaneFull,      // the event lane is full; this message was NOT
-                         // enqueued. Step 19 replaces this plain-reject
-                         // behavior with latest-state coalescing.
+    /// The message was accepted into its lane.
+    kEnqueued,
+
+    /// The reserved control/recovery lane was full.
+    kControlLaneFull,
+
+    /// The event lane was full.
+    kEventLaneFull,
 };
 
-// The bounded outbound queue split into a reserved control/recovery lane and
-// an event lane (ai/context/skse/architecture.md, bridge/security/limits.hpp).
-// Snapshots, acknowledgements, errors, and recovery messages use the control
-// lane and are never silently dropped; state events use the event lane. Each
-// lane is a plain FIFO of opaque, already-serialized message text; this type
-// does not interpret message content. Not thread-safe: intended to be owned
-// and drained by one connection's transport-side worker.
+/// Bounded FIFO queues for control/recovery messages and state events.
+/// The control lane reserves 16 messages and the event lane provides 112 messages.
+/// One connection owns and drains each instance; it is not thread-safe.
 class OutboundQueue {
 public:
+    /// Creates an empty outbound queue.
     OutboundQueue() = default;
 
+    /// Adds a message to the reserved control lane when capacity permits.
+    /// @param message Serialized control or recovery message.
+    /// @return Enqueue result.
     [[nodiscard]] EnqueueResult EnqueueControl(std::string message);
+
+    /// Adds a message to the event lane when capacity permits.
+    /// @param message Serialized state-event message.
+    /// @return Enqueue result.
     [[nodiscard]] EnqueueResult EnqueueEvent(std::string message);
 
-    // Removes and returns the next control-lane message in FIFO order, or
-    // nullopt if the control lane is empty.
+    /// Removes the oldest control-lane message.
+    /// @return Message, or no value when the lane is empty.
     [[nodiscard]] std::optional<std::string> DequeueControl();
 
-    // Removes and returns the next event-lane message in FIFO order, or
-    // nullopt if the event lane is empty.
+    /// Removes the oldest event-lane message.
+    /// @return Message, or no value when the lane is empty.
     [[nodiscard]] std::optional<std::string> DequeueEvent();
 
+    /// Reports the number of queued control messages.
     [[nodiscard]] std::size_t ControlLaneSize() const;
+
+    /// Reports the number of queued event messages.
     [[nodiscard]] std::size_t EventLaneSize() const;
 
 private:
+    /// FIFO storage for control and recovery messages.
     std::deque<std::string> control_;
+
+    /// FIFO storage for state events.
     std::deque<std::string> events_;
 };
 

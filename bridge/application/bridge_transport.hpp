@@ -5,36 +5,29 @@
 
 namespace dovahlink::application {
 
-// The real TransportLifecycle: owns nothing itself, just holds references
-// to the two loopback listeners (IPv4 and IPv6) constructed and bound
-// before the coordinator is ever started -- LoopbackListener::Create binds
-// and starts listening as part of construction, so there is no separate
-// "start listening" step to defer into Start().
-//
-// This split matters given Coordinator::Start()'s fixed call order
-// (RegisterAll, then WorkerPool::Start(), then TransportLifecycle::Start()):
-// a worker pool accept-loop thread must be able to safely begin accepting
-// the instant it starts, before this class's own Start() has necessarily
-// run, which only works if the listeners are already listening by then.
-//
-// CancelCompletions is a no-op: this bridge's transport is fully
-// synchronous (one blocking accept/read/write call at a time, per
-// connection), so there are no in-flight async completions to cancel.
+/// Provides the coordinator's transport lifecycle for two already-bound loopback listeners.
+/// The synchronous bridge has no asynchronous completions, and accept workers own admission.
 class BridgeTransport : public TransportLifecycle {
 public:
+    /// Keeps references to the already-bound IPv4 and IPv6 listeners.
+    /// @param listenerV4 IPv4 loopback listener owned by the caller.
+    /// @param listenerV6 IPv6 loopback listener owned by the caller.
     BridgeTransport(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6);
 
+    /// Leaves the already-bound listeners unchanged.
     void Start() override;
+
+    /// The synchronous transport has no pending completions to cancel.
     void CancelCompletions() override;
 
-    // Closes both listeners' acceptors. Safe to call even if
-    // BridgeWorkerPool::Stop() already closed them to unblock its own
-    // accept-loop threads (see that class's docs) -- closing an
-    // already-closed acceptor is a harmless no-op.
+    /// Closes both listener acceptors; repeated calls are harmless.
     void Close() override;
 
 private:
+    /// IPv4 listener referenced by this lifecycle adapter.
     transport::LoopbackListener& listenerV4_;
+
+    /// IPv6 listener referenced by this lifecycle adapter.
     transport::LoopbackListener& listenerV6_;
 };
 

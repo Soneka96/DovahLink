@@ -6,39 +6,35 @@
 
 namespace dovahlink::application {
 
+/// Classifies a message-ID recording attempt.
 enum class MessageIdCheckResult {
-    kAccepted,           // new messageId; process this message normally.
-    kReplayed,           // duplicate messageId; reject this message only.
-    kSessionCapReached,  // the session has reached its total message bound;
-                         // reject this message and close the session now.
+    /// The message ID was new and recorded.
+    kAccepted,
+
+    /// The message ID was already recorded for this session.
+    kReplayed,
+
+    /// The session message limit was reached and the session must close.
+    kSessionCapReached,
 };
 
-// Tracks every messageId seen in one session, rejecting duplicates as replays
-// and enforcing the session's total message bound (see
-// ai/context/protocol/security.md, bridge/security/limits.hpp). The bound
-// keeps the seen-ID set naturally bounded, so it is never pruned or evicted
-// -- eviction would let a previously-seen ID be replayed once forgotten.
-//
-// One instance per session. Not thread-safe: a session's messages are
-// expected to be handled serially by its own connection, not shared across
-// threads.
+/// Rejects duplicate message IDs and enforces the per-session message bound.
+/// One instance belongs to one serial connection and is not thread-safe.
 class ReplayGuard {
 public:
-    /**
- * @brief Creates an empty message ID tracker.
- */
-ReplayGuard() = default;
+    /// Creates an empty message-ID tracker.
+    ReplayGuard() = default;
 
-    // Checks and, if accepted, records `messageId`. Once kSessionCapReached
-    // is returned, every subsequent call also returns kSessionCapReached
-    // without recording, since the caller is expected to have closed the
-    // session by then.
+    /// Records and classifies one message ID.
+    /// @param messageId Message ID received from the client.
+    /// @return Accepted, replayed, or session-cap result.
     [[nodiscard]] MessageIdCheckResult RecordMessage(const std::string& messageId);
 
-    // The number of distinct messageIds recorded so far.
+    /// Reports the number of distinct recorded message IDs.
     [[nodiscard]] std::size_t Count() const;
 
 private:
+    /// Message IDs already observed in this session.
     std::unordered_set<std::string> seenIds_;
 };
 

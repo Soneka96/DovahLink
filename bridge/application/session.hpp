@@ -7,46 +7,43 @@
 
 namespace dovahlink::application {
 
-// Opaque identifier for one transport-level connection (e.g. one accepted
-// socket), assigned by the transport/coordinator layer. Only compared for
-// equality here; this layer never interprets its value.
+/// Opaque identifier for one transport-level connection.
 using ConnectionId = std::uint64_t;
 
-// Binds one authenticated session to the socket that created it, enforcing
-// the Phase 1 one-connected-client limit. See the session and recovery rules
-// in protocol/schema/README.md and ai/context/protocol/security.md.
-// Thread-safe.
+/// Binds one authenticated session to one connection.
+/// The manager is thread-safe and enforces the one-client limit.
 class SessionManager {
 public:
+    /// Creates an empty session registry.
     SessionManager() = default;
 
-    // Attempts to create a new session bound to `connection`. Fails (returns
-    // false) if a session is already active for any connection, enforcing
-    // the one-connected-client limit; an active session is never replaced.
-    // `sessionId` must already be a cryptographically random, freshly
-    // generated identifier (see bridge/security/csprng.hpp); this type does
-    // not generate it.
+    /// Attempts to create a session for a connection.
+    /// @param connection Connection owning the proposed session.
+    /// @param sessionId Fresh server-issued session identifier.
+    /// @return `true` when no active session existed and the session was created.
     [[nodiscard]] bool TryCreateSession(ConnectionId connection, const std::string& sessionId);
 
-    // True if `sessionId` names the currently active session and it is bound
-    // to `connection`. False for no active session, an unrecognized ID, or a
-    // foreign connection presenting the active session's ID -- the caller
-    // maps that last case to the wire error code `stale_session`.
+    /// Checks whether a session belongs to a connection.
+    /// @param sessionId Session identifier presented by the client.
+    /// @param connection Connection presenting the identifier.
+    /// @return `true` only for the active session and its owning connection.
     [[nodiscard]] bool IsValidForConnection(const std::string& sessionId, ConnectionId connection) const;
 
-    // Invalidates the active session if it is bound to `connection`; a no-op
-    // if `connection` does not hold the active session (it cannot invalidate
-    // a session it does not own). Called on disconnect, idle timeout, or
-    // protocol-violation closure for that connection.
+    /// Invalidates the active session when owned by `connection`.
+    /// @param connection Connection whose session should be invalidated.
     void InvalidateSession(ConnectionId connection);
 
-    // Unconditionally invalidates the active session, regardless of which
-    // connection holds it. Called on bridge shutdown.
+    /// Invalidates the active session regardless of its connection.
     void InvalidateAll();
 
 private:
+    /// Synchronizes session ownership state.
     mutable std::mutex mutex_;
+
+    /// Connection currently holding the active session.
     std::optional<ConnectionId> activeConnection_;
+
+    /// Identifier of the active session.
     std::optional<std::string> activeSessionId_;
 };
 
