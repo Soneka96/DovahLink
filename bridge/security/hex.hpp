@@ -8,11 +8,11 @@
 
 namespace dovahlink::security {
 
-// Encodes `bytes` as lowercase hex, two characters per byte.
+/// Encodes bytes as lowercase hexadecimal text, using two characters per byte.
 [[nodiscard]] std::string EncodeHex(const std::vector<std::uint8_t>& bytes);
 
-// Decodes `hex` as lowercase-or-uppercase hex. Returns nullopt for empty
-// input, odd length, or any non-hex character; never partially decodes.
+/// Decodes non-empty even-length hexadecimal text without partial results.
+/// Accepts uppercase and lowercase digits and returns `std::nullopt` for invalid input.
 [[nodiscard]] std::optional<std::vector<std::uint8_t>> DecodeHex(std::string_view hex);
 
 }  // namespace dovahlink::security

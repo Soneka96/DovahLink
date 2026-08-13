@@ -4,12 +4,7 @@ namespace dovahlink::security {
 
 namespace {
 
-/**
- * @brief Converts a hexadecimal digit to its numeric nibble value.
- *
- * @param c Hexadecimal digit character.
- * @return The 4-bit value for a valid hexadecimal digit; otherwise, no value.
- */
+/// Converts one hexadecimal digit to its numeric nibble value.
 std::optional<std::uint8_t> HexNibble(char c) {
     if (c >= '0' && c <= '9') {
         return static_cast<std::uint8_t>(c - '0');
@@ -23,13 +18,7 @@ std::optional<std::uint8_t> HexNibble(char c) {
     return std::nullopt;
 }
 
-}  /**
- * @brief Encodes bytes as a lowercase hexadecimal string.
- *
- * @param bytes Bytes to encode.
- * @return A string containing two hexadecimal digits for each byte.
- */
-
+}
 std::string EncodeHex(const std::vector<std::uint8_t>& bytes) {
     static constexpr char kDigits[] = "0123456789abcdef";
     std::string hex;
@@ -41,12 +30,6 @@ std::string EncodeHex(const std::vector<std::uint8_t>& bytes) {
     return hex;
 }
 
-/**
- * @brief Decodes a hexadecimal string into its byte representation.
- *
- * @param hex Even-length hexadecimal string containing at least one byte.
- * @return Decoded bytes, or `std::nullopt` if the input is empty, has odd length, or contains invalid hexadecimal characters.
- */
 std::optional<std::vector<std::uint8_t>> DecodeHex(std::string_view hex) {
     if (hex.empty() || hex.size() % 2 != 0) {
         return std::nullopt;

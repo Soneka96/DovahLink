@@ -7,46 +7,40 @@
 
 namespace dovahlink::security {
 
-// A one-time local connection token that can be consumed by exactly one caller.
-// See ai/context/protocol/security.md and TASK.md. Thread-safe: TryConsume may
-// be called concurrently by multiple connection attempts; exactly one succeeds.
+/// Thread-safe one-time token store with expiry and secure memory clearing.
 class TokenStore {
 public:
-    // `expectedToken` is the token value the bridge will accept; it is moved
-    // in and cleared by this store once consumed or expired. The caller's own
-    // copy (e.g. an environment-variable string) remains the caller's
-    // responsibility to clear.
+    /// Stores the expected token and starts its time-to-live countdown.
     explicit TokenStore(std::vector<std::uint8_t> expectedToken,
-                         std::chrono::steady_clock::duration timeToLive = std::chrono::minutes(5));
+                        std::chrono::steady_clock::duration timeToLive = std::chrono::minutes(5));
 
-    // Clears any remaining token material even if it was never consumed or
-    // checked for expiry (e.g. clean shutdown before either happens).
+    /// Clears any remaining token material.
     ~TokenStore();
 
+    /// Prevents copying token material between stores.
     TokenStore(const TokenStore&) = delete;
+    /// Prevents assigning token material between stores.
     TokenStore& operator=(const TokenStore&) = delete;
 
-    // Compares `presented` against the expected token in constant time. On the
-    // first call where `presented` matches, before expiry, and the token has
-    // not already been consumed, atomically marks it consumed, clears the
-    // stored token material, and returns true. Every other case (mismatch,
-    // expired, already consumed) returns false and never marks the token
-    // consumed on a mismatch. Safe to call concurrently.
+    /// Compares and atomically consumes a matching, unexpired token.
+    /// Comparison is constant-time for equal-length values; mismatches,
+    /// expiry, and prior consumption return `false` without consuming it.
     [[nodiscard]] bool TryConsume(const std::vector<std::uint8_t>& presented);
 
-    // True until the token has been consumed or has expired. Checking expiry
-    // clears the stored token material as a side effect, matching "clear
-    // token material after consumption or expiry" (ai/context/protocol/security.md).
+    /// Reports whether the token remains available, clearing it on expiry.
     [[nodiscard]] bool IsAvailable();
 
 private:
-    // Must be called while mutex_ is held. Clears the token and marks it
-    // consumed if expiry is detected.
+    /// Checks availability and clears expired token material while locked.
     bool IsAvailableLocked();
 
+    /// Serializes access to token state.
     std::mutex mutex_;
-    std::vector<std::uint8_t> token_;  // cleared once consumed or expired.
+    /// Stored token material, cleared after consumption or expiry.
+    std::vector<std::uint8_t> token_;
+    /// Monotonic expiration deadline.
     std::chrono::steady_clock::time_point expiresAt_;
+    /// Whether the token has been consumed or expired.
     bool consumed_ = false;
 };
 
