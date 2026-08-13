@@ -1,11 +1,4 @@
-// DovahLink bridge validation client (TASK.md: "Use a separate PowerShell/
-// .NET WebSocket validation client under integration/"). An independent
-// protocol consumer -- connects, negotiates hello/hello_ack, exchanges
-// capabilities, subscribes to the character state area, and prints
-// whatever the bridge sends. Intended for manual verification against a
-// real Skyrim-loaded plugin; the automated scenarios in
-// DovahLinkValidationClient.Tests exercise the same Envelope/BridgeConnection
-// classes against the Skyrim-independent test harness instead.
+// Manual validation entry point for a real DovahLink bridge connection.
 
 using System.Text.Json.Nodes;
 using DovahLinkValidationClient;

@@ -3,15 +3,13 @@ using System.Text;
 
 namespace DovahLinkValidationClient;
 
-// Thin wrapper around ClientWebSocket for the DovahLink bridge's one
-// UTF-8-JSON-object-per-message contract (protocol/schema/README.md).
-// Independent of the bridge's own transport implementation: this class
-// only knows how to send and receive one complete text WebSocket message
-// at a time.
+/// Independently sends and receives complete text messages over the bridge WebSocket.
 public sealed class BridgeConnection : IAsyncDisposable
 {
+    /// The default time allowed for one complete inbound message.
     private static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromSeconds(10);
 
+    /// The WebSocket owned by this connection.
     private readonly ClientWebSocket _socket = new();
 
     /// <summary>
@@ -34,9 +32,6 @@ public sealed class BridgeConnection : IAsyncDisposable
         await SendRawTextAsync(envelope.Encode(), cancellationToken);
     }
 
-    // Sends text that does not necessarily decode as a valid Envelope --
-    // for deliberately malformed/oversized/limit-violating input, which
-    // Envelope.Encode() cannot produce by construction (it always emits a
     /// <summary>
     /// Sends arbitrary text as a complete UTF-8 WebSocket message.
     /// </summary>
@@ -47,10 +42,6 @@ public sealed class BridgeConnection : IAsyncDisposable
         await _socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, cancellationToken);
     }
 
-    // Reassembles one complete text message across however many frames
-    // ClientWebSocket delivers it in. Bounded by `timeout` (default 10s) so
-    // a bridge that never responds fails the caller instead of hanging it
-    // forever -- important here since every future scenario test builds on
     /// <summary>
     /// Receives and decodes one complete text message into an envelope.
     /// </summary>
@@ -85,23 +76,9 @@ public sealed class BridgeConnection : IAsyncDisposable
         return Envelope.Decode(Encoding.UTF8.GetString(stream.ToArray()));
     }
 
-    // Best-effort: any failure (already aborted, bridge closed first,
-    // timed out) is swallowed rather than thrown, since a failed graceful
-    // close must never prevent DisposeAsync from releasing the socket.
-    //
-    // When the bridge closed first (State == CloseReceived, observed via
-    // ReceiveAsync throwing on its close frame), only this side's own close
-    // frame is still needed to complete the handshake -- CloseOutputAsync,
-    // not another full CloseAsync round trip. Skipping this and just
-    // dropping the socket leaves the bridge's own synchronous ws_.close()
-    // blocked until its handshake-phase socket timeout lapses (seconds, not
-    // instant) waiting for an acknowledgment that never comes; a
-    // well-behaved client always completes it.
-    // Simulates a real network drop (crash, lost connection) rather than a
-    // graceful close: the socket is torn down immediately with no closing
     /// <summary>
-/// Immediately terminates the WebSocket connection without performing a closing handshake.
-/// </summary>
+    /// Immediately terminates the WebSocket connection without a closing handshake.
+    /// </summary>
     public void Abort() => _socket.Abort();
 
     /// <summary>
@@ -131,10 +108,6 @@ public sealed class BridgeConnection : IAsyncDisposable
         }
     }
 
-    // Retries a fresh connection attempt until the bridge starts accepting
-    // connections (its accept-loop thread can lag a moment behind process
-    // startup) or `maxAttempts` is exhausted. ClientWebSocket cannot retry
-    // ConnectAsync on the same instance after a failed attempt, so each
     /// <summary>
     /// Attempts to establish a connection, retrying failed attempts with a configurable delay.
     /// </summary>

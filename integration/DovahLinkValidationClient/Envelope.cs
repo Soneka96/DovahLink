@@ -2,11 +2,15 @@ using System.Text.Json.Nodes;
 
 namespace DovahLinkValidationClient;
 
-// A hand-written encoder/decoder for the canonical DovahLink envelope
-// (protocol/schema/README.md), deliberately independent from the bridge's
-// own C++ codec: TASK.md requires "the validation client must be an
-// independent protocol consumer; it must not share the bridge's C++
-// codec."
+/// <summary>
+/// An independent encoder and decoder for one DovahLink protocol envelope.
+/// </summary>
+/// <param name="ProtocolVersion">The protocol version carried by the message.</param>
+/// <param name="MessageType">The canonical message type.</param>
+/// <param name="MessageId">The unique message identifier.</param>
+/// <param name="SessionId">The session identifier, when one exists.</param>
+/// <param name="CorrelationId">The correlated request identifier, when one exists.</param>
+/// <param name="Payload">The message-specific JSON object.</param>
 public sealed record Envelope(
     int ProtocolVersion,
     string MessageType,
