@@ -10,6 +10,14 @@
 
 namespace dovahlink::application {
 
+/// Owns one potentially move-only operation submitted at a runtime boundary.
+using ContainedWork = std::move_only_function<void()>;
+
+/// Executes one synchronous runtime-boundary operation without allowing an
+/// exception to escape.
+/// @return `true` when the operation was admitted and completed successfully.
+using ContainedWorkRunner = std::function<bool(ContainedWork)>;
+
 /// Registers and unregisters runtime callbacks owned by the coordinator.
 class CallbackRegistry {
 public:
@@ -17,7 +25,8 @@ public:
     virtual ~CallbackRegistry() = default;
 
     /// Registers all callbacks required by the bridge.
-    virtual void RegisterAll() = 0;
+    /// @param callbackRunner Guarded containment boundary retained by callbacks.
+    virtual void RegisterAll(ContainedWorkRunner callbackRunner) = 0;
 
     /// Unregisters all callbacks before owned state is destroyed.
     virtual void UnregisterAll() = 0;
@@ -30,7 +39,8 @@ public:
     virtual ~WorkerPool() = default;
 
     /// Starts worker processing.
-    virtual void Start() = 0;
+    /// @param workerRunner Containment boundary retained by worker threads.
+    virtual void Start(ContainedWorkRunner workerRunner) = 0;
 
     /// Stops workers and drains or cancels queued work without joining them.
     virtual void Stop() = 0;
@@ -115,7 +125,12 @@ public:
     /// Runs work and converts an exception into an unavailable state.
     /// @param work Operation to execute.
     /// @return `true` when work completes without throwing.
-    bool RunContained(const std::function<void()>& work);
+    bool RunContained(ContainedWork work) noexcept;
+
+    /// Admits one runtime callback and contains every exception it throws.
+    /// @param work Callback operation to execute.
+    /// @return `true` when the callback was admitted and completed successfully.
+    bool RunCallbackContained(ContainedWork work) noexcept;
 
 private:
     /// Callback registration boundary.

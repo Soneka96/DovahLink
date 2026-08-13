@@ -35,7 +35,7 @@ constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
 public:
     /// @copydoc dovahlink::application::CallbackRegistry::RegisterAll
-    void RegisterAll() override {}
+    void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
     /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
@@ -95,7 +95,7 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
-                                                                tokenThrottle, sessionManager, characterStateStore);
+                                                              tokenThrottle, sessionManager, characterStateStore);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();

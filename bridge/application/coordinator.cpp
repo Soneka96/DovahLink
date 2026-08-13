@@ -1,13 +1,15 @@
 #include "application/coordinator.hpp"
 
+#include <utility>
+
 namespace dovahlink::application {
 
 Coordinator::Coordinator(CallbackRegistry& callbacks, WorkerPool& workers, TransportLifecycle& transport)
     : callbacks_(callbacks), workers_(workers), transport_(transport) {}
 
 void Coordinator::Start() {
-    callbacks_.RegisterAll();
-    workers_.Start();
+    callbacks_.RegisterAll([this](ContainedWork work) noexcept { return RunCallbackContained(std::move(work)); });
+    workers_.Start([this](ContainedWork work) noexcept { return RunContained(std::move(work)); });
     transport_.Start();
 }
 
@@ -58,27 +60,17 @@ void Coordinator::Shutdown() {
     shutdownCompleteCv_.notify_all();
 }
 
-bool Coordinator::IsStopping() const {
-    return stopping_.load(std::memory_order_acquire);
-}
+bool Coordinator::IsStopping() const { return stopping_.load(std::memory_order_acquire); }
 
-std::shared_ptr<LifetimeToken> Coordinator::TransportLifetimeTokenHandle() const {
-    return transportToken_;
-}
+std::shared_ptr<LifetimeToken> Coordinator::TransportLifetimeTokenHandle() const { return transportToken_; }
 
-bool Coordinator::IsAvailable() const {
-    return available_.load(std::memory_order_acquire);
-}
+bool Coordinator::IsAvailable() const { return available_.load(std::memory_order_acquire); }
 
-void Coordinator::RegisterFailure() {
-    available_.store(false, std::memory_order_release);
-}
+void Coordinator::RegisterFailure() { available_.store(false, std::memory_order_release); }
 
-void Coordinator::ResetAvailability() {
-    available_.store(true, std::memory_order_release);
-}
+void Coordinator::ResetAvailability() { available_.store(true, std::memory_order_release); }
 
-bool Coordinator::RunContained(const std::function<void()>& work) {
+bool Coordinator::RunContained(ContainedWork work) noexcept {
     try {
         work();
         return true;
@@ -86,6 +78,14 @@ bool Coordinator::RunContained(const std::function<void()>& work) {
         RegisterFailure();
         return false;
     }
+}
+
+bool Coordinator::RunCallbackContained(ContainedWork work) noexcept {
+    CallbackGuard guard(*this);
+    if (!guard.ShouldProceed()) {
+        return false;
+    }
+    return RunContained(std::move(work));
 }
 
 Coordinator::CallbackGuard::CallbackGuard(Coordinator& coordinator) : coordinator_(coordinator) {
@@ -109,8 +109,6 @@ Coordinator::CallbackGuard::~CallbackGuard() {
     coordinator_.inFlightCv_.notify_all();
 }
 
-bool Coordinator::CallbackGuard::ShouldProceed() const {
-    return proceed_;
-}
+bool Coordinator::CallbackGuard::ShouldProceed() const { return proceed_; }
 
 }  // namespace dovahlink::application

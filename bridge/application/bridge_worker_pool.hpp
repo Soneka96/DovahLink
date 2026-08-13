@@ -27,9 +27,9 @@ public:
     /// @param sessionManager Session ownership manager.
     /// @param stateProvider Provider of current character state.
     BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
-                      transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
-                      security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                      const CharacterStateProvider& stateProvider);
+                     transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
+                     security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                     const CharacterStateProvider& stateProvider);
 
     /// Stops and joins any workers that remain active.
     ~BridgeWorkerPool() override;
@@ -41,7 +41,7 @@ public:
     BridgeWorkerPool& operator=(const BridgeWorkerPool&) = delete;
 
     /// @copydoc WorkerPool::Start
-    void Start() override;
+    void Start(ContainedWorkRunner workerRunner) override;
 
     /// @copydoc WorkerPool::Stop
     void Stop() override;
@@ -52,7 +52,8 @@ public:
 private:
     /// Accepts connections from one loopback listener until stopping.
     /// @param listener Listener whose accept loop is executed.
-    void AcceptLoop(transport::LoopbackListener& listener);
+    /// @param workerRunner Per-connection exception containment boundary.
+    void AcceptLoop(transport::LoopbackListener& listener, const ContainedWorkRunner& workerRunner);
 
     /// IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;

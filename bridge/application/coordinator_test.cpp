@@ -9,6 +9,7 @@
 #include <vector>
 
 using dovahlink::application::CallbackRegistry;
+using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
 using dovahlink::application::LifetimeToken;
 using dovahlink::application::TransportLifecycle;
@@ -22,7 +23,7 @@ public:
     /// Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingCallbackRegistry(std::vector<std::string>& log) : log_(log) {}
     /// @copydoc CallbackRegistry::RegisterAll
-    void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    void RegisterAll(ContainedWorkRunner) override { log_.push_back("callbacks.RegisterAll"); }
     /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
 
@@ -37,7 +38,7 @@ public:
     /// Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingWorkerPool(std::vector<std::string>& log) : log_(log) {}
     /// @copydoc WorkerPool::Start
-    void Start() override { log_.push_back("workers.Start"); }
+    void Start(ContainedWorkRunner) override { log_.push_back("workers.Start"); }
     /// @copydoc WorkerPool::Stop
     void Stop() override { log_.push_back("workers.Stop"); }
     /// @copydoc WorkerPool::Join
@@ -181,7 +182,7 @@ public:
     StoppingCheckCallbackRegistry(std::vector<std::string>& log, const Coordinator*& coordinatorRef)
         : log_(log), coordinatorRef_(coordinatorRef) {}
     /// @copydoc CallbackRegistry::RegisterAll
-    void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    void RegisterAll(ContainedWorkRunner) override { log_.push_back("callbacks.RegisterAll"); }
     /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         wasStoppingDuringUnregister_ = coordinatorRef_ != nullptr && coordinatorRef_->IsStopping();

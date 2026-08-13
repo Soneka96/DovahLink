@@ -54,7 +54,9 @@ public:
     explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
 
     /// @copydoc dovahlink::application::CallbackRegistry::RegisterAll
-    void RegisterAll() override { sink_.Register(); }
+    void RegisterAll(dovahlink::application::ContainedWorkRunner callbackRunner) override {
+        sink_.Register(std::move(callbackRunner));
+    }
     /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override { sink_.Unregister(); }
 
@@ -168,9 +170,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         if (message->type != SKSE::MessagingInterface::kDataLoaded) {
             return;
         }
-        levelIncreaseHandler.HandleLevelIncrease();
-        coordinator.Start();
-        SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
+        (void)coordinator.RunCallbackContained([] {
+            levelIncreaseHandler.HandleLevelIncrease();
+            coordinator.Start();
+            SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
+        });
     });
 
     return true;

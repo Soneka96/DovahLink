@@ -8,23 +8,18 @@
 namespace dovahlink::application {
 
 BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
-                                    transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
-                                    security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                                    const CharacterStateProvider& stateProvider)
-    : listenerV4_(listenerV4),
-      listenerV6_(listenerV6),
-      slot_(slot),
-      tokenStore_(tokenStore),
-      tokenThrottle_(tokenThrottle),
-      sessionManager_(sessionManager),
-      stateProvider_(stateProvider) {}
+                                   transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
+                                   security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                                   const CharacterStateProvider& stateProvider)
+    : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot), tokenStore_(tokenStore),
+      tokenThrottle_(tokenThrottle), sessionManager_(sessionManager), stateProvider_(stateProvider) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
     Join();
 }
 
-void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener) {
+void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const ContainedWorkRunner& workerRunner) {
     while (!stopping_.load(std::memory_order_acquire)) {
         auto accepted = listener.AcceptLoopbackOnly();
         if (!accepted.has_value()) {
@@ -51,14 +46,20 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener) {
         }
 
         ConnectionId connection = nextConnectionId_.fetch_add(1, std::memory_order_relaxed);
-        transport::WebSocketSession session(std::move(socket));
-        RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_);
+        (void)workerRunner([this, connection, socket = std::move(socket)]() mutable {
+            transport::WebSocketSession session(std::move(socket));
+            RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_);
+        });
     }
 }
 
-void BridgeWorkerPool::Start() {
-    threadV4_ = std::thread([this] { AcceptLoop(listenerV4_); });
-    threadV6_ = std::thread([this] { AcceptLoop(listenerV6_); });
+void BridgeWorkerPool::Start(ContainedWorkRunner workerRunner) {
+    threadV4_ = std::thread([this, workerRunner] {
+        (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV4_, workerRunner); });
+    });
+    threadV6_ = std::thread([this, workerRunner] {
+        (void)workerRunner([this, workerRunner] { AcceptLoop(listenerV6_, workerRunner); });
+    });
 }
 
 void BridgeWorkerPool::Stop() {

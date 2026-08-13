@@ -2,11 +2,16 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
+#include <semaphore>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 using dovahlink::application::CallbackRegistry;
+using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
 using dovahlink::application::TransportLifecycle;
 using dovahlink::application::WorkerPool;
@@ -17,20 +22,43 @@ namespace {
 class NoopCallbackRegistry : public CallbackRegistry {
 public:
     /// @copydoc CallbackRegistry::RegisterAll
-    void RegisterAll() override {}
+    void RegisterAll(ContainedWorkRunner callbackRunner) override { callbackRunner_ = std::move(callbackRunner); }
     /// @copydoc CallbackRegistry::UnregisterAll
-    void UnregisterAll() override {}
+    void UnregisterAll() override {
+        if (unregisterSignal_ != nullptr) {
+            unregisterSignal_->release();
+        }
+    }
+
+    /// Callback boundary received during coordinator startup.
+    ContainedWorkRunner callbackRunner_;
+
+    /// Optional synchronization point released when shutdown unregisters callbacks.
+    std::binary_semaphore* unregisterSignal_ = nullptr;
 };
 
 /// Provides a worker pool with no observable work for failure-path tests.
 class NoopWorkerPool : public WorkerPool {
 public:
     /// @copydoc WorkerPool::Start
-    void Start() override {}
+    void Start(ContainedWorkRunner workerRunner) override { workerRunner_ = std::move(workerRunner); }
     /// @copydoc WorkerPool::Stop
-    void Stop() override {}
+    void Stop() override {
+        if (completionOrder_ != nullptr) {
+            stopOrder_ = completionOrder_->fetch_add(1, std::memory_order_relaxed) + 1;
+        }
+    }
     /// @copydoc WorkerPool::Join
     void Join() override {}
+
+    /// Worker boundary received during coordinator startup.
+    ContainedWorkRunner workerRunner_;
+
+    /// Optional shared sequence used to order callback completion and worker stopping.
+    std::atomic<int>* completionOrder_ = nullptr;
+
+    /// Sequence assigned when worker stopping begins.
+    int stopOrder_ = 0;
 };
 
 /// Provides a transport lifecycle with no observable work for failure-path tests.
@@ -109,6 +137,80 @@ TEST_CASE("RunContained catches a non-std::exception throwable", "[application][
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
+}
+
+TEST_CASE("Start gives workers a catch-all coordinator boundary",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.coordinator.Start();
+    REQUIRE(f.workers.workerRunner_);
+
+    bool result = f.workers.workerRunner_([] { throw std::runtime_error("session failure"); });
+
+    CHECK_FALSE(result);
+    CHECK_FALSE(f.coordinator.IsAvailable());
+}
+
+TEST_CASE("Start gives callbacks a guarded catch-all coordinator boundary",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.coordinator.Start();
+    REQUIRE(f.callbacks.callbackRunner_);
+
+    bool result = f.callbacks.callbackRunner_([] { throw 42; });
+
+    CHECK_FALSE(result);
+    CHECK_FALSE(f.coordinator.IsAvailable());
+}
+
+TEST_CASE("the callback boundary refuses late work after shutdown",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.coordinator.Start();
+    REQUIRE(f.callbacks.callbackRunner_);
+    ContainedWorkRunner callbackRunner = f.callbacks.callbackRunner_;
+    f.coordinator.Shutdown();
+
+    bool ran = false;
+    bool result = callbackRunner([&ran] { ran = true; });
+
+    CHECK_FALSE(result);
+    CHECK_FALSE(ran);
+}
+
+TEST_CASE("the callback boundary keeps shutdown behind admitted work",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    std::binary_semaphore callbackEntered{0};
+    std::binary_semaphore releaseCallback{0};
+    std::binary_semaphore callbacksUnregistered{0};
+    std::atomic<int> completionOrder{0};
+    int callbackCompletionOrder = 0;
+    bool callbackResult = false;
+    f.callbacks.unregisterSignal_ = &callbacksUnregistered;
+    f.workers.completionOrder_ = &completionOrder;
+    f.coordinator.Start();
+    REQUIRE(f.callbacks.callbackRunner_);
+
+    std::thread callbackThread([&] {
+        callbackResult = f.callbacks.callbackRunner_([&] {
+            callbackEntered.release();
+            releaseCallback.acquire();
+            callbackCompletionOrder = completionOrder.fetch_add(1, std::memory_order_relaxed) + 1;
+        });
+    });
+    callbackEntered.acquire();
+
+    std::thread shutdownThread([&] { f.coordinator.Shutdown(); });
+    callbacksUnregistered.acquire();
+    releaseCallback.release();
+
+    callbackThread.join();
+    shutdownThread.join();
+
+    CHECK(callbackResult);
+    CHECK(callbackCompletionOrder == 1);
+    CHECK(f.workers.stopOrder_ == 2);
 }
 
 TEST_CASE("ResetAvailability restores availability after a failure",
