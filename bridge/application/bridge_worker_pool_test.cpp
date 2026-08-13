@@ -3,6 +3,7 @@
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "security/hex.hpp"
+#include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -31,6 +33,7 @@ using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::TokenStore;
 using dovahlink::transport::ConnectionSlot;
 using dovahlink::transport::LoopbackListener;
+using dovahlink::transport::test_support::RequireLoopbackListener;
 
 namespace {
 
@@ -71,9 +74,9 @@ struct Fixture {
     /// I/O context supplied to both loopback listeners.
     boost::asio::io_context ioc;
     /// Accepts test connections over IPv4.
-    LoopbackListener listenerV4 = *LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    LoopbackListener listenerV4 = RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
     /// Accepts test connections over IPv6.
-    LoopbackListener listenerV6 = *LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    LoopbackListener listenerV6 = RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV6);
     /// Enforces the one-active-connection limit.
     ConnectionSlot slot;
     /// Holds the one-time token accepted by the test session.
@@ -89,6 +92,15 @@ struct Fixture {
 };
 
 }  // namespace
+
+TEST_CASE("RequireLoopbackListener reports listener creation failure before dependent construction",
+          "[application][bridge_worker_pool][test_support]") {
+    boost::asio::io_context ioc;
+    LoopbackListener occupied = RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+
+    CHECK_THROWS_AS(RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4, occupied.LocalEndpoint().port()),
+                    std::runtime_error);
+}
 
 TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection", "[application][bridge_worker_pool]") {
     Fixture fixture;
@@ -226,8 +238,7 @@ TEST_CASE("BridgeWorkerPool Stop interrupts a connection blocked on the "
     REQUIRE_FALSE(connectEc);
 
     auto acceptedDeadline = std::chrono::steady_clock::now() + 2s;
-    while (!fixture.slot.IsOccupied() &&
-           std::chrono::steady_clock::now() < acceptedDeadline) {
+    while (!fixture.slot.IsOccupied() && std::chrono::steady_clock::now() < acceptedDeadline) {
         std::this_thread::yield();
     }
     REQUIRE(fixture.slot.IsOccupied());
