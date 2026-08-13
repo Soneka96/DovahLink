@@ -2,11 +2,11 @@ import Cocoa
 import FlutterMacOS
 import XCTest
 
+/// Tests for handwritten macOS runner behavior.
 class RunnerTests: XCTestCase {
 
+  /// Placeholder for runner-specific tests.
   func testExample() {
-    // If you add code to the Runner application, consider adding tests here.
-    // See https://developer.apple.com/documentation/xctest for more information about using XCTest.
   }
 
 }

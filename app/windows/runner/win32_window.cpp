@@ -16,6 +16,7 @@ namespace {
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+/// Native window class registered for Flutter runner windows.
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
 /// Registry key for app theme preference.
@@ -24,21 +25,21 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 /// value indicates apps should use light mode.
 constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+/// Registry value containing the user's application brightness preference.
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
-// The number of Win32Window objects that currently exist.
+/// Number of live Win32Window objects.
 static int g_active_window_count = 0;
 
+/// Signature of the optional per-monitor DPI scaling API.
 using EnableNonClientDpiScaling = BOOL __stdcall(HWND hwnd);
 
-// Scale helper to convert logical scaler values to physical using passed in
-// scale factor
+/// Converts a logical size to physical pixels using the supplied scale factor.
 int Scale(int source, double scale_factor) {
   return static_cast<int>(source * scale_factor);
 }
 
-// Dynamically loads the |EnableNonClientDpiScaling| from the User32 module.
-// This API is only needed for PerMonitor V1 awareness mode.
+/// Enables per-monitor DPI support when the Windows API is available.
 void EnableFullDpiSupportIfAvailable(HWND hwnd) {
   HMODULE user32_module = LoadLibraryA("User32.dll");
   if (!user32_module) {
@@ -55,12 +56,13 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
 
 }  // namespace
 
-// Manages the Win32Window's window class registration.
+/// Manages registration of the Win32 window class.
 class WindowClassRegistrar {
  public:
+  /// Releases the registrar without unregistering an active class.
   ~WindowClassRegistrar() = default;
 
-  // Returns the singleton registrar instance.
+  /// Returns the process-wide registrar instance.
   static WindowClassRegistrar* GetInstance() {
     if (!instance_) {
       instance_ = new WindowClassRegistrar();
@@ -68,19 +70,20 @@ class WindowClassRegistrar {
     return instance_;
   }
 
-  // Returns the name of the window class, registering the class if it hasn't
-  // previously been registered.
+  /// Returns the registered window class name.
   const wchar_t* GetWindowClass();
 
-  // Unregisters the window class. Should only be called if there are no
-  // instances of the window.
+  /// Unregisters the window class after all windows have been destroyed.
   void UnregisterWindowClass();
 
  private:
+  /// Creates an unregistered class registrar.
   WindowClassRegistrar() = default;
 
+  /// The singleton registrar instance.
   static WindowClassRegistrar* instance_;
 
+  /// Whether the window class has been registered.
   bool class_registered_ = false;
 };
 

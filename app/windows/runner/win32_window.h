@@ -7,95 +7,96 @@
 #include <memory>
 #include <string>
 
-// A class abstraction for a high DPI-aware Win32 Window. Intended to be
-// inherited from by classes that wish to specialize with custom
-// rendering and input handling
+/// A high-DPI-aware Win32 window base for custom rendering and input handling.
 class Win32Window {
  public:
+  /// A logical window origin in screen coordinates.
   struct Point {
+    /// The horizontal screen coordinate.
     unsigned int x;
+
+    /// The vertical screen coordinate.
     unsigned int y;
+
+    /// Creates a point from screen coordinates.
     Point(unsigned int x, unsigned int y) : x(x), y(y) {}
   };
 
+  /// A logical window size.
   struct Size {
+    /// The window width.
     unsigned int width;
+
+    /// The window height.
     unsigned int height;
+
+    /// Creates a size from width and height values.
     Size(unsigned int width, unsigned int height)
         : width(width), height(height) {}
   };
 
+  /// Creates an uninitialized native window wrapper.
   Win32Window();
+
+  /// Destroys the native window wrapper and releases its resources.
   virtual ~Win32Window();
 
-  // Creates a win32 window with |title| that is positioned and sized using
-  // |origin| and |size|. New windows are created on the default monitor. Window
-  // sizes are specified to the OS in physical pixels, hence to ensure a
-  // consistent size this function will scale the inputted width and height as
-  // as appropriate for the default monitor. The window is invisible until
-  // |Show| is called. Returns true if the window was created successfully.
+  /// Creates an invisible window positioned and sized on the default monitor.
   bool Create(const std::wstring& title, const Point& origin, const Size& size);
 
-  // Show the current window. Returns true if the window was successfully shown.
+  /// Shows the current window and reports whether it was shown successfully.
   bool Show();
 
-  // Release OS resources associated with window.
+  /// Releases OS resources associated with the window.
   void Destroy();
 
-  // Inserts |content| into the window tree.
+  /// Inserts the supplied native content into the window tree.
   void SetChildContent(HWND content);
 
-  // Returns the backing Window handle to enable clients to set icon and other
-  // window properties. Returns nullptr if the window has been destroyed.
+  /// Returns the backing window handle, or `nullptr` after destruction.
   HWND GetHandle();
 
-  // If true, closing this window will quit the application.
+  /// Sets whether closing this window quits the application.
   void SetQuitOnClose(bool quit_on_close);
 
-  // Return a RECT representing the bounds of the current client area.
+  /// Returns the bounds of the current client area.
   RECT GetClientArea();
 
  protected:
-  // Processes and route salient window messages for mouse handling,
-  // size change and DPI. Delegates handling of these to member overloads that
-  // inheriting classes can handle.
+  /// Routes window messages to the native window and subclasses.
   virtual LRESULT MessageHandler(HWND window,
                                  UINT const message,
                                  WPARAM const wparam,
                                  LPARAM const lparam) noexcept;
 
-  // Called when CreateAndShow is called, allowing subclass window-related
-  // setup. Subclasses should return false if setup fails.
+  /// Performs subclass setup during creation and reports success.
   virtual bool OnCreate();
 
-  // Called when Destroy is called.
+  /// Performs subclass cleanup during destruction.
   virtual void OnDestroy();
 
  private:
   friend class WindowClassRegistrar;
 
-  // OS callback called by message pump. Handles the WM_NCCREATE message which
-  // is passed when the non-client area is being created and enables automatic
-  // non-client DPI scaling so that the non-client area automatically
-  // responds to changes in DPI. All other messages are handled by
-  // MessageHandler.
+  /// Dispatches OS callbacks to the associated Win32Window instance.
   static LRESULT CALLBACK WndProc(HWND const window,
                                   UINT const message,
                                   WPARAM const wparam,
                                   LPARAM const lparam) noexcept;
 
-  // Retrieves a class instance pointer for |window|
+  /// Retrieves the Win32Window instance associated with the native window.
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  // Update the window frame's theme to match the system theme.
+  /// Updates the window frame theme to match the system preference.
   static void UpdateTheme(HWND const window);
 
+  /// Whether closing the window quits the application.
   bool quit_on_close_ = false;
 
-  // window handle for top level window.
+  /// The native handle for the top-level window.
   HWND window_handle_ = nullptr;
 
-  // window handle for hosted content.
+  /// The native handle for hosted Flutter content.
   HWND child_content_ = nullptr;
 };
 
