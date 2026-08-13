@@ -17,20 +17,23 @@ void Coordinator::Shutdown() {
     {
         std::unique_lock<std::mutex> lock(mutex_);
         if (shutdownStarted_) {
-            // A different caller already started the barrier: wait for it to
-            // finish rather than returning early, so every caller's Shutdown()
-            // only returns once the system is actually fully shut down.
-            shutdownCompleteCv_.wait(lock, [this] { return shutdownComplete_; });
+            lock.unlock();
+            shutdownComplete_.wait(false, std::memory_order_acquire);
             return;
         }
         shutdownStarted_ = true;
     }
 
+    // Publish completion even if synchronization or future non-lifecycle work
+    // throws after this point. Atomic wait/notify avoids requiring a second
+    // fallible mutex acquisition while unwinding.
+    ShutdownCompletionGuard completionSignal(*this);
+
     // 1. Mark stopping so a new CallbackGuard returns without touching state.
     stopping_.store(true, std::memory_order_release);
 
     // 2. Unregister callbacks.
-    callbacks_.UnregisterAll();
+    (void)RunContained([this] { callbacks_.UnregisterAll(); });
 
     // 3. Wait for callbacks already in flight to leave.
     {
@@ -40,24 +43,18 @@ void Coordinator::Shutdown() {
 
     // 4. Stop and join workers. Draining/cancelling queued work is the
     //    worker pool implementation's responsibility (see WorkerPool::Stop).
-    workers_.Stop();
-    workers_.Join();
+    (void)RunContained([this] { workers_.Stop(); });
+    (void)RunContained([this] { workers_.Join(); });
 
     // 5. Cancel transport completions.
-    transport_.CancelCompletions();
+    (void)RunContained([this] { transport_.CancelCompletions(); });
 
     // 6. Invalidate the transport lifetime token: an in-flight completion
     //    that captured it now sees IsValid() == false.
     transportToken_->Invalidate();
 
     // 7. Close transport resources.
-    transport_.Close();
-
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        shutdownComplete_ = true;
-    }
-    shutdownCompleteCv_.notify_all();
+    (void)RunContained([this] { transport_.Close(); });
 }
 
 bool Coordinator::IsStopping() const { return stopping_.load(std::memory_order_acquire); }
@@ -86,6 +83,14 @@ bool Coordinator::RunCallbackContained(ContainedWork work) noexcept {
         return false;
     }
     return RunContained(std::move(work));
+}
+
+Coordinator::ShutdownCompletionGuard::ShutdownCompletionGuard(Coordinator& coordinator) noexcept
+    : coordinator_(coordinator) {}
+
+Coordinator::ShutdownCompletionGuard::~ShutdownCompletionGuard() noexcept {
+    coordinator_.shutdownComplete_.store(true, std::memory_order_release);
+    coordinator_.shutdownComplete_.notify_all();
 }
 
 Coordinator::CallbackGuard::CallbackGuard(Coordinator& coordinator) : coordinator_(coordinator) {

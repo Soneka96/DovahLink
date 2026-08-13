@@ -2,7 +2,11 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <memory>
 #include <semaphore>
 #include <stdexcept>
 #include <string>
@@ -18,16 +22,49 @@ using dovahlink::application::WorkerPool;
 
 namespace {
 
-/// Provides a callback registry with no observable work for failure-path tests.
+/// Identifies one lifecycle stage configured to fail during a shutdown test.
+enum class ShutdownFailureStage {
+    /// No lifecycle stage throws.
+    kNone,
+    /// Callback unregistration throws.
+    kUnregisterCallbacks,
+    /// Worker stopping throws.
+    kStopWorkers,
+    /// Worker joining throws.
+    kJoinWorkers,
+    /// Transport completion cancellation throws.
+    kCancelTransportCompletions,
+    /// Transport closure throws a non-standard value.
+    kCloseTransport,
+};
+
+/// Throws when the current lifecycle stage is the configured failure point.
+/// @param configuredStage Stage selected by the test.
+/// @param currentStage Stage being executed.
+void ThrowAtStage(ShutdownFailureStage configuredStage, ShutdownFailureStage currentStage) {
+    if (configuredStage != currentStage) {
+        return;
+    }
+    if (currentStage == ShutdownFailureStage::kCloseTransport) {
+        throw 42;
+    }
+    throw std::runtime_error("configured shutdown failure");
+}
+
+/// Provides a callback registry with configurable shutdown behavior.
 class NoopCallbackRegistry : public CallbackRegistry {
 public:
     /// @copydoc CallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner callbackRunner) override { callbackRunner_ = std::move(callbackRunner); }
     /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("callbacks.UnregisterAll");
+        }
         if (unregisterSignal_ != nullptr) {
             unregisterSignal_->release();
         }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kUnregisterCallbacks);
     }
 
     /// Callback boundary received during coordinator startup.
@@ -35,21 +72,36 @@ public:
 
     /// Optional synchronization point released when shutdown unregisters callbacks.
     std::binary_semaphore* unregisterSignal_ = nullptr;
+
+    /// Optional log receiving shutdown stage names.
+    std::vector<std::string>* shutdownLog_ = nullptr;
+
+    /// Lifecycle stage configured to throw.
+    ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 };
 
-/// Provides a worker pool with no observable work for failure-path tests.
+/// Provides a worker pool with configurable shutdown behavior.
 class NoopWorkerPool : public WorkerPool {
 public:
     /// @copydoc WorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override { workerRunner_ = std::move(workerRunner); }
     /// @copydoc WorkerPool::Stop
     void Stop() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("workers.Stop");
+        }
         if (completionOrder_ != nullptr) {
             stopOrder_ = completionOrder_->fetch_add(1, std::memory_order_relaxed) + 1;
         }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kStopWorkers);
     }
     /// @copydoc WorkerPool::Join
-    void Join() override {}
+    void Join() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("workers.Join");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kJoinWorkers);
+    }
 
     /// Worker boundary received during coordinator startup.
     ContainedWorkRunner workerRunner_;
@@ -59,26 +111,60 @@ public:
 
     /// Sequence assigned when worker stopping begins.
     int stopOrder_ = 0;
+
+    /// Optional log receiving shutdown stage names.
+    std::vector<std::string>* shutdownLog_ = nullptr;
+
+    /// Lifecycle stage configured to throw.
+    ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 };
 
-/// Provides a transport lifecycle with no observable work for failure-path tests.
+/// Provides a transport lifecycle with configurable shutdown behavior.
 class NoopTransportLifecycle : public TransportLifecycle {
 public:
     /// @copydoc TransportLifecycle::Start
     void Start() override {}
     /// @copydoc TransportLifecycle::CancelCompletions
-    void CancelCompletions() override {}
+    void CancelCompletions() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("transport.CancelCompletions");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kCancelTransportCompletions);
+    }
     /// @copydoc TransportLifecycle::Close
-    void Close() override {}
+    void Close() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("transport.Close");
+        }
+        if (closeEntered_ != nullptr) {
+            closeEntered_->release();
+        }
+        if (releaseClose_ != nullptr) {
+            releaseClose_->acquire();
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kCloseTransport);
+    }
+
+    /// Optional log receiving shutdown stage names.
+    std::vector<std::string>* shutdownLog_ = nullptr;
+
+    /// Lifecycle stage configured to throw.
+    ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
+
+    /// Optional synchronization point released when transport closure begins.
+    std::binary_semaphore* closeEntered_ = nullptr;
+
+    /// Optional synchronization point blocking transport closure until released.
+    std::binary_semaphore* releaseClose_ = nullptr;
 };
 
-/// Bundles inert coordinator dependencies for each failure-path test.
+/// Bundles configurable coordinator dependencies for each failure-path test.
 struct Fixture {
-    /// Records no callback operations.
+    /// Provides callback lifecycle behavior.
     NoopCallbackRegistry callbacks;
-    /// Records no worker-pool operations.
+    /// Provides worker-pool lifecycle behavior.
     NoopWorkerPool workers;
-    /// Records no transport operations.
+    /// Provides transport lifecycle behavior.
     NoopTransportLifecycle transport;
     /// Coordinator under test.
     Coordinator coordinator{callbacks, workers, transport};
@@ -271,6 +357,77 @@ TEST_CASE("a failure registered before shutdown does not block or alter the shut
     CHECK(f.coordinator.IsStopping());
     // Shutdown does not itself restore availability; that stays an explicit,
     // reconnect-driven decision (ResetAvailability).
+    CHECK_FALSE(f.coordinator.IsAvailable());
+}
+
+TEST_CASE("Shutdown contains every lifecycle failure and attempts every later cleanup stage",
+          "[application][coordinator][failure]") {
+    constexpr std::array kFailureStages{
+        ShutdownFailureStage::kUnregisterCallbacks,
+        ShutdownFailureStage::kStopWorkers,
+        ShutdownFailureStage::kJoinWorkers,
+        ShutdownFailureStage::kCancelTransportCompletions,
+        ShutdownFailureStage::kCloseTransport,
+    };
+    const std::vector<std::string> expectedLog{
+        "callbacks.UnregisterAll",
+        "workers.Stop",
+        "workers.Join",
+        "transport.CancelCompletions",
+        "transport.Close",
+    };
+
+    for (ShutdownFailureStage failureStage : kFailureStages) {
+        CAPTURE(static_cast<int>(failureStage));
+        Fixture f;
+        std::vector<std::string> shutdownLog;
+        f.callbacks.shutdownLog_ = &shutdownLog;
+        f.callbacks.failureStage_ = failureStage;
+        f.workers.shutdownLog_ = &shutdownLog;
+        f.workers.failureStage_ = failureStage;
+        f.transport.shutdownLog_ = &shutdownLog;
+        f.transport.failureStage_ = failureStage;
+        auto lifetimeToken = f.coordinator.TransportLifetimeTokenHandle();
+
+        f.coordinator.Shutdown();
+
+        CHECK(shutdownLog == expectedLog);
+        CHECK_FALSE(f.coordinator.IsAvailable());
+        REQUIRE(f.coordinator.IsStopping());
+        CHECK_FALSE(lifetimeToken->IsValid());
+
+        f.coordinator.Shutdown();
+        CHECK(shutdownLog == expectedLog);
+    }
+}
+
+TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes completion",
+          "[application][coordinator][failure]") {
+    using namespace std::chrono_literals;
+
+    Fixture f;
+    std::binary_semaphore closeEntered{0};
+    std::binary_semaphore releaseClose{0};
+    std::binary_semaphore waiterCalling{0};
+    f.transport.failureStage_ = ShutdownFailureStage::kCloseTransport;
+    f.transport.closeEntered_ = &closeEntered;
+    f.transport.releaseClose_ = &releaseClose;
+
+    std::thread owner([&] { f.coordinator.Shutdown(); });
+    closeEntered.acquire();
+
+    auto waiter = std::async(std::launch::async, [&] {
+        waiterCalling.release();
+        f.coordinator.Shutdown();
+    });
+    waiterCalling.acquire();
+
+    CHECK(waiter.wait_for(50ms) == std::future_status::timeout);
+    releaseClose.release();
+
+    owner.join();
+    CHECK(waiter.wait_for(5s) == std::future_status::ready);
+    waiter.get();
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 

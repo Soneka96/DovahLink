@@ -77,7 +77,8 @@ public:
     /// Registers callbacks and starts workers and transport in order.
     void Start();
 
-    /// Completes the shutdown barrier; repeated calls wait for completion.
+    /// Completes every shutdown stage on a best-effort basis; repeated calls wait for completion.
+    /// Lifecycle implementations must not call this method re-entrantly from a shutdown stage.
     void Shutdown();
 
     /// Reports whether shutdown has started.
@@ -133,6 +134,27 @@ public:
     bool RunCallbackContained(ContainedWork work) noexcept;
 
 private:
+    /// Publishes barrier completion when the owning shutdown call exits.
+    class ShutdownCompletionGuard {
+    public:
+        /// Binds completion publication to one coordinator.
+        /// @param coordinator Coordinator whose shutdown barrier is owned.
+        explicit ShutdownCompletionGuard(Coordinator& coordinator) noexcept;
+
+        /// Publishes completion and releases every waiting shutdown caller.
+        ~ShutdownCompletionGuard() noexcept;
+
+        /// Copying the unique completion publisher is not supported.
+        ShutdownCompletionGuard(const ShutdownCompletionGuard&) = delete;
+
+        /// Copy assignment is not supported.
+        ShutdownCompletionGuard& operator=(const ShutdownCompletionGuard&) = delete;
+
+    private:
+        /// Coordinator whose completion state is published.
+        Coordinator& coordinator_;
+    };
+
     /// Callback registration boundary.
     CallbackRegistry& callbacks_;
 
@@ -151,9 +173,6 @@ private:
     /// Notifies waiters when in-flight callbacks leave.
     std::condition_variable inFlightCv_;
 
-    /// Notifies concurrent shutdown callers when shutdown completes.
-    std::condition_variable shutdownCompleteCv_;
-
     /// Prevents new callback admission after shutdown begins.
     std::atomic<bool> stopping_{false};
 
@@ -163,8 +182,8 @@ private:
     /// Whether one caller has begun the shutdown barrier.
     bool shutdownStarted_ = false;
 
-    /// Whether the shutdown barrier has completed.
-    bool shutdownComplete_ = false;
+    /// Publishes shutdown completion to callers that did not own the barrier.
+    std::atomic<bool> shutdownComplete_{false};
 
     /// Number of callbacks currently admitted.
     int inFlightCallbacks_ = 0;
