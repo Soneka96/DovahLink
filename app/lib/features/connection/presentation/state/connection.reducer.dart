@@ -7,44 +7,30 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Reduces connection actions into [ConnectionState].
 Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
-  /// Handles [ConnectionStartedAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.session], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionStartedAction>(
     connectionStartedReducer,
   ).call,
 
-  /// Handles [ConnectionNegotiatingAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionNegotiatingAction>(
     connectionNegotiatingReducer,
   ).call,
 
-  /// Handles [ConnectionEstablishedAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.session], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionEstablishedAction>(
     connectionEstablishedReducer,
   ).call,
 
-  /// Handles [ConnectionRecoveringAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionRecoveringAction>(
     connectionRecoveringReducer,
   ).call,
 
-  /// Handles [ConnectionUnavailableAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionUnavailableAction>(
     connectionUnavailableReducer,
   ).call,
 
-  /// Handles [ConnectionIncompatibleAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionIncompatibleAction>(
     connectionIncompatibleReducer,
   ).call,
 
-  /// Handles [ConnectionDisconnectedAction].
-  /// Updates [ConnectionState.phase], [ConnectionState.session], [ConnectionState.error].
   TypedReducer<ConnectionState, ConnectionDisconnectedAction>(
     connectionDisconnectedReducer,
   ).call,

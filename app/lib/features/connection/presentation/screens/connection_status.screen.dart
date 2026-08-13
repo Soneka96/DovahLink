@@ -11,6 +11,7 @@ class ConnectionStatusScreen extends StatelessWidget {
   /// Creates the connection status screen.
   const ConnectionStatusScreen({super.key});
 
+  /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
     return StoreConnector<AppState, ConnectionStatusScreenViewModel>(

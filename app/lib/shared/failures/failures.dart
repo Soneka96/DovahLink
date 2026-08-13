@@ -8,6 +8,7 @@ abstract class Failure extends Equatable {
   /// A user-safe description of the failure.
   final String message;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [message];
 }

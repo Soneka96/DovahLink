@@ -42,6 +42,7 @@ class ConnectionState extends Equatable {
     error: error == null ? this.error : error.toNullable(),
   );
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [phase, session, error];
 }
