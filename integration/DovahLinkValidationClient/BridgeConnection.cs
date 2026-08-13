@@ -11,8 +11,33 @@ public sealed class BridgeConnection : IAsyncDisposable
     /// <summary>The default time allowed for one complete inbound message.</summary>
     private static readonly TimeSpan DefaultReceiveTimeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>The maximum time disposal waits for a graceful closing handshake.</summary>
+    private static readonly TimeSpan DefaultCloseTimeout = TimeSpan.FromSeconds(1);
+
     /// <summary>The WebSocket owned by this connection.</summary>
-    private readonly ClientWebSocket _socket = new();
+    private readonly WebSocket _socket;
+
+    /// <summary>The connect-capable socket used by normal client instances.</summary>
+    private readonly ClientWebSocket? _clientSocket;
+
+    /// <summary>The maximum time disposal allows for graceful closure.</summary>
+    private readonly TimeSpan _closeTimeout;
+
+    /// <summary>Creates a validation connection backed by a new client WebSocket.</summary>
+    public BridgeConnection()
+        : this(new ClientWebSocket(), DefaultCloseTimeout)
+    {
+    }
+
+    /// <summary>Creates a validation connection over an injected WebSocket for deterministic transport tests.</summary>
+    /// <param name="socket">The WebSocket owned by the connection.</param>
+    /// <param name="closeTimeout">The maximum time disposal waits for graceful closure.</param>
+    internal BridgeConnection(WebSocket socket, TimeSpan closeTimeout)
+    {
+        _socket = socket;
+        _clientSocket = socket as ClientWebSocket;
+        _closeTimeout = closeTimeout;
+    }
 
     /// <summary>
     /// Connects the WebSocket to the specified URI.
@@ -21,7 +46,12 @@ public sealed class BridgeConnection : IAsyncDisposable
     /// <param name="cancellationToken">The token used to cancel the connection attempt.</param>
     public async Task ConnectAsync(Uri uri, CancellationToken cancellationToken = default)
     {
-        await _socket.ConnectAsync(uri, cancellationToken);
+        if (_clientSocket is null)
+        {
+            throw new InvalidOperationException("The injected WebSocket does not support client connection setup.");
+        }
+
+        await _clientSocket.ConnectAsync(uri, cancellationToken);
     }
 
     /// <summary>
@@ -61,7 +91,16 @@ public sealed class BridgeConnection : IAsyncDisposable
         WebSocketReceiveResult result;
         do
         {
-            result = await _socket.ReceiveAsync(buffer, cts.Token);
+            try
+            {
+                result = await _socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token);
+            }
+            catch (WebSocketException ex)
+            {
+                throw new InvalidOperationException(
+                    "Bridge connection ended before a complete protocol message was received.",
+                    ex);
+            }
             if (result.MessageType == WebSocketMessageType.Close)
             {
                 throw new InvalidOperationException(
@@ -143,13 +182,17 @@ public sealed class BridgeConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gracefully closes the connection and disposes the underlying WebSocket.
+    /// Gracefully closes the connection within a bounded interval, then aborts if needed and disposes the WebSocket.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
         try
         {
-            await CloseAsync();
+            await CloseAsync().WaitAsync(_closeTimeout);
+        }
+        catch (TimeoutException)
+        {
+            _socket.Abort();
         }
         finally
         {

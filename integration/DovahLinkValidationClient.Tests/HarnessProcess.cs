@@ -15,47 +15,56 @@ public sealed class HarnessProcess : IDisposable
     /// <summary>Standard-error output captured from the harness.</summary>
     private readonly StringBuilder _stderr = new();
 
+    /// <summary>Serializes asynchronous standard-error writes with diagnostic reads.</summary>
+    private readonly object _stderrLock = new();
+
     /// <summary>
     /// Starts the bridge harness with redirected standard streams and the specified environment configuration.
     /// </summary>
     /// <param name="token">The bridge token to provide to the harness, or <c>null</c> to omit it.</param>
     /// <param name="extraEnvironmentVariables">Additional environment variables to provide to the harness.</param>
     public HarnessProcess(string? token, IReadOnlyDictionary<string, string>? extraEnvironmentVariables = null)
+        : this(CreateStartInfo(token, extraEnvironmentVariables))
     {
-        var startInfo = new ProcessStartInfo(LocateHarnessExe())
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        startInfo.EnvironmentVariables.Remove("DOVAHLINK_BRIDGE_TOKEN");
-        if (token is not null)
-        {
-            startInfo.EnvironmentVariables["DOVAHLINK_BRIDGE_TOKEN"] = token;
-        }
-        if (extraEnvironmentVariables is not null)
-        {
-            foreach ((string key, string value) in extraEnvironmentVariables)
-            {
-                startInfo.EnvironmentVariables[key] = value;
-            }
-        }
+    }
 
+    /// <summary>Starts a process from an injected specification for deterministic diagnostic tests.</summary>
+    /// <param name="startInfo">The redirected process specification to start.</param>
+    internal HarnessProcess(ProcessStartInfo startInfo)
+    {
         _process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start the bridge harness process.");
 
         _process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                _stderr.AppendLine(e.Data);
+                AppendStandardError(e.Data);
             }
         };
         _process.BeginErrorReadLine();
     }
 
     /// <summary>Diagnostic output captured from the harness's standard error stream.</summary>
-    public string StandardError => _stderr.ToString();
+    public string StandardError
+    {
+        get
+        {
+            lock (_stderrLock)
+            {
+                return _stderr.ToString();
+            }
+        }
+    }
+
+    /// <summary>Appends one diagnostic line while excluding concurrent readers.</summary>
+    /// <param name="line">The standard-error line to append.</param>
+    private void AppendStandardError(string line)
+    {
+        lock (_stderrLock)
+        {
+            _stderr.AppendLine(line);
+        }
+    }
 
     /// <summary>
     /// Reads a line from the harness output within the specified timeout.
@@ -118,6 +127,36 @@ public sealed class HarnessProcess : IDisposable
             _process.WaitForExit(5000);
         }
         _process.Dispose();
+    }
+
+    /// <summary>Builds the redirected bridge-harness process specification.</summary>
+    /// <param name="token">The bridge token to provide, or <c>null</c> to omit it.</param>
+    /// <param name="extraEnvironmentVariables">Additional environment variables for the harness.</param>
+    /// <returns>The configured process start information.</returns>
+    private static ProcessStartInfo CreateStartInfo(
+        string? token,
+        IReadOnlyDictionary<string, string>? extraEnvironmentVariables)
+    {
+        var startInfo = new ProcessStartInfo(LocateHarnessExe())
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.EnvironmentVariables.Remove("DOVAHLINK_BRIDGE_TOKEN");
+        if (token is not null)
+        {
+            startInfo.EnvironmentVariables["DOVAHLINK_BRIDGE_TOKEN"] = token;
+        }
+        if (extraEnvironmentVariables is not null)
+        {
+            foreach ((string key, string value) in extraEnvironmentVariables)
+            {
+                startInfo.EnvironmentVariables[key] = value;
+            }
+        }
+        return startInfo;
     }
 
     /// <summary>

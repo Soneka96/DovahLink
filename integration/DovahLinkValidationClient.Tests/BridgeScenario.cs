@@ -44,31 +44,63 @@ public static class BridgeScenario
     /// <exception cref="InvalidOperationException">
     /// Thrown when the harness does not become ready or the bridge handshake does not produce the expected messages.
     /// </exception>
-    public static async Task<(HarnessProcess Harness, BridgeConnection Connection, string SessionId, Envelope Capabilities)> ConnectAndAuthenticateAsync()
+    public static Task<(HarnessProcess Harness, BridgeConnection Connection, string SessionId, Envelope Capabilities)> ConnectAndAuthenticateAsync()
+    {
+        return ConnectAndAuthenticateAsync(ValidHexToken, connectionFactory: null);
+    }
+
+    /// <summary>Establishes a connection using a selectable hello token for failure-path scenarios.</summary>
+    /// <param name="helloToken">The token sent in the client hello.</param>
+    /// <param name="connectionFactory">An optional deterministic connection source for setup-failure tests.</param>
+    /// <returns>The authenticated harness resources and negotiated values.</returns>
+    internal static async Task<(HarnessProcess Harness, BridgeConnection Connection, string SessionId, Envelope Capabilities)> ConnectAndAuthenticateAsync(
+        string helloToken,
+        Func<Task<BridgeConnection>>? connectionFactory = null)
     {
         var harness = new HarnessProcess(ValidHexToken);
-        string? ready = await harness.ReadLineAsync();
-        if (ready != "READY")
+        BridgeConnection? connection = null;
+        try
         {
-            throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {harness.StandardError}");
+            string? ready = await harness.ReadLineAsync();
+            if (ready != "READY")
+            {
+                throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {harness.StandardError}");
+            }
+
+            connection = connectionFactory is null
+                ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)
+                : await connectionFactory();
+            await connection.SendAsync(HelloEnvelope(helloToken));
+
+            Envelope helloAck = await connection.ReceiveAsync();
+            if (helloAck.MessageType != "hello_ack" || helloAck.SessionId is null)
+            {
+                throw new InvalidOperationException($"Expected hello_ack with a sessionId, got {helloAck.MessageType}: {helloAck.Payload}");
+            }
+
+            Envelope capabilities = await connection.ReceiveAsync();
+            if (capabilities.MessageType != "capabilities")
+            {
+                throw new InvalidOperationException($"Expected the bridge's own capabilities message, got {capabilities.MessageType}.");
+            }
+
+            return (harness, connection, helloAck.SessionId, capabilities);
         }
-
-        BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeUri);
-        await connection.SendAsync(HelloEnvelope(ValidHexToken));
-
-        Envelope helloAck = await connection.ReceiveAsync();
-        if (helloAck.MessageType != "hello_ack" || helloAck.SessionId is null)
+        catch
         {
-            throw new InvalidOperationException($"Expected hello_ack with a sessionId, got {helloAck.MessageType}: {helloAck.Payload}");
+            try
+            {
+                if (connection is not null)
+                {
+                    await connection.DisposeAsync();
+                }
+            }
+            finally
+            {
+                harness.Dispose();
+            }
+            throw;
         }
-
-        Envelope capabilities = await connection.ReceiveAsync();
-        if (capabilities.MessageType != "capabilities")
-        {
-            throw new InvalidOperationException($"Expected the bridge's own capabilities message, got {capabilities.MessageType}.");
-        }
-
-        return (harness, connection, helloAck.SessionId, capabilities);
     }
 
     /// <summary>

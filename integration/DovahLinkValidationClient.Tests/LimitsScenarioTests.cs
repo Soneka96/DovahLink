@@ -381,25 +381,38 @@ public class LimitsScenarioTests
     // TTL override touched (harness main() only) -- a disproportionate
     // change for what the unit test already proves.
 
-    /// <summary>Verifies that the 101st message in one second is rate limited.</summary>
+    /// <summary>Verifies that a burst exceeding 100 messages per second yields a rate-limit response.</summary>
     [Fact]
-    public async Task The101stMessageWithinOneSecondIsRateLimited()
+    public async Task AMessageBurstExceedingTheRateLimitIsDetectedAmongQueuedResponses()
     {
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _) =
             await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i <= 100; i++)
         {
             await connection.SendAsync(new Envelope(1, "ping", $"message-rate-{i}", sessionId, null, new JsonObject()));
-            Envelope pong = await connection.ReceiveAsync();
-            Assert.Equal("pong", pong.MessageType);
         }
 
-        await connection.SendAsync(new Envelope(1, "ping", "message-rate-101", sessionId, null, new JsonObject()));
-        Envelope rateLimited = await connection.ReceiveAsync();
+        Envelope? rateLimited = null;
+        int pongCount = 0;
+        for (int i = 0; i <= 100; i++)
+        {
+            Envelope response = await connection.ReceiveAsync();
+            if (response.Payload["code"]?.GetValue<string>() == "rate_limited")
+            {
+                rateLimited = response;
+                break;
+            }
+            Assert.Equal("pong", response.MessageType);
+            pongCount++;
+        }
+
+        Assert.NotNull(rateLimited);
+        Assert.Equal(100, pongCount);
         Assert.Equal("error", rateLimited.MessageType);
+        Assert.Equal("message-rate-100", rateLimited.CorrelationId);
         Assert.Equal("rate_limited", rateLimited.Payload["code"]!.GetValue<string>());
         Assert.True(rateLimited.Payload["retryable"]!.GetValue<bool>());
 
