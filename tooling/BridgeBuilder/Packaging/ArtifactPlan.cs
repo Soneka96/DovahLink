@@ -8,6 +8,13 @@ public sealed record ArtifactPlan(
     string ArchiveName,
     IReadOnlyList<ArtifactFile> Files)
 {
+    /// <summary>
+    /// Creates a packaging plan for a bridge version and package channel.
+    /// </summary>
+    /// <param name="version">The bridge version to package.</param>
+    /// <param name="channel">The package channel for the artifact.</param>
+    /// <returns>The archive name and runtime files with their archive paths.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="channel"/> is not a defined package channel.</exception>
     public static ArtifactPlan Create(BridgeVersion version, PackageChannel channel)
     {
         if (!Enum.IsDefined(channel))

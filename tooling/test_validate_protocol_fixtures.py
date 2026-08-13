@@ -8,6 +8,7 @@ from validate_protocol_fixtures import FIXTURES_DIR, FixtureError, main, validat
 
 
 def _valid_hello() -> dict:
+    """Create a valid hello message envelope for use in tests."""
     return {
         "protocolVersion": 0,
         "messageType": "hello",
@@ -19,6 +20,12 @@ def _valid_hello() -> dict:
 
 
 def _valid_snapshot() -> dict:
+    """
+    Create a valid state snapshot envelope for testing.
+    
+    Returns:
+    	dict: A protocol-compliant state snapshot envelope.
+    """
     return {
         "protocolVersion": 1,
         "messageType": "state_snapshot",
@@ -30,6 +37,15 @@ def _valid_snapshot() -> dict:
 
 
 def _valid_error(session_id: str | None) -> dict:
+    """
+    Create a valid error message envelope for the specified session.
+    
+    Parameters:
+    	session_id (str | None): The session identifier to include in the envelope.
+    
+    Returns:
+    	dict: A protocol-compliant error envelope.
+    """
     return {
         "protocolVersion": 0,
         "messageType": "error",

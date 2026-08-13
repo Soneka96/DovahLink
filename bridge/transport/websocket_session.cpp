@@ -18,8 +18,21 @@
 
 namespace dovahlink::transport {
 
+/**
+ * @brief Constructs a WebSocket session from a TCP socket.
+ *
+ * @param socket TCP socket transferred to the session.
+ */
 WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket) : ws_(std::move(socket)) {}
 
+/**
+ * @brief Configures WebSocket handshake and read timeouts.
+ *
+ * Disables keep-alive pings and applies the specified timeout to WebSocket
+ * idle handling and the underlying socket receive operation.
+ *
+ * @param timeout Duration used for idle and socket receive timeouts.
+ */
 void WebSocketSession::SetReadTimeout(std::chrono::steady_clock::duration timeout) {
     boost::beast::websocket::stream_base::timeout timeoutOptions;
     timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
@@ -33,6 +46,11 @@ void WebSocketSession::SetReadTimeout(std::chrono::steady_clock::duration timeou
                  reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
 }
 
+/**
+ * @brief Accepts the WebSocket upgrade request.
+ *
+ * @return An empty result on success, or `SessionError::kHandshakeFailed` if the handshake fails.
+ */
 std::expected<void, SessionError> WebSocketSession::Accept() {
     boost::beast::websocket::permessage_deflate compressionOptions;
     compressionOptions.client_enable = false;
@@ -53,8 +71,17 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
     return {};
 }
 
+/**
+ * @brief Switches the session to the configured idle timeout.
+ */
 void WebSocketSession::SwitchToIdleTimeout() { SetReadTimeout(security::kIdleTimeout); }
 
+/**
+ * @brief Reads a text message from the WebSocket session.
+ *
+ * @return The message contents, or a `SessionError` describing why the message
+ *         could not be read.
+ */
 std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
     boost::beast::flat_buffer buffer;
     boost::beast::error_code ec;
@@ -71,6 +98,13 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
     return boost::beast::buffers_to_string(buffer.data());
 }
 
+/**
+ * @brief Sends a text message over the WebSocket connection.
+ *
+ * @param text Message content to send.
+ * @return An empty value on success, or `SessionError::kWriteFailed` if the
+ *         message cannot be sent.
+ */
 std::expected<void, SessionError> WebSocketSession::WriteMessage(const std::string& text) {
     ws_.text(true);
     boost::beast::error_code ec;
@@ -81,6 +115,9 @@ std::expected<void, SessionError> WebSocketSession::WriteMessage(const std::stri
     return {};
 }
 
+/**
+ * @brief Closes the WebSocket session normally.
+ */
 void WebSocketSession::Close() {
     boost::beast::error_code ec;
     ws_.close(boost::beast::websocket::close_code::normal, ec);

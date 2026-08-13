@@ -2,6 +2,12 @@ namespace DovahLink.BridgeBuilder.Ui;
 
 public static class RepositoryRootLocator
 {
+    /// <summary>
+    /// Locates the DovahLink repository root by searching upward from the specified path.
+    /// </summary>
+    /// <param name="startPath">The path from which to begin the search.</param>
+    /// <returns>The first ancestor directory containing <c>bridge/vcpkg.json</c>.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no repository root is found.</exception>
     public static string Find(string startPath)
     {
         DirectoryInfo? directory = new(Path.GetFullPath(startPath));

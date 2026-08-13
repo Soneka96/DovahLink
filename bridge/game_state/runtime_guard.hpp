@@ -32,10 +32,22 @@ struct RuntimeVersion {
 inline constexpr RuntimeVersion kSupportedSkyrimVersion{1, 6, 1170, 0};
 inline constexpr RuntimeVersion kSupportedSkseVersion{2, 2, 6, 0};
 
+/**
+ * @brief Determines whether a runtime version is the supported Skyrim version.
+ *
+ * @param version Runtime version to check.
+ * @return `true` if the version matches the supported Skyrim version, `false` otherwise.
+ */
 [[nodiscard]] constexpr bool IsSupportedSkyrimVersion(const RuntimeVersion& version) {
     return version == kSupportedSkyrimVersion;
 }
 
+/**
+ * @brief Determines whether a runtime version is the supported SKSE version.
+ *
+ * @param version Runtime version to evaluate.
+ * @return `true` if the version matches the supported SKSE version, `false` otherwise.
+ */
 [[nodiscard]] constexpr bool IsSupportedSkseVersion(const RuntimeVersion& version) {
     return version == kSupportedSkseVersion;
 }

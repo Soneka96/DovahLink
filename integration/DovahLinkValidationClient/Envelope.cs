@@ -15,6 +15,10 @@ public sealed record Envelope(
     string? CorrelationId,
     JsonObject Payload)
 {
+    /// <summary>
+    /// Encodes the envelope as a JSON string.
+    /// </summary>
+    /// <returns>A JSON object containing the envelope metadata and payload.</returns>
     public string Encode()
     {
         var root = new JsonObject
@@ -29,6 +33,12 @@ public sealed record Envelope(
         return root.ToJsonString();
     }
 
+    /// <summary>
+    /// Decodes a JSON string into a validated protocol envelope.
+    /// </summary>
+    /// <param name="json">The JSON representation of the envelope.</param>
+    /// <returns>The decoded envelope.</returns>
+    /// <exception cref="FormatException">Thrown when required fields are missing or have invalid JSON types.</exception>
     public static Envelope Decode(string json)
     {
         JsonObject root;

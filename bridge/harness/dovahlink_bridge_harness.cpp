@@ -70,7 +70,13 @@ public:
 // override is set to a positive integer; any unset, empty, or malformed
 // value is silently treated as "no override" rather than a fatal error --
 // unlike DOVAHLINK_BRIDGE_TOKEN, this is a test convenience, not a security
-// value with an atomic-or-unavailable contract.
+/**
+ * @brief Reads a positive token lifetime override from the environment.
+ *
+ * @param env Source used to read the token lifetime setting.
+ * @return The configured positive duration, or an empty optional when the setting
+ *         is missing, empty, nonpositive, or malformed.
+ */
 std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
     const dovahlink::security::EnvironmentReader& env) {
     auto raw = env.Read(kTokenTtlEnvVar);
@@ -88,7 +94,15 @@ std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
     }
 }
 
-}  // namespace
+}  /**
+ * @brief Runs the standalone bridge integration harness.
+ *
+ * Initializes authenticated loopback bridge listeners, starts the coordinator,
+ * processes level-increase and shutdown commands from standard input, and
+ * shuts down the bridge components before exiting.
+ *
+ * @return 0 after normal shutdown, or 1 if token validation or listener setup fails.
+ */
 
 int main() {
     dovahlink::security::WindowsEnvironmentReader environmentReader;

@@ -51,6 +51,15 @@ namespace dovahlink::application {
 
 namespace {
 
+/**
+ * @brief Builds a failed handshake response that closes the connection.
+ *
+ * @param helloEnvelope Envelope from the failed hello request.
+ * @param code Protocol error code.
+ * @param message Human-readable error message.
+ * @param retryable Whether the client may retry the request.
+ * @return Handshake result containing the error response and a close-connection directive.
+ */
 HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, std::string message,
                       bool retryable) {
     return HandshakeResult{
@@ -61,7 +70,18 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, 
     };
 }
 
-}  // namespace
+}  /**
+ * @brief Processes a client hello and establishes an authenticated session.
+ *
+ * Invalid handshakes produce a protocol error and close the connection. Successful
+ * handshakes consume the presented one-time token, create a session, and keep the
+ * connection open.
+ *
+ * @param helloEnvelope Incoming hello message envelope.
+ * @param connection Identifier of the connection requesting the handshake.
+ * @param now Current time used for failed-attempt throttling and authentication tracking.
+ * @return Handshake result containing either a protocol error or a hello acknowledgment.
+ */
 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
                              security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,

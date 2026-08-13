@@ -4,6 +4,12 @@ namespace DovahLink.BridgeBuilder.Packaging;
 
 public readonly record struct BridgeVersion(int Major, int Minor, int Patch)
 {
+    /// <summary>
+    /// Creates a bridge version from a vcpkg manifest JSON document.
+    /// </summary>
+    /// <param name="manifestJson">The vcpkg manifest JSON text.</param>
+    /// <returns>The version specified by the manifest.</returns>
+    /// <exception cref="FormatException">Thrown when the manifest is invalid JSON or contains an invalid version.</exception>
     public static BridgeVersion FromVcpkgManifest(string manifestJson)
     {
         JsonDocument document;
@@ -22,6 +28,12 @@ public readonly record struct BridgeVersion(int Major, int Minor, int Patch)
         }
     }
 
+    /// <summary>
+    /// Parses a bridge version from a JSON manifest object.
+    /// </summary>
+    /// <param name="root">The JSON element containing the manifest.</param>
+    /// <returns>The parsed major, minor, and patch version.</returns>
+    /// <exception cref="FormatException">Thrown when the manifest structure or version format is invalid.</exception>
     private static BridgeVersion ParseVersion(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object)
@@ -54,5 +66,9 @@ public readonly record struct BridgeVersion(int Major, int Minor, int Patch)
         return new BridgeVersion(major, minor, patch);
     }
 
-    public override string ToString() => $"{Major}.{Minor}.{Patch}";
+    /// <summary>
+/// Formats the bridge version as a period-separated major, minor, and patch version.
+/// </summary>
+/// <returns>The version in <c>MAJOR.MINOR.PATCH</c> format.</returns>
+public override string ToString() => $"{Major}.{Minor}.{Patch}";
 }

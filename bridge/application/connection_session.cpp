@@ -16,12 +16,23 @@ namespace {
 
 // A write failure here (peer gone, socket error) is handled uniformly by
 // the next ReadMessage() call failing too, ending the session loop; there
-// is nothing more this function itself needs to do about it.
+/**
+ * @brief Sends a protocol envelope over the WebSocket.
+ *
+ * @param envelope Protocol envelope to encode and send.
+ */
 void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& envelope) {
     (void)ws.WriteMessage(protocol::EncodeEnvelope(envelope));
 }
 
-}  // namespace
+}  /**
+ * @brief Runs the WebSocket connection lifecycle, including handshake and message processing.
+ *
+ * Accepts the connection, authenticates the initial hello message, processes inbound
+ * messages, sends generated responses, and closes the connection when the session ends.
+ *
+ * @param stateProvider Provides character state used to process inbound messages.
+ */
 
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
                            security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,

@@ -22,6 +22,10 @@ public sealed class MainForm : Form
         Font = new Font(FontFamily.GenericMonospace, 9),
     };
 
+    /// <summary>
+    /// Initializes the Bridge Builder window for the specified repository.
+    /// </summary>
+    /// <param name="repositoryRoot">The root directory of the repository to build.</param>
     public MainForm(string repositoryRoot)
     {
         this.repositoryRoot = repositoryRoot;
@@ -66,6 +70,10 @@ public sealed class MainForm : Form
         Controls.Add(layout);
     }
 
+    /// <summary>
+    /// Runs a Bridge package build for the specified channel and updates the build state and output log.
+    /// </summary>
+    /// <param name="channel">The package channel to build.</param>
     private async Task RunBuildAsync(PackageChannel channel)
     {
         if (!viewModel.TryBeginBuild())
@@ -108,6 +116,9 @@ public sealed class MainForm : Form
         }
     }
 
+    /// <summary>
+    /// Updates build controls and status text to reflect the current build state.
+    /// </summary>
     private void UpdateControls()
     {
         bool canBuild = viewModel.State.CanBuild;
@@ -117,6 +128,9 @@ public sealed class MainForm : Form
         statusLabel.Text = viewModel.State.Message;
     }
 
+    /// <summary>
+    /// Opens the build output folder in the operating system's file manager.
+    /// </summary>
     private void OpenOutputFolder()
     {
         string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
@@ -128,6 +142,10 @@ public sealed class MainForm : Form
         });
     }
 
+    /// <summary>
+    /// Appends a line to the build output log when the form is available.
+    /// </summary>
+    /// <param name="line">The output line to append.</param>
     private void AppendOutput(string line)
     {
         if (IsDisposed || Disposing || !IsHandleCreated)

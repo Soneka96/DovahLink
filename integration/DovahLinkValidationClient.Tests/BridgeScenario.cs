@@ -15,6 +15,13 @@ public static class BridgeScenario
     public const string ValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
     public static readonly Uri BridgeUri = new("ws://127.0.0.1:58231/");
 
+    /// <summary>
+    /// Builds a version-0 hello envelope for client authentication.
+    /// </summary>
+    /// <param name="token">The one-time local authentication token.</param>
+    /// <param name="messageId">The message identifier for the envelope.</param>
+    /// <param name="supportedProtocolVersions">The protocol versions supported by the client; defaults to version 1.</param>
+    /// <returns>A hello envelope containing the client endpoint, supported protocol versions, and authentication details.</returns>
     public static Envelope HelloEnvelope(
         string token, string messageId = "message-hello-1", int[]? supportedProtocolVersions = null)
     {
@@ -35,7 +42,15 @@ public static class BridgeScenario
     // through the bridge's own outbound capabilities message. Returns the
     // open connection, the session ID the bridge issued, and that
     // capabilities envelope itself (its content is asserted by
-    // CapabilitiesScenarioTests, not just its message type here).
+    /// <summary>
+    /// Establishes an authenticated bridge connection and retrieves its session and capabilities.
+    /// </summary>
+    /// <returns>
+    /// The harness process, bridge connection, assigned session ID, and capabilities envelope.
+    /// </returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the harness does not become ready or the bridge handshake does not produce the expected messages.
+    /// </exception>
     public static async Task<(HarnessProcess Harness, BridgeConnection Connection, string SessionId, Envelope Capabilities)> ConnectAndAuthenticateAsync()
     {
         var harness = new HarnessProcess(ValidHexToken);
@@ -66,7 +81,12 @@ public static class BridgeScenario
     // Closes the connection (so Coordinator::Shutdown doesn't have to wait
     // out the idle timeout for it -- bridge/README.md), tells the harness to
     // quit, and confirms it exits cleanly. The common teardown every
-    // scenario needs once it's done asserting.
+    /// <summary>
+    /// Closes the bridge connection and requests clean harness termination.
+    /// </summary>
+    /// <param name="harness">The harness process to stop.</param>
+    /// <param name="connection">The bridge connection to close.</param>
+    /// <exception cref="TimeoutException">Thrown if the harness does not exit within five seconds.</exception>
     public static async Task CloseAndQuitAsync(HarnessProcess harness, BridgeConnection connection)
     {
         await connection.CloseAsync();
@@ -83,7 +103,12 @@ public static class BridgeScenario
     // security/throttle.hpp -- so this is what "N recent failures" means).
     // Each connection is fully torn down before the next, since a failed
     // hello always closes the connection (handshake_handler.cpp's design
-    // note: no retry on the same socket).
+    /// <summary>
+    /// Records sequential failed authentication attempts using separate bridge connections.
+    /// </summary>
+    /// <param name="count">The number of failed authentication attempts to perform.</param>
+    /// <param name="wrongButValidHexToken">A token with valid hexadecimal formatting that is rejected for authentication.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
     public static async Task RecordFailedTokenAttemptsAsync(int count, string wrongButValidHexToken)
     {
         for (int attempt = 1; attempt <= count; attempt++)

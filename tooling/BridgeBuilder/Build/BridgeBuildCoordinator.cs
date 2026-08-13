@@ -14,6 +14,11 @@ public sealed class BridgeBuildCoordinator
     private readonly ICommandRunner commandRunner;
     private readonly Func<VisualStudioToolchain> toolchainProvider;
 
+    /// <summary>
+    /// Initializes a coordinator for building and packaging the bridge.
+    /// </summary>
+    /// <param name="commandRunner">The command runner used to execute the build.</param>
+    /// <param name="toolchainProvider">The provider used to obtain the Visual Studio toolchain.</param>
     public BridgeBuildCoordinator(
         ICommandRunner commandRunner,
         Func<VisualStudioToolchain> toolchainProvider)
@@ -22,6 +27,15 @@ public sealed class BridgeBuildCoordinator
         this.toolchainProvider = toolchainProvider;
     }
 
+    /// <summary>
+    /// Builds the bridge Release target and packages its artifacts into a ZIP archive.
+    /// </summary>
+    /// <param name="request">The repository root and package channel used for the build.</param>
+    /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
+    /// <param name="cancellationToken">A token that can cancel manifest reading or the build command.</param>
+    /// <returns>The generated artifact plan and path to the created archive.</returns>
+    /// <exception cref="FileNotFoundException">Thrown when the bridge manifest or a required build artifact is missing.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the bridge build fails.</exception>
     public async Task<BridgeBuildResult> BuildAsync(
         BridgeBuildRequest request,
         Action<string>? onOutput = null,

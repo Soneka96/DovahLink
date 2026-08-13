@@ -47,7 +47,11 @@ using dovahlink::application::kTokenEnvVar;
 // file under the SKSE log directory. Kept to the bare minimum this project
 // actually needs (ai/context/skse/cpp-style.md: "do not add a dependency
 // solely to avoid a small, well-understood adapter" -- spdlog is already a
-// transitive CommonLibSSE-NG dependency, not a new one).
+/**
+ * @brief Configures the default logger to write informational messages to the SKSE log directory.
+ *
+ * Does nothing when the SKSE log directory is unavailable.
+ */
 void SetupLogging() {
     auto path = SKSE::log::log_directory();
     if (!path.has_value()) {
@@ -71,10 +75,18 @@ void SetupLogging() {
 // documented sequences (application/coordinator.hpp).
 class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
 public:
-    explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
+    /**
+ * @brief Creates a callback registry backed by the specified level-increase sink.
+ *
+ * @param sink Sink used to register and unregister level-increase callbacks.
+ */
+explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
 
     void RegisterAll() override { sink_.Register(); }
-    void UnregisterAll() override { sink_.Unregister(); }
+    /**
+ * @brief Unregisters all callbacks from the underlying sink.
+ */
+void UnregisterAll() override { sink_.Unregister(); }
 
 private:
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
@@ -96,6 +108,12 @@ SKSEPluginInfo(
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,
     .MinimumSKSEVersion = REL::Version{2, 2, 6, 0})
 
+/**
+ * @brief Initializes the DovahLink Bridge plugin and schedules startup after game data loads.
+ *
+ * @param skse SKSE load interface used to query runtime information and messaging services.
+ * @return `true` if plugin initialization and message listener registration succeed, `false` otherwise.
+ */
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLogging();
 

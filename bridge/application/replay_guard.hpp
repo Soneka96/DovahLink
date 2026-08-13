@@ -24,7 +24,10 @@ enum class MessageIdCheckResult {
 // threads.
 class ReplayGuard {
 public:
-    ReplayGuard() = default;
+    /**
+ * @brief Creates an empty message ID tracker.
+ */
+ReplayGuard() = default;
 
     // Checks and, if accepted, records `messageId`. Once kSessionCapReached
     // is returned, every subsequent call also returns kSessionCapReached

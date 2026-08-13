@@ -18,7 +18,12 @@ constexpr std::int64_t kCharacterCapabilityVersion = 1;
 // revision, correlated to whichever message caused it (subscribe's own ID
 // for the initial snapshot, snapshot_request's ID for a recovery snapshot --
 // protocol/schema/README.md). nullopt only on the same unreachable-in-
-// practice CSPRNG failure every envelope-building helper here shares.
+/**
+ * @brief Builds a character-state snapshot envelope for the current revision.
+ *
+ * @param correlationId Optional identifier correlating the snapshot with a request.
+ * @return The snapshot envelope, or `std::nullopt` if envelope construction fails.
+ */
 std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
     const std::string& sessionId, std::optional<std::string> correlationId,
     const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
@@ -31,7 +36,12 @@ std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
                                     protocol::EncodeStateSnapshotPayload(payload));
 }
 
-}  // namespace
+}  /**
+ * @brief Builds an envelope advertising the character capability.
+ *
+ * @param sessionId Session identifier to include in the envelope.
+ * @return An uncorrelated capabilities envelope, or `std::nullopt` if construction fails.
+ */
 
 std::optional<protocol::Envelope> BuildBridgeCapabilities(const std::string& sessionId) {
     protocol::CapabilitiesPayload payload{
@@ -45,6 +55,13 @@ std::optional<protocol::Envelope> BuildBridgeCapabilities(const std::string& ses
                                     protocol::EncodeCapabilitiesPayload(payload));
 }
 
+/**
+ * @brief Validates the capabilities advertised by a client.
+ *
+ * @param capabilitiesEnvelope Envelope containing the client capabilities payload.
+ * @param sessionId Session identifier used when building an error response.
+ * @return Error envelope for malformed or unsupported capabilities; no response when all capabilities are supported.
+ */
 std::optional<protocol::Envelope> HandleClientCapabilities(const protocol::Envelope& capabilitiesEnvelope,
                                                              const std::string& sessionId) {
     auto capabilities = protocol::DecodeCapabilitiesPayload(capabilitiesEnvelope.payload);
@@ -62,6 +79,19 @@ std::optional<protocol::Envelope> HandleClientCapabilities(const protocol::Envel
     return std::nullopt;
 }
 
+/**
+ * @brief Handles a client request to subscribe to state areas.
+ *
+ * Recognized areas are accepted and unsupported areas are rejected. A character
+ * snapshot is included when the character state area is accepted.
+ *
+ * @param subscribeEnvelope Envelope containing the subscription request.
+ * @param sessionId Session identifier used for response envelopes.
+ * @param stateProvider Provider of the current character state.
+ * @param revisions Tracker used to assign snapshot revisions.
+ * @param now Timestamp assigned to the generated snapshot.
+ * @return Subscription acknowledgment and any generated snapshots, or an error acknowledgment.
+ */
 SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, const std::string& sessionId,
                                  const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                  std::chrono::system_clock::time_point now) {
@@ -128,6 +158,15 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
     return SubscribeResult{.subscriptionAck = std::move(*ackEnvelope), .snapshots = std::move(snapshots)};
 }
 
+/**
+ * @brief Handles a snapshot request for the character state area.
+ *
+ * @param snapshotRequestEnvelope Envelope containing the snapshot request.
+ * @param stateProvider Source of the current character state.
+ * @param revisions Revision tracker used for the generated snapshot.
+ * @param now Timestamp assigned to the snapshot.
+ * @return A correlated character-state snapshot or an error envelope.
+ */
 protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotRequestEnvelope,
                                           const std::string& sessionId,
                                           const CharacterStateProvider& stateProvider,

@@ -55,7 +55,12 @@ public:
                                                                    std::uint16_t port);
 
     LoopbackListener(LoopbackListener&&) = default;
-    LoopbackListener& operator=(LoopbackListener&&) = default;
+    /**
+ * @brief Transfers the listener state from another instance.
+ *
+ * @return LoopbackListener& This instance after assignment.
+ */
+LoopbackListener& operator=(LoopbackListener&&) = default;
     LoopbackListener(const LoopbackListener&) = delete;
     LoopbackListener& operator=(const LoopbackListener&) = delete;
 

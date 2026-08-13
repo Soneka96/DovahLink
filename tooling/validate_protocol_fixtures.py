@@ -31,6 +31,16 @@ class FixtureError(ValueError):
 
 
 def validate_envelope(name: str, message: object) -> None:
+    """
+    Validate a protocol message against the v1 envelope contract.
+    
+    Parameters:
+        name (str): Fixture name used in validation error messages.
+        message (object): Parsed JSON value to validate.
+    
+    Raises:
+        FixtureError: If the value is not a valid protocol message envelope.
+    """
     if not isinstance(message, dict):
         raise FixtureError(f"{name}: top-level JSON value must be an object")
 
@@ -72,6 +82,15 @@ def validate_envelope(name: str, message: object) -> None:
 
 
 def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
+    """
+    Validate all JSON protocol fixtures in a directory.
+    
+    Parameters:
+    	fixtures_dir (Path): Directory containing the fixture files.
+    
+    Returns:
+    	list[str]: Relative paths of the validated fixture files.
+    """
     fixture_files = sorted(fixtures_dir.rglob("*.json"))
     if not fixture_files:
         raise FixtureError(f"no fixture files found in {fixtures_dir}")
@@ -87,6 +106,12 @@ def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:
 
 
 def main() -> int:
+    """
+    Validate all protocol fixtures and report the result.
+    
+    Returns:
+    	int: `0` if all fixtures satisfy the envelope contract, `1` if validation or JSON parsing fails.
+    """
     try:
         checked = validate_all()
     except (FixtureError, json.JSONDecodeError) as exc:

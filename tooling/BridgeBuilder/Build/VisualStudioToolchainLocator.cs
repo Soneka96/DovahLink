@@ -2,6 +2,10 @@ namespace DovahLink.BridgeBuilder.Build;
 
 public static class VisualStudioToolchainLocator
 {
+    /// <summary>
+    /// Locates the first supported Visual Studio 2022 toolchain from the configured and standard installation paths.
+    /// </summary>
+    /// <returns>The located Visual Studio toolchain.</returns>
     public static VisualStudioToolchain Find()
     {
         string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -20,6 +24,11 @@ public static class VisualStudioToolchainLocator
         return Find(roots);
     }
 
+    /// <summary>
+    /// Locates the first supported Visual Studio 2022 installation among the specified roots.
+    /// </summary>
+    /// <param name="installationRoots">The installation roots to search.</param>
+    /// <returns>The toolchain for the first root containing both the Visual Studio environment script and bundled vcpkg.</returns>
     public static VisualStudioToolchain Find(IEnumerable<string> installationRoots)
     {
         foreach (string root in installationRoots)

@@ -12,14 +12,34 @@ namespace dovahlink::protocol {
 
 namespace {
 
+/**
+ * @brief Creates an unexpected message error with the specified reason.
+ *
+ * @param reason Description of the message error.
+ * @return An unexpected result containing the message error.
+ */
 std::unexpected<MessageError> Fail(std::string reason) {
     return std::unexpected(MessageError{std::move(reason)});
 }
 
+/**
+ * @brief Retrieves a field from a JSON object.
+ *
+ * @param obj JSON object to search.
+ * @param key Field name to locate.
+ * @return Pointer to the field value, or `nullptr` if the field is absent.
+ */
 const boost::json::value* RequireField(const boost::json::object& obj, std::string_view key) {
     return obj.if_contains(key);
 }
 
+/**
+ * @brief Decodes a required JSON array containing non-empty strings.
+ *
+ * @param value JSON value to decode.
+ * @param fieldName Field name used in validation errors.
+ * @return std::vector<std::string> Decoded strings.
+ */
 std::expected<std::vector<std::string>, MessageError> DecodeStringArray(const boost::json::value* value,
                                                                          std::string_view fieldName) {
     if (!value) {
@@ -39,7 +59,13 @@ std::expected<std::vector<std::string>, MessageError> DecodeStringArray(const bo
     return result;
 }
 
-}  // namespace
+}  /**
+ * @brief Decodes and validates a client hello payload.
+ *
+ * @param payload JSON object containing the hello message fields.
+ * @return HelloPayload on success, or a MessageError if the endpoint, supported
+ *         protocol versions, authentication method, or token is invalid.
+ */
 
 std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::object& payload) {
     auto endpoint = DecodeNonEmptyString(RequireField(payload, "endpoint"), "endpoint");
@@ -100,6 +126,12 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     };
 }
 
+/**
+ * @brief Decodes a hello acknowledgment payload.
+ *
+ * @param payload JSON object containing the selected protocol version.
+ * @return The decoded hello acknowledgment, or a validation error.
+ */
 std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::json::object& payload) {
     auto selectedProtocolVersion =
         DecodeNonNegativeInt(RequireField(payload, "selectedProtocolVersion"), "selectedProtocolVersion");
@@ -109,12 +141,23 @@ std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::
     return HelloAckPayload{.selectedProtocolVersion = *selectedProtocolVersion};
 }
 
+/**
+ * @brief Serializes a hello acknowledgment payload.
+ *
+ * @return JSON object containing the selected protocol version.
+ */
 boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload) {
     boost::json::object obj;
     obj["selectedProtocolVersion"] = payload.selectedProtocolVersion;
     return obj;
 }
 
+/**
+ * @brief Decodes a capabilities payload.
+ *
+ * @param payload JSON object containing the capabilities array.
+ * @return Decoded capabilities, or a validation error.
+ */
 std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload) {
     const boost::json::value* capabilitiesValue = RequireField(payload, "capabilities");
     if (!capabilitiesValue) {
@@ -146,6 +189,12 @@ std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const
     return CapabilitiesPayload{.capabilities = std::move(capabilities)};
 }
 
+/**
+ * @brief Serializes capabilities into a JSON payload.
+ *
+ * @param payload Capabilities to serialize.
+ * @return JSON object containing the capability identifiers and versions.
+ */
 boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload) {
     boost::json::array capabilities;
     capabilities.reserve(payload.capabilities.size());
@@ -160,6 +209,12 @@ boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload
     return obj;
 }
 
+/**
+ * @brief Decodes a subscription request payload.
+ *
+ * @param payload JSON object containing the state-area names to subscribe to.
+ * @return SubscribePayload on success; a MessageError if the state-area list is missing, empty, or invalid.
+ */
 std::expected<SubscribePayload, MessageError> DecodeSubscribePayload(const boost::json::object& payload) {
     auto stateAreas = DecodeStringArray(RequireField(payload, "stateAreas"), "stateAreas");
     if (!stateAreas) {
@@ -168,6 +223,12 @@ std::expected<SubscribePayload, MessageError> DecodeSubscribePayload(const boost
     return SubscribePayload{.stateAreas = std::move(*stateAreas)};
 }
 
+/**
+ * @brief Decodes a subscription acknowledgment payload.
+ *
+ * @param payload JSON object containing accepted and rejected state-area arrays.
+ * @return Decoded subscription acknowledgment, or a message error when either array is invalid.
+ */
 std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload(
     const boost::json::object& payload) {
     auto accepted = DecodeStringArray(RequireField(payload, "acceptedStateAreas"), "acceptedStateAreas");
@@ -184,6 +245,12 @@ std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload
     };
 }
 
+/**
+ * @brief Encodes subscription acknowledgment state areas as a JSON object.
+ *
+ * @param payload Subscription acknowledgment containing accepted and rejected state-area names.
+ * @return JSON object containing the accepted and rejected state-area arrays.
+ */
 boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload) {
     boost::json::array accepted;
     accepted.reserve(payload.acceptedStateAreas.size());
@@ -201,6 +268,12 @@ boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& p
     return obj;
 }
 
+/**
+ * @brief Decodes a snapshot request payload.
+ *
+ * @param payload JSON object containing the state area and optional known revision.
+ * @return Decoded snapshot request, or a validation error.
+ */
 std::expected<SnapshotRequestPayload, MessageError> DecodeSnapshotRequestPayload(
     const boost::json::object& payload) {
     auto stateArea = DecodeNonEmptyString(RequireField(payload, "stateArea"), "stateArea");
@@ -220,6 +293,12 @@ std::expected<SnapshotRequestPayload, MessageError> DecodeSnapshotRequestPayload
     return SnapshotRequestPayload{.stateArea = std::move(*stateArea), .knownRevision = knownRevision};
 }
 
+/**
+ * @brief Decodes a state snapshot payload.
+ *
+ * @param payload JSON object containing the state area, revision, occurrence time, and snapshot data.
+ * @return The decoded snapshot, or a MessageError if a required field is invalid or missing.
+ */
 std::expected<StateSnapshotPayload, MessageError> DecodeStateSnapshotPayload(
     const boost::json::object& payload) {
     auto stateArea = DecodeNonEmptyString(RequireField(payload, "stateArea"), "stateArea");
@@ -247,6 +326,12 @@ std::expected<StateSnapshotPayload, MessageError> DecodeStateSnapshotPayload(
     };
 }
 
+/**
+ * @brief Serializes a state snapshot payload to a JSON object.
+ *
+ * @param payload State snapshot payload to serialize.
+ * @return JSON object containing the state area, revision, timestamp, and data.
+ */
 boost::json::object EncodeStateSnapshotPayload(const StateSnapshotPayload& payload) {
     boost::json::object obj;
     obj["stateArea"] = payload.stateArea;
@@ -256,6 +341,12 @@ boost::json::object EncodeStateSnapshotPayload(const StateSnapshotPayload& paylo
     return obj;
 }
 
+/**
+ * @brief Decodes a state event payload.
+ *
+ * @param payload JSON object containing the state area, revisions, occurrence timestamp, and event data.
+ * @return Decoded state event payload, or a message error when a required field is invalid.
+ */
 std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boost::json::object& payload) {
     auto stateArea = DecodeNonEmptyString(RequireField(payload, "stateArea"), "stateArea");
     if (!stateArea) {
@@ -289,6 +380,13 @@ std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boo
 
 namespace {
 
+/**
+ * @brief Decodes a required resource field as either null or a numeric resource value.
+ *
+ * @param value JSON value for the resource field.
+ * @param fieldName Field name used in validation errors.
+ * @return An empty optional for JSON null, or a resource containing numeric current and maximum values.
+ */
 std::expected<std::optional<ResourceValue>, MessageError> DecodeResourceValue(const boost::json::value* value,
                                                                                std::string_view fieldName) {
     if (!value) {
@@ -314,7 +412,15 @@ std::expected<std::optional<ResourceValue>, MessageError> DecodeResourceValue(co
     }};
 }
 
-}  // namespace
+}  /**
+ * @brief Decodes a character state from a JSON object.
+ *
+ * Validates the level and health, magicka, and stamina resource fields. The
+ * level and resource values may be null.
+ *
+ * @param data JSON object containing the character state.
+ * @return Decoded character state, or a validation error.
+ */
 
 std::expected<CharacterState, MessageError> DecodeCharacterState(const boost::json::object& data) {
     const boost::json::value* levelValue = RequireField(data, "level");
@@ -351,6 +457,12 @@ std::expected<CharacterState, MessageError> DecodeCharacterState(const boost::js
     };
 }
 
+/**
+ * @brief Decodes an error payload.
+ *
+ * @param payload JSON object containing the error code, message, retryability, and optional details.
+ * @return ErrorPayload containing the decoded error information, or a MessageError if validation fails.
+ */
 std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::object& payload) {
     auto code = DecodeNonEmptyString(RequireField(payload, "code"), "code");
     if (!code) {
@@ -381,6 +493,12 @@ std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::
     };
 }
 
+/**
+ * @brief Serializes an error payload to a JSON object.
+ *
+ * @param payload Error payload to serialize.
+ * @return JSON object containing the error code, message, retryable flag, and details.
+ */
 boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     boost::json::object obj;
     obj["code"] = payload.code;
@@ -390,6 +508,18 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     return obj;
 }
 
+/**
+ * @brief Constructs an error envelope with the specified protocol and error details.
+ *
+ * @param correlationId Optional identifier of the message associated with the error.
+ * @param protocolVersion Protocol version for the envelope.
+ * @param sessionId Optional session identifier.
+ * @param code Error code.
+ * @param message Human-readable error message.
+ * @param retryable Whether the operation may be retried.
+ * @return Envelope containing the error payload. Uses `"csprng-unavailable"` as the
+ *         message ID if secure message-ID generation fails.
+ */
 Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64_t protocolVersion,
                              std::optional<std::string> sessionId, std::string code, std::string message,
                              bool retryable) {

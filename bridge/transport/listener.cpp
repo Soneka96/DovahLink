@@ -8,10 +8,24 @@
 
 namespace dovahlink::transport {
 
+/**
+ * @brief Determines whether an IP address is a loopback address.
+ *
+ * @param address IP address to evaluate.
+ * @return `true` if the address is loopback, `false` otherwise.
+ */
 bool IsAcceptablePeerAddress(const boost::asio::ip::address& address) {
     return address.is_loopback();
 }
 
+/**
+ * @brief Creates a TCP listener bound to the IPv4 or IPv6 loopback address.
+ *
+ * @param ioc I/O context used by the listener.
+ * @param version IP version for the loopback address.
+ * @param port Local port on which to listen.
+ * @return An initialized listener on success; `ListenerError::kBindFailed` if the address cannot be created or the listener cannot be opened, bound, or started.
+ */
 std::expected<LoopbackListener, ListenerError> LoopbackListener::Create(boost::asio::io_context& ioc,
                                                                           IpVersion version,
                                                                           std::uint16_t port) {
@@ -56,12 +70,31 @@ std::expected<LoopbackListener, ListenerError> LoopbackListener::Create(boost::a
     return LoopbackListener(std::move(acceptor));
 }
 
+/**
+ * @brief Constructs a loopback listener from a TCP acceptor.
+ *
+ * @param acceptor TCP acceptor to store in the listener.
+ */
 LoopbackListener::LoopbackListener(boost::asio::ip::tcp::acceptor acceptor) : acceptor_(std::move(acceptor)) {}
 
+/**
+ * @brief Provides mutable access to the TCP acceptor.
+ *
+ * @return Reference to the stored TCP acceptor.
+ */
 boost::asio::ip::tcp::acceptor& LoopbackListener::Acceptor() {
     return acceptor_;
 }
 
+/**
+ * @brief Accepts a connection from a loopback peer.
+ *
+ * Connections whose remote endpoint cannot be determined or whose address is
+ * not loopback are closed and rejected.
+ *
+ * @return The accepted socket, or an error indicating acceptance failure or
+ *         rejection of a non-loopback peer.
+ */
 std::expected<boost::asio::ip::tcp::socket, AcceptError> LoopbackListener::AcceptLoopbackOnly() {
     boost::system::error_code acceptEc;
     boost::asio::ip::tcp::socket socket = acceptor_.accept(acceptEc);
@@ -80,6 +113,11 @@ std::expected<boost::asio::ip::tcp::socket, AcceptError> LoopbackListener::Accep
     return socket;
 }
 
+/**
+ * @brief Retrieves the endpoint to which the listener is bound.
+ *
+ * @return boost::asio::ip::tcp::endpoint The listener's local endpoint.
+ */
 boost::asio::ip::tcp::endpoint LoopbackListener::LocalEndpoint() const {
     return acceptor_.local_endpoint();
 }

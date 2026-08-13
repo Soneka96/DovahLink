@@ -24,12 +24,23 @@ namespace dovahlink::application {
 // activity to distinguish or revive -- once invalid, always invalid.
 class LifetimeToken {
 public:
-    LifetimeToken() = default;
+    /**
+ * @brief Creates a valid lifetime token.
+ */
+LifetimeToken() = default;
 
-    // Permanently invalidates the token. Idempotent.
+    /**
+ * @brief Permanently invalidates the lifetime token.
+ *
+ * Repeated calls have no additional effect.
+ */
     void Invalidate() { valid_.store(false, std::memory_order_release); }
 
-    // True until Invalidate has been called.
+    /**
+ * @brief Determines whether the lifetime token remains valid.
+ *
+ * @return `true` until the token is invalidated, `false` afterward.
+ */
     [[nodiscard]] bool IsValid() const { return valid_.load(std::memory_order_acquire); }
 
 private:
