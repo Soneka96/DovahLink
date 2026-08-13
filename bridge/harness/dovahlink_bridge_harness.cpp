@@ -1,36 +1,7 @@
-// A Skyrim-independent process that runs the real bridge stack (Coordinator,
-// BridgeTransport, BridgeWorkerPool, and every security/application/protocol
-// component beneath them) against a fake, deterministic character level
-// instead of a running Skyrim process. Exists so integration/ scenarios (a
-// separate, independent .NET client per TASK.md) can exercise the bridge's
-// real transport and protocol behavior without requiring Skyrim, matching
-// ai/context/integration/testing.md's "do not use a running Skyrim process
-// for tests that only verify protocol mapping... or application state
-// transitions."
-//
-// Reads DOVAHLINK_BRIDGE_TOKEN the same way the real plugin does and listens
-// on the same documented port (application/bridge_config.hpp). An optional
-// DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS overrides TokenStore's normal 5-minute
-// expiry -- harness-only, deliberately not a plugin/production setting
-// (bridge/README.md's Phase 1 token supply is unconfigurable by design) --
-// so a scenario can prove real expiry behavior over a short, real wait
-// instead of either sleeping 5 minutes or not testing it end to end at all.
-// Once ready, prints "READY" and reads newline-delimited commands from
-// stdin so a scenario can change the underlying level on demand:
-//
-//   increase_level   Increments the harness's own level counter and pushes
-//                    the new value into the shared character state store,
-//                    the same call the real plugin's LevelIncreaseHandler
-//                    would make. Per bridge/README.md's "Live event delivery
-//                    is deferred to Phase 1.5", this is observable only by a
-//                    client that asks again (subscribe or snapshot_request),
-//                    never as an unprompted push -- prints "LEVEL <n>" once
-//                    applied.
-//   quit             Shuts the coordinator down and exits cleanly.
-//
-// A no-op CallbackRegistry stands in for the plugin's CommonLib event sink:
-// the harness has no RE::LevelIncrease::Event to register, since level
-// changes are driven entirely by the increase_level command instead.
+// Skyrim-independent process harness for the real bridge stack. It uses a
+// deterministic character level, accepts the same authentication token as the
+// plugin, prints READY after startup, and handles increase_level and quit
+// commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -60,23 +31,16 @@ using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 
+/// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
 public:
+    /// @copydoc dovahlink::application::CallbackRegistry::RegisterAll
     void RegisterAll() override {}
+    /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
 
-// nullopt (TokenStore's own default, 5 minutes) unless the harness-only
-// override is set to a positive integer; any unset, empty, or malformed
-// value is silently treated as "no override" rather than a fatal error --
-// unlike DOVAHLINK_BRIDGE_TOKEN, this is a test convenience, not a security
-/**
- * @brief Reads a positive token lifetime override from the environment.
- *
- * @param env Source used to read the token lifetime setting.
- * @return The configured positive duration, or an empty optional when the setting
- *         is missing, empty, nonpositive, or malformed.
- */
+/// Reads a positive harness-only token lifetime override from the environment.
 std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
     const dovahlink::security::EnvironmentReader& env) {
     auto raw = env.Read(kTokenTtlEnvVar);
@@ -94,16 +58,8 @@ std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
     }
 }
 
-}  /**
- * @brief Runs the standalone bridge integration harness.
- *
- * Initializes authenticated loopback bridge listeners, starts the coordinator,
- * processes level-increase and shutdown commands from standard input, and
- * shuts down the bridge components before exiting.
- *
- * @return 0 after normal shutdown, or 1 if token validation or listener setup fails.
- */
-
+}  // namespace
+/// Runs the standalone bridge integration harness.
 int main() {
     dovahlink::security::WindowsEnvironmentReader environmentReader;
     auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);

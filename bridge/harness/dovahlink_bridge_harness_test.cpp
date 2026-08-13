@@ -24,27 +24,21 @@
 #include <thread>
 #include <utility>
 
-// Proves the harness process (bridge/harness/dovahlink_bridge_harness.cpp)
-// actually runs the real bridge stack end to end: launch it as a real
-// subprocess, connect a real client socket, complete the protocol over it,
-// drive a level change through the harness's stdin command, and confirm the
-// process shuts down cleanly. This is the one place a real OS process is
-// launched (ai/context/integration/testing.md's "a real local connection
-// check is required when transport framing or platform networking
-// changes"); everything the harness itself runs on top of is already proven
-// against fakes and real sockets by the rest of this test binary.
+// Launches the harness as a real process, drives its protocol over a real
+// loopback socket, changes level through stdin, and verifies clean shutdown.
 
 namespace {
 
 constexpr const char* kHarnessExePath = DOVAHLINK_HARNESS_EXE;
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
-// Builds an ANSI environment block for CreateProcessA: every entry from this
-// process's own environment, with DOVAHLINK_BRIDGE_TOKEN replaced by
+// Builds an ANSI environment block from the test process environment, with
+// DOVAHLINK_BRIDGE_TOKEN replaced by
 // `tokenValue` (or omitted entirely if nullopt, to test the missing-token
 // path) rather than left set globally -- Catch2 runs test cases sequentially
 // in one process, so mutating this process's own environment would leak
 // between tests.
+/// Builds the complete environment block used by the child process.
 std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
     std::string block;
     LPCH currentEnv = GetEnvironmentStringsA();
@@ -67,14 +61,10 @@ std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
     return block;
 }
 
-// Thin RAII wrapper around CreateProcess with redirected stdin/stdout pipes.
-// A dedicated Win32 helper rather than a new dependency: this project
-// already reaches for the raw Win32 API directly elsewhere (csprng.cpp,
-// token_store.cpp) instead of adding a process-management library for one
-// test file (ai/context/skse/cpp-style.md: "do not add a dependency solely
-// to avoid a small, well-understood adapter").
+/// Owns a harness subprocess and its redirected standard handles.
 class HarnessProcess {
 public:
+    /// Launches the executable with the supplied token environment value.
     HarnessProcess(const std::string& exePath, std::optional<std::string> tokenValue) {
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
@@ -118,6 +108,7 @@ public:
         thread_ = pi.hThread;
     }
 
+    /// Closes redirected handles and waits briefly for the child process.
     ~HarnessProcess() {
         CloseHandle(stdinWrite_);
         CloseHandle(stdoutRead_);
@@ -130,9 +121,12 @@ public:
         }
     }
 
+    /// Prevents copying process handles.
     HarnessProcess(const HarnessProcess&) = delete;
+    /// Prevents assigning process handles.
     HarnessProcess& operator=(const HarnessProcess&) = delete;
 
+    /// Writes one newline-terminated command to the child stdin.
     void WriteLine(const std::string& line) {
         std::string withNewline = line + "\n";
         DWORD written = 0;
@@ -140,7 +134,7 @@ public:
                            nullptr));
     }
 
-    // Blocks until a newline arrives or the pipe closes (returns "" then).
+    /// Reads one line from child stdout, returning empty text on pipe closure.
     std::string ReadLine() {
         std::string result;
         char ch = '\0';
@@ -156,13 +150,13 @@ public:
         return result;
     }
 
-    // True if the process exited (gracefully or not) within `timeout`.
+    /// Returns whether the process exited within `timeout`.
     bool WaitForExit(std::chrono::milliseconds timeout) {
         auto result = WaitForSingleObject(process_, static_cast<DWORD>(timeout.count()));
         return result == WAIT_OBJECT_0;
     }
 
-    // Only meaningful after WaitForExit returned true.
+    /// Returns the child exit code after it has exited.
     [[nodiscard]] int ExitCode() const {
         DWORD exitCode = 0;
         REQUIRE(GetExitCodeProcess(process_, &exitCode));
@@ -170,12 +164,17 @@ public:
     }
 
 private:
+    /// Child process handle.
     HANDLE process_ = nullptr;
+    /// Child primary-thread handle.
     HANDLE thread_ = nullptr;
+    /// Parent write handle for child stdin.
     HANDLE stdinWrite_ = nullptr;
+    /// Parent read handle for child stdout and stderr.
     HANDLE stdoutRead_ = nullptr;
 };
 
+/// Reads and decodes one protocol envelope from the client socket.
 dovahlink::protocol::Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& ws) {
     boost::beast::flat_buffer buffer;
     boost::system::error_code ec;
@@ -188,6 +187,7 @@ dovahlink::protocol::Envelope ClientReadEnvelope(boost::beast::websocket::stream
     return std::move(*envelope);
 }
 
+/// Writes one text protocol message to the client socket.
 void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& ws, const std::string& text) {
     ws.text(true);
     boost::system::error_code ec;
@@ -195,6 +195,7 @@ void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socke
     REQUIRE_FALSE(ec);
 }
 
+/// Builds the harness hello message using the representative test token.
 std::string HelloMessage() {
     return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
            R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
@@ -202,18 +203,21 @@ std::string HelloMessage() {
            std::string(kValidHexToken) + R"("}}})";
 }
 
+/// Builds a subscription request for one authenticated session.
 std::string SubscribeMessage(const std::string& sessionId, const std::string& messageId) {
     return R"({"protocolVersion": 1, "messageType": "subscribe", "messageId": ")" + messageId +
            R"(", "sessionId": ")" + sessionId + R"(", "correlationId": null, "payload": {"stateAreas": )"
            R"(["character"]}})";
 }
 
+/// Builds a character snapshot request for one authenticated session.
 std::string SnapshotRequestMessage(const std::string& sessionId, const std::string& messageId) {
     return R"({"protocolVersion": 1, "messageType": "snapshot_request", "messageId": ")" + messageId +
            R"(", "sessionId": ")" + sessionId + R"(", "correlationId": null, "payload": {"stateArea": )"
            R"("character"}})";
 }
 
+/// Decodes and returns the character level from a state snapshot envelope.
 std::int64_t SnapshotLevel(const dovahlink::protocol::Envelope& snapshot) {
     auto decoded = dovahlink::protocol::DecodeStateSnapshotPayload(snapshot.payload);
     REQUIRE(decoded.has_value());

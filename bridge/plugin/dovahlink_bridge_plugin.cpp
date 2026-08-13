@@ -1,17 +1,6 @@
-// The SKSE plugin entry point: the one place that constructs every
-// plugin-lifetime component and wires them together for real. Every piece
-// used here was built and tested in isolation in an earlier step; this file
-// is deliberately thin glue, not new logic, per ai/context/skse/
-// architecture.md's "no generic event framework or speculative service
-// layer" and "keep the first implementation read-only and minimize hooks."
-//
-// Unlike every other file in this project, none of this can be exercised by
-// dovahlink_bridge_tests: it requires a real SKSE load sequence inside a
-// running Skyrim process (ai/context/skse/testing.md: "Reserve manual
-// in-game checks for runtime hooks, event timing, loading behavior... that
-// cannot be represented in unit tests"). It has been verified to compile
-// against the real, pinned CommonLibSSE-NG headers; correctness beyond that
-// depends on TASK.md's required manual verification record.
+// SKSE plugin entry point and plugin-lifetime wiring for the bridge. This file
+// contains the runtime-specific composition layer; the underlying components
+// remain testable without a running Skyrim process.
 
 #include "SKSE/SKSE.h"
 
@@ -43,15 +32,8 @@ namespace {
 using dovahlink::application::kBridgePort;
 using dovahlink::application::kTokenEnvVar;
 
-// Minimal file logging, the standard CommonLibSSE-NG plugin setup: one log
-// file under the SKSE log directory. Kept to the bare minimum this project
-// actually needs (ai/context/skse/cpp-style.md: "do not add a dependency
-// solely to avoid a small, well-understood adapter" -- spdlog is already a
-/**
- * @brief Configures the default logger to write informational messages to the SKSE log directory.
- *
- * Does nothing when the SKSE log directory is unavailable.
- */
+// Minimal file logging to the SKSE log directory.
+/// Configures the default logger when the SKSE log directory is available.
 void SetupLogging() {
     auto path = SKSE::log::log_directory();
     if (!path.has_value()) {
@@ -65,39 +47,25 @@ void SetupLogging() {
     spdlog::set_default_logger(std::move(logger));
 }
 
-// The one CommonLib-touching CallbackRegistry implementation
-// (ai/context/skse/architecture.md: game-state adapters -- and their
-// direct callers -- are the only bridge components allowed to depend on
-// CommonLib/RE:: types). Trivial enough not to need its own header: this
-// is the only place it is ever constructed. Wraps
-// CommonLibLevelIncreaseSink::Register/Unregister, called by
-// Coordinator::Start()/Shutdown() as the first and second steps of their
-// documented sequences (application/coordinator.hpp).
+/// Connects coordinator callback lifecycle calls to the runtime event sink.
 class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
 public:
-    /**
- * @brief Creates a callback registry backed by the specified level-increase sink.
- *
- * @param sink Sink used to register and unregister level-increase callbacks.
- */
-explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
+    /// Binds the registry to the runtime level-increase sink.
+    explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
 
+    /// @copydoc dovahlink::application::CallbackRegistry::RegisterAll
     void RegisterAll() override { sink_.Register(); }
-    /**
- * @brief Unregisters all callbacks from the underlying sink.
- */
-void UnregisterAll() override { sink_.Unregister(); }
+    /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
+    void UnregisterAll() override { sink_.Unregister(); }
 
 private:
+    /// Runtime event sink controlled by the coordinator lifecycle.
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
 };
 
 }  // namespace
 
-// Hand-written in place of add_commonlibsse_plugin's auto-generated
-// metadata file -- see the CMakeLists.txt comment next to this target for
-// why. USE_ADDRESS_LIBRARY equivalent: SKSE::VersionIndependence::
-// AddressLibrary, matching TASK.md's approved toolchain (bridge/README.md).
+// Hand-written plugin metadata and address-library compatibility declaration.
 using namespace std::literals;
 SKSEPluginInfo(
     .Version = REL::Version{0, 1, 0, 0},
@@ -108,22 +76,11 @@ SKSEPluginInfo(
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,
     .MinimumSKSEVersion = REL::Version{2, 2, 6, 0})
 
-/**
- * @brief Initializes the DovahLink Bridge plugin and schedules startup after game data loads.
- *
- * @param skse SKSE load interface used to query runtime information and messaging services.
- * @return `true` if plugin initialization and message listener registration succeed, `false` otherwise.
- */
+/// Initializes the bridge plugin and schedules startup after game data loads.
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLogging();
 
-    // Runtime guard: reject clearly during plugin initialization
-    // (ai/context/skse/architecture.md), before anything else is built.
-    // CommonLibSSE-NG's Address Library support (bridge/README.md) makes
-    // this plugin *capable* of loading against other runtimes; that is not
-    // the same as DovahLink *supporting* them (TASK.md: "Building with a
-    // multi-runtime-capable library does not make another runtime
-    // supported").
+    // Reject unsupported runtime combinations before constructing bridge state.
     REL::Version skyrimVersionRel = skse->RuntimeVersion();
     REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
     dovahlink::game_state::RuntimeVersion skyrimVersion{skyrimVersionRel[0], skyrimVersionRel[1],
@@ -145,10 +102,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         return false;
     }
 
-    // One-time token: supplied out of band through the launch environment
-    // (ai/context/protocol/security.md); a missing or malformed token is a
-    // fatal, clearly-reported startup condition, not a silently-degraded
-    // one -- there would be nothing a client could ever authenticate with.
+    // A missing or malformed launch token is fatal because no client could
+    // authenticate without it.
     static dovahlink::security::WindowsEnvironmentReader environmentReader;
     auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
     if (!tokenBytes.has_value()) {
@@ -157,10 +112,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         return false;
     }
 
-    // Loopback listeners: both IPv4 and IPv6 are required (TASK.md); the
-    // listening address is never configurable
-    // (ai/context/protocol/security.md), only the port is, and this is the
-    // one place that port value is used.
+    // Both IPv4 and IPv6 loopback listeners are required; only the port is
+    // configurable.
     static boost::asio::io_context ioc;
     auto listenerV4Result =
         dovahlink::transport::LoopbackListener::Create(ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4,
@@ -202,12 +155,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
-    // RE::PlayerCharacter is not valid before the game's data has loaded
-    // (ai/context/skse/architecture.md's "approved game-thread callback"),
-    // so the initial level capture, the RE::LevelIncrease::Event
-    // registration (via Coordinator::Start(), whose first step is
-    // CallbackRegistry::RegisterAll()), and starting the worker pool and
-    // transport are all deferred to kDataLoaded rather than done here.
+    // RE::PlayerCharacter is not valid before data loads, so the initial
+    // capture, event registration, worker pool, and transport startup are
+    // deferred to kDataLoaded.
     auto* messaging =
         static_cast<SKSE::MessagingInterface*>(skse->QueryInterface(SKSE::LoadInterface::kMessaging));
     if (!messaging) {
