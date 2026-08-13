@@ -13,30 +13,46 @@ using dovahlink::application::WorkerPool;
 
 namespace {
 
+/// Provides a callback registry with no observable work for failure-path tests.
 class NoopCallbackRegistry : public CallbackRegistry {
 public:
+    /// @copydoc CallbackRegistry::RegisterAll
     void RegisterAll() override {}
+    /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
 
+/// Provides a worker pool with no observable work for failure-path tests.
 class NoopWorkerPool : public WorkerPool {
 public:
+    /// @copydoc WorkerPool::Start
     void Start() override {}
+    /// @copydoc WorkerPool::Stop
     void Stop() override {}
+    /// @copydoc WorkerPool::Join
     void Join() override {}
 };
 
+/// Provides a transport lifecycle with no observable work for failure-path tests.
 class NoopTransportLifecycle : public TransportLifecycle {
 public:
+    /// @copydoc TransportLifecycle::Start
     void Start() override {}
+    /// @copydoc TransportLifecycle::CancelCompletions
     void CancelCompletions() override {}
+    /// @copydoc TransportLifecycle::Close
     void Close() override {}
 };
 
+/// Bundles inert coordinator dependencies for each failure-path test.
 struct Fixture {
+    /// Records no callback operations.
     NoopCallbackRegistry callbacks;
+    /// Records no worker-pool operations.
     NoopWorkerPool workers;
+    /// Records no transport operations.
     NoopTransportLifecycle transport;
+    /// Coordinator under test.
     Coordinator coordinator{callbacks, workers, transport};
 };
 

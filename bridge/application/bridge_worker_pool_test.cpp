@@ -31,22 +31,34 @@ namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
+/// Supplies a deterministic character snapshot to the real worker-pool session.
 class FakeCharacterStateProvider : public CharacterStateProvider {
 public:
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override {
         return CharacterSnapshot{.level = 1};
     }
 };
 
+/// Owns the real transport and application dependencies shared by worker-pool tests.
 struct Fixture {
+    /// I/O context supplied to both loopback listeners.
     boost::asio::io_context ioc;
+    /// Accepts test connections over IPv4.
     LoopbackListener listenerV4 = *LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    /// Accepts test connections over IPv6.
     LoopbackListener listenerV6 = *LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    /// Enforces the one-active-connection limit.
     ConnectionSlot slot;
+    /// Holds the one-time token accepted by the test session.
     TokenStore tokenStore{*DecodeHex(kValidHexToken)};
+    /// Tracks failed token attempts for the test session.
     FailedTokenThrottle tokenThrottle;
+    /// Tracks the authenticated test session.
     SessionManager sessionManager;
+    /// Provides the deterministic character snapshot.
     FakeCharacterStateProvider stateProvider;
+    /// Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, tokenStore, tokenThrottle, sessionManager, stateProvider};
 };
 

@@ -26,15 +26,20 @@ namespace {
 
 constexpr const char* kSessionId = "session-1";
 
+/// Supplies the snapshot selected by each subscription-handler test.
 class FakeCharacterStateProvider : public CharacterStateProvider {
 public:
+    /// Stores the snapshot returned by CurrentCharacterSnapshot.
     explicit FakeCharacterStateProvider(CharacterSnapshot snapshot) : snapshot_(snapshot) {}
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return snapshot_; }
 
 private:
+    /// Snapshot exposed to the handler.
     CharacterSnapshot snapshot_;
 };
 
+/// Builds a session-bound envelope from a JSON object payload.
 Envelope BuildEnvelopeWithPayload(std::string messageType, const std::string& jsonPayload,
                                    std::string messageId = "message-1") {
     return Envelope{

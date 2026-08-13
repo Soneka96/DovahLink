@@ -8,15 +8,13 @@
 
 namespace {
 
-// A minimal test double proving LevelEventSink is a pure push seam: it can
-// only ever receive values through OnLevelCaptured, since that is the only
-// member the interface exposes. There is no "current level" accessor to
-// poll -- calling something like fake.GetLevel() would simply not compile,
-// which is the strongest guarantee this design can offer.
+/// Captures pushed level values without exposing a polling accessor.
 class FakeLevelEventSink : public dovahlink::application::LevelEventSink {
 public:
+    /// @copydoc dovahlink::application::LevelEventSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override { received.push_back(level); }
 
+    /// Values received from the production push seam, in arrival order.
     std::vector<std::optional<std::int64_t>> received;
 };
 

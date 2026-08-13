@@ -7,6 +7,7 @@
 using dovahlink::application::ConnectionTimeoutTracker;
 
 namespace {
+/// Clock type used to make timeout assertions deterministic.
 using Clock = std::chrono::steady_clock;
 }  // namespace
 

@@ -30,8 +30,10 @@ constexpr const char* kValidHexToken =
 constexpr const char* kWrongHexToken =
     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
+/// Decodes the canonical valid test token into the production byte format.
 std::vector<std::uint8_t> ValidTokenBytes() { return *DecodeHex(kValidHexToken); }
 
+/// Builds a hello envelope with controllable token, message ID, and version fields.
 Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "message-hello-1",
                              std::int64_t protocolVersion = 0) {
     boost::json::object payload =

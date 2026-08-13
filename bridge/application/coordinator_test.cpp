@@ -16,43 +16,66 @@ using dovahlink::application::WorkerPool;
 
 namespace {
 
+/// Records callback lifecycle calls in the shared test log.
 class RecordingCallbackRegistry : public CallbackRegistry {
 public:
+    /// Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingCallbackRegistry(std::vector<std::string>& log) : log_(log) {}
+    /// @copydoc CallbackRegistry::RegisterAll
     void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
 
 private:
+    /// Log receiving lifecycle call names.
     std::vector<std::string>& log_;
 };
 
+/// Records worker-pool lifecycle calls in the shared test log.
 class RecordingWorkerPool : public WorkerPool {
 public:
+    /// Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingWorkerPool(std::vector<std::string>& log) : log_(log) {}
+    /// @copydoc WorkerPool::Start
     void Start() override { log_.push_back("workers.Start"); }
+    /// @copydoc WorkerPool::Stop
     void Stop() override { log_.push_back("workers.Stop"); }
+    /// @copydoc WorkerPool::Join
     void Join() override { log_.push_back("workers.Join"); }
 
 private:
+    /// Log receiving lifecycle call names.
     std::vector<std::string>& log_;
 };
 
+/// Records transport lifecycle calls in the shared test log.
 class RecordingTransportLifecycle : public TransportLifecycle {
 public:
+    /// Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingTransportLifecycle(std::vector<std::string>& log) : log_(log) {}
+    /// @copydoc TransportLifecycle::Start
     void Start() override { log_.push_back("transport.Start"); }
+    /// @copydoc TransportLifecycle::CancelCompletions
     void CancelCompletions() override { log_.push_back("transport.CancelCompletions"); }
+    /// @copydoc TransportLifecycle::Close
     void Close() override { log_.push_back("transport.Close"); }
 
 private:
+    /// Log receiving lifecycle call names.
     std::vector<std::string>& log_;
 };
 
+/// Bundles recording coordinator dependencies for lifecycle-order tests.
 struct Fixture {
+    /// Captures the order of lifecycle calls.
     std::vector<std::string> log;
+    /// Records callback lifecycle calls.
     RecordingCallbackRegistry callbacks{log};
+    /// Records worker-pool lifecycle calls.
     RecordingWorkerPool workers{log};
+    /// Records transport lifecycle calls.
     RecordingTransportLifecycle transport{log};
+    /// Coordinator under test.
     Coordinator coordinator{callbacks, workers, transport};
 };
 
@@ -151,19 +174,26 @@ TEST_CASE("a Shutdown call that arrives after another is already in progress wai
 
 namespace {
 
+/// Records whether shutdown state is visible during callback unregistration.
 class StoppingCheckCallbackRegistry : public CallbackRegistry {
 public:
+    /// Binds the recorder to the lifecycle log and coordinator observation.
     StoppingCheckCallbackRegistry(std::vector<std::string>& log, const Coordinator*& coordinatorRef)
         : log_(log), coordinatorRef_(coordinatorRef) {}
+    /// @copydoc CallbackRegistry::RegisterAll
     void RegisterAll() override { log_.push_back("callbacks.RegisterAll"); }
+    /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         wasStoppingDuringUnregister_ = coordinatorRef_ != nullptr && coordinatorRef_->IsStopping();
         log_.push_back("callbacks.UnregisterAll");
     }
+    /// Whether unregistration observed the coordinator's stopping state.
     bool wasStoppingDuringUnregister_ = false;
 
 private:
+    /// Log receiving lifecycle call names.
     std::vector<std::string>& log_;
+    /// Indirect coordinator reference used during the callback.
     const Coordinator*& coordinatorRef_;
 };
 

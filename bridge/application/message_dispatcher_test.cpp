@@ -21,30 +21,40 @@ using dovahlink::security::ViolationTracker;
 
 namespace {
 
+/// Clock type used for deterministic dispatcher timeout assertions.
 using SteadyClock = std::chrono::steady_clock;
 
 constexpr dovahlink::application::ConnectionId kConnection = 1;
 constexpr const char* kSessionId = "session-1";
 
+/// Supplies a deterministic character snapshot to dispatcher tests.
 class FakeCharacterStateProvider : public CharacterStateProvider {
 public:
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return CharacterSnapshot{.level = 7}; }
 };
 
-// Bundles every seam ProcessInboundMessage needs, with a session already
-// established for kConnection/kSessionId, so each test only has to name
-// what it wants to differ from a normal, valid, authenticated connection.
+/// Bundles an authenticated dispatcher session and its production collaborators.
 struct Fixture {
+    /// Tracks the session used by the dispatcher.
     SessionManager sessions;
+    /// Rejects duplicate inbound message IDs.
     ReplayGuard replayGuard;
+    /// Tracks protocol violations for the session.
     ViolationTracker violations;
+    /// Limits inbound message rates for the session.
     InboundMessageRateLimiter rateLimiter;
+    /// Tracks handshake and authenticated idle deadlines.
     ConnectionTimeoutTracker timeout{SteadyClock::now()};
+    /// Supplies the deterministic character snapshot.
     FakeCharacterStateProvider stateProvider;
+    /// Tracks revisions for state responses and events.
     RevisionTracker revisions;
 
+    /// Creates the fixture with its test session already authenticated.
     Fixture() { REQUIRE(sessions.TryCreateSession(kConnection, kSessionId)); }
 
+    /// Processes a raw message using the fixture's authenticated session.
     DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {
         return ProcessInboundMessage(rawMessage, kSessionId, kConnection, sessions, replayGuard, violations,
                                       rateLimiter, timeout, stateProvider, revisions, steadyNow,
@@ -52,6 +62,7 @@ struct Fixture {
     }
 };
 
+/// Builds a valid ping envelope for the fixture's authenticated session.
 std::string PingMessage(std::string messageId = "message-ping-1") {
     return R"({"protocolVersion": 1, "messageType": "ping", "messageId": ")" + messageId +
            R"(", "sessionId": ")" + kSessionId + R"(", "correlationId": null, "payload": {}})";

@@ -46,13 +46,16 @@ namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
+/// Supplies a deterministic character snapshot to the real connection session.
 class FakeCharacterStateProvider : public CharacterStateProvider {
 public:
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override {
         return CharacterSnapshot{.level = 30};
     }
 };
 
+/// Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {
     boost::beast::flat_buffer buffer;
     boost::system::error_code ec;
@@ -65,6 +68,7 @@ Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp
     return std::move(*envelope);
 }
 
+/// Writes one text protocol message to the test WebSocket.
 void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs,
                       const std::string& text) {
     clientWs.text(true);
@@ -73,6 +77,7 @@ void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socke
     REQUIRE_FALSE(ec);
 }
 
+/// Builds a hello message using the supplied authentication token.
 std::string HelloMessage(const std::string& token) {
     return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
            R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
