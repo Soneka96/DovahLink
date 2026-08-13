@@ -9,6 +9,7 @@
 #include "security/throttle.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -23,9 +24,10 @@ struct DispatchResult {
     bool closeConnection = false;
 };
 
-/// Validates the existing session, rate-limits, and dispatches one inbound message.
+/// Counts, validates, rate-limits, and dispatches one inbound message.
 /// Oversized frames and exhausted session limits request immediate closure without a response.
 /// @param rawMessage Encoded inbound WebSocket text.
+/// @param receivedMessageCount Number of completed messages read in this session; incremented before decoding.
 /// @param sessionId Authenticated session identifier.
 /// @param connection Transport connection identifier.
 /// @param sessionManager Session registry.
@@ -39,10 +41,11 @@ struct DispatchResult {
 /// @param wallNow Current wall-clock time.
 /// @return Responses and the connection-close decision.
 [[nodiscard]] DispatchResult ProcessInboundMessage(
-    const std::string& rawMessage, const std::string& sessionId, ConnectionId connection,
-    SessionManager& sessionManager, ReplayGuard& replayGuard, security::ViolationTracker& violations,
-    security::InboundMessageRateLimiter& rateLimiter, ConnectionTimeoutTracker& timeoutTracker,
-    const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
-    std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
+    const std::string& rawMessage, std::size_t& receivedMessageCount, const std::string& sessionId,
+    ConnectionId connection, SessionManager& sessionManager, ReplayGuard& replayGuard,
+    security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
+    ConnectionTimeoutTracker& timeoutTracker, const CharacterStateProvider& stateProvider,
+    RevisionTracker& revisions, std::chrono::steady_clock::time_point steadyNow,
+    std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

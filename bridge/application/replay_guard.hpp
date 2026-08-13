@@ -13,12 +13,9 @@ enum class MessageIdCheckResult {
 
     /// The message ID was already recorded for this session.
     kReplayed,
-
-    /// The session message limit was reached and the session must close.
-    kSessionCapReached,
 };
 
-/// Rejects duplicate message IDs and enforces the per-session message bound.
+/// Rejects duplicate message IDs within one session.
 /// One instance belongs to one serial connection and is not thread-safe.
 class ReplayGuard {
 public:
@@ -27,7 +24,7 @@ public:
 
     /// Records and classifies one message ID.
     /// @param messageId Message ID received from the client.
-    /// @return Accepted, replayed, or session-cap result.
+    /// @return Accepted or replayed result.
     [[nodiscard]] MessageIdCheckResult RecordMessage(const std::string& messageId);
 
     /// Reports the number of distinct recorded message IDs.

@@ -3,6 +3,7 @@
 #include "application/handshake_handler.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
+#include "security/limits.hpp"
 
 #include <boost/json/object.hpp>
 
@@ -22,18 +23,18 @@
 //   retry invalid input indefinitely" (security.md) is applied here too,
 //   rather than letting an over-fast client hold a connection open forever
 //   just because it never sends anything structurally wrong.
-// - The session message cap (10,000) closes immediately with no response
-//   at all, per security.md's literal wording ("the bridge closes the
-//   session before this bound is exceeded"): there is nothing left to
-//   correlate a response against once the session is already gone, and no
-//   canonical error code names this case. Like an oversized frame, this is
-//   its own independent hard limit, not routed through the shared Reject()
-//   helper and not counted as a violation.
+// - The session message cap (10,000) counts every completed message before
+//   decoding and closes immediately with no response when exceeded, per
+//   security.md. There is nothing left to correlate a response against once
+//   the session is already gone, and no canonical error code names this case.
+//   Like an oversized frame, this is an independent hard limit, not routed
+//   through the shared Reject() helper or counted as a violation.
 // - Everything that is not in the messageType allowlist is rejected as
 //   malformed_message: there is no canonical code for "message type not
 //   valid in this context", and receiving hello, or any bridge-to-client-
 //   only type, on an already-authenticated connection is exactly that.
-// - The timeout check runs before anything else, including parsing: a
+// - After total-message budget accounting, the timeout check runs before
+//   parsing or other application validation: a
 //   message that only arrived because the client trickled bytes slowly
 //   enough to keep each individual OS-level socket read
 //   (WebSocketSession::SetReadTimeout) from firing on its own must still be
@@ -110,14 +111,20 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
 
 }
 
-DispatchResult ProcessInboundMessage(const std::string& rawMessage, const std::string& sessionId,
-                                      ConnectionId connection, SessionManager& sessionManager,
-                                      ReplayGuard& replayGuard, security::ViolationTracker& violations,
+DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t& receivedMessageCount,
+                                      const std::string& sessionId, ConnectionId connection,
+                                      SessionManager& sessionManager, ReplayGuard& replayGuard,
+                                      security::ViolationTracker& violations,
                                       security::InboundMessageRateLimiter& rateLimiter,
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
+    ++receivedMessageCount;
+    if (receivedMessageCount > security::kMaxMessagesPerSession) {
+        return DispatchResult{.closeConnection = true};
+    }
+
     if (timeoutTracker.IsTimedOut(steadyNow)) {
         return DispatchResult{.closeConnection = true};
     }
@@ -154,14 +161,9 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, const std::s
                        false, violations, steadyNow);
     }
 
-    switch (replayGuard.RecordMessage(envelope->messageId)) {
-        case MessageIdCheckResult::kSessionCapReached:
-            return DispatchResult{.closeConnection = true};
-        case MessageIdCheckResult::kReplayed:
-            return Reject(envelope->messageId, sessionId, "replayed_message", "Duplicate messageId", false,
-                           violations, steadyNow);
-        case MessageIdCheckResult::kAccepted:
-            break;
+    if (replayGuard.RecordMessage(envelope->messageId) == MessageIdCheckResult::kReplayed) {
+        return Reject(envelope->messageId, sessionId, "replayed_message", "Duplicate messageId", false,
+                       violations, steadyNow);
     }
 
     if (rateLimiter.RecordMessageAndCheckLimit(steadyNow)) {

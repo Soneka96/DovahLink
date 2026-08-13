@@ -52,30 +52,12 @@ TEST_CASE("two ReplayGuard instances track messageIds independently", "[applicat
     CHECK(second.Count() == 1);
 }
 
-TEST_CASE("RecordMessage reaches the session cap at the documented message limit",
+TEST_CASE("RecordMessage remains a replay check beyond the separate session message limit",
           "[application][replay_guard]") {
     ReplayGuard guard;
-    for (std::size_t i = 0; i < dovahlink::security::kMaxMessagesPerSession; ++i) {
+    for (std::size_t i = 0; i <= dovahlink::security::kMaxMessagesPerSession; ++i) {
         REQUIRE(guard.RecordMessage("message-" + std::to_string(i)) == MessageIdCheckResult::kAccepted);
     }
-    CHECK(guard.Count() == dovahlink::security::kMaxMessagesPerSession);
-
-    // The next distinct messageId is rejected: the session must close before
-    // reaching kMaxMessagesPerSession + 1.
-    CHECK(guard.RecordMessage("one-too-many") == MessageIdCheckResult::kSessionCapReached);
-}
-
-TEST_CASE("RecordMessage keeps reporting the cap once reached, without growing the set further",
-          "[application][replay_guard]") {
-    ReplayGuard guard;
-    for (std::size_t i = 0; i < dovahlink::security::kMaxMessagesPerSession; ++i) {
-        REQUIRE(guard.RecordMessage("message-" + std::to_string(i)) == MessageIdCheckResult::kAccepted);
-    }
-    REQUIRE(guard.RecordMessage("one-too-many") == MessageIdCheckResult::kSessionCapReached);
-
-    CHECK(guard.RecordMessage("still-too-many") == MessageIdCheckResult::kSessionCapReached);
-    // Even a previously-seen ID returns the cap signal now, not kReplayed, since the
-    // caller is expected to have already closed the session by this point.
-    CHECK(guard.RecordMessage("message-0") == MessageIdCheckResult::kSessionCapReached);
-    CHECK(guard.Count() == dovahlink::security::kMaxMessagesPerSession);
+    CHECK(guard.Count() == dovahlink::security::kMaxMessagesPerSession + 1);
+    CHECK(guard.RecordMessage("message-0") == MessageIdCheckResult::kReplayed);
 }

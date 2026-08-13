@@ -2,10 +2,12 @@
 
 #include "application/character_state.hpp"
 #include "protocol/messages.hpp"
+#include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <optional>
 #include <string>
 
@@ -37,6 +39,8 @@ public:
 
 /// Bundles an authenticated dispatcher session and its production collaborators.
 struct Fixture {
+    /// Counts every completed inbound message before decoding.
+    std::size_t receivedMessageCount = 0;
     /// Tracks the session used by the dispatcher.
     SessionManager sessions;
     /// Owns the authenticated session for the fixture lifetime.
@@ -61,9 +65,9 @@ struct Fixture {
 
     /// Processes a raw message using the fixture's authenticated session.
     DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {
-        return ProcessInboundMessage(rawMessage, kSessionId, kConnection, sessions, replayGuard, violations,
-                                      rateLimiter, timeout, stateProvider, revisions, steadyNow,
-                                      std::chrono::system_clock::now());
+        return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
+                                     replayGuard, violations, rateLimiter, timeout, stateProvider, revisions,
+                                     steadyNow, std::chrono::system_clock::now());
     }
 };
 
@@ -201,6 +205,7 @@ TEST_CASE("ProcessInboundMessage rejects a foreign sessionId as stale_session",
 TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][message_dispatcher]") {
     Fixture fixture;
     auto first = fixture.Process(PingMessage("message-ping-1"));
+    REQUIRE(first.responses.size() == 1);
     REQUIRE(first.responses[0].messageType == "pong");
 
     auto second = fixture.Process(PingMessage("message-ping-1"));
@@ -211,24 +216,39 @@ TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][m
     CHECK(error->code == "replayed_message");
 }
 
-TEST_CASE("ProcessInboundMessage closes with no response once the session message cap is reached",
+TEST_CASE("ProcessInboundMessage counts unique, replayed, and malformed messages toward the session cap",
           "[application][message_dispatcher]") {
     Fixture fixture;
-    // Pre-fill the ReplayGuard to exactly the cap (10,000 distinct IDs) --
-    // RecordMessage checks size() >= cap *before* inserting
-    // (application/replay_guard.cpp), so this test's own message is the
-    // first one to actually observe kSessionCapReached. This proves
-    // ProcessInboundMessage reacts correctly to that result, not
-    // re-proving ReplayGuard's own cap arithmetic (already covered by
-    // replay_guard_test.cpp).
-    for (int i = 0; i < 10000; ++i) {
-        fixture.replayGuard.RecordMessage("prefill-" + std::to_string(i));
-    }
+    fixture.receivedMessageCount = dovahlink::security::kMaxMessagesPerSession - 4;
 
-    auto result = fixture.Process(PingMessage("message-ping-cap"));
+    auto unique = fixture.Process(PingMessage("message-ping-1"));
+    REQUIRE(unique.responses.size() == 1);
+    CHECK(unique.responses[0].messageType == "pong");
 
-    CHECK(result.closeConnection);
-    CHECK(result.responses.empty());
+    auto replayed = fixture.Process(PingMessage("message-ping-1"));
+    REQUIRE(replayed.responses.size() == 1);
+    auto replayError = dovahlink::protocol::DecodeErrorPayload(replayed.responses[0].payload);
+    REQUIRE(replayError.has_value());
+    CHECK(replayError->code == "replayed_message");
+
+    auto malformed = fixture.Process("not json {{{");
+    REQUIRE(malformed.responses.size() == 1);
+    auto malformedError = dovahlink::protocol::DecodeErrorPayload(malformed.responses[0].payload);
+    REQUIRE(malformedError.has_value());
+    CHECK(malformedError->code == "malformed_message");
+
+    auto finalAllowed = fixture.Process(PingMessage("message-ping-2"));
+    CHECK_FALSE(finalAllowed.closeConnection);
+    REQUIRE(finalAllowed.responses.size() == 1);
+    CHECK(finalAllowed.responses[0].messageType == "pong");
+    CHECK(fixture.receivedMessageCount == dovahlink::security::kMaxMessagesPerSession);
+
+    auto overLimit = fixture.Process(PingMessage("message-ping-3"));
+
+    CHECK(overLimit.closeConnection);
+    CHECK(overLimit.responses.empty());
+    CHECK(fixture.receivedMessageCount == dovahlink::security::kMaxMessagesPerSession + 1);
+    CHECK(fixture.replayGuard.Count() == 2);
 }
 
 TEST_CASE("ProcessInboundMessage rejects the 101st message within a second as rate_limited",
@@ -237,6 +257,7 @@ TEST_CASE("ProcessInboundMessage rejects the 101st message within a second as ra
     auto now = SteadyClock::now();
     for (int i = 0; i < 100; ++i) {
         auto result = fixture.Process(PingMessage("message-ping-" + std::to_string(i)), now);
+        REQUIRE(result.responses.size() == 1);
         REQUIRE(result.responses[0].messageType == "pong");
     }
 

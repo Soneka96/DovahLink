@@ -9,6 +9,7 @@
 #include "protocol/envelope.hpp"
 
 #include <chrono>
+#include <cstddef>
 
 namespace dovahlink::application {
 
@@ -100,6 +101,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     security::ViolationTracker violations;
     security::InboundMessageRateLimiter rateLimiter;
     RevisionTracker revisions;
+    std::size_t receivedMessageCount = 0;
 
     while (true) {
         auto raw = ws.ReadMessage();
@@ -108,8 +110,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         }
 
         auto dispatch =
-            ProcessInboundMessage(*raw, sessionId, connection, sessionManager, replayGuard, violations, rateLimiter,
-                                  timeout, stateProvider, revisions, steadyNow(), std::chrono::system_clock::now());
+            ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager, replayGuard,
+                                  violations, rateLimiter, timeout, stateProvider, revisions, steadyNow(),
+                                  std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }
