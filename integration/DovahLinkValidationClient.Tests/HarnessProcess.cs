@@ -18,6 +18,10 @@ public sealed class HarnessProcess : IDisposable
     /// <summary>Serializes asynchronous standard-error writes with diagnostic reads.</summary>
     private readonly object _stderrLock = new();
 
+    /// <summary>Completes when the asynchronous standard-error reader receives its end-of-stream marker.</summary>
+    private readonly TaskCompletionSource<bool> _stderrReadCompleted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     /// <summary>
     /// Starts the bridge harness with redirected standard streams and the specified environment configuration.
     /// </summary>
@@ -36,7 +40,11 @@ public sealed class HarnessProcess : IDisposable
 
         _process.ErrorDataReceived += (_, e) =>
         {
-            if (e.Data is not null)
+            if (e.Data is null)
+            {
+                _stderrReadCompleted.TrySetResult(true);
+            }
+            else
             {
                 AppendStandardError(e.Data);
             }
@@ -102,9 +110,25 @@ public sealed class HarnessProcess : IDisposable
     public async Task<bool> WaitForExitAsync(TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
+        return await WaitForProcessAndStandardErrorAsync(
+            _process.WaitForExitAsync(cts.Token), _stderrReadCompleted.Task, cts.Token);
+    }
+
+    /// <summary>Coordinates process exit with completion of the asynchronous standard-error reader.
+    /// </summary>
+    /// <param name="processExitTask">The task that completes when the process exits.</param>
+    /// <param name="stderrReadCompletedTask">The task that completes when stderr reaches EOF.</param>
+    /// <param name="cancellationToken">The timeout or cancellation signal for both waits.</param>
+    /// <returns><c>true</c> when both completion signals arrive; otherwise <c>false</c> when canceled.</returns>
+    internal static async Task<bool> WaitForProcessAndStandardErrorAsync(
+        Task processExitTask,
+        Task stderrReadCompletedTask,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            await _process.WaitForExitAsync(cts.Token);
+            await processExitTask.WaitAsync(cancellationToken);
+            await stderrReadCompletedTask.WaitAsync(cancellationToken);
             return true;
         }
         catch (OperationCanceledException)

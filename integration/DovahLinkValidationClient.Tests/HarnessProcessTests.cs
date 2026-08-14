@@ -5,6 +5,38 @@ namespace DovahLinkValidationClient.Tests;
 /// <summary>Exercises failure-safe process-harness diagnostics.</summary>
 public class HarnessProcessTests
 {
+    /// <summary>Verifies that process exit does not complete before asynchronous stderr EOF.</summary>
+    [Fact]
+    public async Task WaitForExitCoordinationWaitsForStandardErrorCompletion()
+    {
+        var processExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stderrCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<bool> wait = HarnessProcess.WaitForProcessAndStandardErrorAsync(
+            processExited.Task,
+            stderrCompleted.Task,
+            CancellationToken.None);
+
+        processExited.SetResult(true);
+        await Task.Yield();
+        Assert.False(wait.IsCompleted);
+
+        stderrCompleted.SetResult(true);
+        Assert.True(await wait);
+    }
+
+    /// <summary>Verifies that the combined process and stderr wait honors cancellation.</summary>
+    [Fact]
+    public async Task WaitForExitCoordinationHonorsCancellation()
+    {
+        var stderrCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        Assert.False(await HarnessProcess.WaitForProcessAndStandardErrorAsync(
+            Task.CompletedTask,
+            stderrCompleted.Task,
+            cancellation.Token));
+    }
+
     /// <summary>Verifies that standard error can be read while its asynchronous producer appends lines.</summary>
     [Fact]
     public async Task StandardErrorSupportsConcurrentReadsAndWrites()
