@@ -34,10 +34,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"(?m)^\s*permissions:", workflow)), 1)
 
         self.assertEqual(len(re.findall(r"uses: actions/checkout@", workflow)), 1)
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v4\n"
+            "      - uses: actions/checkout@v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -78,7 +78,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure Debug"),
         )
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
-        self.assertIn("uses: actions/cache@v4", workflow)
+        self.assertIn("uses: actions/cache@v5", workflow)
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
         self.assertIn("hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')", workflow)
@@ -100,7 +100,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("if: failure()", workflow)
-        self.assertIn("uses: actions/upload-artifact@v4", workflow)
+        self.assertIn("uses: actions/upload-artifact@v6", workflow)
+        self.assertIn(
+            "Maintained stable release; no stable Node 24 replacement is available yet.",
+            workflow,
+        )
         self.assertIn("name: bridge-ci-diagnostics-${{ github.run_id }}", workflow)
         self.assertIn("bridge/build/windows-x64-debug/Testing/", workflow)
         self.assertIn("bridge/build/windows-x64-release/Testing/", workflow)
@@ -126,10 +130,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v4\n"
+            "      - uses: actions/checkout@v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -185,10 +189,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._yaml_block(workflow, "permissions:"),
             "permissions:\n  contents: read",
         )
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v4\n"
+            "      - uses: actions/checkout@v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -235,10 +239,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '& "${{ runner.temp }}\\vcpkg\\bootstrap-vcpkg.bat" -disableMetrics',
             workflow,
         )
-        self.assertIn("uses: actions/setup-dotnet@v4", workflow)
+        self.assertIn("uses: actions/setup-dotnet@v5", workflow)
         self.assertIn("dotnet-version: 9.0.x", workflow)
         self.assertIn("uses: ilammy/msvc-dev-cmd@v1", workflow)
-        self.assertIn("uses: actions/cache@v4", workflow)
+        self.assertIn("uses: actions/cache@v5", workflow)
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
         self.assertIn("run: cmake --preset windows-x64-debug", workflow)
         self.assertIn(
@@ -255,7 +259,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn('--logger "trx;LogFileName=integration.trx"', workflow)
         self.assertIn("--results-directory integration/TestResults", workflow)
-        self.assertIn("uses: actions/upload-artifact@v4", workflow)
+        self.assertIn("uses: actions/upload-artifact@v6", workflow)
+        self.assertIn(
+            "Maintained stable release; no stable Node 24 replacement is available yet.",
+            workflow,
+        )
         self.assertIn("integration/TestResults/", workflow)
         self.assertLess(
             workflow.index("Build bridge validation harness"),
@@ -299,10 +307,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._yaml_block(workflow, "permissions:"),
             "permissions:\n  contents: read",
         )
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v4\n"
+            "      - uses: actions/checkout@v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -315,10 +323,64 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("uses: actions/setup-python@v5", workflow)
+        self.assertIn("uses: actions/setup-python@v6", workflow)
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn('run: python -m unittest discover -s tooling -p "test_*.py"', workflow)
         self.assertNotIn("continue-on-error:", workflow)
+
+    def test_common_conventions_reject_deprecated_workflow_dependencies(self) -> None:
+        """Require maintained workflow dependencies and documented runtime exceptions."""
+        common = self._read("ai/context/common.md")
+        self.assertIn(
+            "Do not introduce deprecated or end-of-life dependencies, tools, runtimes, action versions, or APIs.",
+            common,
+        )
+        self.assertIn(
+            "Prefer maintained stable releases and pinned action versions",
+            common,
+        )
+        self.assertIn("never use floating branches such as `@main`", common)
+        self.assertIn(
+            "no stable replacement for a deprecated runtime",
+            common,
+        )
+
+        for workflow_path in (
+            ".github/workflows/bridge-ci.yml",
+            ".github/workflows/integration-ci.yml",
+        ):
+            workflow = self._read(workflow_path)
+            self.assertIn(
+                "Maintained stable release; no stable Node 24 replacement is available yet.",
+                workflow,
+            )
+
+    def test_workflows_use_supported_pinned_action_refs(self) -> None:
+        """Reject stale official action majors and floating workflow references."""
+        expected_versions = {
+            "actions/checkout": "v6",
+            "actions/cache": "v5",
+            "actions/setup-python": "v6",
+            "actions/setup-dotnet": "v5",
+            "actions/upload-artifact": "v6",
+        }
+
+        workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
+        for workflow_path in sorted(workflow_directory.glob("*.yml")):
+            workflow = workflow_path.read_text(encoding="utf-8")
+            for action, version in expected_versions.items():
+                references = re.findall(
+                    rf"(?m)^\s*uses:\s*({re.escape(action)}@[^\s#]+)",
+                    workflow,
+                )
+                for reference in references:
+                    self.assertEqual(reference, f"{action}@{version}", workflow_path.name)
+
+            self.assertNotRegex(
+                workflow,
+                r"(?m)^\s*uses:\s*[^\s#]+@(main|master|develop|latest)\s*(?:#|$)",
+                workflow_path.name,
+            )
 
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""

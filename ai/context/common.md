@@ -69,3 +69,6 @@ style guide.
 - Do not hide stale, missing, or incompatible data behind plausible defaults.
 - Keep read-only behavior as the default until an action has an approved safety model.
 - Do not introduce a second implementation of a rule that belongs in a shared contract.
+- Do not introduce deprecated or end-of-life dependencies, tools, runtimes, action versions, or APIs.
+- Prefer maintained stable releases and pinned action versions; never use floating branches such as `@main` for workflow dependencies.
+- If a maintained action has no stable replacement for a deprecated runtime, keep the current stable release only with a nearby workflow comment explaining the exception and review it when an upstream replacement is published.

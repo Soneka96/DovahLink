@@ -32,7 +32,7 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
@@ -49,6 +49,7 @@ jobs:
           ninja --version
 
       - name: Set up the MSVC 2022 developer environment
+        # Maintained stable release; no stable Node 24 replacement is available yet.
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -60,7 +61,7 @@ jobs:
           & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
           key: ${{ runner.os }}-vcpkg-2f1d605400c8727cc00c15797aba796c88ccd523-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
@@ -95,7 +96,7 @@ jobs:
 
       - name: Upload bridge test diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: bridge-ci-diagnostics-${{ github.run_id }}
           path: |
