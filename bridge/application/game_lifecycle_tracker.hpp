@@ -36,6 +36,7 @@ enum class LifecycleEvent {
 /// Generates a fresh opaque play-context identifier, or no value on failure.
 using PlayContextIdGenerator = std::function<std::optional<std::string>()>;
 
+/// SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#kpostloadgames-data-is-a-value-not-a-pointer
 /// Decodes SKSE's kPostLoadGame success flag. SKSE encodes it directly as
 /// the pointer's bit pattern (0 or 1), not as a pointer to a bool in
 /// memory -- confirmed from a crash dereferencing address 0x1, i.e.

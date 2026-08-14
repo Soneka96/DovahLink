@@ -101,6 +101,7 @@ SKSEPluginInfo(
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLogging();
 
+    // SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#skseinit-must-run-before-any-interface-registration
     // Records this plugin's identity (its SKSE-assigned handle) with the
     // CommonLibSSE-NG API layer. Every call that needs a plugin handle --
     // MessagingInterface::RegisterListener, SerializationInterface's
@@ -202,6 +203,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         SKSE::log::error("Unable to obtain SKSE's messaging interface; cannot defer startup to kDataLoaded.");
         return false;
     }
+    // SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
     // SKSE allows exactly one MessagingInterface::RegisterListener call per
     // plugin; a second, separate call fails both registrations (confirmed
     // empirically: SKSE logs "Failed to register messaging listener for
