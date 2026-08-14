@@ -81,6 +81,62 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("bridge/build/windows-x64-debug/Testing/", workflow)
         self.assertIn("bridge/build/windows-x64-release/Testing/", workflow)
 
+    def test_app_ci_covers_flutter_quality_and_windows_build(self) -> None:
+        """Require Flutter generation, analysis, tests, and desktop build coverage."""
+        workflow = self._read(".github/workflows/app-ci.yml")
+        expected_paths = {
+            '- "app/**"',
+            '- "protocol/**"',
+            '- ".github/workflows/app-ci.yml"',
+        }
+
+        for trigger in ("push", "pull_request"):
+            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
+            if trigger == "push":
+                self.assertIn("    branches: [main]", trigger_block)
+            paths_block = self._yaml_block(trigger_block, "    paths:")
+            self.assertEqual(
+                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+                expected_paths,
+            )
+
+        permissions = self._yaml_block(workflow, "permissions:")
+        self.assertEqual(permissions, "permissions:\n  contents: read")
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        self.assertEqual(
+            checkout,
+            "      - uses: actions/checkout@v4\n"
+            "        with:\n"
+            "          persist-credentials: false",
+        )
+        self.assertIn("    runs-on: windows-2022", workflow)
+        self.assertIn("    timeout-minutes: 20", workflow)
+        self.assertIn("        shell: pwsh", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "  group: app-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            workflow,
+        )
+        self.assertIn("  cancel-in-progress: true", workflow)
+        self.assertIn("uses: subosito/flutter-action@v2", workflow)
+        self.assertIn("channel: stable", workflow)
+        self.assertIn("cache: true", workflow)
+        step_names_and_commands = (
+            ("Restore Flutter dependencies", "flutter pub get"),
+            ("Generate Dart sources", "dart run build_runner build"),
+            ("Analyze Flutter client", "flutter analyze"),
+            ("Test Flutter client", "flutter test"),
+            ("Build Windows client", "flutter build windows --debug"),
+        )
+        step_positions = []
+        for step_name, command in step_names_and_commands:
+            step = self._yaml_block(workflow, f"      - name: {step_name}")
+            self.assertIn("        working-directory: app", step)
+            self.assertIn(f"        run: {command}", step)
+            self.assertNotIn("continue-on-error:", step)
+            step_positions.append(workflow.index(f"      - name: {step_name}"))
+        self.assertEqual(step_positions, sorted(step_positions))
+
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
