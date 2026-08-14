@@ -74,12 +74,15 @@ public:
     /// @param transport Transport lifecycle boundary.
     Coordinator(CallbackRegistry& callbacks, WorkerPool& workers, TransportLifecycle& transport);
 
+    /// Shuts down every lifecycle dependency before the coordinator is destroyed.
+    ~Coordinator() noexcept;
+
     /// Registers callbacks and starts workers and transport in order.
     void Start();
 
     /// Completes every shutdown stage on a best-effort basis; repeated calls wait for completion.
     /// Lifecycle implementations must not call this method re-entrantly from a shutdown stage.
-    void Shutdown();
+    void Shutdown() noexcept;
 
     /// Reports whether shutdown has started.
     [[nodiscard]] bool IsStopping() const;

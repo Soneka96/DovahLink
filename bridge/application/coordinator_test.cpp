@@ -104,6 +104,49 @@ TEST_CASE("Shutdown follows the exact documented barrier order with no callbacks
                    });
 }
 
+TEST_CASE("Coordinator destruction completes the shutdown barrier before dependencies are destroyed",
+          "[application][coordinator]") {
+    std::vector<std::string> log;
+    {
+        RecordingCallbackRegistry callbacks(log);
+        RecordingWorkerPool workers(log);
+        RecordingTransportLifecycle transport(log);
+        Coordinator coordinator(callbacks, workers, transport);
+
+        coordinator.Start();
+    }
+
+    CHECK(log == std::vector<std::string>{
+                       "callbacks.RegisterAll",
+                       "workers.Start",
+                       "transport.Start",
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
+TEST_CASE("Coordinator destruction shuts down dependencies even when Start was never called",
+          "[application][coordinator]") {
+    std::vector<std::string> log;
+    {
+        RecordingCallbackRegistry callbacks(log);
+        RecordingWorkerPool workers(log);
+        RecordingTransportLifecycle transport(log);
+        Coordinator coordinator(callbacks, workers, transport);
+    }
+
+    CHECK(log == std::vector<std::string>{
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
+}
+
 TEST_CASE("Shutdown marks the coordinator stopping", "[application][coordinator]") {
     Fixture f;
     CHECK_FALSE(f.coordinator.IsStopping());

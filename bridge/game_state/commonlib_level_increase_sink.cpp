@@ -6,6 +6,14 @@ namespace dovahlink::game_state {
 
 CommonLibLevelIncreaseSink::CommonLibLevelIncreaseSink(LevelIncreaseHandler& handler) : handler_(handler) {}
 
+CommonLibLevelIncreaseSink::~CommonLibLevelIncreaseSink() noexcept {
+    try {
+        Unregister();
+    } catch (...) {
+        // Destruction cannot propagate a runtime event-source failure.
+    }
+}
+
 RE::BSEventNotifyControl CommonLibLevelIncreaseSink::ProcessEvent(const RE::LevelIncrease::Event*,
                                                                   RE::BSTEventSource<RE::LevelIncrease::Event>*) {
     if (callbackRunner_) {
@@ -17,8 +25,15 @@ RE::BSEventNotifyControl CommonLibLevelIncreaseSink::ProcessEvent(const RE::Leve
 void CommonLibLevelIncreaseSink::Register(application::ContainedWorkRunner callbackRunner) {
     callbackRunner_ = std::move(callbackRunner);
     RE::LevelIncrease::GetEventSource()->AddEventSink(this);
+    registered_ = true;
 }
 
-void CommonLibLevelIncreaseSink::Unregister() { RE::LevelIncrease::GetEventSource()->RemoveEventSink(this); }
+void CommonLibLevelIncreaseSink::Unregister() {
+    if (!registered_) {
+        return;
+    }
+    RE::LevelIncrease::GetEventSource()->RemoveEventSink(this);
+    registered_ = false;
+}
 
 }  // namespace dovahlink::game_state

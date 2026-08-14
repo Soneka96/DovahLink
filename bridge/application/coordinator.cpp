@@ -7,13 +7,15 @@ namespace dovahlink::application {
 Coordinator::Coordinator(CallbackRegistry& callbacks, WorkerPool& workers, TransportLifecycle& transport)
     : callbacks_(callbacks), workers_(workers), transport_(transport) {}
 
+Coordinator::~Coordinator() noexcept { Shutdown(); }
+
 void Coordinator::Start() {
     callbacks_.RegisterAll([this](ContainedWork work) noexcept { return RunCallbackContained(std::move(work)); });
     workers_.Start([this](ContainedWork work) noexcept { return RunContained(std::move(work)); });
     transport_.Start();
 }
 
-void Coordinator::Shutdown() {
+void Coordinator::Shutdown() noexcept {
     {
         std::unique_lock<std::mutex> lock(mutex_);
         if (shutdownStarted_) {
