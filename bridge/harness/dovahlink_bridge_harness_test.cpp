@@ -227,12 +227,24 @@ std::int64_t SnapshotLevel(const dovahlink::protocol::Envelope& snapshot) {
     return *characterState->level;
 }
 
+/// Reads and validates the harness's `BRIDGE_INSTANCE <id>` startup line,
+/// returning the identifier text after the prefix.
+std::string ReadBridgeInstanceId(HarnessProcess& harness) {
+    constexpr std::string_view kPrefix = "BRIDGE_INSTANCE ";
+    std::string line = harness.ReadLine();
+    REQUIRE(line.starts_with(kPrefix));
+    return line.substr(kPrefix.size());
+}
+
 }  // namespace
 
 TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket and shuts down cleanly",
           "[harness]") {
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
     REQUIRE(harness.ReadLine() == "READY");
+    std::string bridgeInstanceId = ReadBridgeInstanceId(harness);
+    CHECK_FALSE(bridgeInstanceId.empty());
+    CHECK(bridgeInstanceId != "(unavailable)");
 
     boost::asio::io_context ioc;
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -293,6 +305,34 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     harness.WriteLine("quit");
     REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
     CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID across a relaunch",
+          "[harness]") {
+    // Proves the harness's own documented purpose for this ID (see its
+    // startup comment): a fresh identity per process launch. The .NET
+    // RestartScenarioTests.cs proves the same property at the process
+    // boundary the real acceptance test cares about; this case only proves
+    // the harness-side generation itself varies, without needing a socket.
+    std::string firstId;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        REQUIRE(harness.ReadLine() == "READY");
+        firstId = ReadBridgeInstanceId(harness);
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    }
+
+    std::string secondId;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        REQUIRE(harness.ReadLine() == "READY");
+        secondId = ReadBridgeInstanceId(harness);
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    }
+
+    CHECK(firstId != secondId);
 }
 
 TEST_CASE("dovahlink_bridge_harness exits without printing READY when the token is missing",

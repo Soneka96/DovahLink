@@ -1,7 +1,7 @@
 // Skyrim-independent process harness for the real bridge stack. It uses a
 // deterministic character level, accepts the same authentication token as the
-// plugin, prints READY after startup, and handles increase_level and quit
-// commands on standard input.
+// plugin, prints READY followed by its generated bridge instance ID after
+// startup, and handles increase_level and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -9,6 +9,7 @@
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/session.hpp"
+#include "security/csprng.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
@@ -100,6 +101,13 @@ int main() {
 
     coordinator.Start();
     std::cout << "READY" << std::endl;
+
+    // Skyrim-independent stand-in for the real plugin's bridgeInstanceId
+    // generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
+    // process launch, printed so a process-boundary test can observe it
+    // changing across a kill-and-relaunch cycle without a running Skyrim.
+    auto bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
+    std::cout << "BRIDGE_INSTANCE " << bridgeInstanceId.value_or("(unavailable)") << std::endl;
 
     std::int64_t level = 5;
     characterStateStore.OnLevelCaptured(level);
