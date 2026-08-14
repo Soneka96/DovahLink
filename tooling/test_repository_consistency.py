@@ -382,6 +382,67 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 workflow_path.name,
             )
 
+    def test_local_ci_preflight_covers_all_workflow_command_payloads(self) -> None:
+        """Require the local preflight to mirror every CI command surface in order."""
+        script = self._read("tooling/run-local-ci.ps1")
+        required_fragments = (
+            ". $integrationScript",
+            "Find-VisualStudioToolchain",
+            "Import-VisualStudioEnvironment",
+            '$vcpkgBaseline = "2f1d605400c8727cc00c15797aba796c88ccd523"',
+            '"clone", "https://github.com/microsoft/vcpkg.git", $vcpkgRoot',
+            '"-C", $vcpkgRoot, "checkout", $vcpkgBaseline',
+            '"-disableMetrics"',
+            "$env:VCPKG_ROOT = $vcpkgRoot",
+            "$env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot",
+            "$LASTEXITCODE -ne 0",
+            'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"pub\", \"get\")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @(\"run\", \"build_runner\", \"build\")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"analyze\")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"test\")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"build\", \"windows\", \"--debug\")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--preset\", \"windows-x64-debug\")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--build\", \"--preset\", \"windows-x64-debug\")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @(\"--preset\", \"windows-x64-debug\")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--preset\", \"windows-x64-release\")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--build\", \"--preset\", \"windows-x64-release\")',
+            '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
+            '"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"',
+            '"restore", "integration/DovahLinkValidation.sln"',
+            '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"',
+        )
+        for fragment in required_fragments:
+            self.assertIn(fragment, script)
+
+        section_positions = [
+            script.index("=== tooling-ci ==="),
+            script.index("=== app-ci ==="),
+            script.index("=== bridge-ci ==="),
+            script.index("=== integration-ci ==="),
+        ]
+        self.assertEqual(section_positions, sorted(section_positions))
+        command_positions = [
+            script.index('Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")'),
+            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")'),
+            script.index('"--test-dir", "build/windows-x64-release", "--output-on-failure"'),
+            script.index('"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"'),
+            script.index('"restore", "integration/DovahLinkValidation.sln"'),
+            script.index('"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"'),
+        ]
+        self.assertEqual(command_positions, sorted(command_positions))
+        self.assertNotIn("choco install", script)
+        self.assertIn("All local CI command payloads passed.", script)
+
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
