@@ -405,30 +405,31 @@ TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes co
           "[application][coordinator][failure]") {
     using namespace std::chrono_literals;
 
-    Fixture f;
-    std::binary_semaphore closeEntered{0};
-    std::binary_semaphore releaseClose{0};
-    std::binary_semaphore waiterCalling{0};
-    f.transport.failureStage_ = ShutdownFailureStage::kCloseTransport;
-    f.transport.closeEntered_ = &closeEntered;
-    f.transport.releaseClose_ = &releaseClose;
+    auto fixture = std::make_shared<Fixture>();
+    auto closeEntered = std::make_shared<std::binary_semaphore>(0);
+    auto releaseClose = std::make_shared<std::binary_semaphore>(0);
+    auto waiterCalling = std::make_shared<std::binary_semaphore>(0);
+    fixture->transport.failureStage_ = ShutdownFailureStage::kCloseTransport;
+    fixture->transport.closeEntered_ = closeEntered.get();
+    fixture->transport.releaseClose_ = releaseClose.get();
 
-    std::thread owner([&] { f.coordinator.Shutdown(); });
-    closeEntered.acquire();
+    std::thread owner([fixture] { fixture->coordinator.Shutdown(); });
+    closeEntered->acquire();
 
-    auto waiter = std::async(std::launch::async, [&] {
-        waiterCalling.release();
-        f.coordinator.Shutdown();
-    });
-    waiterCalling.acquire();
+    auto waiter = std::async(std::launch::async, [fixture, waiterCalling, releaseClose] {
+        (void)releaseClose;
+        waiterCalling->release();
+        fixture->coordinator.Shutdown();
+    }).share();
+    waiterCalling->acquire();
 
     CHECK(waiter.wait_for(50ms) == std::future_status::timeout);
-    releaseClose.release();
+    releaseClose->release();
 
     owner.join();
-    CHECK(waiter.wait_for(5s) == std::future_status::ready);
+    REQUIRE(waiter.wait_for(5s) == std::future_status::ready);
     waiter.get();
-    CHECK_FALSE(f.coordinator.IsAvailable());
+    CHECK_FALSE(fixture->coordinator.IsAvailable());
 }
 
 TEST_CASE("RunContained after shutdown still contains the exception without hanging or crashing",
