@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 
+using dovahlink::application::DecodePostLoadGameSuccess;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::LifecycleEvent;
 using dovahlink::application::LifecycleState;
@@ -24,6 +25,25 @@ dovahlink::application::PlayContextIdGenerator FailingGenerator() {
 }
 
 }  // namespace
+
+TEST_CASE("DecodePostLoadGameSuccess treats a null pointer as failure", "[application][game_lifecycle_tracker]") {
+    CHECK_FALSE(DecodePostLoadGameSuccess(nullptr));
+}
+
+TEST_CASE("DecodePostLoadGameSuccess treats the exact value that crashed the dereference as success",
+          "[application][game_lifecycle_tracker]") {
+    CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(1)));
+}
+
+TEST_CASE("DecodePostLoadGameSuccess treats reinterpret_cast<void*>(true), SKSE's actual encoding, as success",
+          "[application][game_lifecycle_tracker]") {
+    CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(true)));
+}
+
+TEST_CASE("DecodePostLoadGameSuccess treats any non-null value as success, not only exactly 1",
+          "[application][game_lifecycle_tracker]") {
+    CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(2)));
+}
 
 TEST_CASE("a fresh tracker starts in kNoContext with no active play context",
           "[application][game_lifecycle_tracker]") {

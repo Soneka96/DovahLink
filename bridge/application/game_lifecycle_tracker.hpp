@@ -36,6 +36,14 @@ enum class LifecycleEvent {
 /// Generates a fresh opaque play-context identifier, or no value on failure.
 using PlayContextIdGenerator = std::function<std::optional<std::string>()>;
 
+/// Decodes SKSE's kPostLoadGame success flag. SKSE encodes it directly as
+/// the pointer's bit pattern (0 or 1), not as a pointer to a bool in
+/// memory -- confirmed from a crash dereferencing address 0x1, i.e.
+/// `reinterpret_cast<void*>(true)`. A null value means failure rather than
+/// fabricating success for an unexpected payload (ai/context/common.md's
+/// "do not hide stale, missing, or incompatible data" quality floor).
+[[nodiscard]] bool DecodePostLoadGameSuccess(const void* rawData);
+
 /// Tracks the currently active Skyrim play context from raw SKSE lifecycle
 /// signals, independent of any SKSE or CommonLib type.
 ///

@@ -40,12 +40,7 @@ void CommonLibGameLifecycleSink::OnMessage(const SKSE::MessagingInterface::Messa
                 break;
 
             case SKSE::MessagingInterface::kPostLoadGame: {
-                // SKSE documents kPostLoadGame's data as a bool success flag. A
-                // missing payload is unexpected and treated as failure rather
-                // than fabricating a successful load -- see
-                // ai/context/common.md's "do not hide stale, missing, or
-                // incompatible data" quality floor.
-                bool success = message.data != nullptr && *static_cast<const bool*>(message.data);
+                bool success = application::DecodePostLoadGameSuccess(message.data);
                 event = success ? application::LifecycleEvent::kPostLoadGameSuccess
                                  : application::LifecycleEvent::kPostLoadGameFailure;
                 rawDescription = success ? "kPostLoadGame(true)" : "kPostLoadGame(false)";
