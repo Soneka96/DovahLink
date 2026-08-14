@@ -138,7 +138,7 @@ client reconnecting after a network blip or app restart, or any other client -- 
 authenticate again until the bridge process itself restarts with a freshly generated token. A
 connection attempt that fails *before* session admission (wrong token, version mismatch, another
 active session, or internal setup failure) does not spend it, so a retry after a failed attempt
-still works; only a retry after a *successful* session does not. See `ROADMAP.md`'s Phase 1.25,
+still works; only a retry after a *successful* session does not. See `ROADMAP.md`'s Phase 3,
 Local Device Pairing and Reconnection, for the
 planned fix -- a separate, device-scoped credential issued after a successful pairing, stored on
 the client, so a reconnect never needs the one-time bootstrap token again. That phase leaves this
@@ -160,7 +160,7 @@ Evaluated directly against the pinned commit's source
 
 | Part | Decision | Reason |
 |---|---|---|
-| `WsSession`'s Beast session shape: `websocket::stream`, `flat_buffer`, and asynchronous I/O | **Adapt** | DovahLink rewrites the session around `websocket::stream<tcp_stream>`, bounded input, cancellation, and operation deadlines. Phase 1 remains linear with one operation at a time; the reference `deque<string>` write queue and `writing_` flag are not adopted, because outbound queueing belongs to Phase 1.5. |
+| `WsSession`'s Beast session shape: `websocket::stream`, `flat_buffer`, and asynchronous I/O | **Adapt** | DovahLink rewrites the session around `websocket::stream<tcp_stream>`, bounded input, cancellation, and operation deadlines. Phase 1 remains linear with one operation at a time; the reference `deque<string>` write queue and `writing_` flag are not adopted, because outbound queueing belongs to Phase 4. |
 | `WsServer`'s acceptor loop (construct `tcp::acceptor` on an explicit endpoint, async-accept, hand the socket to a session) | **Adapt** | Sound minimal Asio acceptor pattern. DovahLink adapts it to bind only `127.0.0.1`/`::1` (never a configurable address) and to enforce the one-connected-client limit at accept time, which this reference does not do. |
 | `EventBus::Install()` registering SKSE event sinks once after `kDataLoaded` and reacting to engine events instead of polling | **Adapt** | The registration technique (install a sink once, on the game thread, after data is loaded) is the right shape for registering `RE::LevelIncrease::Event`. The surrounding machinery — a generic per-key version counter and a shared resolver cache (`EventBus::CachedValue`, `ResolveCached`) for arbitrary polled fields — is excluded: it is a generic event/caching framework built to support many polled fields, and DovahLink has exactly one push-only event with no polling to optimize. |
 | `PlayerReader::ReadLevel()`'s call, `RE::PlayerCharacter::GetSingleton()->GetLevel()` | **Adapt** | Confirms the correct CommonLib API for reading the player's level. Reused as a technique inside DovahLink's own level adapter; not copied, since the surrounding function returns `nlohmann::json` for a generic polled-field system DovahLink doesn't have. |
@@ -179,7 +179,7 @@ Evaluated directly against the pinned commit's source
 All adapted code will carry the required MIT attribution for SkyrimWebSocket
 (`3d42b908b6060774f3da68f53ed7107b914c740d`) at the point it is introduced.
 
-## Live event delivery is deferred to Phase 1.5
+## Live event delivery is deferred to Phase 4
 
 Phase 1 does not implement an outbound event queue or coalescer. A connected and subscribed client
 sees a level change only by asking again -- a fresh `subscribe` or `snapshot_request` -- never as an
@@ -193,8 +193,8 @@ Boost.Beast's "shared objects: unsafe" `websocket::stream`. `WebSocketSession` n
 operation through Beast's async API for safe cancellation and timeouts, but its public facade and
 `RunConnectionSession` remain deliberately linear. The full-duplex loop, along with the
 outbound-lane and rate-class design it enables, is
-[`ROADMAP.md`](../ROADMAP.md)'s Phase 1.5, Live State Synchronization Foundation. The architecture
-already agreed for that phase, recorded here so Phase 1.5 does not have to rediscover it:
+[`ROADMAP.md`](../ROADMAP.md)'s Phase 4, Live State Synchronization Foundation. The architecture
+already agreed for that phase, recorded here so Phase 4 does not have to rediscover it:
 
 - Refactor the linear session facade and `RunConnectionSession` into a full-duplex async loop using
   C++20/23 coroutines (`co_await`): coroutine code stays close to the current linear control flow,
@@ -220,7 +220,7 @@ already agreed for that phase, recorded here so Phase 1.5 does not have to redis
   suitable event exists. A rate class (Fast/Medium/Slow) names a maximum publish frequency, not a
   mandatory one.
 - The approved 128-message outbound security bound remains the ceiling unless a separately approved
-  protocol-limit change replaces it. How Phase 1.5 divides that bound among its three categories
+  protocol-limit change replaces it. How Phase 4 divides that bound among its three categories
   follows profiling once the real delivery mechanism exists, not advance estimation.
 
 ## Manual verification record template
@@ -249,13 +249,13 @@ Observed plugin startup behavior:
 Initial level snapshot result (expected vs. observed):
 
 Level-increase result, observed by requesting a fresh snapshot after a level-up
-(unprompted push delivery is Roadmap Phase 1.5, not part of this record):
+(unprompted push delivery is Roadmap Phase 4, not part of this record):
 
 Disconnect result (expected vs. observed):
 Reconnect result for an attempt made BEFORE the one-time token was consumed
 (expected vs. observed). Reconnecting a client that already completed one
 successful session requires restarting the bridge -- record that this was
-not exercised, per Roadmap Phase 1.25:
+not exercised, per Roadmap Phase 3:
 
 Stale-state behavior (expected vs. observed):
 

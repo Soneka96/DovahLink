@@ -61,6 +61,6 @@ the defaults (`127.0.0.1` / `58231`, the documented Phase 1 port) if needed.
 Every scenario here proves the pull side of state delivery (`subscribe` / `snapshot_request`) and
 the transport/security/session machinery around it. Live, unprompted `state_event` push to an
 already-subscribed client and genuine reconnect after a successful session are both out of scope
-for Phase 1 by design — see `bridge/README.md`'s "Live event delivery is deferred to Phase 1.5" and
-"Known limitation: no reconnect after a successful session" for why, and `ROADMAP.md`'s Phase 1.5
-and Phase 1.25 entries for where each is planned.
+for Phase 1 by design — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
+"Known limitation: no reconnect after a successful session" for why, and `ROADMAP.md`'s Phase 4
+and Phase 3 entries for where each is planned.

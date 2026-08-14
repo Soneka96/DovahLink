@@ -1,11 +1,21 @@
 # Roadmap
 
-The roadmap is intentionally feature-based. Each numbered phase should deliver one coherent player-facing capability or one necessary product foundation, and should be completed through a focused feature branch and pull request.
+The roadmap is intentionally foundation-first and feature-based. It locks structural semantics that
+would be expensive to retrofit across identity, synchronization, transport, or multiple clients,
+then validates them through a thin connected product slice before broad feature development. Each
+numbered phase should deliver one coherent player-facing capability or one necessary product
+foundation through a focused feature branch and pull request.
 
 A roadmap phase describes the intended outcome, behavior, boundaries, dependencies, and acceptance
 criteria. Phase status records product order; implementation authority is defined in `AGENTS.md`.
 
-The order records current product dependencies. A later phase may be refined as earlier work reveals constraints, but it should not be pulled forward silently or bundled into an earlier feature.
+The order records current product dependencies. A later phase may be refined as earlier work reveals
+constraints, but it should not be pulled forward silently or bundled into an earlier feature.
+`ARCHITECTURE.md` owns cross-cutting architecture decisions, `protocol/schema/README.md` owns the
+current wire contract, and `ai/context/protocol/security.md` owns transport and security constraints;
+this roadmap records when approved outcomes are delivered rather than duplicating those contracts.
+
+Completed phase numbers are historical and remain stable. Future phases use whole numbers.
 
 ## 0. Documentation baseline
 
@@ -88,659 +98,774 @@ capabilities.
 
 ### Acceptance criteria
 
-The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can authenticate and display the chosen value without presenting stale data as current, a connection attempt that fails before the one-time token is consumed can retry and still succeed, and setup is reproducible. Reconnecting a client that has already completed one successful session, without restarting the bridge, is a known Phase 1 limitation (see Phase 1.25) and is not part of this phase's acceptance bar.
+The reuse decisions are documented, the bridge follows the approved lifecycle and protocol
+boundaries, one external validation client can authenticate and display the chosen value without
+presenting stale data as current, a connection attempt that fails before the one-time token is
+consumed can retry and still succeed, and setup is reproducible. Reconnecting a client that has
+already completed one successful session without restarting the bridge is a known Phase 1
+limitation addressed by Phase 3 and is not part of this phase's acceptance bar.
 
-## 1.25 Local Device Pairing and Reconnection
+## 2. Bridge Identity and Authoritative State Foundation
 
 **Status:** Next
 
 ### Outcome
 
-A device that has already paired once with a running bridge can reconnect after a disconnect — a network blip, an app restart, a crash — without restarting Skyrim, using its own stored credential instead of the one-time bootstrap token.
+The implemented protocol and both sides of the connection adopt the identity, state-ownership, and
+revision semantics defined in `ARCHITECTURE.md` while the protocol surface is still small.
 
 ### Scope and behavior
 
-- Issue a device-scoped credential to a client once it successfully authenticates with the Phase 1 one-time bootstrap token, distinct in kind from that token.
-- Store the device credential in secure local storage on the client, not the bridge, so it survives the client's own process restart.
-- Accept a valid, previously-issued device credential as an alternate path to a new session, without requiring or consuming the original bootstrap token again.
-- Define revocation and expiry for a device credential: explicit unpairing, and a bridge/plugin restart invalidating every device credential issued by that bridge instance (a fresh bootstrap token is required after any restart regardless of stored device credentials).
-- Keep the original one-time bootstrap token exactly as Phase 1 approved it: single-use for the entire bridge process lifetime. This phase adds a second, separate credential; it does not loosen the first.
+- Add the approved `bridgeInstanceId`, `playContextId`, `clientId`, and socket-bound `sessionId`
+  lifetimes to the canonical contract and adapters.
+- Make state revisions belong to one authoritative state area and play context rather than one
+  socket session.
+- Advance a revision only when authoritative state changes; unchanged snapshot requests reuse it.
+- Invalidate prior state when a new play context replaces the previous loaded game.
+- Keep the independent validation client as proof that the protocol has no Flutter-only behavior.
+- Version and update the schema, fixtures, bridge, validation client, Flutter consumer, and tests
+  together rather than reinterpreting published v1 messages.
 
 ### Dependencies and boundaries
 
-This phase depends on the Phase 1 bridge foundation and its one-time bootstrap token. It does not weaken the loopback-only restriction or add LAN/remote pairing — that remains gated behind the separate LAN design `ai/context/protocol/security.md` already names. It does not become a general multi-client pairing system; Phase 17 (Multi-Client Support) is a separate, later concern that may build on this if needed. This entry records the feature's shape for later; it is not implemented by adding this roadmap entry.
+This phase implements the target semantics in `ARCHITECTURE.md`. It does not add a separate
+game-process identifier, concurrent sockets, LAN exposure, new state areas, or gameplay commands.
 
 ### Acceptance criteria
 
-A client that has paired once can disconnect and later reconnect using its stored device credential alone, without a new bootstrap token or a Skyrim restart, and receives a fresh session and snapshot exactly as a first-time connection would. The original bootstrap token remains single-use for the bridge's whole lifetime regardless of device credential issuance or use. A revoked, expired, or bridge-restart-invalidated device credential is rejected clearly and requires a fresh pairing through a new bootstrap token.
+Messages identify the correct bridge, play context, client, and socket session; reconnects and loaded
+save changes cannot make old state current; unchanged snapshots do not manufacture revisions; and
+official and independent clients pass the versioned contract tests.
 
-## 1.5 Live State Synchronization Foundation
+## 3. Local Device Pairing and Reconnection
 
 **Status:** Planned
 
 ### Outcome
 
-The bridge can deliver live state to a connected client as an ongoing push alongside its existing
-pull-based snapshots, with different kinds of data updated at their own natural rate and
-reliability guarantee, from state already read once and shared across whichever clients are
-connected.
+A client that has paired once reconnects after transport loss or an app restart without restarting
+Skyrim or reusing the one-time bootstrap token.
 
 ### Scope and behavior
 
-- Classify outbound state into rate classes as maximum update frequencies, not mandatory send
-  cadences, publishing only when a value actually changes: Fast (roughly 10-20 Hz, e.g.
-  position/direction), Medium (roughly 5-10 Hz, e.g. health/stamina/magicka), Slow (roughly 1-2 Hz,
-  miscellaneous stats), and event-driven (inventory, equipment, quests, discoveries, loaded
-  cells/chunks).
-- Prefer a native Skyrim event for any value that has one; fall back to a bridge-owned,
-  per-class-throttled sampling hook only where no suitable event exists.
-- Distinguish replaceable state (latest-value-wins, coalesced by key) from reliable events (quest
-  completed, item acquired, discovery, chunk/cell load, command results, errors), which stay
-  ordered and are never silently dropped within a healthy connection session. A client that cannot
-  keep up is explicitly disconnected rather than buffered indefinitely; any events still queued at
-  that session boundary are discarded and are not replayed into the next session.
-- Move connection delivery onto an asynchronous read/write model so a push can reach a client
-  independent of that client's own next request, replacing Phase 1's purely request/response
-  connection loop.
-- Keep one shared, plugin-lifetime state store per data area, read from Skyrim once and served to
-  every connected client, extending the pattern Phase 1's character state store already
-  establishes.
+- Bind a device-scoped credential to the approved `clientId` after bootstrap authentication.
+- Store the credential through approved secure client storage.
+- Accept the credential only as the path to a fresh authenticated `sessionId`.
+- Define revocation, expiry, re-pairing, and bridge-restart invalidation.
+- Allow distinct clients to pair over time without enabling concurrent sockets yet.
+- Preserve the Phase 1 bootstrap token as single-use for the bridge lifetime.
 
 ### Dependencies and boundaries
 
-- This phase depends on the Phase 1 bridge foundation and Phase 1.25's device-credential reconnect
-  path. It uses only the state Phase 1 already exposes (`character`/level); it does not add new
-  player-facing fields -- that selection remains Phase 4's decision.
-- This phase does not implement concurrent multi-client fan-out; it introduces the internal state
-  and delivery model that later makes Phase 17's multi-client support straightforward, while the
-  one-connected-client limit stays in place.
-- Heavy or large resources (maps, tiles, large assets) are not designed or delivered here; keeping
-  them off the live state stream is the only requirement this phase carries, and their transfer and
-  caching design belongs to Phase 7.
-- Exact outbound queue capacities and executor/threading topology are deliberately not fixed here;
-  they follow from profiling once the mechanism above is built, not from advance estimation.
-- Does not add LAN/remote transport, pairing, or weaken the loopback-only restriction.
-- Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
-  state snapshots and does not replay the previous session's queued events. Durable cross-session
-  delivery would require a separately approved acknowledgement, persistence, and replay contract.
+This phase depends on Phase 2 and remains loopback-only. LAN pairing belongs to Phase 21 and
+concurrent delivery belongs to Phase 8.
 
 ### Acceptance criteria
 
-A connected, subscribed client receives an initial snapshot per state area followed only by
-complete state events at that area's actual rate without needing to poll; each `state_event.data`
-contains the complete post-change state rather than a patch. Reliable events delivered within a
-healthy session are not lost or reordered; a client that cannot consume them in time is explicitly
-disconnected rather than allowed to stall the bridge, and queued events end with that session.
-Replaceable state under load coalesces to the latest value per key rather than queuing every
-intermediate update; loaded-cell/chunk state is delivered as lightweight live/event data, never
-through a heavy-resource path; and integration scenarios cover push delivery, reliable-event
-ordering and explicit disconnect under load, then device-credential reconnection with fresh
-snapshots rather than replay of the unhealthy session's queued events.
+A paired client reconnects into a fresh session with fresh state; revoked, expired, foreign, or
+bridge-invalidated credentials fail clearly; and distinct clients never share credentials.
 
-## 2. PC / Second-Screen Baseline
+## 4. Live State Synchronization Foundation
 
 **Status:** Planned
 
 ### Outcome
 
-A player can run the first native Flutter DovahLink client on a PC or second screen and understand whether it is connected to Skyrim.
+The bridge pushes changing state from shared authoritative stores without requiring polling or
+allowing delivery pressure to block Skyrim.
 
 ### Scope and behavior
 
-- Extend the Phase 0.5 Flutter shell into the first connected product client for desktop-sized
-  layouts.
-- Show a small read-only connection and status view using the protocol proven in Phase 1.
-- Represent connecting, connected, recovering, incompatible, unavailable, and disconnected states clearly.
-- Keep the application usable when Skyrim is not running or optional data is missing.
-- Establish the smallest approved client structure needed for later feature screens without pre-creating speculative layers.
+- Replace the Phase 1 request/response loop with full-duplex asynchronous delivery.
+- Prefer native events and sample only where no trustworthy event exists.
+- Treat rate classes as maximum frequencies and publish only on authoritative change.
+- Separate replaceable state, ordered reliable events, and recovery/control traffic.
+- Coalesce replaceable state to its latest value under pressure.
+- Keep game-thread capture small and perform network I/O and serialization elsewhere.
+- Instrument capture, queues, coalescing, disconnects, and recovery before tuning thresholds.
 
 ### Dependencies and boundaries
 
-This phase consumes the Phase 1 bridge and protocol contract. It does not add automatic discovery, remote gameplay actions, mobile packaging, a customizable dashboard, or the final Skyrim-inspired visual system.
+This phase depends on Phases 2 and 3, uses only the Phase 1 `character` state area, and keeps the
+one-connected-client limit. Heavy resources remain outside the live stream.
+
+Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
+state snapshots and does not replay the previous session's queued events. Durable cross-session
+replay requires a separately approved acknowledgement and persistence contract.
 
 ### Acceptance criteria
 
-The desktop client starts independently, connects to the supported local bridge, shows trustworthy connection and sample state, recovers from an interrupted connection, and explains actionable failures without requiring developer documentation.
+A subscriber receives an initial snapshot followed by complete post-change state rather than a patch.
+Unchanged values produce no traffic, replaceable state coalesces, reliable events stay ordered, and a
+client that cannot consume them in time is explicitly disconnected without stalling Skyrim.
 
-## 3. Automatic Connection System
+## 5. PC / Second-Screen Baseline
 
 **Status:** Planned
 
 ### Outcome
 
-The normal local setup connects with minimal player configuration while remaining predictable and secure.
+The first native Flutter product client connects on the same PC and makes connection, recovery, and
+sample state understandable without developer documentation.
 
 ### Scope and behavior
 
-- Detect or locate the approved same-machine bridge endpoint without requiring the player to enter transport details on every launch.
-- Observe whether the supported Skyrim process is absent or running through a client-owned platform
-  adapter; do not add a resident helper service or a second connection protocol for presence.
-- Combine process presence with authenticated bridge lifecycle status: process absence means
-  `stopped`; a running process without an available bridge is `launching` only during the approved
-  startup window and becomes an actionable `bridge unavailable` state afterward; bridge startup is
-  `initializing`, and only bridge-reported lifecycle events may establish `ready`, `loading`, or
-  `playing`.
-- Remember only safe local connection preferences.
-- Distinguish bridge unavailable, Skyrim unavailable, version mismatch, recovery, and configuration errors.
-- While the Skyrim process is running, retry transient bridge-availability failures indefinitely
-  with exponential backoff and jitter capped at 30 seconds. Pause automatic connection attempts
-  while the process is absent.
-- Stop automatic retries on non-retryable authentication, configuration, or protocol-compatibility
-  failures, explicit cancellation, and application shutdown. An explicit manual retry starts an
-  immediate new cycle and resets its terminal and backoff state; successful negotiation also resets
-  the backoff and clears any prior connection failure.
-- Preserve protocol compatibility checks during every new or recovered session.
+- Extend the Phase 0.5 shell into a connected desktop-sized client.
+- Use the same canonical protocol and pairing flow available to independent clients.
+- Present connecting, connected, recovering, incompatible, unavailable, stale, and disconnected
+  states clearly.
+- Keep the client useful when Skyrim is absent or optional state is unavailable.
+- Add only the client structure needed by this thin connected slice.
 
 ### Dependencies and boundaries
 
-This phase builds on the bridge and desktop client. Process observation reports coarse presence
-only: Flutter does not inspect game memory or infer readiness when the authenticated bridge is
-unavailable. The phase remains loopback-only and does not authorize LAN discovery, internet
-exposure, hosted relay services, accounts, a resident monitoring service, or silent weakening of
-pairing and security requirements.
+This phase validates Phases 2 through 4. It remains loopback-only and excludes automatic discovery,
+broad player state, mobile packaging, dashboard customization, and actions.
 
 ### Acceptance criteria
 
-A supported local installation connects automatically during the normal startup flow, reports
-stopped, launching, initializing, ready, loading, playing, recovery, and actionable failure states
-without overstating process presence, recovers after either side restarts, backs off responsibly,
-stops on terminal conditions, and gives the player enough information to correct a failed setup.
+The desktop client connects, shows trustworthy sample state, reconnects after interruption, rejects
+stale context, and explains actionable failures without developer guidance.
 
-## 4. Live Player State
+## 6. Core UI Theme System
 
 **Status:** Planned
 
 ### Outcome
 
-The client becomes useful during play by presenting a focused set of current character information.
+DovahLink establishes reusable Skyrim-inspired presentation before feature screens multiply.
 
 ### Scope and behavior
 
-- Define the first approved set of high-value player values, such as identity, level, health, magicka, stamina, location, or combat state.
-- Expose only values that can be sourced reliably from the supported Skyrim runtime.
-- Define a stable, versioned protocol slice for snapshots and updates.
+- Define shared Flutter tokens and components for typography, color, panels, icons, spacing, shape,
+  elevation, motion, and responsive sizing.
+- Cover loading, empty, unavailable, stale, recovering, and error states.
+- Support contrast, text scaling, accessibility, and reduced motion.
+- Apply the system to the PC baseline before broad features.
+- Keep future adapters declarative and presentation-only.
+
+### Dependencies and boundaries
+
+The native theme works without inspecting Skyrim or requiring a UI mod. Detection, adapters, custom
+theme data, and dashboard behavior remain later phases.
+
+### Acceptance criteria
+
+Existing surfaces use shared tokens or components and remain useful at supported sizes and
+accessibility settings without optional resources.
+
+## 7. Live Player State
+
+**Status:** Planned
+
+### Outcome
+
+The connected, themed client proves a useful single-client flow with focused character information.
+
+### Scope and behavior
+
+- Select approved values such as identity, level, health, magicka, stamina, location, or combat.
+- Expose only values sourced reliably from the supported runtime.
+- Add a versioned slice with snapshots and live updates.
 - Mark unavailable, delayed, recovering, and stale values honestly.
-- Refresh efficiently without coupling presentation timing to the game thread.
+- Reuse shared synchronization and UI foundations.
 
 ### Dependencies and boundaries
 
-This phase extends the established bridge, protocol, and client boundaries. It is read-only and does not include inventory management, equipment changes, map navigation, or arbitrary remote commands.
+This read-only phase validates the complete single-client path. It excludes inventory, equipment,
+map navigation, and commands.
 
 ### Acceptance criteria
 
-The agreed values update accurately during realistic play, session replacement cannot leak old values into the current view, unavailable data degrades clearly, and focused integration scenarios verify the bridge and client agree on the contract.
+Approved values remain accurate through play, reconnect, and play-context replacement; unavailable
+state degrades clearly; and cross-side tests prove bridge/client agreement.
 
-## 5. Mod Awareness
+## 8. Multi-Client Runtime Foundation
 
 **Status:** Planned
 
 ### Outcome
 
-DovahLink can describe the supported modded environment well enough for later features to adapt safely without pretending every load order is identical.
+One bridge serves concurrent clients while capture remains shared and one slow client cannot
+destabilize Skyrim or healthy clients.
 
 ### Scope and behavior
 
-- Identify the minimum load-order, plugin, and capability information needed by approved features.
-- Expose capabilities rather than scattering mod-name checks through the client.
-- Treat missing, unsupported, or ambiguous mod information as unavailable rather than guessing.
-- Keep compatibility knowledge versioned and independently maintainable where practical.
-- Document privacy, performance, and failure considerations for inspecting installed or active content.
+- Replace the one-client slot with a bounded concurrent-client registry.
+- Give each client independent session, capabilities, subscriptions, queues, recovery, and diagnostics.
+- Fan out shared authoritative state without repeated Skyrim reads.
+- Keep revisions shared while delivery state remains client-specific.
+- Disconnect or resynchronize slow consumers without blocking others.
+- Keep navigation and layout local to each client.
+- Give the official Flutter client no privileged treatment.
 
 ### Dependencies and boundaries
 
-This phase does not add mod-specific UI themes, LOTD behavior, a general plugin platform, or promises of compatibility with every mod. Later integrations must declare exactly which detected capability they consume.
+This phase follows the Phase 7 single-client proof and remains loopback-only. It excludes LAN,
+synchronized layouts, accounts, collaboration, and control permissions.
 
 ### Acceptance criteria
 
-The client can display a trustworthy summary of approved capabilities for representative clean and modded load orders, unsupported cases fall back safely, and no later feature needs to consume raw implementation-specific bridge details.
+At least two clients receive consistent state and recover independently; client count does not
+multiply equivalent Skyrim reads; and a slow client does not stall a healthy client.
 
-## 6. Interactive Map Foundation
+## 9. Multi-Bridge and Local Discovery Foundation
 
 **Status:** Planned
 
 ### Outcome
 
-A player can follow their current position and useful Skyrim map state on a responsive second-screen map.
+Multiple bridge processes coexist on one machine without port collisions or ambiguous selection.
 
 ### Scope and behavior
 
-- Establish the map viewport, pan and zoom behavior, coordinate conversion, and responsive presentation.
-- Show player position and approved live markers as lightweight overlays.
-- Preserve the distinction between unknown, discovered, and Skyrim-native cleared state.
-- Support the base worldspace first and define how unavailable worldspaces are communicated.
-- Keep slow-changing map resources separate from live playthrough updates.
+- Treat the Phase 1 port as a preference rather than identity.
+- Select another local port when the preferred port is occupied.
+- Publish a small non-secret same-machine discovery record for each bridge.
+- Validate records against authenticated `bridgeInstanceId` and tolerate stale records.
+- Remove records on clean shutdown and isolate records owned by other instances.
+- Let official and independent clients enumerate the same discovery surface.
+- Avoid a resident machine-level discovery service.
 
 ### Dependencies and boundaries
 
-This phase depends on live player state and the protocol slice for location updates. It does not include route calculation, arbitrary destination commands, every DLC or mod worldspace, or a parallel navmesh database.
+This phase depends on Phases 2 and 8. LAN discovery belongs to Phase 21.
 
 ### Acceptance criteria
 
-The supported base map tracks the player accurately, remains usable at intended desktop sizes, handles transitions and missing coordinates safely, and never invents completion or cleared state.
+Two harness bridges run concurrently without manual port editing, appear as distinct choices, accept
+independent clients, and cannot corrupt each other's discovery state.
 
-## 7. Map Asset System
+## 10. Automatic Connection and Transport Selection
 
 **Status:** Planned
 
 ### Outcome
 
-Map imagery and marker artwork can grow without bloating the live bridge stream or forcing all worldspaces into memory.
+The client chooses the best path to the intended local bridge while preserving manual control.
 
 ### Scope and behavior
 
-- Define versioned client-side packages for base maps, tiles, marker artwork, and other slow-changing resources.
-- Cache installed resources and invalidate incompatible versions deliberately.
-- Load additional worldspaces, DLC maps, and supported mod-provided resources only when needed.
-- Define attribution, licensing, validation, and fallback requirements for distributed assets.
-- Keep player, marker, discovery, and native cleared state as separate lightweight overlays.
+- Keep connection candidates separate from bridge identity.
+- Remember the preferred bridge independently from its endpoint.
+- Prefer approved same-machine candidates and retain manual fallback.
+- Observe coarse Skyrim process presence without reading game memory.
+- Represent stopped, launching, initializing, ready, loading, playing, recovery, and failures.
+- Retry transient failures with bounded backoff and stop on terminal conditions.
+- Let later LAN candidates join the same policy without a second connection architecture.
 
 ### Dependencies and boundaries
 
-This phase extends the map foundation. Asset packages do not become protocol messages, and the bridge does not repeatedly stream heavy images or tiles.
+This phase consumes Phase 9 and remains loopback-only. It excludes a resident monitor, LAN access,
+internet exposure, hosted relay, and accounts.
 
 ### Acceptance criteria
 
-The client can install, validate, cache, update, lazy-load, and fall back from supported map packages without breaking the live map or requiring Skyrim to resend static resources.
+The client reconnects to the intended bridge, never confuses simultaneous instances, backs off
+responsibly, and provides actionable manual recovery.
 
-## 8. Quests
+## 11. Mod Awareness
 
 **Status:** Planned
 
 ### Outcome
 
-The player can review active quest information and understand which objective is currently relevant without opening the in-game journal.
+DovahLink exposes the minimum trustworthy load-order and capability information later features need.
 
 ### Scope and behavior
 
-- Present approved active quest and objective fields that Skyrim exposes reliably.
-- Preserve ordering, completion, failure, and active-objective state where available.
-- Handle hidden, modded, malformed, or rapidly changing quest data without blocking the rest of the client.
-- Link objectives to map markers only when a trustworthy relationship exists.
-- Keep text encoding and localization behavior explicit.
+- Identify only information required by approved features.
+- Expose stable capabilities instead of client-side mod-name checks.
+- Treat missing, unsupported, or ambiguous information as unavailable.
+- Version compatibility knowledge independently where practical.
+- Document privacy, performance, and failure behavior.
 
 ### Dependencies and boundaries
 
-This phase is read-only. It does not activate quests, select objectives, advance stages, repair broken quests, or infer undisclosed objective locations.
+This phase excludes UI theme detection, LOTD behavior, a plugin platform, and broad compatibility
+promises.
 
 ### Acceptance criteria
 
-Representative base-game and modded quests display current objectives accurately, changes recover across loads and reconnects, and missing or hidden information is not fabricated.
+Clean and modded setups produce trustworthy capability summaries, unsupported cases fall back safely,
+and features do not consume raw CommonLib details.
 
-## 9. Navigation / Path Guidance
+## 12. Interactive Map Foundation
 
 **Status:** Planned
 
 ### Outcome
 
-The map can render route guidance for the active quest objective when Skyrim can provide a trustworthy route.
+A player follows live position and trustworthy marker state on a responsive companion map.
 
 ### Scope and behavior
 
-- Validate whether the native Clairvoyance or Guide system can expose a safe, lightweight route polyline.
-- Render and refresh Skyrim-calculated route segments on the existing map.
+- Establish viewport, pan, zoom, coordinate conversion, and responsive presentation.
+- Track player position and direction as lightweight overlays.
+- Present marker state only where reliable.
+- Preserve unknown, discovered, cleared, and unavailable distinctions.
+- Support the base worldspace first.
+- Keep static resources separate from live overlays.
+
+### Dependencies and boundaries
+
+This phase depends on live location and the core theme. It excludes routes, arbitrary destinations,
+every worldspace, and a parallel navmesh database.
+
+### Acceptance criteria
+
+The base map tracks accurately, handles worldspace and play-context changes, survives reconnects,
+and never invents discovery or cleared state.
+
+## 13. Map Asset and Worldspace System
+
+**Status:** Planned
+
+### Outcome
+
+Map imagery and worldspaces grow without bloating live traffic or loading every map.
+
+### Scope and behavior
+
+- Define versioned client packages for maps, tiles, marker artwork, and slow-changing assets.
+- Cache, validate, update, and invalidate packages deliberately.
+- Lazy-load DLC and supported mod worldspaces.
+- Investigate installed map derivation only where technically and legally appropriate.
+- Define attribution, licensing, fetching, fallback, and incompatibility behavior.
+- Keep live state separate from packages.
+
+### Dependencies and boundaries
+
+This phase extends Phase 12. Assets do not become live protocol messages.
+
+### Acceptance criteria
+
+Packages load independently from live state, additional worldspaces do not inflate ordinary traffic,
+and missing assets cannot break synchronization.
+
+## 14. Quests
+
+**Status:** Planned
+
+### Outcome
+
+The player reviews active quests and objectives without opening the journal.
+
+### Scope and behavior
+
+- Present approved fields, ordering, completion, failure, and active state.
+- Handle hidden, localized, modded, malformed, or rapidly changing data.
+- Link objectives to markers only when trustworthy.
+- Prefer event-driven reconciliation where reliable.
+
+### Dependencies and boundaries
+
+This read-only phase does not activate quests, change stages, repair quests, or infer hidden locations.
+
+### Acceptance criteria
+
+Representative quests remain accurate through loads and reconnects, and hidden information is not
+fabricated.
+
+## 15. Navigation / Path Guidance
+
+**Status:** Planned
+
+### Outcome
+
+The map shows route guidance only when Skyrim provides a trustworthy route.
+
+### Scope and behavior
+
+- Validate exposure of native Clairvoyance or Guide routes as lightweight polylines.
+- Render and refresh Skyrim-calculated segments.
 - Explain unavailable, partial, invalidated, or recalculating routes.
-- Discard routes when the session, worldspace, objective, or source calculation changes.
-- Measure runtime cost before making route refresh frequent.
+- Invalidate on play-context, worldspace, objective, or source changes.
+- Measure runtime cost before selecting refresh behavior.
 
 ### Dependencies and boundaries
 
-DovahLink may display a route but must not own a pathfinding engine, extract and maintain a parallel navmesh database, or present an approximation as valid. Arbitrary map-selected destinations remain deferred unless Skyrim can accept them through a separately approved safety model.
+DovahLink does not own pathfinding, maintain a navmesh database, or present approximations as
+authoritative. Arbitrary map destinations remain deferred.
 
 ### Acceptance criteria
 
-The feasibility decision is documented. If the native route is reliable, the client displays and invalidates it correctly for supported scenarios. If it is not reliable, the feature is explicitly deferred rather than replaced with misleading guidance.
+A reliable native route renders and invalidates correctly; an unreliable route is explicitly
+deferred.
 
-## 10. Inventory
+## 16. Inventory
 
 **Status:** Planned
 
 ### Outcome
 
-The player can browse and search a trustworthy read-only view of their current inventory on the companion screen.
+The player browses and searches trustworthy read-only inventory.
 
 ### Scope and behavior
 
-- Present stable item identity, name, count, category, weight, value, and other approved fields.
-- Handle stacks, instances, renamed items, enchanted items, mod-added items, and unavailable metadata deliberately.
-- Provide responsive filtering, sorting, and search without requiring repeated full-state traffic.
-- Reconcile inventory changes after trading, crafting, looting, loading, or reconnecting.
-- Keep display enrichment separate from authoritative live inventory state.
+- Represent stable identity, count, category, weight, value, and approved metadata.
+- Handle stacks, instances, renamed, enchanted, and mod-added items.
+- Reconcile looting, trading, crafting, loading, and reconnect changes.
+- Keep filtering client-side where practical.
+- Keep enrichment separate from ownership state.
 
 ### Dependencies and boundaries
 
-This phase does not equip, drop, consume, transfer, favorite, or modify items. Those actions require separate authorization and safety design.
+This phase does not equip, drop, consume, transfer, favorite, or modify items.
 
 ### Acceptance criteria
 
-Inventory contents reconcile accurately across representative gameplay changes and modded items, duplicate or stale entries do not persist after recovery, and filtering remains responsive for realistically large inventories.
+Inventory reconciles without stale duplicates, remains responsive at realistic sizes, and does not
+repeatedly rescan during idle play without reason.
 
-## 11. Equipment
+## 17. Equipment
 
 **Status:** Planned
 
 ### Outcome
 
-The client clearly shows what the character currently has equipped and how those items relate to the inventory.
+The client shows current equipment and its relationship to inventory.
 
 ### Scope and behavior
 
-- Represent equipped weapons, armor, ammunition, and other approved slots.
-- Handle dual wielding, two-handed items, shields, transformed states, and modded slot usage where reliable.
-- Link equipment entries to inventory identity without assuming display names are unique.
-- Update promptly when Skyrim or another mod changes equipment.
-- Fall back to a clear unknown state when slot ownership cannot be resolved.
+- Represent approved weapons, armor, ammunition, hands, voice, and supported slots.
+- Handle dual wielding, two-handed items, shields, transformations, and reliable modded slots.
+- Link equipment to stable inventory identity.
+- Reconcile Skyrim and mod-driven changes promptly.
 
 ### Dependencies and boundaries
 
-This phase is a read-only view built on inventory identity. Equipping, unequipping, loadouts, and remote item actions are deferred.
+This read-only phase excludes equip, unequip, loadouts, and remote item actions.
 
 ### Acceptance criteria
 
-The view matches Skyrim across supported equipment transitions, recovers after loads and transformations, and does not show an item as equipped after its authoritative state is lost.
+Equipment matches authoritative state and cannot remain falsely equipped after invalidation.
 
-## 12. Magic, Spells, Shouts, and Powers
+## 18. Magic, Spells, Shouts, and Powers
 
 **Status:** Planned
 
 ### Outcome
 
-The player can browse learned magical abilities and understand their current usability and selection state.
+The player browses learned abilities and current selection or usability state.
 
 ### Scope and behavior
 
-- Separate spells, shouts, powers, and other supported abilities into understandable views.
-- Present learned state, school or category, resource cost, cooldown, selected hand or voice slot, and descriptive metadata only where reliable.
-- Handle mod-added abilities and missing metadata without breaking the feature.
-- Reconcile selection and cooldown changes from authoritative Skyrim state.
-- Keep rich reference information separate from live state.
+- Separate spells, shouts, powers, and approved ability types.
+- Present supported category, cost, cooldown, effect, selection, favorite, and hotkey metadata.
+- Handle mod-added abilities and incomplete metadata.
+- Keep reference enrichment separate from live state.
 
 ### Dependencies and boundaries
 
-This phase is read-only. Casting, equipping, unlocking, or spending resources from the companion client is not included.
+This read-only phase excludes casting, equipping, unlocking, and spending resources.
 
 ### Acceptance criteria
 
-Supported abilities appear in the correct category, live selection and cooldown state remain current, and unknown mod-added behavior degrades without fabricated values.
+Abilities appear in correct categories, selection and cooldown remain current, and unknown behavior
+degrades without fabricated values.
 
-## 13. Favorites and Hotkeys
+## 19. Favorites and Hotkeys
 
 **Status:** Planned
 
 ### Outcome
 
-The player can review the in-game favorites and hotkey arrangement from the companion screen.
+The player reviews favorites and hotkey assignments.
 
 ### Scope and behavior
 
-- Show which supported items and abilities are favorited.
-- Represent native hotkey assignments and conflicts where Skyrim exposes them reliably.
-- Link favorite entries to the corresponding inventory, equipment, or magic identity.
-- Reconcile changes made in-game or by supported mods.
-- Explain entries that exist but cannot be fully resolved.
+- Show supported favorited items and abilities.
+- Represent native assignments and conflicts where reliable.
+- Link entries to inventory, equipment, and magic identities.
+- Reconcile game and mod-driven changes.
 
 ### Dependencies and boundaries
 
-This phase does not activate hotkeys, use items, cast abilities, or replace mod-specific favorites-menu behavior.
+This read-only phase excludes activation, item use, casting, and assignment changes.
 
 ### Acceptance criteria
 
-Favorites and assignments match authoritative game state through normal changes and reconnects, and unresolved entries remain visible without being misidentified.
+Favorites remain consistent through changes, reconnects, and play-context replacement; unresolved
+entries remain visible without misidentification.
 
-## 14. Core UI Theme System
+## 20. Customizable Dashboard
 
 **Status:** Planned
 
 ### Outcome
 
-DovahLink gains a coherent Skyrim-inspired identity before customizable dashboard layouts multiply its visual surface area.
+Players arrange delivered modules for their second-screen workflow.
 
 ### Scope and behavior
 
-- Build the default presentation with native Flutter theming and components.
-- Define shared theme values for fonts, colors, panels, icons, spacing, corner treatment, elevation, and animations.
-- Apply those values consistently across existing screens and reusable states such as loading, empty, unavailable, stale, and error views.
-- Support responsive sizing, accessibility, reduced motion, and readable contrast without losing the intended identity.
-- Design the theme boundary so future adapters can supply approved values without controlling application behavior.
+- Provide movable and resizable modules for delivered features.
+- Enforce desktop grid, minimum-size, overflow, and responsive constraints.
+- Save, restore, migrate, reset, and recover local preferences.
+- Keep dashboard and navigation state local to each client.
+- Keep the default dashboard useful without configuration.
 
 ### Dependencies and boundaries
 
-The native DovahLink theme must be complete without inspecting the Skyrim installation or requiring a UI mod. Installed UI Detection, SkyUI, Nordic UI, Dear Diary, custom theme packs, and `dovahlink-theme.json` are deliberately later phases.
+This phase depends on the core theme and real modules. It excludes cloud layouts, arbitrary widgets,
+and protocol-level dashboard configuration.
 
 ### Acceptance criteria
 
-All existing client surfaces use shared theme tokens or themed components, repeated visual constants are removed from feature widgets, supported screen sizes and accessibility settings remain usable, and missing optional resources cannot prevent the default interface from rendering.
+Valid layouts persist and recover, modules cannot be resized into broken states, and corrupt
+preferences fall back safely.
 
-## 15. Customizable Dashboard
+## 21. Secure LAN Transport and Network Discovery
 
 **Status:** Planned
 
 ### Outcome
 
-Players can choose which approved companion modules are visible and arrange them for their own second-screen workflow.
+Approved LAN clients securely discover and connect to the intended bridge without trusting the LAN.
 
 ### Scope and behavior
 
-- Provide movable and resizable modules for features already delivered by earlier phases.
-- Support practical desktop and second-screen grid constraints rather than unrestricted layouts that can become unusable.
-- Save, restore, reset, and migrate local layout preferences.
-- Define minimum sizes, empty states, overflow behavior, and responsive adaptations for every module.
-- Keep information useful when one module or optional data source is unavailable.
+- Complete the threat model and pairing design required by `ai/context/protocol/security.md`.
+- Use established authenticated encryption; do not invent cryptography.
+- Discover multiple hosts and bridges without treating address as identity.
+- Authenticate endpoints before trusting advertised metadata.
+- Preserve per-client authorization, revocation, replay protection, and session binding.
+- Add approved wired and Wi-Fi/LAN candidates where platforms permit.
+- Feed candidates into Phase 10 and preserve manual connection.
 
 ### Dependencies and boundaries
 
-This phase depends on the Core UI Theme System and reuses existing feature views. It does not include cloud-synchronized layouts, arbitrary third-party widgets, or multi-client synchronization.
+This phase depends on identity, multi-client isolation, local discovery, and automatic selection. It
+does not imply internet exposure, hosted relay, accounts, or cloud presence.
 
 ### Acceptance criteria
 
-A player can create, persist, reopen, and reset valid layouts at supported desktop sizes; modules cannot be resized into broken states; and layout migration or corrupt preferences fall back safely.
+Clients distinguish and securely connect to the intended bridge; spoofed or unpaired endpoints are
+not trusted; revocation works; and localhost remains preferred where applicable.
 
-## 16. Mobile / Tablet App
+## 22. Mobile / Tablet Client
 
 **Status:** Planned
 
 ### Outcome
 
-The established companion experience becomes usable on supported phones and tablets without treating a small screen as a shrunken desktop.
+The companion experience works naturally on supported phones and tablets through secure LAN.
 
 ### Scope and behavior
 
-- Adapt navigation, dashboard modules, density, input targets, and orientation behavior for touch devices.
-- Define the first supported mobile platforms and minimum versions.
-- Preserve connection, recovery, backgrounding, and resume behavior within platform constraints.
-- Provide mobile-appropriate layout defaults while reusing compatible feature and theme boundaries.
-- Document installation and local-network requirements before enabling device-to-PC connectivity.
+- Provide touch-optimized portrait navigation and module layouts.
+- Support landscape second-screen presentation where appropriate.
+- Reuse domain and protocol boundaries with device-specific presentation.
+- Preserve pairing, recovery, background, resume, and network transitions.
+- Use the Phase 10 policy with manual fallback.
+- Keep layout preferences local and provide mobile defaults.
 
 ### Dependencies and boundaries
 
-This phase depends on the security work required for non-loopback connections. It does not imply internet access, a hosted relay, accounts, or identical layouts across desktop and mobile.
+This phase depends on Phase 21 and does not imply internet access, hosted relay, accounts, or
+identical layouts.
 
 ### Acceptance criteria
 
-The supported mobile client can connect through the approved secure local flow, survive normal background and resume transitions, present existing features accessibly at target sizes, and explain network or pairing failures clearly.
+A device pairs and reconnects securely, survives background and network changes, presents existing
+features accessibly, and cannot confuse another discovered bridge.
 
-## 17. Multi-Client Support
+## 23. Item Knowledge and Search
 
 **Status:** Planned
 
 ### Outcome
 
-More than one approved client can observe the same Skyrim session without corrupting state or making one screen silently authoritative over another.
+Players search versioned reference information without confusing it with live save truth.
 
 ### Scope and behavior
 
-- Define session identity, capability negotiation, snapshot recovery, and update fan-out for concurrent clients.
-- Bound client count, queue growth, backpressure, and slow-consumer behavior.
-- Keep each client's local navigation and layout independent by default.
-- Define synchronized-layout behavior separately and make participation explicit.
-- Expose enough connection state to diagnose why a client was rejected or resynchronized.
-
-### Dependencies and boundaries
-
-This phase follows proven desktop and mobile clients. It does not add accounts, cloud presence, collaborative gameplay, or remote control permissions.
-
-### Acceptance criteria
-
-The supported number of clients receives consistent authoritative state, a slow or reconnecting client cannot destabilize Skyrim or other clients, and synchronization behavior is covered by integration scenarios.
-
-## 18. Item Knowledge and Search
-
-**Status:** Planned
-
-### Outcome
-
-Players can search a reference source for items and understand where or how they may be acquired without mixing static knowledge with live inventory truth.
-
-### Scope and behavior
-
-- Provide a searchable, versioned knowledge source with approved names, categories, descriptions, acquisition guidance, and source context.
 - Keep large reference data outside the live bridge stream.
-- Link knowledge results to live inventory or map state only through stable identities and explicit confidence.
-- Support base-game content first and make data provenance and game-version compatibility visible.
-- Define update, cache, localization, attribution, and unavailable-data behavior.
+- Provide approved names, categories, descriptions, guidance, and source context.
+- Link entries to live state only through stable identities and explicit confidence.
+- Make provenance, version, localization, caching, and updates visible.
 
 ### Dependencies and boundaries
 
-The knowledge source is advisory and must not claim that an item currently exists at a location when Skyrim state cannot confirm it. LOTD collection state and broad mod databases remain separate.
+Reference data cannot claim current ownership or location without authoritative state. LOTD remains
+separate.
 
 ### Acceptance criteria
 
-Search is responsive, results identify their source and supported game version, live-state links cannot create false ownership or location claims, and outdated or unavailable knowledge packages fail visibly.
+Search remains responsive, provenance is clear, and outdated knowledge cannot create false live-state
+claims.
 
-## 19. Legacy of the Dragonborn Integration
+## 24. Legacy of the Dragonborn Integration
 
 **Status:** Planned
 
 ### Outcome
 
-Players using a supported Legacy of the Dragonborn setup can relate item knowledge to collection and display progress.
+Supported LOTD setups relate item knowledge and live save state to museum progress.
 
 ### Scope and behavior
 
-- Detect explicitly supported LOTD versions and required companion data.
-- Add acquisition guidance, source quests or locations, supported-mod context, and collected or displayed state where those values can be determined reliably.
-- Keep save-aware live state distinct from static museum and item knowledge.
-- Explain unsupported versions, missing patches, ambiguous replicas, and incomplete state.
-- Version compatibility data independently from the core client where practical.
+- Detect explicitly supported LOTD versions and required data.
+- Add collection/display state and acquisition context only where reliable.
+- Keep static museum knowledge distinct from live state.
+- Explain unsupported versions, missing patches, replicas, and ambiguity.
 
 ### Dependencies and boundaries
 
-LOTD support is optional and must not be required for inventory, item knowledge, or the map. DovahLink does not alter museum state, repair displays, or promise support for every LOTD patch.
+LOTD is optional and cannot be required by inventory, knowledge, or map features. It does not modify
+museum state.
 
 ### Acceptance criteria
 
-Supported setups report verified collection state accurately across representative saves, unsupported setups fall back to ordinary item knowledge, and no ambiguous value is presented as authoritative.
+Supported setups report verified state, unsupported setups fall back to ordinary knowledge, and
+ambiguous values are not authoritative.
 
-## 20. Installed UI Detection
+## 25. Installed UI Detection
 
 **Status:** Planned
 
 ### Outcome
 
-DovahLink can identify selected installed Skyrim UI and font resources that may improve visual adaptation while preserving its complete native theme.
+DovahLink identifies selected UI or font resources without weakening its native theme.
 
 ### Scope and behavior
 
-- Define the small set of UI installations, font resources, and versions that can be detected reliably.
-- Report detected capabilities through a stable boundary rather than exposing arbitrary file paths to presentation widgets.
-- Handle conflicts, partial installations, overrides, and unsupported versions explicitly.
-- Cache detection results only with a clear invalidation strategy.
-- Allow the player to disable automatic adaptation and return to the native DovahLink theme.
+- Detect only explicitly supported installations and versions.
+- Expose presentation capabilities rather than filesystem paths.
+- Handle conflicts, overrides, incomplete installs, and unsupported versions.
+- Cache only with clear invalidation.
+- Let the player return to the native theme.
 
 ### Dependencies and boundaries
 
-Detection follows the Core UI Theme System and Customizable Dashboard. It must not modify Skyrim files, require a specific mod manager, infer compatibility from a name alone, or change application behavior beyond approved presentation values.
+Detection follows the core theme and dashboard and does not modify Skyrim files or require one mod
+manager.
 
 ### Acceptance criteria
 
-Supported installations are identified reproducibly, ambiguous or unsupported setups do not activate an adapter, disabling detection restores the native theme, and detection failure cannot prevent the client from starting.
+Supported installs are identified reproducibly, ambiguous setups do not activate adapters, and
+failure cannot prevent startup.
 
-## 21. Optional UI Mod Adapters
+## 26. Optional UI Mod Adapters
 
 **Status:** Planned
 
 ### Outcome
 
-Players may make DovahLink visually complement an explicitly supported Skyrim UI setup without coupling the core client to that mod.
+Players may complement supported Skyrim UI setups without coupling behavior to those mods.
 
 ### Scope and behavior
 
-- Add opt-in adapters for approved versions of themes such as SkyUI, Nordic UI, Dear Diary, and other explicitly supported UI mods.
-- Map supported fonts, colors, panels, icons, spacing, and animations into the existing DovahLink theme boundary.
-- Define which values each adapter owns and how unsupported values fall back to the native theme.
-- Validate compatibility independently for each adapter and supported mod version.
-- Evaluate a versioned, constrained `dovahlink-theme.json` format for compatible theme packs, including validation, safe defaults, and error reporting before implementation approval.
+- Add opt-in adapters for approved versions.
+- Map approved presentation values into the theme boundary.
+- Define ownership and fallback for every value.
+- Evaluate a constrained versioned `dovahlink-theme.json` before implementation approval.
+- Reject executable behavior and protocol changes from theme data.
 
 ### Dependencies and boundaries
 
-Adapters cannot replace dashboard structure, feature behavior, protocol models, executable code, or arbitrary application resources. A custom theme format must remain declarative and cannot become a general plugin system.
+Adapters cannot replace dashboard structure, behavior, protocol models, or executable code.
 
 ### Acceptance criteria
 
-Each approved adapter passes visual, fallback, accessibility, and unsupported-version checks; removing or breaking the source mod returns DovahLink to a usable native theme; and invalid custom theme data is rejected with a clear explanation.
+Adapters pass visual, fallback, accessibility, and version checks; invalid resources fall back to
+the native theme.
 
-## 22. Advanced Bridge Improvements
+## 27. Safe Companion Authorization Foundation
+
+**Status:** Planned after read-only product validation
+
+### Outcome
+
+DovahLink can safely add individually approved actions later without exposing a generic command API
+or granting control through read access.
+
+### Scope and behavior
+
+- Define per-client permissions independently from authentication and sessions.
+- Keep read and control capabilities separate.
+- Define command identity, requesting `clientId` and `sessionId`, result, failure, timeout, and
+  idempotency.
+- Reject replayed, stale-session, stale-play-context, unauthorized, and unsupported commands before
+  game code.
+- Define authorization, revocation, audit-safe diagnostics, and capability negotiation.
+- Define deterministic multi-client conflict handling.
+- Validate the machinery without adding gameplay mutation.
+
+### Dependencies and boundaries
+
+This phase follows read-only validation and depends on identity, multi-client isolation, and security.
+It adds no equipment, favorites, hotkey, map-marker, fast-travel, console, Papyrus, or other action.
+Each action needs its own product decision, security review, validation plan, roadmap phase, and
+implementation approval.
+
+### Acceptance criteria
+
+The contract can deny control independently from reads; unauthorized, replayed, stale, conflicting,
+and unknown test commands are rejected deterministically; decisions are attributable; and no Skyrim
+mutation is exposed.
+
+## 28. Runtime Profiling and Advanced Bridge Hardening
 
 **Status:** Planned
 
 ### Outcome
 
-The bridge can be hardened or extended in response to measured needs from the completed product features without turning into an unbounded general Skyrim API.
+Measured usage drives final bridge tuning without speculative complexity.
 
 ### Scope and behavior
 
-- Profile actual lifecycle, serialization, update-frequency, memory, and game-thread costs.
-- Improve snapshot efficiency, capability negotiation, diagnostics, compatibility handling, and recovery where evidence shows a need.
-- Consolidate repeated native integrations only after multiple implemented features demonstrate the same stable boundary.
-- Expand supported runtime versions deliberately with reproducible compatibility tests.
-- Document migration and fallback behavior for any protocol-affecting improvement.
+- Profile game-thread capture, sampling, serialization, memory, queues, fan-out, and recovery.
+- Compare one-client and multi-client cost and verify reads remain shared.
+- Profile heavy feature scenarios.
+- Tune capacities, rates, executors, and caches only from evidence.
+- Consolidate native readers only after features prove a shared abstraction.
+- Expand runtime support with reproducible tests.
+- Version protocol-affecting improvements.
 
 ### Dependencies and boundaries
 
-This phase is evidence-driven and comes after feature usage reveals real constraints. It does not authorize arbitrary game mutation, broad scripting exposure, premature plugin APIs, remote connectivity, or permanent protocol complexity for hypothetical consumers.
+This phase is evidence-driven and does not authorize mutation, scripting, remote exposure, or
+hypothetical protocol complexity.
 
 ### Acceptance criteria
 
-Every improvement names the measured problem it solves, preserves or deliberately versions existing contracts, passes lifecycle and integration tests, and does not expand bridge authority beyond an approved product need.
+Every optimization names a measured problem, demonstrates improvement, preserves recovery, and keeps
+game-thread cost negligible for approved targets.
 
-## 23. CommonLib Dependency Maintenance Audit
+## 29. CommonLib Dependency Maintenance Audit
 
 **Status:** Planned
 
 ### Outcome
 
-DovahLink's pinned `commonlibsse-ng-flatrim` dependency remains reproducible, supported, and
-deliberately maintained before the next public release.
+The pinned `commonlibsse-ng-flatrim` dependency remains reproducible and deliberately maintained
+before the next public release.
 
 ### Scope and behavior
 
-- Keep the Phase 1 dependency pinned while the supported runtime remains Steam Skyrim `1.6.1170`
-  with SKSE `2.2.6`.
-- Audit the CommonLibSSE-NG upstream project and the Color-Glass vcpkg registry for relevant fixes,
-  runtime compatibility changes, and available releases.
-- Update the pinned registry baseline, package version, or source commit only after the bridge,
-  toolchain, protocol, and in-game compatibility checks pass.
-- Record the reviewed dependency versions, upgrade decision, validation results, and any known
-  limitations before the next public release.
-- Define a fallback plan for a stale or unavailable package, including a deliberately reviewed direct
-  source pin if the package route can no longer provide a validated build.
+- Keep the Phase 1 dependency pinned for the current supported runtime.
+- Audit CommonLibSSE-NG and the selected registry for relevant fixes and releases.
+- Update pins only after bridge, toolchain, protocol, integration, and in-game checks.
+- Record reviewed versions, decision, results, and limitations before the next public release.
+- Define a reviewed fallback if the package route cannot provide a validated build.
 
 ### Dependencies and boundaries
 
-This audit does not expand supported Skyrim runtimes, replace the CommonLib adapter boundary, or
-make upstream updates automatic. Runtime expansion and dependency changes remain separate approved
-decisions.
+This audit does not expand runtimes, replace the CommonLib boundary, or automate updates.
 
 ### Acceptance criteria
 
-The exact pinned dependency builds reproducibly, its upstream and package-registry status has been
-reviewed, the chosen version has passed the required bridge and manual runtime checks, and the
-upgrade or retention decision is documented before the next public release.
+The exact dependency set builds reproducibly, upstream and registry status are reviewed, the selected
+pin passes validation, and the decision is documented before the next public release.
 
 ## Deferred possibilities
 
-The following ideas are deliberately not assigned a phase. They require a demonstrated player need and separate product, safety, and architecture decisions before entering the ordered roadmap:
+These ideas require a demonstrated need and separate product, architecture, security, and validation
+decisions before entering the ordered roadmap:
 
-- Safe actions from companion devices
+- Individual companion actions, including equipment, favorites or hotkeys, map markers, and fast travel
+- Arbitrary console or Papyrus execution through the bridge
 - Arbitrary map-selected destinations
 - A general plugin or extension platform
 - Internet or hosted remote connectivity
