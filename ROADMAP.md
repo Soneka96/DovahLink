@@ -143,27 +143,79 @@ official and independent clients pass the versioned contract tests.
 
 ### Outcome
 
-A client that has paired once reconnects after transport loss or an app restart without restarting
-Skyrim or reusing the one-time bootstrap token.
+A client can pair with the local bridge through a short, user-friendly in-game confirmation flow,
+then reconnect after transport loss or a client restart without restarting Skyrim, manually copying
+a long token, or reusing the one-time bootstrap credential.
 
 ### Scope and behavior
 
-- Bind a device-scoped credential to the approved `clientId` after bootstrap authentication.
-- Store the credential through approved secure client storage.
-- Accept the credential only as the path to a fresh authenticated `sessionId`.
-- Define revocation, expiry, re-pairing, and bridge-restart invalidation.
-- Allow distinct clients to pair over time without enabling concurrent sockets yet.
-- Preserve the Phase 1 bootstrap token as single-use for the bridge lifetime.
+- Introduce pairing as a new, explicitly versioned protocol-v2 flow. Published protocol v1 remains
+  frozen; its `one_time_local_token` behavior must not be silently reinterpreted as the pairing
+  flow.
+- Require an unpaired client to explicitly request pairing. The bridge must not display a pairing
+  code on every launch or on every ordinary connection attempt.
+- When pairing is requested, generate a short-lived, single-use six-digit pairing code and display
+  it through a native Skyrim notification. The first user-facing implementation must not require
+  SkyUI, another UI mod, a separate Papyrus mod, or a separately installed pairing utility.
+- Let the user enter the displayed code in the DovahLink client. A correct code bootstraps trust
+  only for that pairing operation; it is not itself a reusable session credential.
+- After successful code verification, bind a device-scoped credential to the approved `clientId`
+  and issue it to the pairing client. The credential is the only credential used for that client's
+  later reconnects; each reconnect still creates a fresh authenticated `sessionId`.
+- Store the device credential through an approved secure-storage mechanism in the client. Tokens,
+  pairing codes, credentials, and raw protocol payloads must not appear in normal logs, errors,
+  fixtures, or user-facing messages.
+- Make pairing-code validation atomic and fail closed. Expired, already-consumed, invalid, or
+  rate-limited attempts must fail clearly without invoking game-state behavior. Failed attempts
+  must be bounded, and the final expiry and attempt limits must be recorded in the approved
+  Phase 3 security/protocol design before implementation.
+- In the first implementation, invalidate device credentials when the bridge or Skyrim process
+  restarts. This keeps credential persistence out of the initial pairing proof and matches the
+  bridge-instance lifetime defined in `ARCHITECTURE.md`.
+- Preserve the Phase 1 one-time bootstrap token as a development and compatibility path until the
+  versioned pairing flow is implemented. Normal user pairing should not require manually copying
+  a long environment token after this phase is delivered.
+- Allow distinct clients to pair over time while retaining the single-connected-client limit.
+  Concurrent sessions and independent per-client delivery remain Phase 8 work.
 
 ### Dependencies and boundaries
 
-This phase depends on Phase 2 and remains loopback-only. LAN pairing belongs to Phase 21 and
-concurrent delivery belongs to Phase 8.
+This phase depends on Phase 2 and remains loopback-only. The pairing code is a local bootstrap
+mechanism, not a substitute for authenticated encryption or a complete LAN trust protocol. Phone
+and LAN pairing, discovery, encrypted transport, replay protection, and remote revocation belong to
+Phase 21 and must receive a separate security design.
+
+The pairing notification is a runtime-facing adapter concern; it must not place Skyrim presentation
+details into the canonical protocol. The protocol should carry pairing state and outcomes, while
+the bridge/plugin boundary owns the native in-game notification mechanism. An optional QR-code
+convenience flow may be considered for Phase 21, but it must not become a dependency for entering a
+code manually or require a separate client or mod.
+
+Long-term credential persistence across bridge restarts is intentionally deferred. It requires an
+explicit storage, reset, revocation, and bridge-identity design rather than being added implicitly
+to the first pairing implementation.
 
 ### Acceptance criteria
 
-A paired client reconnects into a fresh session with fresh state; revoked, expired, foreign, or
-bridge-invalidated credentials fail clearly; and distinct clients never share credentials.
+- An unpaired client can explicitly request pairing and receives a visible six-digit code in
+  Skyrim only for that request.
+- A user can complete pairing by entering the code in the DovahLink client without installing a
+  UI mod or copying a manually generated long token.
+- A valid code is accepted at most once and only within its allowed lifetime; invalid, expired,
+  reused, and rate-limited attempts fail without creating a client credential.
+- Successful pairing binds one device credential to one `clientId`, and the credential is stored
+  through approved secure client storage.
+- A paired client reconnects into a fresh authenticated session with fresh state after transport
+  loss or client restart, without restarting Skyrim or displaying another code.
+- A credential from another client, a credential for another bridge instance, an expired or
+  revoked credential, and a credential presented after a bridge restart are rejected clearly and
+  fail closed.
+- Pairing secrets and credentials are absent from normal logs, errors, fixtures, and user-facing
+  diagnostics.
+- The loopback-only restriction and single-connected-client limit remain intact; this phase does
+  not accidentally enable LAN or concurrent-client behavior.
+- Independent and official clients use the same versioned pairing contract, with no Flutter-only
+  or Skyrim-specific wire behavior.
 
 ## 4. Live State Synchronization Foundation
 
