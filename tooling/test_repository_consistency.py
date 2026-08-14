@@ -12,6 +12,57 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 class RepositoryConsistencyTests(unittest.TestCase):
     """Verify that release-facing configuration and documentation remain aligned."""
 
+    def test_target_identity_and_revision_architecture_is_explicit(self) -> None:
+        """Keep target state ownership distinct from the published session-scoped v1 contract."""
+        architecture = self._read("ARCHITECTURE.md")
+        schema = self._read("protocol/schema/README.md")
+        normalized_architecture = self._normalize_whitespace(architecture)
+
+        for identity in (
+            "`bridgeInstanceId`",
+            "`playContextId`",
+            "`clientId`",
+            "`sessionId`",
+        ):
+            self.assertIn(identity, architecture)
+        self.assertNotIn("gameInstanceId", architecture)
+
+        for required_phrase in (
+            "A bridge restart creates a new identity",
+            "A client reconnect creates a new `sessionId` without silently changing its `clientId`",
+            "loading another save creates a new `playContextId`",
+            "It is valid only for that socket and is invalidated when the connection ends",
+            "one authoritative state store for the active play context",
+            "captured once and shared with subscribed clients",
+            "adding a client must not repeat equivalent Skyrim reads",
+            "within one state area and `playContextId`",
+            "It advances only when that authoritative state changes",
+            "Sending or requesting another snapshot does not advance the revision",
+            "reconnecting does not create a new authoritative revision",
+            "use `playContextId` and the state-area revision together to reject stale state",
+            "invalidates the previous context's state and establishes fresh authoritative state",
+            "must not be implemented by silently reinterpreting existing v1 messages",
+            "Transport location is not identity",
+            "receives no undocumented protocol behavior or privileged access",
+            "Screens, dashboard modules, orientation, widget layout",
+        ):
+            self.assertIn(required_phrase, normalized_architecture)
+
+        self.assertIn(
+            "Revisions are scoped to one state area and session",
+            schema,
+        )
+        for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
+            self.assertNotIn(target_identity, schema)
+        self.assertIn(
+            "The official Flutter application is one client of the canonical protocol",
+            normalized_architecture,
+        )
+        self.assertIn(
+            "Protocol messages remain presentation-independent",
+            normalized_architecture,
+        )
+
     def test_bridge_ci_covers_protocol_changes_with_least_privilege(self) -> None:
         """Require protocol triggers, read-only permissions, and non-persistent checkout credentials."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
@@ -449,9 +500,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
         version = "0.1.0"
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
+        phase_zero = self._markdown_section("ROADMAP.md", "0. Documentation baseline")
+        phase_zero_five = self._markdown_section(
+            "ROADMAP.md", "0.5 Client and Protocol Foundation"
+        )
         phase_one = self._markdown_section("ROADMAP.md", "1. Skyrim Bridge Foundation")
-        phase_one_twenty_five = self._markdown_section(
-            "ROADMAP.md", "1.25 Local Device Pairing and Reconnection"
+        phase_two = self._markdown_section(
+            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
         )
 
         self.assertEqual(manifest["version-string"], version)
@@ -462,24 +517,139 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn(f"published Phase 1\nbridge release, version `{version}`", bridge_readme)
         self.assertIn(f"Bridge version `{version}` supports exactly one runtime", bridge_readme)
-        self.assertEqual(re.findall(r"(?m)^\*\*Status:\*\* .+$", phase_one), ["**Status:** Complete"])
-        self.assertEqual(
-            re.findall(r"(?m)^\*\*Status:\*\* .+$", phase_one_twenty_five),
-            ["**Status:** Next"],
+        for completed_phase in (phase_zero, phase_zero_five, phase_one):
+            self.assertEqual(
+                re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
+                ["**Status:** Complete"],
+            )
+        self.assertEqual(re.findall(r"(?m)^\*\*Status:\*\* .+$", phase_two), ["**Status:** Next"])
+
+    def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
+        """Preserve the approved phase order and deferred-control boundary."""
+        roadmap = self._read("ROADMAP.md")
+        expected_headings = [
+            "0. Documentation baseline",
+            "0.5 Client and Protocol Foundation",
+            "1. Skyrim Bridge Foundation",
+            "2. Bridge Identity and Authoritative State Foundation",
+            "3. Local Device Pairing and Reconnection",
+            "4. Live State Synchronization Foundation",
+            "5. PC / Second-Screen Baseline",
+            "6. Core UI Theme System",
+            "7. Live Player State",
+            "8. Multi-Client Runtime Foundation",
+            "9. Multi-Bridge and Local Discovery Foundation",
+            "10. Automatic Connection and Transport Selection",
+            "11. Mod Awareness",
+            "12. Interactive Map Foundation",
+            "13. Map Asset and Worldspace System",
+            "14. Quests",
+            "15. Navigation / Path Guidance",
+            "16. Inventory",
+            "17. Equipment",
+            "18. Magic, Spells, Shouts, and Powers",
+            "19. Favorites and Hotkeys",
+            "20. Customizable Dashboard",
+            "21. Secure LAN Transport and Network Discovery",
+            "22. Mobile / Tablet Client",
+            "23. Item Knowledge and Search",
+            "24. Legacy of the Dragonborn Integration",
+            "25. Installed UI Detection",
+            "26. Optional UI Mod Adapters",
+            "27. Safe Companion Authorization Foundation",
+            "28. Runtime Profiling and Advanced Bridge Hardening",
+            "29. CommonLib Dependency Maintenance Audit",
+        ]
+        actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?\.? .+)$", roadmap)
+
+        self.assertEqual(actual_headings, expected_headings)
+        self.assertNotIn("## 1.25 ", roadmap)
+        self.assertNotIn("## 1.5 ", roadmap)
+        self.assertEqual(roadmap.count("**Status:** Next"), 1)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 3)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
+
+        for heading in expected_headings:
+            phase = self._markdown_section("ROADMAP.md", heading)
+            if heading.startswith(("0. ", "0.5 ", "1. ")):
+                expected_status = "**Status:** Complete"
+            elif heading.startswith("2. "):
+                expected_status = "**Status:** Next"
+            elif heading.startswith("27. "):
+                expected_status = "**Status:** Planned after read-only product validation"
+            else:
+                expected_status = "**Status:** Planned"
+            self.assertEqual(
+                re.findall(r"(?m)^\*\*Status:\*\* .+$", phase),
+                [expected_status],
+                heading,
+            )
+
+        bridge_readme = self._read("bridge/README.md")
+        integration_readme = self._read("integration/README.md")
+        for supporting_document in (
+            roadmap,
+            bridge_readme,
+            integration_readme,
+        ):
+            self.assertNotIn("Phase 1.25", supporting_document)
+            self.assertNotIn("Phase 1.5", supporting_document)
+        self.assertIn("See `ROADMAP.md`'s Phase 3", bridge_readme)
+        self.assertIn("## Live event delivery is deferred to Phase 4", bridge_readme)
+        self.assertIn("`ROADMAP.md`'s Phase 4\nand Phase 3 entries", integration_readme)
+
+        ordering = {heading: roadmap.index(f"## {heading}") for heading in expected_headings}
+        self.assertLess(ordering["5. PC / Second-Screen Baseline"], ordering["6. Core UI Theme System"])
+        self.assertLess(ordering["6. Core UI Theme System"], ordering["7. Live Player State"])
+        self.assertLess(ordering["7. Live Player State"], ordering["8. Multi-Client Runtime Foundation"])
+        self.assertLess(ordering["8. Multi-Client Runtime Foundation"], ordering["12. Interactive Map Foundation"])
+        self.assertLess(
+            ordering["21. Secure LAN Transport and Network Discovery"],
+            ordering["22. Mobile / Tablet Client"],
         )
+
+        identity = self._markdown_section(
+            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        )
+        authorization = self._markdown_section(
+            "ROADMAP.md", "27. Safe Companion Authorization Foundation"
+        )
+        deferred = self._markdown_section("ROADMAP.md", "Deferred possibilities")
+        self.assertIn("does not add a separate\ngame-process identifier", identity)
+        dependency_expectations = {
+            "3. Local Device Pairing and Reconnection": "depends on Phase 2",
+            "5. PC / Second-Screen Baseline": "validates Phases 2 through 4",
+            "8. Multi-Client Runtime Foundation": "follows the Phase 7 single-client proof",
+            "9. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 8",
+            "27. Safe Companion Authorization Foundation": (
+                "depends on identity, multi-client isolation, and security"
+            ),
+        }
+        for heading, expected_dependency in dependency_expectations.items():
+            self.assertIn(
+                expected_dependency,
+                self._markdown_section("ROADMAP.md", heading),
+                heading,
+            )
+        self.assertIn("without exposing a generic command API", authorization)
+        self.assertIn("Validate the machinery without adding gameplay mutation", authorization)
+        self.assertIn("Each action needs its own product decision", authorization)
+        self.assertIn("no Skyrim\nmutation is exposed", authorization)
+        self.assertIn("Individual companion actions", deferred)
+        for deferred_action in ("equipment", "favorites or hotkeys", "map markers", "fast travel"):
+            self.assertIn(deferred_action, deferred)
 
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
-        live_state = self._markdown_section(
-            "ROADMAP.md", "1.5 Live State Synchronization Foundation"
-        )
+        live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
         bridge_live_state = self._markdown_section(
-            "bridge/README.md", "Live event delivery is deferred to Phase 1.5"
+            "bridge/README.md", "Live event delivery is deferred to Phase 4"
         )
         normalized_live_state = self._normalize_whitespace(live_state)
         normalized_bridge_live_state = self._normalize_whitespace(bridge_live_state)
 
-        self.assertIn("depends on the Phase 1 bridge foundation and Phase 1.25", live_state)
+        self.assertIn("depends on Phases 2 and 3", live_state)
         self.assertNotRegex(live_state, r"(?i)\bdeltas?\b")
         self.assertNotRegex(bridge_live_state, r"(?i)\bdeltas?\b")
         self.assertIn("complete post-change state rather than a patch", live_state)
@@ -501,10 +671,68 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_live_state,
         )
 
+    def test_state_identity_and_snapshot_exceptions_are_explicit(self) -> None:
+        """Keep bridge lifetime identity and snapshot delivery exceptions in the roadmap."""
+        identity = self._markdown_section(
+            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        )
+        live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
+        normalized_identity = self._normalize_whitespace(identity)
+        normalized_live_state = self._normalize_whitespace(live_state)
+
+        self.assertIn(
+            "authoritative state identity as one `bridgeInstanceId`, `playContextId`, and state area",
+            normalized_identity,
+        )
+        self.assertIn(
+            "a bridge restart creates a new state identity even when the same play context remains loaded",
+            normalized_identity,
+        )
+        self.assertIn(
+            "`sessionId` scoped to authenticated socket delivery only",
+            normalized_identity,
+        )
+        self.assertIn(
+            "reconnecting creates a new session without resetting the current authoritative revision",
+            normalized_identity,
+        )
+        self.assertIn(
+            "unchanged snapshot requests reuse it",
+            normalized_identity,
+        )
+        self.assertIn(
+            "Invalidate prior state when a new play context replaces the previous loaded game",
+            normalized_identity,
+        )
+        self.assertIn(
+            "Keep published v1 session-scoped until this phase's versioned migration",
+            normalized_identity,
+        )
+        self.assertIn(
+            "executable bridge-restart acceptance test proving cached state from the previous bridge lifetime is rejected",
+            normalized_identity,
+        )
+        self.assertIn(
+            "publish unsolicited replaceable state only on authoritative change",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "Always deliver initial, recovery, and explicitly requested snapshots, even when the state is unchanged",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "these snapshots reuse the current authoritative revision",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "unchanged unsolicited replaceable state produces no traffic",
+            normalized_live_state,
+        )
+
     def test_dependency_audit_targets_the_next_public_release(self) -> None:
         """Keep maintenance commitments meaningful after the initial public release."""
         dependency_audit = self._markdown_section(
-            "ROADMAP.md", "23. CommonLib Dependency Maintenance Audit"
+            "ROADMAP.md", "29. CommonLib Dependency Maintenance Audit"
         )
 
         self.assertNotIn("before public release", dependency_audit)
