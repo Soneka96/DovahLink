@@ -33,7 +33,7 @@ public class ReconnectScenarioTests
         // that as WebSocketException, not the InvalidOperationException a
         // graceful bridge-initiated close produces elsewhere in this suite.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
         {
@@ -92,7 +92,7 @@ public class ReconnectScenarioTests
     public async Task AbruptDisconnectMidRequestLeavesTheBridgeHealthyForTheNextConnectionAttempt()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
         {

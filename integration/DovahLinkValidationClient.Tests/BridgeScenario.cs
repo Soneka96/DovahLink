@@ -61,11 +61,7 @@ public static class BridgeScenario
         BridgeConnection? connection = null;
         try
         {
-            string? ready = await harness.ReadLineAsync();
-            if (ready != "READY")
-            {
-                throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {harness.StandardError}");
-            }
+            await harness.WaitForReadyAsync();
 
             connection = connectionFactory is null
                 ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)

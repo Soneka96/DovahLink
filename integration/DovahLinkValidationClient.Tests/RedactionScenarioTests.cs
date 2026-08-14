@@ -36,7 +36,7 @@ public class RedactionScenarioTests
         var collectedText = new List<string>();
 
         using var harness = new HarnessProcess(SecretToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         // 1. A failed hello with a distinctive wrong token.
         await using (BridgeConnection failedHello = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))

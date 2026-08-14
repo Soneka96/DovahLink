@@ -69,4 +69,53 @@ public class HarnessProcessTests
         Assert.Equal("diagnostic-1", lines[0].TrimEnd());
         Assert.Equal("diagnostic-2000", lines[^1].TrimEnd());
     }
+
+    /// <summary>Verifies that a valid startup handshake yields the reported bridge instance ID.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncReturnsTheBridgeInstanceIdAfterReady()
+    {
+        using var harness = new HarnessProcess(EchoLinesStartInfo("READY", "BRIDGE_INSTANCE abc123"));
+
+        string bridgeInstanceId = await harness.WaitForReadyAsync();
+
+        Assert.Equal("abc123", bridgeInstanceId);
+        Assert.Equal("abc123", harness.BridgeInstanceId);
+    }
+
+    /// <summary>Verifies that a non-READY first line fails the handshake clearly.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheFirstLineIsNotReady()
+    {
+        using var harness = new HarnessProcess(EchoLinesStartInfo("NOT_READY"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report READY", exception.Message);
+    }
+
+    /// <summary>Verifies that a bridge instance line missing its prefix fails the handshake clearly.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheBridgeInstanceLineIsMissingItsPrefix()
+    {
+        using var harness = new HarnessProcess(EchoLinesStartInfo("READY", "NOT_THE_RIGHT_PREFIX"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report its bridge instance ID", exception.Message);
+    }
+
+    /// <summary>Builds a redirected <c>cmd.exe</c> specification that echoes each argument as its own stdout line.</summary>
+    /// <param name="lines">The lines to echo in order.</param>
+    private static ProcessStartInfo EchoLinesStartInfo(params string[] lines)
+    {
+        var startInfo = new ProcessStartInfo("cmd.exe")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add(string.Join("&", lines.Select(line => $"echo {line}")));
+        return startInfo;
+    }
 }

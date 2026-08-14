@@ -64,6 +64,35 @@ public sealed class HarnessProcess : IDisposable
         }
     }
 
+    /// <summary>The bridge instance identifier reported by the harness during <see cref="WaitForReadyAsync"/>, or <c>null</c> before that completes.</summary>
+    public string? BridgeInstanceId { get; private set; }
+
+    /// <summary>
+    /// Reads and validates the harness startup handshake: the <c>READY</c> line followed by its <c>BRIDGE_INSTANCE &lt;id&gt;</c> line.
+    /// </summary>
+    /// <param name="timeout">The maximum time to wait for each line, or the default read timeout when omitted.</param>
+    /// <returns>The bridge instance ID reported by the harness, which is also stored in <see cref="BridgeInstanceId"/>.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the harness does not report READY followed by its bridge instance ID.</exception>
+    public async Task<string> WaitForReadyAsync(TimeSpan? timeout = null)
+    {
+        string? ready = await ReadLineAsync(timeout);
+        if (ready != "READY")
+        {
+            throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {StandardError}");
+        }
+
+        const string prefix = "BRIDGE_INSTANCE ";
+        string? instanceLine = await ReadLineAsync(timeout);
+        if (instanceLine is null || !instanceLine.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Harness did not report its bridge instance ID: {instanceLine}. Stderr: {StandardError}");
+        }
+
+        BridgeInstanceId = instanceLine[prefix.Length..];
+        return BridgeInstanceId;
+    }
+
     /// <summary>Appends one diagnostic line while excluding concurrent readers.</summary>
     /// <param name="line">The standard-error line to append.</param>
     private void AppendStandardError(string line)

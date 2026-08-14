@@ -131,7 +131,7 @@ public class CapabilitiesScenarioTests
     public async Task HelloWithNoMutuallySupportedVersionIsRejectedAndClosesTheConnection()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
         await connection.SendAsync(BridgeScenario.HelloEnvelope(

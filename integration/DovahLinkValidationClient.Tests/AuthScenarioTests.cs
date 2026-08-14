@@ -12,7 +12,7 @@ public class AuthScenarioTests
     public async Task InvalidTokenIsRejectedAndTheRealTokenStaysAvailable()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         string wrongButValidHexToken = new string('f', 64);
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
@@ -42,7 +42,7 @@ public class AuthScenarioTests
     public async Task ReusedTokenIsRejectedOnASecondConnection()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         // First connection consumes the one-time token and disconnects
         // cleanly, freeing the connection slot for the next attempt.
@@ -81,7 +81,7 @@ public class AuthScenarioTests
         using var harness = new HarnessProcess(
             BridgeScenario.ValidHexToken,
             new Dictionary<string, string> { ["DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS"] = "1" });
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await Task.Delay(TimeSpan.FromSeconds(2));
 
@@ -107,7 +107,7 @@ public class AuthScenarioTests
         // handshake_handler.cpp skips TryReserve entirely when hex decoding
         // itself fails, a different branch producing the same wire error.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         string nonHexToken = "zz" + new string('a', 62);
         await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
@@ -133,7 +133,7 @@ public class AuthScenarioTests
         // not per-connection -- so five separate failed connections, one
         // after another, are needed to reach the limit.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         string wrongButValidHexToken = new string('e', 64);
         await BridgeScenario.RecordFailedTokenAttemptsAsync(5, wrongButValidHexToken);
@@ -158,7 +158,7 @@ public class AuthScenarioTests
     public async Task CorrectTokenIsRateLimitedAfterFiveFailedAttempts()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         string wrongButValidHexToken = new string('d', 64);
         await BridgeScenario.RecordFailedTokenAttemptsAsync(5, wrongButValidHexToken);
@@ -216,7 +216,7 @@ public class AuthScenarioTests
         // atomic compare-and-swap concurrently, rather than one attempt
         // sitting queued behind the other on the same thread.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         Task<bool> attemptV4 = TryConnectAndHelloAsync(new Uri("ws://127.0.0.1:58231/"));
         Task<bool> attemptV6 = TryConnectAndHelloAsync(new Uri("ws://[::1]:58231/"));

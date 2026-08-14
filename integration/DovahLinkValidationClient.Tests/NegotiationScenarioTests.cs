@@ -17,7 +17,7 @@ public class NegotiationScenarioTests
     public async Task HelloReceivesHelloAckWithSessionIdAndSelectedVersion()
     {
         using var harness = new HarnessProcess(ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         Envelope helloAck;
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeUri))

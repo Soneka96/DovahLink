@@ -17,7 +17,7 @@ public class BridgeScenarioTests
             () => BridgeScenario.ConnectAndAuthenticateAsync(WrongHexToken));
 
         using var replacement = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await replacement.ReadLineAsync());
+        await replacement.WaitForReadyAsync();
         await replacement.WriteLineAsync("quit");
         Assert.True(await replacement.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
@@ -42,7 +42,7 @@ public class BridgeScenarioTests
 
         Assert.True(socket.DisposeCalled);
         using var replacement = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await replacement.ReadLineAsync());
+        await replacement.WaitForReadyAsync();
         await replacement.WriteLineAsync("quit");
         Assert.True(await replacement.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
