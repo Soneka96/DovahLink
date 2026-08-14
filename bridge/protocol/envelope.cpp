@@ -18,6 +18,12 @@ std::unexpected<EnvelopeError> Fail(std::string reason) {
     return std::unexpected(EnvelopeError{std::move(reason)});
 }
 
+/// Encodes an optional string as its value or JSON `null`, never omitted.
+/// Used for envelope fields that are always present once emitted at all.
+boost::json::value EncodeNullableString(const std::optional<std::string>& value) {
+    return value.has_value() ? boost::json::value(*value) : boost::json::value(nullptr);
+}
+
 }
 std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& message) {
     if (!message.is_object()) {
@@ -89,6 +95,23 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         return Fail("payload must be an object");
     }
 
+    // Decoded tolerantly regardless of protocolVersion, matching
+    // protocol/compatibility.md's "readers ignore unknown optional fields"
+    // rule: the v1/v2 distinction governs what a writer sends (see
+    // EncodeEnvelope below), not what a reader accepts.
+    auto bridgeInstanceId = DecodeOptionalString(obj.if_contains("bridgeInstanceId"), "bridgeInstanceId");
+    if (!bridgeInstanceId) {
+        return std::unexpected(bridgeInstanceId.error());
+    }
+    auto playContextId = DecodeOptionalString(obj.if_contains("playContextId"), "playContextId");
+    if (!playContextId) {
+        return std::unexpected(playContextId.error());
+    }
+    auto clientId = DecodeOptionalString(obj.if_contains("clientId"), "clientId");
+    if (!clientId) {
+        return std::unexpected(clientId.error());
+    }
+
     return Envelope{
         .protocolVersion = *protocolVersion,
         .messageType = std::move(*messageType),
@@ -96,6 +119,9 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         .sessionId = std::move(sessionId),
         .correlationId = std::move(correlationId),
         .payload = payloadValue->get_object(),
+        .bridgeInstanceId = std::move(*bridgeInstanceId),
+        .playContextId = std::move(*playContextId),
+        .clientId = std::move(*clientId),
     };
 }
 
@@ -109,6 +135,17 @@ std::string EncodeEnvelope(const Envelope& envelope) {
     obj["correlationId"] = envelope.correlationId.has_value() ? boost::json::value(*envelope.correlationId)
                                                                 : boost::json::value(nullptr);
     obj["payload"] = envelope.payload;
+    // v1 omits these keys entirely (protocol/schema/README.md's v1 section
+    // never defines them); v2 always emits them, as a value or `null`, per
+    // the v2 section's encoding rule. protocolVersion is the caller's
+    // negotiated-version signal for every message type except hello_ack,
+    // which sets protocolVersion to the just-selected version rather than 0
+    // once v2 is negotiated -- see handshake_handler.cpp's HandleHello.
+    if (envelope.protocolVersion >= 2) {
+        obj["bridgeInstanceId"] = EncodeNullableString(envelope.bridgeInstanceId);
+        obj["playContextId"] = EncodeNullableString(envelope.playContextId);
+        obj["clientId"] = EncodeNullableString(envelope.clientId);
+    }
     return boost::json::serialize(obj);
 }
 

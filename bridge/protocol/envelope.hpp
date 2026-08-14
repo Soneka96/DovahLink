@@ -26,6 +26,19 @@ struct Envelope {
     std::optional<std::string> correlationId;
     /// Message-specific JSON object payload.
     boost::json::object payload;
+    /// Identity of the bridge instance that produced this message. Absent on
+    /// `protocolVersion < 2`; present but possibly null once v2 identity
+    /// (`protocolVersion >= 2`) applies, per `protocol/schema/README.md`'s v2
+    /// section.
+    std::optional<std::string> bridgeInstanceId;
+    /// Identity of the currently loaded play context, when one is active.
+    /// Absent on `protocolVersion < 2`; present-but-null under v2 outside an
+    /// active play context (`NoContext`).
+    std::optional<std::string> playContextId;
+    /// Identity of the logical client, established at `hello`. Absent on
+    /// `protocolVersion < 2` and before `hello` on a v2 connection, the same
+    /// pre-session shape `sessionId` already uses.
+    std::optional<std::string> clientId;
 };
 
 /// Reports an envelope decoding failure.

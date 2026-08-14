@@ -17,6 +17,33 @@ dovahlink::protocol::Envelope DecodeFixture(const std::string& relativePath) {
     return dovahlink::protocol::test_support::DecodeFixtureEnvelope(relativePath);
 }
 
+/// Builds a v1 envelope for EncodeEnvelope's version-gating assertions.
+dovahlink::protocol::Envelope MakeV1Envelope(std::optional<std::string> bridgeInstanceId,
+                                              std::optional<std::string> playContextId,
+                                              std::optional<std::string> clientId) {
+    return dovahlink::protocol::Envelope{
+        .protocolVersion = 1,
+        .messageType = "ping",
+        .messageId = "m-1",
+        .sessionId = std::string("s-1"),
+        .correlationId = std::nullopt,
+        .payload = {},
+        .bridgeInstanceId = std::move(bridgeInstanceId),
+        .playContextId = std::move(playContextId),
+        .clientId = std::move(clientId),
+    };
+}
+
+/// Builds a v2 envelope for EncodeEnvelope's version-gating assertions.
+dovahlink::protocol::Envelope MakeV2Envelope(std::optional<std::string> bridgeInstanceId,
+                                              std::optional<std::string> playContextId,
+                                              std::optional<std::string> clientId) {
+    dovahlink::protocol::Envelope envelope = MakeV1Envelope(std::move(bridgeInstanceId), std::move(playContextId),
+                                                             std::move(clientId));
+    envelope.protocolVersion = 2;
+    return envelope;
+}
+
 }  // namespace
 
 TEST_CASE("hello fixture decodes with a null sessionId and correlationId", "[protocol][envelope]") {
@@ -282,4 +309,182 @@ TEST_CASE("EncodeEnvelope round-trips a non-null sessionId from an error fixture
     auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
     REQUIRE(roundTripped.has_value());
     CHECK(roundTripped->sessionId == original.sessionId);
+}
+
+// Protocol v2 identity fields: absent in v1, present (as null or a value)
+// once protocolVersion >= 2. Decoding is tolerant of the fields regardless of
+// version (protocol/compatibility.md); only EncodeEnvelope enforces the
+// version gate on the write side.
+
+TEST_CASE("a v1 message omitting the v2 identity fields decodes with all three absent",
+          "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 1, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null, "payload": {}})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE(envelope.has_value());
+    CHECK_FALSE(envelope->bridgeInstanceId.has_value());
+    CHECK_FALSE(envelope->playContextId.has_value());
+    CHECK_FALSE(envelope->clientId.has_value());
+}
+
+TEST_CASE("a v2 message with null identity fields decodes with all three absent",
+          "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": null, "playContextId": null, "clientId": null})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE(envelope.has_value());
+    CHECK_FALSE(envelope->bridgeInstanceId.has_value());
+    CHECK_FALSE(envelope->playContextId.has_value());
+    CHECK_FALSE(envelope->clientId.has_value());
+}
+
+TEST_CASE("a v2 message with string identity fields decodes with their values", "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": "bridge-1", "playContextId": "context-1", "clientId": "client-1"})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE(envelope.has_value());
+    REQUIRE(envelope->bridgeInstanceId.has_value());
+    CHECK(*envelope->bridgeInstanceId == "bridge-1");
+    REQUIRE(envelope->playContextId.has_value());
+    CHECK(*envelope->playContextId == "context-1");
+    REQUIRE(envelope->clientId.has_value());
+    CHECK(*envelope->clientId == "client-1");
+}
+
+TEST_CASE("a non-string, non-null bridgeInstanceId is rejected", "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": 5, "playContextId": null, "clientId": null})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE_FALSE(envelope.has_value());
+}
+
+TEST_CASE("an empty playContextId is rejected", "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": null, "playContextId": "", "clientId": null})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE_FALSE(envelope.has_value());
+}
+
+TEST_CASE("a non-string, non-null clientId is rejected", "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": null, "playContextId": null, "clientId": true})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE_FALSE(envelope.has_value());
+}
+
+TEST_CASE("a v1 message that includes a v2 identity field anyway still decodes it, tolerantly",
+          "[protocol][envelope]") {
+    // Decode never rejects on protocolVersion/identity-field mismatch: only
+    // EncodeEnvelope enforces which version may write these fields.
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 1, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null,
+            "payload": {}, "bridgeInstanceId": "bridge-1"})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE(envelope.has_value());
+    REQUIRE(envelope->bridgeInstanceId.has_value());
+    CHECK(*envelope->bridgeInstanceId == "bridge-1");
+}
+
+TEST_CASE("a v2 message that omits the identity keys entirely decodes the same as explicit null",
+          "[protocol][envelope]") {
+    auto parsed = dovahlink::protocol::ParseBoundedJson(
+        R"({"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1", "correlationId": null, "payload": {}})");
+    REQUIRE(parsed.has_value());
+    auto envelope = dovahlink::protocol::DecodeEnvelope(*parsed);
+    REQUIRE(envelope.has_value());
+    CHECK_FALSE(envelope->bridgeInstanceId.has_value());
+    CHECK_FALSE(envelope->playContextId.has_value());
+    CHECK_FALSE(envelope->clientId.has_value());
+}
+
+TEST_CASE("EncodeEnvelope also emits the v2 identity fields at protocolVersion 3", "[protocol][envelope]") {
+    // Guards against a future edit narrowing the gate from `>= 2` to `== 2`.
+    auto envelope = MakeV2Envelope("bridge-1", "context-1", "client-1");
+    envelope.protocolVersion = 3;
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(envelope);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    REQUIRE(reparsed->is_object());
+    const boost::json::object& obj = reparsed->get_object();
+    REQUIRE(obj.if_contains("bridgeInstanceId") != nullptr);
+    CHECK(obj.at("bridgeInstanceId").as_string() == "bridge-1");
+}
+
+TEST_CASE("EncodeEnvelope omits the v2 identity fields for protocolVersion 1, even when set",
+          "[protocol][envelope]") {
+    // Proves the gate is the version, not whether the optionals happen to be
+    // empty (protocol/schema/README.md's v2 section: "explicitly version-
+    // gated, not inferred from whether the optional is empty").
+    auto envelope = MakeV1Envelope("bridge-1", "context-1", "client-1");
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(envelope);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    REQUIRE(reparsed->is_object());
+    const boost::json::object& obj = reparsed->get_object();
+    CHECK(obj.if_contains("bridgeInstanceId") == nullptr);
+    CHECK(obj.if_contains("playContextId") == nullptr);
+    CHECK(obj.if_contains("clientId") == nullptr);
+}
+
+TEST_CASE("EncodeEnvelope emits JSON null for empty v2 identity fields under protocolVersion 2",
+          "[protocol][envelope]") {
+    auto envelope = MakeV2Envelope(std::nullopt, std::nullopt, std::nullopt);
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(envelope);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    REQUIRE(reparsed->is_object());
+    const boost::json::object& obj = reparsed->get_object();
+    REQUIRE(obj.if_contains("bridgeInstanceId") != nullptr);
+    CHECK(obj.at("bridgeInstanceId").is_null());
+    REQUIRE(obj.if_contains("playContextId") != nullptr);
+    CHECK(obj.at("playContextId").is_null());
+    REQUIRE(obj.if_contains("clientId") != nullptr);
+    CHECK(obj.at("clientId").is_null());
+}
+
+TEST_CASE("EncodeEnvelope emits values for populated v2 identity fields under protocolVersion 2",
+          "[protocol][envelope]") {
+    auto envelope = MakeV2Envelope("bridge-1", "context-1", "client-1");
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(envelope);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    REQUIRE(reparsed->is_object());
+    const boost::json::object& obj = reparsed->get_object();
+    REQUIRE(obj.if_contains("bridgeInstanceId") != nullptr);
+    CHECK(obj.at("bridgeInstanceId").as_string() == "bridge-1");
+    REQUIRE(obj.if_contains("playContextId") != nullptr);
+    CHECK(obj.at("playContextId").as_string() == "context-1");
+    REQUIRE(obj.if_contains("clientId") != nullptr);
+    CHECK(obj.at("clientId").as_string() == "client-1");
+}
+
+TEST_CASE("EncodeEnvelope round-trips a v2 envelope with mixed set and absent identity fields",
+          "[protocol][envelope]") {
+    auto original = MakeV2Envelope("bridge-1", std::nullopt, "client-1");
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(original);
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
+    REQUIRE(roundTripped.has_value());
+
+    CHECK(roundTripped->bridgeInstanceId == original.bridgeInstanceId);
+    CHECK(roundTripped->playContextId == original.playContextId);
+    CHECK(roundTripped->clientId == original.clientId);
 }
