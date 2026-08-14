@@ -1,0 +1,62 @@
+name: tooling-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "AGENTS.md"
+      - "README.md"
+      - "PRODUCT.md"
+      - "ARCHITECTURE.md"
+      - "ROADMAP.md"
+      - "CONTRIBUTING.md"
+      - ".github/workflows/**"
+      - ".vscode/**"
+      - "app/**"
+      - "bridge/**"
+      - "integration/**"
+      - "protocol/**"
+      - "tooling/**"
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "README.md"
+      - "PRODUCT.md"
+      - "ARCHITECTURE.md"
+      - "ROADMAP.md"
+      - "CONTRIBUTING.md"
+      - ".github/workflows/**"
+      - ".vscode/**"
+      - "app/**"
+      - "bridge/**"
+      - "integration/**"
+      - "protocol/**"
+      - "tooling/**"
+  workflow_dispatch:
+
+concurrency:
+  group: tooling-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run repository checks
+        run: python -m unittest discover -s tooling -p "test_*.py"

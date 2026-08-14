@@ -218,6 +218,60 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Run integration scenarios"),
         )
 
+    def test_tooling_ci_covers_repository_consistency_surfaces(self) -> None:
+        """Require repository checks to run when their inspected files change."""
+        workflow = self._read(".github/workflows/tooling-ci.yml")
+        expected_paths = {
+            '- "AGENTS.md"',
+            '- "README.md"',
+            '- "PRODUCT.md"',
+            '- "ARCHITECTURE.md"',
+            '- "ROADMAP.md"',
+            '- "CONTRIBUTING.md"',
+            '- ".github/workflows/**"',
+            '- ".vscode/**"',
+            '- "app/**"',
+            '- "bridge/**"',
+            '- "integration/**"',
+            '- "protocol/**"',
+            '- "tooling/**"',
+        }
+
+        for trigger in ("push", "pull_request"):
+            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
+            if trigger == "push":
+                self.assertIn("    branches: [main]", trigger_block)
+            paths_block = self._yaml_block(trigger_block, "    paths:")
+            self.assertEqual(
+                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+                expected_paths,
+            )
+
+        self.assertEqual(
+            self._yaml_block(workflow, "permissions:"),
+            "permissions:\n  contents: read",
+        )
+        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v4")
+        self.assertEqual(
+            checkout,
+            "      - uses: actions/checkout@v4\n"
+            "        with:\n"
+            "          persist-credentials: false",
+        )
+        self.assertIn("runs-on: ubuntu-latest", workflow)
+        self.assertIn("timeout-minutes: 10", workflow)
+        self.assertIn("        shell: bash", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "  group: tooling-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            workflow,
+        )
+        self.assertIn("  cancel-in-progress: true", workflow)
+        self.assertIn("uses: actions/setup-python@v5", workflow)
+        self.assertIn('python-version: "3.13"', workflow)
+        self.assertIn('run: python -m unittest discover -s tooling -p "test_*.py"', workflow)
+        self.assertNotIn("continue-on-error:", workflow)
+
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
