@@ -42,6 +42,45 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
 
+    def test_bridge_ci_covers_release_validation_and_reusable_diagnostics(self) -> None:
+        """Require release coverage, dependency caching, cancellation, and failure diagnostics."""
+        workflow = self._read(".github/workflows/bridge-ci.yml")
+
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "  group: bridge-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            workflow,
+        )
+        self.assertIn("  cancel-in-progress: true", workflow)
+        self.assertIn("timeout-minutes: 30", workflow)
+        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
+        self.assertIn("uses: actions/cache@v4", workflow)
+        self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
+        self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
+        self.assertIn("hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')", workflow)
+
+        for step_name in (
+            "Configure Debug",
+            "Build Debug",
+            "Test Debug",
+            "Configure Release",
+            "Build Release",
+            "Test Release",
+        ):
+            self.assertIn(f"      - name: {step_name}", workflow)
+
+        self.assertIn("run: cmake --preset windows-x64-release", workflow)
+        self.assertIn("run: cmake --build --preset windows-x64-release", workflow)
+        self.assertIn(
+            "run: ctest --test-dir build/windows-x64-release --output-on-failure",
+            workflow,
+        )
+        self.assertIn("if: failure()", workflow)
+        self.assertIn("uses: actions/upload-artifact@v4", workflow)
+        self.assertIn("name: bridge-ci-diagnostics-${{ github.run_id }}", workflow)
+        self.assertIn("bridge/build/windows-x64-debug/Testing/", workflow)
+        self.assertIn("bridge/build/windows-x64-release/Testing/", workflow)
+
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))

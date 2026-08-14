@@ -12,6 +12,11 @@ on:
       - "bridge/**"
       - "protocol/**"
       - ".github/workflows/bridge-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: bridge-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -20,6 +25,9 @@ jobs:
   build-and-test:
     # Pinned toolchain and dependency baselines are recorded in bridge/README.md.
     runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
     defaults:
       run:
         shell: pwsh
@@ -44,16 +52,46 @@ jobs:
           git -C "${{ runner.temp }}\vcpkg" checkout 2f1d605400c8727cc00c15797aba796c88ccd523
           & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
-      - name: Configure
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: ${{ runner.os }}-vcpkg-2f1d605400c8727cc00c15797aba796c88ccd523-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
+
+      - name: Configure Debug
         working-directory: bridge
         env:
           VCPKG_ROOT: ${{ runner.temp }}\vcpkg
         run: cmake --preset windows-x64-debug
 
-      - name: Build
+      - name: Build Debug
         working-directory: bridge
         run: cmake --build --preset windows-x64-debug
 
-      - name: Test
+      - name: Test Debug
         working-directory: bridge
         run: ctest --preset windows-x64-debug
+
+      - name: Configure Release
+        working-directory: bridge
+        env:
+          VCPKG_ROOT: ${{ runner.temp }}\vcpkg
+        run: cmake --preset windows-x64-release
+
+      - name: Build Release
+        working-directory: bridge
+        run: cmake --build --preset windows-x64-release
+
+      - name: Test Release
+        working-directory: bridge
+        run: ctest --test-dir build/windows-x64-release --output-on-failure
+
+      - name: Upload bridge test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-ci-diagnostics-${{ github.run_id }}
+          path: |
+            bridge/build/windows-x64-debug/Testing/
+            bridge/build/windows-x64-release/Testing/
+          if-no-files-found: ignore
