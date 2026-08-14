@@ -55,7 +55,13 @@ void ThrowAtStage(ShutdownFailureStage configuredStage, ShutdownFailureStage cur
 class NoopCallbackRegistry : public CallbackRegistry {
 public:
     /// @copydoc CallbackRegistry::RegisterAll
-    void RegisterAll(ContainedWorkRunner callbackRunner) override { callbackRunner_ = std::move(callbackRunner); }
+    void RegisterAll(ContainedWorkRunner callbackRunner) override {
+        ++startCalls_;
+        if (throwOnStart_) {
+            throw std::runtime_error("configured callback startup failure");
+        }
+        callbackRunner_ = std::move(callbackRunner);
+    }
     /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         if (shutdownLog_ != nullptr) {
@@ -69,6 +75,12 @@ public:
 
     /// Callback boundary received during coordinator startup.
     ContainedWorkRunner callbackRunner_;
+
+    /// Number of callback startup attempts received.
+    int startCalls_ = 0;
+
+    /// Whether callback startup should throw.
+    bool throwOnStart_ = false;
 
     /// Optional synchronization point released when shutdown unregisters callbacks.
     std::binary_semaphore* unregisterSignal_ = nullptr;
@@ -84,7 +96,13 @@ public:
 class NoopWorkerPool : public WorkerPool {
 public:
     /// @copydoc WorkerPool::Start
-    void Start(ContainedWorkRunner workerRunner) override { workerRunner_ = std::move(workerRunner); }
+    void Start(ContainedWorkRunner workerRunner) override {
+        ++startCalls_;
+        if (throwOnStart_) {
+            throw std::runtime_error("configured worker startup failure");
+        }
+        workerRunner_ = std::move(workerRunner);
+    }
     /// @copydoc WorkerPool::Stop
     void Stop() override {
         if (shutdownLog_ != nullptr) {
@@ -106,6 +124,12 @@ public:
     /// Worker boundary received during coordinator startup.
     ContainedWorkRunner workerRunner_;
 
+    /// Number of worker startup attempts received.
+    int startCalls_ = 0;
+
+    /// Whether worker startup should throw.
+    bool throwOnStart_ = false;
+
     /// Optional shared sequence used to order callback completion and worker stopping.
     std::atomic<int>* completionOrder_ = nullptr;
 
@@ -123,7 +147,12 @@ public:
 class NoopTransportLifecycle : public TransportLifecycle {
 public:
     /// @copydoc TransportLifecycle::Start
-    void Start() override {}
+    void Start() override {
+        ++startCalls_;
+        if (throwOnStart_) {
+            throw std::runtime_error("configured transport startup failure");
+        }
+    }
     /// @copydoc TransportLifecycle::CancelCompletions
     void CancelCompletions() override {
         if (shutdownLog_ != nullptr) {
@@ -148,6 +177,12 @@ public:
     /// Optional log receiving shutdown stage names.
     std::vector<std::string>* shutdownLog_ = nullptr;
 
+    /// Number of transport startup attempts received.
+    int startCalls_ = 0;
+
+    /// Whether transport startup should throw.
+    bool throwOnStart_ = false;
+
     /// Lifecycle stage configured to throw.
     ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 
@@ -171,6 +206,54 @@ struct Fixture {
 };
 
 }  // namespace
+
+TEST_CASE("a callback startup failure latches startup and prevents a retry",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.callbacks.throwOnStart_ = true;
+
+    CHECK_THROWS(f.coordinator.Start());
+    f.callbacks.throwOnStart_ = false;
+    f.workers.throwOnStart_ = false;
+    f.transport.throwOnStart_ = false;
+    CHECK_NOTHROW(f.coordinator.Start());
+
+    CHECK(f.callbacks.startCalls_ == 1);
+    CHECK(f.workers.startCalls_ == 0);
+    CHECK(f.transport.startCalls_ == 0);
+}
+
+TEST_CASE("a worker startup failure latches startup and prevents a retry",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.workers.throwOnStart_ = true;
+
+    CHECK_THROWS(f.coordinator.Start());
+    f.callbacks.throwOnStart_ = false;
+    f.workers.throwOnStart_ = false;
+    f.transport.throwOnStart_ = false;
+    CHECK_NOTHROW(f.coordinator.Start());
+
+    CHECK(f.callbacks.startCalls_ == 1);
+    CHECK(f.workers.startCalls_ == 1);
+    CHECK(f.transport.startCalls_ == 0);
+}
+
+TEST_CASE("a transport startup failure latches startup and prevents a retry",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.transport.throwOnStart_ = true;
+
+    CHECK_THROWS(f.coordinator.Start());
+    f.callbacks.throwOnStart_ = false;
+    f.workers.throwOnStart_ = false;
+    f.transport.throwOnStart_ = false;
+    CHECK_NOTHROW(f.coordinator.Start());
+
+    CHECK(f.callbacks.startCalls_ == 1);
+    CHECK(f.workers.startCalls_ == 1);
+    CHECK(f.transport.startCalls_ == 1);
+}
 
 TEST_CASE("a fresh coordinator is available", "[application][coordinator][failure]") {
     Fixture f;

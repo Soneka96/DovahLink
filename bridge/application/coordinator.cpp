@@ -10,12 +10,22 @@ Coordinator::Coordinator(CallbackRegistry& callbacks, WorkerPool& workers, Trans
 Coordinator::~Coordinator() noexcept { Shutdown(); }
 
 void Coordinator::Start() {
+    std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (startClaimed_ || shutdownStarted_ || stopping_.load(std::memory_order_acquire)) {
+            return;
+        }
+        startClaimed_ = true;
+    }
+
     callbacks_.RegisterAll([this](ContainedWork work) noexcept { return RunCallbackContained(std::move(work)); });
     workers_.Start([this](ContainedWork work) noexcept { return RunContained(std::move(work)); });
     transport_.Start();
 }
 
 void Coordinator::Shutdown() noexcept {
+    std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
     {
         std::unique_lock<std::mutex> lock(mutex_);
         if (shutdownStarted_) {

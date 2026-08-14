@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <semaphore>
 #include <string>
 #include <thread>
 #include <vector>
@@ -26,6 +27,33 @@ public:
     void RegisterAll(ContainedWorkRunner) override { log_.push_back("callbacks.RegisterAll"); }
     /// @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
+
+private:
+    /// Log receiving lifecycle call names.
+    std::vector<std::string>& log_;
+};
+
+/// Blocks callback registration at a deterministic startup synchronization point.
+class BlockingCallbackRegistry : public CallbackRegistry {
+public:
+    /// Binds the recorder and startup synchronization points.
+    BlockingCallbackRegistry(std::vector<std::string>& log) : log_(log) {}
+
+    /// @copydoc CallbackRegistry::RegisterAll
+    void RegisterAll(ContainedWorkRunner) override {
+        log_.push_back("callbacks.RegisterAll");
+        registerEntered_.release();
+        releaseRegister_.acquire();
+    }
+
+    /// @copydoc CallbackRegistry::UnregisterAll
+    void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
+
+    /// Signals that callback registration has started.
+    std::binary_semaphore registerEntered_{0};
+
+    /// Releases callback registration so startup can continue.
+    std::binary_semaphore releaseRegister_{0};
 
 private:
     /// Log receiving lifecycle call names.
@@ -88,6 +116,63 @@ TEST_CASE("Start registers callbacks, then starts workers, then starts transport
     f.coordinator.Start();
 
     CHECK(f.log == std::vector<std::string>{"callbacks.RegisterAll", "workers.Start", "transport.Start"});
+}
+
+TEST_CASE("a second Start call is a no-op", "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Start();
+    const std::size_t countAfterFirst = f.log.size();
+
+    f.coordinator.Start();
+
+    CHECK(f.log.size() == countAfterFirst);
+}
+
+TEST_CASE("Start after shutdown is a no-op", "[application][coordinator]") {
+    Fixture f;
+    f.coordinator.Shutdown();
+    const std::vector<std::string> shutdownLog = f.log;
+
+    f.coordinator.Start();
+
+    CHECK(f.log == shutdownLog);
+}
+
+TEST_CASE("Start and Shutdown serialize lifecycle transitions", "[application][coordinator]") {
+    std::vector<std::string> log;
+    BlockingCallbackRegistry callbacks(log);
+    RecordingWorkerPool workers(log);
+    RecordingTransportLifecycle transport(log);
+    Coordinator coordinator(callbacks, workers, transport);
+
+    std::thread startThread([&coordinator] { coordinator.Start(); });
+    callbacks.registerEntered_.acquire();
+
+    std::binary_semaphore shutdownCalled(0);
+    std::binary_semaphore shutdownFinished(0);
+    std::thread shutdownThread([&coordinator, &shutdownCalled, &shutdownFinished] {
+        shutdownCalled.release();
+        coordinator.Shutdown();
+        shutdownFinished.release();
+    });
+    shutdownCalled.acquire();
+
+    CHECK_FALSE(shutdownFinished.try_acquire());
+    callbacks.releaseRegister_.release();
+
+    startThread.join();
+    shutdownThread.join();
+
+    CHECK(log == std::vector<std::string>{
+                       "callbacks.RegisterAll",
+                       "workers.Start",
+                       "transport.Start",
+                       "callbacks.UnregisterAll",
+                       "workers.Stop",
+                       "workers.Join",
+                       "transport.CancelCompletions",
+                       "transport.Close",
+                   });
 }
 
 TEST_CASE("Shutdown follows the exact documented barrier order with no callbacks in flight",

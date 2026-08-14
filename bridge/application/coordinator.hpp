@@ -78,6 +78,8 @@ public:
     ~Coordinator() noexcept;
 
     /// Registers callbacks and starts workers and transport in order.
+    /// Repeated calls and calls after shutdown has begun return without action.
+    /// Lifecycle dependencies must not call coordinator lifecycle methods re-entrantly.
     void Start();
 
     /// Completes every shutdown stage on a best-effort basis; repeated calls wait for completion.
@@ -173,6 +175,9 @@ private:
     /// Synchronizes shutdown state and callback admission.
     mutable std::mutex mutex_;
 
+    /// Serializes lifecycle startup and shutdown transitions.
+    mutable std::mutex lifecycleMutex_;
+
     /// Notifies waiters when in-flight callbacks leave.
     std::condition_variable inFlightCv_;
 
@@ -181,6 +186,9 @@ private:
 
     /// Whether the coordinator can publish state.
     std::atomic<bool> available_{true};
+
+    /// Whether startup has been claimed, including a startup that failed partway through.
+    bool startClaimed_ = false;
 
     /// Whether one caller has begun the shutdown barrier.
     bool shutdownStarted_ = false;
