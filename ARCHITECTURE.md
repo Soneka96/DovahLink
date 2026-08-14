@@ -52,10 +52,73 @@ Render companion views and manage local layout preferences. A client should rema
 
 - The bridge-to-client contract should be defined before multiple clients are built.
 - The protocol contract is the source of truth for cross-side messages; Flutter and SKSE adapters must not silently invent incompatible fields.
+- The official Flutter application is one client of the canonical protocol. It receives no
+  undocumented protocol behavior or privileged access that another conforming client could not use.
+- Protocol messages remain presentation-independent. Screens, dashboard modules, orientation,
+  widget layout, and other client UI concepts do not belong in the bridge contract.
 - The wire contract is defined by `protocol/schema/README.md`; transport framing remains outside
   the architecture contract.
 - Transport exposure, pairing, authentication, and input limits are defined by
   `ai/context/protocol/security.md`.
+
+## Runtime and identity model
+
+One live Skyrim process owns one DovahLink bridge instance. A bridge may eventually serve multiple
+concurrent clients, and one machine may host multiple bridge instances when multiple supported
+Skyrim processes exist. Transport location is not identity: an address, port, hostname, or transport
+path locates an endpoint but must not become the durable identity of a bridge, play context, client,
+or connection.
+
+The target architecture distinguishes four lifetimes:
+
+- `bridgeInstanceId` identifies one running bridge/plugin lifetime. A bridge restart creates a new
+  identity.
+- `playContextId` identifies the currently loaded authoritative play context. It changes whenever
+  state from the previous loaded game must no longer be accepted as current.
+- `clientId` identifies one paired client or device independently of any connection it opens.
+- `sessionId` identifies one authenticated socket session. It is valid only for that socket and is
+  invalidated when the connection ends.
+
+Each identifier must be created, validated, and invalidated at its own lifecycle boundary. A client
+reconnect creates a new `sessionId` without silently changing its `clientId`; loading another save
+creates a new `playContextId` without pretending that the bridge process restarted.
+
+## Authoritative state and revisions
+
+Skyrim is the authoritative producer of live playthrough state. For each state area, the bridge owns
+one authoritative state store for the active play context. Skyrim state is captured once and shared
+with subscribed clients; adding a client must not repeat equivalent Skyrim reads for that client.
+
+A state revision identifies a version of authoritative state within one state area and
+`playContextId`. It advances only when that authoritative state changes. Sending or requesting
+another snapshot does not advance the revision when the state is unchanged, and reconnecting does
+not create a new authoritative revision merely because the socket session changed.
+
+Clients use `playContextId` and the state-area revision together to reject stale state. `sessionId`
+still prevents a client from accepting messages from an old or foreign socket. When the play context
+changes, the bridge invalidates the previous context's state and establishes fresh authoritative
+state before publication resumes.
+
+The published protocol v1 currently scopes revisions to a connection session. That remains the
+current wire contract until the Bridge Identity and Authoritative State Foundation phase explicitly
+updates and versions the schema, fixtures, bridge, validation client, and Flutter consumer. The
+target ownership above must not be implemented by silently reinterpreting existing v1 messages.
+
+## Live delivery and performance model
+
+- Prefer native Skyrim/SKSE events whenever a trustworthy event exists; sample only values that
+  genuinely require sampling.
+- Treat sampling rates as maximum rates rather than mandatory send cadences, and publish only when
+  authoritative state changes.
+- Keep game-thread callbacks bounded, non-blocking, and limited to approved capture work. Network
+  I/O, serialization, expensive transformation, caching, and presentation work run elsewhere.
+- Use latest-value-wins coalescing for replaceable live state under pressure.
+- Keep reliable events ordered within their defined delivery scope. Disconnect or resynchronize a
+  slow client rather than allowing it to stall Skyrim or healthy clients.
+- Keep heavy resources such as maps, tiles, artwork, and large reference datasets outside the
+  high-rate live-state stream.
+- Select queue capacities, sampling rates, and executor topology from profiling rather than fixing
+  speculative values as permanent architecture.
 
 ## Reliability expectations
 
@@ -104,6 +167,7 @@ Detection and adapters may supply supported presentation values; they must not r
 ## Architectural non-goals
 
 - No service layer before local connectivity is proven.
-- No shared abstraction for clients before there is a second client.
+- No shared client-implementation abstraction before there is a second client; protocol independence
+  does not require shared application code.
 - No permanent protocol complexity for hypothetical features.
 - No dependency on an installed Skyrim UI mod for the default client presentation.

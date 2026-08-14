@@ -12,6 +12,57 @@ REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 class RepositoryConsistencyTests(unittest.TestCase):
     """Verify that release-facing configuration and documentation remain aligned."""
 
+    def test_target_identity_and_revision_architecture_is_explicit(self) -> None:
+        """Keep target state ownership distinct from the published session-scoped v1 contract."""
+        architecture = self._read("ARCHITECTURE.md")
+        schema = self._read("protocol/schema/README.md")
+        normalized_architecture = self._normalize_whitespace(architecture)
+
+        for identity in (
+            "`bridgeInstanceId`",
+            "`playContextId`",
+            "`clientId`",
+            "`sessionId`",
+        ):
+            self.assertIn(identity, architecture)
+        self.assertNotIn("gameInstanceId", architecture)
+
+        for required_phrase in (
+            "A bridge restart creates a new identity",
+            "A client reconnect creates a new `sessionId` without silently changing its `clientId`",
+            "loading another save creates a new `playContextId`",
+            "It is valid only for that socket and is invalidated when the connection ends",
+            "one authoritative state store for the active play context",
+            "captured once and shared with subscribed clients",
+            "adding a client must not repeat equivalent Skyrim reads",
+            "within one state area and `playContextId`",
+            "It advances only when that authoritative state changes",
+            "Sending or requesting another snapshot does not advance the revision",
+            "reconnecting does not create a new authoritative revision",
+            "use `playContextId` and the state-area revision together to reject stale state",
+            "invalidates the previous context's state and establishes fresh authoritative state",
+            "must not be implemented by silently reinterpreting existing v1 messages",
+            "Transport location is not identity",
+            "receives no undocumented protocol behavior or privileged access",
+            "Screens, dashboard modules, orientation, widget layout",
+        ):
+            self.assertIn(required_phrase, normalized_architecture)
+
+        self.assertIn(
+            "Revisions are scoped to one state area and session",
+            schema,
+        )
+        for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
+            self.assertNotIn(target_identity, schema)
+        self.assertIn(
+            "The official Flutter application is one client of the canonical protocol",
+            normalized_architecture,
+        )
+        self.assertIn(
+            "Protocol messages remain presentation-independent",
+            normalized_architecture,
+        )
+
     def test_bridge_ci_covers_protocol_changes_with_least_privilege(self) -> None:
         """Require protocol triggers, read-only permissions, and non-persistent checkout credentials."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
