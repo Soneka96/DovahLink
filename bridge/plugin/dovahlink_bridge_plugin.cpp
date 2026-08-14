@@ -181,7 +181,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // empirically: SKSE logs "Failed to register messaging listener for
     // SKSE" for each). kDataLoaded-gated startup and lifecycle-event
     // logging must therefore share this single listener rather than each
-    // registering their own.
+    // registering their own. dovahlink_bridge_plugin_registration_test.cpp
+    // enforces this structurally (see ai/context/skse/testing.md); it fails
+    // if a second RegisterListener call is ever added to this file.
     lifecycleSink.Register(
         [](dovahlink::application::ContainedWork work) { return coordinator.RunCallbackContained(std::move(work)); });
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
