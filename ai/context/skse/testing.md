@@ -51,3 +51,5 @@ Cover:
 ## Manual verification
 
 When a change touches runtime integration, record the Skyrim runtime, SKSE version, load order conditions, reproduction steps, expected result, and observed result. A manual check does not replace automated tests for the code that can be tested without Skyrim.
+
+If a manual verification pass turns up a genuine SKSE or engine quirk rather than a project-specific bug, also record it in `runtime-quirks.md`.
