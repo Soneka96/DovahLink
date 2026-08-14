@@ -19,6 +19,15 @@ std::size_t CountOccurrences(const std::string& haystack, const std::string& nee
     return count;
 }
 
+/// Reads the plugin entry point's own source text for structural assertions.
+std::string ReadPluginSource() {
+    std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
+    REQUIRE(file.is_open());
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
 }  // namespace
 
 // SKSE::MessagingInterface::RegisterListener may be called at most once per
@@ -32,16 +41,35 @@ std::size_t CountOccurrences(const std::string& haystack, const std::string& nee
 // added inside that single listener's dispatch, never via another
 // RegisterListener call.
 TEST_CASE("SKSEPluginLoad registers the SKSE messaging listener exactly once", "[plugin][registration]") {
-    std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
-    REQUIRE(file.is_open());
-
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    std::string source = buffer.str();
+    std::string source = ReadPluginSource();
 
     // Text search only, not a C++ parse: a mention of "RegisterListener(" inside
     // a comment or string literal would also count. Acceptable for this file,
     // which does not otherwise reference the name in prose; raise the check to
     // a real parse only if that stops being true.
     CHECK(CountOccurrences(source, "RegisterListener(") == 1);
+}
+
+// SKSE::GetPluginHandle() (used internally by MessagingInterface::
+// RegisterListener, SerializationInterface's callbacks, and every other
+// SKSE::Get*Interface()-based registration) returns an unset sentinel until
+// SKSE::Init has recorded this plugin's real handle -- confirmed directly
+// from CommonLibSSE-NG's own source (APIStorage::pluginHandle defaults to
+// -1 and is only assigned inside SKSE::Init) and empirically in-game (SKSE
+// logged "Failed to register messaging listener for SKSE" and disabled the
+// plugin before this call existed). That failure mode plays out only inside
+// a running SKSE process, so it cannot be caught by exercising plugin
+// behavior in a unit test; this asserts the fix structurally instead.
+TEST_CASE("SKSEPluginLoad calls SKSE::Init before any interface registration that depends on it",
+          "[plugin][registration]") {
+    std::string source = ReadPluginSource();
+
+    std::size_t initPos = source.find("SKSE::Init(");
+    REQUIRE(initPos != std::string::npos);
+
+    for (const std::string& dependentCall : {std::string("RegisterListener("), std::string("SetRevertCallback(")}) {
+        std::size_t callPos = source.find(dependentCall);
+        REQUIRE(callPos != std::string::npos);
+        CHECK(initPos < callPos);
+    }
 }

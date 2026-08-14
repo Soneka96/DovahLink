@@ -84,6 +84,15 @@ SKSEPluginInfo(
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLogging();
 
+    // Records this plugin's identity (its SKSE-assigned handle) with the
+    // CommonLibSSE-NG API layer. Every call that needs a plugin handle --
+    // MessagingInterface::RegisterListener, SerializationInterface's
+    // callbacks, and any future use of SKSE::Get*Interface() -- silently
+    // fails without this: confirmed empirically (SKSE logged "Failed to
+    // register messaging listener" and the plugin was disabled) before this
+    // call existed. Must run before any such call below.
+    SKSE::Init(skse);
+
     // Reject unsupported runtime combinations before constructing bridge state.
     REL::Version skyrimVersionRel = skse->RuntimeVersion();
     REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
