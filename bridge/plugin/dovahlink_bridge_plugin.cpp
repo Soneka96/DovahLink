@@ -9,7 +9,9 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
+#include "application/game_lifecycle_tracker.hpp"
 #include "application/session.hpp"
+#include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/level_increase_handler.hpp"
@@ -151,6 +153,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
     static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
 
+    // Diagnostic-only for this step: GameLifecycleTracker/its sink do not
+    // yet influence characterStateStore or any published state. Logging
+    // this lifecycle empirically (task.md's manual verification pass) is
+    // what determines whether the transition table needs correction before
+    // Step 3 wires it into PlayContext ownership.
+    static dovahlink::application::GameLifecycleTracker lifecycleTracker;
+    static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker);
+
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore);
@@ -166,16 +176,34 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         SKSE::log::error("Unable to obtain SKSE's messaging interface; cannot defer startup to kDataLoaded.");
         return false;
     }
+    // SKSE allows exactly one MessagingInterface::RegisterListener call per
+    // plugin; a second, separate call fails both registrations (confirmed
+    // empirically: SKSE logs "Failed to register messaging listener for
+    // SKSE" for each). kDataLoaded-gated startup and lifecycle-event
+    // logging must therefore share this single listener rather than each
+    // registering their own.
+    lifecycleSink.Register(
+        [](dovahlink::application::ContainedWork work) { return coordinator.RunCallbackContained(std::move(work)); });
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
-        if (message->type != SKSE::MessagingInterface::kDataLoaded) {
+        if (message->type == SKSE::MessagingInterface::kDataLoaded) {
+            (void)coordinator.RunCallbackContained([] {
+                levelIncreaseHandler.HandleLevelIncrease();
+                coordinator.Start();
+                SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
+            });
             return;
         }
-        (void)coordinator.RunCallbackContained([] {
-            levelIncreaseHandler.HandleLevelIncrease();
-            coordinator.Start();
-            SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
-        });
+        lifecycleSink.OnMessage(*message);
     });
+
+    auto* serialization =
+        static_cast<SKSE::SerializationInterface*>(skse->QueryInterface(SKSE::LoadInterface::kSerialization));
+    if (!serialization) {
+        SKSE::log::error(
+            "Unable to obtain SKSE's serialization interface; play-context revert events will not be logged.");
+    } else {
+        serialization->SetRevertCallback([](SKSE::SerializationInterface*) { lifecycleSink.OnRevert(); });
+    }
 
     return true;
 }

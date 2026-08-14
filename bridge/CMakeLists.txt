@@ -28,6 +28,7 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
+    application/game_lifecycle_tracker.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
     application/revision_tracker.cpp
@@ -62,6 +63,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 # target is linked into the real SKSE plugin binary, added in a later step.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
+    game_state/commonlib_game_lifecycle_sink.cpp
     game_state/commonlib_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
 )
@@ -105,6 +107,7 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
+    application/game_lifecycle_tracker_test.cpp
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
