@@ -121,6 +121,7 @@ add_executable(dovahlink_bridge_tests
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
+    plugin/dovahlink_bridge_plugin_logging_test.cpp
     plugin/dovahlink_bridge_plugin_registration_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp

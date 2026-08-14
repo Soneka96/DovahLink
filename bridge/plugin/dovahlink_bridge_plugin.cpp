@@ -22,6 +22,7 @@
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
+#include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <boost/asio/io_context.hpp>
@@ -36,14 +37,25 @@ using dovahlink::application::kTokenEnvVar;
 
 // Minimal file logging to the SKSE log directory.
 /// Configures the default logger when the SKSE log directory is available.
+///
+/// Uses spdlog's non-blocking async factory rather than a synchronous
+/// logger: every SKSE::log:: call in this plugin can run from inside a raw
+/// SKSE callback (the messaging listener, the serialization revert
+/// callback), and ai/context/skse/architecture.md forbids blocking
+/// filesystem work there. Confirmed necessary empirically -- synchronous
+/// disk I/O from inside the revert callback specifically reproduced a
+/// crash to desktop. async_factory_nonblock hands each message to a
+/// background thread and never blocks the caller; under sustained pressure
+/// it drops the oldest queued line rather than stalling (acceptable for
+/// diagnostic logging, unlike protocol or transport data).
 void SetupLogging() {
     auto path = SKSE::log::log_directory();
     if (!path.has_value()) {
         return;
     }
     *path /= "DovahLinkBridge.log";
-    auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
-    auto logger = std::make_shared<spdlog::logger>("global", std::move(sink));
+    auto logger = spdlog::async_factory_nonblock::create<spdlog::sinks::basic_file_sink_mt>(
+        "global", path->string(), /*truncate=*/true);
     logger->set_level(spdlog::level::info);
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
