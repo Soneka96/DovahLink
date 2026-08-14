@@ -42,12 +42,17 @@ using dovahlink::application::kTokenEnvVar;
 /// logger: every SKSE::log:: call in this plugin can run from inside a raw
 /// SKSE callback (the messaging listener, the serialization revert
 /// callback), and ai/context/skse/architecture.md forbids blocking
-/// filesystem work there. Confirmed necessary empirically -- synchronous
-/// disk I/O from inside the revert callback specifically reproduced a
-/// crash to desktop. async_factory_nonblock hands each message to a
-/// background thread and never blocks the caller; under sustained pressure
-/// it drops the oldest queued line rather than stalling (acceptable for
-/// diagnostic logging, unlike protocol or transport data).
+/// filesystem work there, independent of whether a specific call site has
+/// been observed to crash. (A crash initially suspected to be caused by
+/// synchronous logging inside the revert callback was later found to have
+/// a different, unrelated cause -- an incorrect pointer dereference in
+/// commonlib_game_lifecycle_sink.cpp's kPostLoadGame handling, fixed
+/// separately. This change is kept for compliance with the documented
+/// rule, not as a proven fix for that incident.) async_factory_nonblock
+/// hands each message to a background thread and never blocks the caller;
+/// under sustained pressure it drops the oldest queued line rather than
+/// stalling (acceptable for diagnostic logging, unlike protocol or
+/// transport data).
 void SetupLogging() {
     auto path = SKSE::log::log_directory();
     if (!path.has_value()) {
