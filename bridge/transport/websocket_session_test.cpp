@@ -119,6 +119,23 @@ TEST_CASE("LoopbackWebSocketServer reports accept failures on the test thread",
     CHECK_THROWS_AS(server.Join(), std::runtime_error);
 }
 
+TEST_CASE("LoopbackWebSocketServer exposes its endpoint while accept is pending",
+          "[transport][websocket_session][test_support]") {
+    using namespace std::chrono_literals;
+
+    LoopbackWebSocketServer server([](WebSocketSession&) {});
+    REQUIRE(server.WaitForAcceptReady(2s));
+    const auto firstEndpoint = server.LocalEndpoint();
+    const auto secondEndpoint = server.LocalEndpoint();
+
+    CHECK(firstEndpoint == secondEndpoint);
+
+    server.CancelPendingAccept();
+    REQUIRE(server.WaitFor(2s));
+    CHECK_THROWS_AS(server.Join(), std::runtime_error);
+    CHECK(server.LocalEndpoint() == firstEndpoint);
+}
+
 TEST_CASE("LoopbackWebSocketServer cleanup suppresses a server exception without terminating",
           "[transport][websocket_session][test_support]") {
     using namespace std::chrono_literals;
