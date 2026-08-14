@@ -2,6 +2,7 @@
 
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/play_context.hpp"
 
 #include "SKSE/SKSE.h"
 
@@ -12,17 +13,21 @@
 namespace dovahlink::game_state {
 
 /// Translates raw SKSE messaging and serialization-revert callbacks into
-/// GameLifecycleTracker events, and logs every raw callback and resulting
-/// transition with a monotonic sequence number and thread ID for empirical
-/// verification of real Skyrim/SKSE callback ordering (see task.md).
+/// GameLifecycleTracker events, applies the resulting transition to the
+/// active play context, and logs every raw callback and resulting transition
+/// with a monotonic sequence number and thread ID for empirical verification
+/// of real Skyrim/SKSE callback ordering (see task.md).
 ///
 /// SKSE offers no listener-removal capability for the messaging or
 /// serialization interfaces, so registration is a one-time operation for the
 /// plugin's lifetime; there is no matching unregister.
 class CommonLibGameLifecycleSink {
 public:
-    /// Binds the sink to the tracker it drives.
-    explicit CommonLibGameLifecycleSink(application::GameLifecycleTracker& tracker);
+    /// Binds the sink to the tracker it drives and the play context it updates.
+    /// @param tracker Lifecycle state machine driven by decoded SKSE signals.
+    /// @param activePlayContext Play context ownership updated by every resulting transition.
+    CommonLibGameLifecycleSink(application::GameLifecycleTracker& tracker,
+                               application::ActivePlayContext& activePlayContext);
 
     /// Binds the containment boundary used by every subsequent callback.
     /// Must be called once, before SKSE can deliver any callback.
@@ -48,6 +53,9 @@ private:
 
     /// Tracker that owns lifecycle state transitions.
     application::GameLifecycleTracker& tracker_;
+
+    /// Play context ownership updated by every processed transition.
+    application::ActivePlayContext& activePlayContext_;
 
     /// Coordinator-owned admission and exception boundary for runtime callbacks.
     application::ContainedWorkRunner callbackRunner_;

@@ -10,12 +10,14 @@
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
+#include "security/csprng.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
@@ -163,6 +165,15 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::transport::LoopbackListener listenerV4 = std::move(*listenerV4Result);
     static dovahlink::transport::LoopbackListener listenerV6 = std::move(*listenerV6Result);
 
+    // This bridge instance's identity, per ARCHITECTURE.md's runtime/identity
+    // model: one value for this plugin's whole running lifetime, independent
+    // of any play context. Not yet wire-visible (protocol v2 is a later
+    // step); generated and logged now so it exists before anything depends
+    // on it. A generation failure is not fatal -- nothing reads this value
+    // yet -- but is logged so a future consumer's absence is traceable.
+    static std::optional<std::string> bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
+    SKSE::log::info("Bridge instance ID: {}", bridgeInstanceId.value_or("(unavailable)"));
+
     // Plugin-lifetime application and security state. Declared as function-
     // local statics, in the exact order they depend on each other: a
     // function-local static is guaranteed initialized the first (and only,
@@ -180,13 +191,18 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
     static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
 
-    // Diagnostic-only for this step: GameLifecycleTracker/its sink do not
-    // yet influence characterStateStore or any published state. Logging
-    // this lifecycle empirically (task.md's manual verification pass) is
-    // what determines whether the transition table needs correction before
-    // Step 3 wires it into PlayContext ownership.
+    // The authoritative, play-context-owned identity and state introduced by
+    // task.md's PlayContext restructuring. `characterStateStore` above stays
+    // the v1 dispatch path, completely unchanged: message_dispatcher,
+    // subscription_handler, and RunConnectionSession still read from it, and
+    // `levelIncreaseHandler` still writes into it. `activePlayContext` is
+    // real and lifecycle-driven from here on -- GameLifecycleTracker
+    // transitions create and invalidate its play contexts -- but nothing
+    // reads its character state or revisions until version-routed dispatch
+    // (v1 session-scoped, v2 play-context-scoped) is added.
     static dovahlink::application::GameLifecycleTracker lifecycleTracker;
-    static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker);
+    static dovahlink::application::ActivePlayContext activePlayContext;
+    static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker, activePlayContext);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
