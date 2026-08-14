@@ -53,6 +53,30 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("timeout-minutes: 30", workflow)
+        self.assertIn(
+            "    env:\n"
+            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            workflow,
+        )
+        self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
+        self.assertIn(
+            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
+            workflow,
+        )
+        self.assertIn(
+            '"$env:ChocolateyInstall\\bin" | Out-File -FilePath $env:GITHUB_PATH',
+            workflow,
+        )
+        self.assertIn("ninja --version", workflow)
+        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Prepare vcpkg binary cache"),
+            workflow.index("Restore vcpkg binary cache"),
+        )
+        self.assertLess(
+            workflow.index("ninja --version"),
+            workflow.index("Configure Debug"),
+        )
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
         self.assertIn("uses: actions/cache@v4", workflow)
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
@@ -179,6 +203,30 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("cmake --version=4.4.2", workflow)
         self.assertIn("ninja --version=1.13.2", workflow)
+        self.assertIn(
+            "    env:\n"
+            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            workflow,
+        )
+        self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
+        self.assertIn(
+            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
+            workflow,
+        )
+        self.assertIn(
+            '"$env:ChocolateyInstall\\bin" | Out-File -FilePath $env:GITHUB_PATH',
+            workflow,
+        )
+        self.assertIn("ninja --version", workflow)
+        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Prepare vcpkg binary cache"),
+            workflow.index("Restore vcpkg binary cache"),
+        )
+        self.assertLess(
+            workflow.index("ninja --version"),
+            workflow.index("Configure bridge debug harness"),
+        )
         self.assertIn(
             "git -C \"${{ runner.temp }}\\vcpkg\" checkout 2f1d605400c8727cc00c15797aba796c88ccd523",
             workflow,
