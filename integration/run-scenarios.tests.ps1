@@ -223,6 +223,26 @@ try {
     } "exit code 23"
     Assert-True ($env:DOVAHLINK_SCENARIO_TEST -eq "unchanged") "A failed vcvarsall invocation partially imported its environment."
 
+    $failedNativeCommandPath = Join-Path $testRoot "failed-native-command.cmd"
+    Set-Content -LiteralPath $failedNativeCommandPath -Value @(
+        "@echo off",
+        "exit /b 17"
+    )
+    Assert-ThrowsLike {
+        Invoke-CheckedNativeCommand -FilePath $failedNativeCommandPath
+    } "failed-native-command.cmd failed with exit code 17"
+
+    $successfulNativeCommandPath = Join-Path $testRoot "successful-native-command.cmd"
+    Set-Content -LiteralPath $successfulNativeCommandPath -Value @(
+        "@echo off",
+        "echo native-output",
+        "echo argument=%~1",
+        "exit /b 0"
+    )
+    $nativeOutput = @(Invoke-CheckedNativeCommand -FilePath $successfulNativeCommandPath -ArgumentList @("argument with spaces"))
+    Assert-True ($nativeOutput -contains "native-output") "Checked native command suppressed standard output."
+    Assert-True ($nativeOutput -contains "argument=argument with spaces") "Checked native command did not preserve spaced arguments."
+
     Write-Host "run-scenarios.ps1 validation passed ($script:assertionCount assertions)."
 }
 finally {

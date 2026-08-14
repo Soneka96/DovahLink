@@ -111,6 +111,29 @@ function Import-VisualStudioEnvironment {
     $env:PATH = "$($Toolchain.CMakeDirectory);$($Toolchain.NinjaDirectory);$env:PATH"
 }
 
+<#
+.SYNOPSIS
+Runs a native command and converts a non-zero exit code into a terminating PowerShell error.
+
+.PARAMETER FilePath
+The executable or script to invoke.
+
+.PARAMETER ArgumentList
+The arguments passed to the native command.
+#>
+function Invoke-CheckedNativeCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+
+    & $FilePath @ArgumentList
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "$FilePath failed with exit code $exitCode."
+    }
+}
+
 if ($MyInvocation.InvocationName -ne '.') {
     $toolchain = Find-VisualStudioToolchain -LocatorPath $VsWherePath
     Write-Host "Using Visual Studio at $($toolchain.InstallationPath)"
@@ -123,8 +146,10 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     Push-Location (Join-Path $repoRoot "bridge")
     try {
-        cmake --preset windows-x64-debug
-        cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness
+        Invoke-CheckedNativeCommand -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")
+        Invoke-CheckedNativeCommand -FilePath "cmake" -ArgumentList @(
+            "--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"
+        )
     }
     finally {
         Pop-Location
@@ -133,7 +158,7 @@ if ($MyInvocation.InvocationName -ne '.') {
     Write-Host "=== Running validation-client scenarios ==="
     Push-Location (Join-Path $repoRoot "integration")
     try {
-        dotnet test DovahLinkValidation.sln
+        Invoke-CheckedNativeCommand -FilePath "dotnet" -ArgumentList @("test", "DovahLinkValidation.sln")
     }
     finally {
         Pop-Location
