@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -10,7 +11,8 @@ namespace dovahlink::application {
 
 /// Assigns monotonically increasing revisions within one session and state area.
 /// Snapshots establish baselines, events advance by one, and recovery continues the sequence.
-/// One instance belongs to one serial connection and is not thread-safe.
+/// Access is synchronized: an instance may be shared across the play-context lifetime rather than
+/// owned by one serial connection, so it may be read and advanced from more than one thread.
 class RevisionTracker {
 public:
     /// Creates an empty revision tracker.
@@ -37,6 +39,9 @@ public:
     [[nodiscard]] std::optional<std::int64_t> CurrentRevision(const std::string& stateArea) const;
 
 private:
+    /// Synchronizes access to `currentRevision_`.
+    mutable std::mutex mutex_;
+
     /// Latest assigned revision for each state area.
     std::unordered_map<std::string, std::int64_t> currentRevision_;
 };
