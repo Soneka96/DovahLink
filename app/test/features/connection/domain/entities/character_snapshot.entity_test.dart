@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/character_s
 
 import '../../fixtures/connection.fixture.dart';
 
+/// Exercises character-snapshot entity value preservation.
 void main() {
   group('CharacterSnapshotEntity', () {
     test(

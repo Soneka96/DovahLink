@@ -1,13 +1,16 @@
-import 'package:dovahlink_client/features/connection/domain/repositories/Iconnection.repository.dart';
-import 'package:dovahlink_client/features/connection/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/shared/failures/failures.dart';
-import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:dovahlink_client/features/connection/domain/repositories/Iconnection.repository.dart';
+import 'package:dovahlink_client/features/connection/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/shared/failures/failures.dart';
+import 'package:dovahlink_client/shared/usecase/no_params.dart';
+
+/// Mocks the connection repository for [DisconnectUseCase] tests.
 class MockIConnectionRepository extends Mock implements IConnectionRepository {}
 
+/// Exercises [DisconnectUseCase] success and failure forwarding.
 void main() {
   late MockIConnectionRepository mockRepository;
   late DisconnectUseCase useCase;

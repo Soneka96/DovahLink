@@ -30,6 +30,7 @@ class ProtocolEnvelopeEntity extends Equatable {
   /// The message-specific payload.
   final Map<String, dynamic> payload;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [
     protocolVersion,

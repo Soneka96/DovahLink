@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+/// Exercises connection selectors over root application state.
 void main() {
   group('ConnectionSelectors', () {
     test('selects the phase and derived label from AppState', () {

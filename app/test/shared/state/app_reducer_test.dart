@@ -6,6 +6,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+/// Exercises root Redux reducer pass-through and delegation.
 void main() {
   group('AppReducer processes unhandled actions correctly', () {
     test('Object modifies nothing', () {

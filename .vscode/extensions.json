@@ -1,0 +1,13 @@
+{
+    "recommendations": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-dotnettools.csdevkit",
+        "dart-code.dart-code",
+        "dart-code.flutter",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-vscode.powershell",
+        "redhat.vscode-yaml"
+    ]
+}

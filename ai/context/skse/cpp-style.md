@@ -17,6 +17,25 @@
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.
 
+## Documentation
+
+Follow the shared documentation rules in `ai/context/common.md`.
+
+- Use concise Doxygen-compatible `///` documentation directly above every handwritten class,
+  struct, enum and enum member, type alias, constructor, destructor, data member, method, and free
+  function, regardless of visibility. This includes private helpers, file-local helpers, and test
+  helpers.
+- Document public and protected APIs on their declarations in header files. Do not duplicate the
+  same documentation on an out-of-line definition in a `.cpp` file.
+- Document a private or file-local function directly above its definition when it has no separate
+  declaration.
+- Use `@param`, `@return`, and `@throws` only when they add contract information beyond the signature
+  and summary. Use `@ref` for links to C++ symbols.
+- When an override keeps the inherited contract unchanged, use
+  `/// @copydoc BaseType::Method` with the actual source symbol rather than copying documentation.
+  Add separate text only for changed preconditions, side effects, or guarantees.
+- Keep namespace-closing comments separate from documentation for the following declaration.
+
 ## Error handling
 
 - Handle expected failures at the boundary where they occur.

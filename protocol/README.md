@@ -6,7 +6,7 @@ This directory owns the contract between the SKSE bridge and DovahLink clients.
 
 - `schema/` is the sole source of truth for the current protocol version, wire format, registered
   messages, and session and recovery behavior.
-- `fixtures/` contains language-neutral examples used by both sides.
+- `fixtures/` contains language-neutral examples used by both sides, organized by protocol feature.
 - The repository-root [`app/`](../app/) and planned `bridge/` areas contain adapters, not competing
   protocol definitions. Their locations are defined by the root
   [repository boundaries](../ARCHITECTURE.md#repository-boundaries).

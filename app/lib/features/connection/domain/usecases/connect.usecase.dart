@@ -15,6 +15,7 @@ class ConnectUseCase
   /// Repository this use case delegates to.
   final IConnectionRepository _repository;
 
+  /// See [UseCase.call].
   @override
   Future<Either<Failure, ConnectionSessionEntity>> call(ConnectParams params) {
     return _repository.connect(token: params.token);

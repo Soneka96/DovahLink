@@ -1,0 +1,6 @@
+.vs/
+__pycache__/
+*.py[cod]
+**/bin/
+**/obj/
+tooling/out/

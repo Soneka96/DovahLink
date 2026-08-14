@@ -13,6 +13,7 @@ class DisconnectUseCase extends UseCase<Either<Failure, Unit>, NoParams> {
   /// Repository this use case delegates to.
   final IConnectionRepository _repository;
 
+  /// See [UseCase.call].
   @override
   Future<Either<Failure, Unit>> call(NoParams params) {
     return _repository.disconnect();

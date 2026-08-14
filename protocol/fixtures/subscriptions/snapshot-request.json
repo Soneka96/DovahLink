@@ -1,0 +1,11 @@
+{
+  "protocolVersion": 1,
+  "messageType": "snapshot_request",
+  "messageId": "message-snapshot-request-1",
+  "sessionId": "session-1",
+  "correlationId": null,
+  "payload": {
+    "stateArea": "character",
+    "knownRevision": 2
+  }
+}

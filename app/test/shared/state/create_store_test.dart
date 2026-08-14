@@ -6,6 +6,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 
+/// Exercises Redux store creation and dispatch wiring.
 void main() {
   group('CreateStore — initial', () {
     test('creates a distinct Redux store with the initial state', () {

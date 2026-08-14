@@ -1,0 +1,181 @@
+// SKSE plugin entry point and plugin-lifetime wiring for the bridge. This file
+// contains the runtime-specific composition layer; the underlying components
+// remain testable without a running Skyrim process.
+
+#include "SKSE/SKSE.h"
+
+#include "application/bridge_config.hpp"
+#include "application/bridge_transport.hpp"
+#include "application/bridge_worker_pool.hpp"
+#include "application/character_state_store.hpp"
+#include "application/coordinator.hpp"
+#include "application/session.hpp"
+#include "game_state/commonlib_level_accessor.hpp"
+#include "game_state/commonlib_level_increase_sink.hpp"
+#include "game_state/level_increase_handler.hpp"
+#include "game_state/runtime_guard.hpp"
+#include "security/throttle.hpp"
+#include "security/token_provider.hpp"
+#include "security/token_store.hpp"
+#include "transport/connection_slot.hpp"
+#include "transport/listener.hpp"
+
+#include <spdlog/sinks/basic_file_sink.h>
+
+#include <boost/asio/io_context.hpp>
+
+#include <memory>
+#include <utility>
+
+namespace {
+
+using dovahlink::application::kBridgePort;
+using dovahlink::application::kTokenEnvVar;
+
+// Minimal file logging to the SKSE log directory.
+/// Configures the default logger when the SKSE log directory is available.
+void SetupLogging() {
+    auto path = SKSE::log::log_directory();
+    if (!path.has_value()) {
+        return;
+    }
+    *path /= "DovahLinkBridge.log";
+    auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
+    auto logger = std::make_shared<spdlog::logger>("global", std::move(sink));
+    logger->set_level(spdlog::level::info);
+    logger->flush_on(spdlog::level::info);
+    spdlog::set_default_logger(std::move(logger));
+}
+
+/// Connects coordinator callback lifecycle calls to the runtime event sink.
+class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
+public:
+    /// Binds the registry to the runtime level-increase sink.
+    explicit BridgeCallbackRegistry(dovahlink::game_state::CommonLibLevelIncreaseSink& sink) : sink_(sink) {}
+
+    /// @copydoc dovahlink::application::CallbackRegistry::RegisterAll
+    void RegisterAll(dovahlink::application::ContainedWorkRunner callbackRunner) override {
+        sink_.Register(std::move(callbackRunner));
+    }
+    /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
+    void UnregisterAll() override { sink_.Unregister(); }
+
+private:
+    /// Runtime event sink controlled by the coordinator lifecycle.
+    dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
+};
+
+}  // namespace
+
+// Hand-written plugin metadata and address-library compatibility declaration.
+using namespace std::literals;
+SKSEPluginInfo(
+    .Version = REL::Version{0, 1, 0, 0},
+    .Name = "DovahLink Bridge"sv,
+    .Author = "Goncalo"sv,
+    .SupportEmail = ""sv,
+    .StructCompatibility = SKSE::StructCompatibility::Independent,
+    .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,
+    .MinimumSKSEVersion = REL::Version{2, 2, 6, 0})
+
+/// Initializes the bridge plugin and schedules startup after game data loads.
+SKSEPluginLoad(const SKSE::LoadInterface* skse) {
+    SetupLogging();
+
+    // Reject unsupported runtime combinations before constructing bridge state.
+    REL::Version skyrimVersionRel = skse->RuntimeVersion();
+    REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());
+    dovahlink::game_state::RuntimeVersion skyrimVersion{skyrimVersionRel[0], skyrimVersionRel[1],
+                                                          skyrimVersionRel[2], skyrimVersionRel[3]};
+    dovahlink::game_state::RuntimeVersion skseVersion{skseVersionRel[0], skseVersionRel[1], skseVersionRel[2],
+                                                        skseVersionRel[3]};
+    if (!dovahlink::game_state::IsSupportedSkyrimVersion(skyrimVersion) ||
+        !dovahlink::game_state::IsSupportedSkseVersion(skseVersion)) {
+        SKSE::log::error("Unsupported runtime: Skyrim {}.{}.{}.{}, SKSE {}.{}.{}.{}. DovahLink Bridge requires "
+                          "exactly Skyrim {}.{}.{}, SKSE {}.{}.{}.",
+                          skyrimVersion.major, skyrimVersion.minor, skyrimVersion.build, skyrimVersion.revision,
+                          skseVersion.major, skseVersion.minor, skseVersion.build, skseVersion.revision,
+                          dovahlink::game_state::kSupportedSkyrimVersion.major,
+                          dovahlink::game_state::kSupportedSkyrimVersion.minor,
+                          dovahlink::game_state::kSupportedSkyrimVersion.build,
+                          dovahlink::game_state::kSupportedSkseVersion.major,
+                          dovahlink::game_state::kSupportedSkseVersion.minor,
+                          dovahlink::game_state::kSupportedSkseVersion.build);
+        return false;
+    }
+
+    // A missing or malformed launch token is fatal because no client could
+    // authenticate without it.
+    static dovahlink::security::WindowsEnvironmentReader environmentReader;
+    auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
+    if (!tokenBytes.has_value()) {
+        SKSE::log::error("DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded 256-bit token; "
+                          "the bridge cannot authenticate a client without it.");
+        return false;
+    }
+
+    // Both IPv4 and IPv6 loopback listeners are required; only the port is
+    // configurable.
+    static boost::asio::io_context ioc;
+    auto listenerV4Result =
+        dovahlink::transport::LoopbackListener::Create(ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4,
+                                                         kBridgePort);
+    if (!listenerV4Result.has_value()) {
+        SKSE::log::error("Failed to bind the IPv4 loopback listener on port {}.", kBridgePort);
+        return false;
+    }
+    auto listenerV6Result =
+        dovahlink::transport::LoopbackListener::Create(ioc, dovahlink::transport::LoopbackListener::IpVersion::kV6,
+                                                         kBridgePort);
+    if (!listenerV6Result.has_value()) {
+        SKSE::log::error("Failed to bind the IPv6 loopback listener on port {}.", kBridgePort);
+        return false;
+    }
+    static dovahlink::transport::LoopbackListener listenerV4 = std::move(*listenerV4Result);
+    static dovahlink::transport::LoopbackListener listenerV6 = std::move(*listenerV6Result);
+
+    // Plugin-lifetime application and security state. Declared as function-
+    // local statics, in the exact order they depend on each other: a
+    // function-local static is guaranteed initialized the first (and only,
+    // for SKSEPluginLoad) time control reaches its declaration, so this
+    // ordering is exactly the construction order, without needing a
+    // hand-rolled aggregate to express the same dependency graph.
+    static dovahlink::transport::ConnectionSlot connectionSlot;
+    static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
+    static dovahlink::security::FailedTokenThrottle tokenThrottle;
+    static dovahlink::application::SessionManager sessionManager;
+    static dovahlink::application::CharacterStateStore characterStateStore;
+
+    static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
+    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(levelAccessor, characterStateStore);
+    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
+    static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
+
+    static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
+    static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore);
+
+    static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
+
+    // RE::PlayerCharacter is not valid before data loads, so the initial
+    // capture, event registration, worker pool, and transport startup are
+    // deferred to kDataLoaded.
+    auto* messaging =
+        static_cast<SKSE::MessagingInterface*>(skse->QueryInterface(SKSE::LoadInterface::kMessaging));
+    if (!messaging) {
+        SKSE::log::error("Unable to obtain SKSE's messaging interface; cannot defer startup to kDataLoaded.");
+        return false;
+    }
+    messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
+        if (message->type != SKSE::MessagingInterface::kDataLoaded) {
+            return;
+        }
+        (void)coordinator.RunCallbackContained([] {
+            levelIncreaseHandler.HandleLevelIncrease();
+            coordinator.Start();
+            SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
+        });
+    });
+
+    return true;
+}

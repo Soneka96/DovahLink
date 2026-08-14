@@ -8,25 +8,31 @@
 
 #include "win32_window.h"
 
-// A window that does nothing but host a Flutter view.
+/// A native window that hosts a Flutter view.
 class FlutterWindow : public Win32Window {
  public:
-  // Creates a new FlutterWindow hosting a Flutter view running |project|.
+  /// Creates a window that hosts the supplied Flutter project.
   explicit FlutterWindow(const flutter::DartProject& project);
+
+  /// Destroys the window and its Flutter controller.
   virtual ~FlutterWindow();
 
  protected:
-  // Win32Window:
+  /// @copydoc Win32Window::OnCreate
   bool OnCreate() override;
+
+  /// @copydoc Win32Window::OnDestroy
   void OnDestroy() override;
+
+  /// @copydoc Win32Window::MessageHandler
   LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
                          LPARAM const lparam) noexcept override;
 
  private:
-  // The project to run.
+  /// The Flutter project executed by this window.
   flutter::DartProject project_;
 
-  // The Flutter instance hosted by this window.
+  /// The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
 };
 

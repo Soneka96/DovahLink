@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/data/models/protocol_envelope.model.dart';
 import 'package:dovahlink_client/features/connection/data/models/protocol_format_exception.dart';
 
+/// Exercises protocol-envelope model decoding, encoding, and validation.
 void main() {
   group('ProtocolEnvelopeModel', () {
     test('parses and serializes a complete envelope', () {

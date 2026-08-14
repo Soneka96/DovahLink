@@ -8,8 +8,8 @@ import 'package:dovahlink_client/features/connection/domain/entities/protocol_en
 
 part 'protocol_envelope.model.g.dart';
 
-@JsonSerializable(checked: true)
 /// A generated JSON adapter for [ProtocolEnvelopeEntity].
+@JsonSerializable(checked: true)
 class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   /// Creates a decoded protocol envelope.
   const ProtocolEnvelopeModel({

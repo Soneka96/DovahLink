@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 1,
+  "messageType": "error",
+  "messageId": "message-error-replayed-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "code": "replayed_message",
+    "message": "messageId was already seen in this session",
+    "retryable": false,
+    "details": null
+  }
+}

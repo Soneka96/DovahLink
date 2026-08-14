@@ -62,7 +62,7 @@ real transport access.
 
 ## 1. Skyrim Bridge Foundation
 
-**Status:** Next
+**Status:** Complete
 
 ### Outcome
 
@@ -88,7 +88,94 @@ capabilities.
 
 ### Acceptance criteria
 
-The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can reconnect and display the chosen value without presenting stale data as current, and setup is reproducible.
+The reuse decisions are documented, the bridge follows the approved lifecycle and protocol boundaries, one external validation client can authenticate and display the chosen value without presenting stale data as current, a connection attempt that fails before the one-time token is consumed can retry and still succeed, and setup is reproducible. Reconnecting a client that has already completed one successful session, without restarting the bridge, is a known Phase 1 limitation (see Phase 1.25) and is not part of this phase's acceptance bar.
+
+## 1.25 Local Device Pairing and Reconnection
+
+**Status:** Next
+
+### Outcome
+
+A device that has already paired once with a running bridge can reconnect after a disconnect — a network blip, an app restart, a crash — without restarting Skyrim, using its own stored credential instead of the one-time bootstrap token.
+
+### Scope and behavior
+
+- Issue a device-scoped credential to a client once it successfully authenticates with the Phase 1 one-time bootstrap token, distinct in kind from that token.
+- Store the device credential in secure local storage on the client, not the bridge, so it survives the client's own process restart.
+- Accept a valid, previously-issued device credential as an alternate path to a new session, without requiring or consuming the original bootstrap token again.
+- Define revocation and expiry for a device credential: explicit unpairing, and a bridge/plugin restart invalidating every device credential issued by that bridge instance (a fresh bootstrap token is required after any restart regardless of stored device credentials).
+- Keep the original one-time bootstrap token exactly as Phase 1 approved it: single-use for the entire bridge process lifetime. This phase adds a second, separate credential; it does not loosen the first.
+
+### Dependencies and boundaries
+
+This phase depends on the Phase 1 bridge foundation and its one-time bootstrap token. It does not weaken the loopback-only restriction or add LAN/remote pairing — that remains gated behind the separate LAN design `ai/context/protocol/security.md` already names. It does not become a general multi-client pairing system; Phase 17 (Multi-Client Support) is a separate, later concern that may build on this if needed. This entry records the feature's shape for later; it is not implemented by adding this roadmap entry.
+
+### Acceptance criteria
+
+A client that has paired once can disconnect and later reconnect using its stored device credential alone, without a new bootstrap token or a Skyrim restart, and receives a fresh session and snapshot exactly as a first-time connection would. The original bootstrap token remains single-use for the bridge's whole lifetime regardless of device credential issuance or use. A revoked, expired, or bridge-restart-invalidated device credential is rejected clearly and requires a fresh pairing through a new bootstrap token.
+
+## 1.5 Live State Synchronization Foundation
+
+**Status:** Planned
+
+### Outcome
+
+The bridge can deliver live state to a connected client as an ongoing push alongside its existing
+pull-based snapshots, with different kinds of data updated at their own natural rate and
+reliability guarantee, from state already read once and shared across whichever clients are
+connected.
+
+### Scope and behavior
+
+- Classify outbound state into rate classes as maximum update frequencies, not mandatory send
+  cadences, publishing only when a value actually changes: Fast (roughly 10-20 Hz, e.g.
+  position/direction), Medium (roughly 5-10 Hz, e.g. health/stamina/magicka), Slow (roughly 1-2 Hz,
+  miscellaneous stats), and event-driven (inventory, equipment, quests, discoveries, loaded
+  cells/chunks).
+- Prefer a native Skyrim event for any value that has one; fall back to a bridge-owned,
+  per-class-throttled sampling hook only where no suitable event exists.
+- Distinguish replaceable state (latest-value-wins, coalesced by key) from reliable events (quest
+  completed, item acquired, discovery, chunk/cell load, command results, errors), which stay
+  ordered and are never silently dropped within a healthy connection session. A client that cannot
+  keep up is explicitly disconnected rather than buffered indefinitely; any events still queued at
+  that session boundary are discarded and are not replayed into the next session.
+- Move connection delivery onto an asynchronous read/write model so a push can reach a client
+  independent of that client's own next request, replacing Phase 1's purely request/response
+  connection loop.
+- Keep one shared, plugin-lifetime state store per data area, read from Skyrim once and served to
+  every connected client, extending the pattern Phase 1's character state store already
+  establishes.
+
+### Dependencies and boundaries
+
+- This phase depends on the Phase 1 bridge foundation and Phase 1.25's device-credential reconnect
+  path. It uses only the state Phase 1 already exposes (`character`/level); it does not add new
+  player-facing fields -- that selection remains Phase 4's decision.
+- This phase does not implement concurrent multi-client fan-out; it introduces the internal state
+  and delivery model that later makes Phase 17's multi-client support straightforward, while the
+  one-connected-client limit stays in place.
+- Heavy or large resources (maps, tiles, large assets) are not designed or delivered here; keeping
+  them off the live state stream is the only requirement this phase carries, and their transfer and
+  caching design belongs to Phase 7.
+- Exact outbound queue capacities and executor/threading topology are deliberately not fixed here;
+  they follow from profiling once the mechanism above is built, not from advance estimation.
+- Does not add LAN/remote transport, pairing, or weaken the loopback-only restriction.
+- Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
+  state snapshots and does not replay the previous session's queued events. Durable cross-session
+  delivery would require a separately approved acknowledgement, persistence, and replay contract.
+
+### Acceptance criteria
+
+A connected, subscribed client receives an initial snapshot per state area followed only by
+complete state events at that area's actual rate without needing to poll; each `state_event.data`
+contains the complete post-change state rather than a patch. Reliable events delivered within a
+healthy session are not lost or reordered; a client that cannot consume them in time is explicitly
+disconnected rather than allowed to stall the bridge, and queued events end with that session.
+Replaceable state under load coalesces to the latest value per key rather than queuing every
+intermediate update; loaded-cell/chunk state is delivered as lightweight live/event data, never
+through a heavy-resource path; and integration scenarios cover push delivery, reliable-event
+ordering and explicit disconnect under load, then device-credential reconnection with fresh
+snapshots rather than replay of the unhealthy session's queued events.
 
 ## 2. PC / Second-Screen Baseline
 
@@ -614,6 +701,40 @@ This phase is evidence-driven and comes after feature usage reveals real constra
 ### Acceptance criteria
 
 Every improvement names the measured problem it solves, preserves or deliberately versions existing contracts, passes lifecycle and integration tests, and does not expand bridge authority beyond an approved product need.
+
+## 23. CommonLib Dependency Maintenance Audit
+
+**Status:** Planned
+
+### Outcome
+
+DovahLink's pinned `commonlibsse-ng-flatrim` dependency remains reproducible, supported, and
+deliberately maintained before the next public release.
+
+### Scope and behavior
+
+- Keep the Phase 1 dependency pinned while the supported runtime remains Steam Skyrim `1.6.1170`
+  with SKSE `2.2.6`.
+- Audit the CommonLibSSE-NG upstream project and the Color-Glass vcpkg registry for relevant fixes,
+  runtime compatibility changes, and available releases.
+- Update the pinned registry baseline, package version, or source commit only after the bridge,
+  toolchain, protocol, and in-game compatibility checks pass.
+- Record the reviewed dependency versions, upgrade decision, validation results, and any known
+  limitations before the next public release.
+- Define a fallback plan for a stale or unavailable package, including a deliberately reviewed direct
+  source pin if the package route can no longer provide a validated build.
+
+### Dependencies and boundaries
+
+This audit does not expand supported Skyrim runtimes, replace the CommonLib adapter boundary, or
+make upstream updates automatic. Runtime expansion and dependency changes remain separate approved
+decisions.
+
+### Acceptance criteria
+
+The exact pinned dependency builds reproducibly, its upstream and package-registry status has been
+reviewed, the chosen version has passed the required bridge and manual runtime checks, and the
+upgrade or retention decision is documented before the next public release.
 
 ## Deferred possibilities
 

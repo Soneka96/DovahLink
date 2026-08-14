@@ -1,0 +1,60 @@
+name: app-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "protocol/**"
+      - ".github/workflows/app-ci.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "protocol/**"
+      - ".github/workflows/app-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: app-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Generate Dart sources
+        working-directory: app
+        run: dart run build_runner build
+
+      - name: Analyze Flutter client
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test Flutter client
+        working-directory: app
+        run: flutter test
+
+      - name: Build Windows client
+        working-directory: app
+        run: flutter build windows --debug

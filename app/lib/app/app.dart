@@ -13,6 +13,7 @@ class DovahLinkApp extends StatelessWidget {
   /// The application-wide Redux store.
   final Store<AppState> store;
 
+  /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
     return StoreProvider<AppState>(

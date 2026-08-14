@@ -15,6 +15,7 @@ class SubscribeToCharacterUseCase
   /// Repository this use case delegates to.
   final IConnectionRepository _repository;
 
+  /// See [UseCase.call].
   @override
   Future<Either<Failure, CharacterSnapshotEntity>> call(NoParams params) {
     return _repository.subscribeToCharacter();

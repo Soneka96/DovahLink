@@ -39,6 +39,7 @@ class ConnectionStatusScreenViewModel extends Equatable {
     );
   }
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [phase, statusLabel, sessionId, error];
 }

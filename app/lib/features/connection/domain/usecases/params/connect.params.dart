@@ -10,6 +10,7 @@ class ConnectParams extends Equatable {
   /// Creates connection parameters.
   const ConnectParams({required this.token});
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [token];
 }

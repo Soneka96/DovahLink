@@ -4,16 +4,13 @@
 #include <string>
 #include <vector>
 
-// Creates a console for the process, and redirects stdout and stderr to
-// it for both the runner and the Flutter library.
+/// Creates a console and redirects runner and Flutter output streams to it.
 void CreateAndAttachConsole();
 
-// Takes a null-terminated wchar_t* encoded in UTF-16 and returns a std::string
-// encoded in UTF-8. Returns an empty std::string on failure.
+/// Converts a null-terminated UTF-16 string to UTF-8, or returns empty on failure.
 std::string Utf8FromUtf16(const wchar_t* utf16_string);
 
-// Gets the command line arguments passed in as a std::vector<std::string>,
-// encoded in UTF-8. Returns an empty std::vector<std::string> on failure.
+/// Returns UTF-8 command-line arguments, or an empty vector on failure.
 std::vector<std::string> GetCommandLineArguments();
 
 #endif  // RUNNER_UTILS_H_

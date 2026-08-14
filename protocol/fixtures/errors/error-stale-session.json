@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 1,
+  "messageType": "error",
+  "messageId": "message-error-stale-session-1",
+  "sessionId": "session-2",
+  "correlationId": "message-subscribe-stale-1",
+  "payload": {
+    "code": "stale_session",
+    "message": "sessionId does not match an active session on this socket",
+    "retryable": false,
+    "details": null
+  }
+}

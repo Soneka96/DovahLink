@@ -7,6 +7,7 @@ class ConnectionStartedAction extends Equatable {
   /// Creates a connection-start request.
   const ConnectionStartedAction();
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [];
 }
@@ -16,6 +17,7 @@ class ConnectionNegotiatingAction extends Equatable {
   /// Creates a negotiation-state action.
   const ConnectionNegotiatingAction();
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [];
 }
@@ -28,6 +30,7 @@ class ConnectionEstablishedAction extends Equatable {
   /// The newly accepted session identity.
   final ConnectionSessionEntity session;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [session];
 }
@@ -37,6 +40,7 @@ class ConnectionRecoveringAction extends Equatable {
   /// Creates a recovery-state action.
   const ConnectionRecoveringAction();
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [];
 }
@@ -49,6 +53,7 @@ class ConnectionUnavailableAction extends Equatable {
   /// A user-safe explanation of why the bridge is unavailable.
   final String message;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [message];
 }
@@ -61,6 +66,7 @@ class ConnectionIncompatibleAction extends Equatable {
   /// A user-safe explanation of the version mismatch.
   final String message;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [message];
 }
@@ -70,6 +76,7 @@ class ConnectionDisconnectedAction extends Equatable {
   /// Creates a disconnected-state action.
   const ConnectionDisconnectedAction();
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [];
 }

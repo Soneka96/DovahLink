@@ -1,16 +1,19 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
+import 'package:mocktail/mocktail.dart';
+
 import 'package:dovahlink_client/features/connection/domain/entities/connection_session.entity.dart';
 import 'package:dovahlink_client/features/connection/domain/repositories/Iconnection.repository.dart';
 import 'package:dovahlink_client/features/connection/domain/usecases/connect.usecase.dart';
 import 'package:dovahlink_client/features/connection/domain/usecases/params/connect.params.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:fpdart/fpdart.dart';
-import 'package:mocktail/mocktail.dart';
 
 import '../../fixtures/connection.fixture.dart';
 
+/// Mocks the connection repository for [ConnectUseCase] tests.
 class MockIConnectionRepository extends Mock implements IConnectionRepository {}
 
+/// Exercises [ConnectUseCase] success and failure forwarding.
 void main() {
   late MockIConnectionRepository mockRepository;
   late ConnectUseCase useCase;

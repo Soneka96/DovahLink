@@ -4,6 +4,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+/// Exercises root application-state initialization.
 void main() {
   group('AppState — initial', () {
     test('initial creates the connection state', () {

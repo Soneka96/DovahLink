@@ -18,10 +18,10 @@ object per message; framing is not part of the JSON payload.
 
 | Field | Type | Required | Meaning |
 |---|---|---:|---|
-| `protocolVersion` | non-negative integer | yes | Selected message version; `0` is reserved for pre-negotiation `hello` and `hello_ack`. |
+| `protocolVersion` | non-negative integer | yes | `0` for pre-negotiation `hello`, `hello_ack`, and errors sent before a version is selected; after `hello_ack` selects v1, every message uses `1`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
-| `sessionId` | string or `null` | yes | `null` only for pre-authentication `hello`; `hello_ack` and later messages carry the server-issued identity for that socket. A session ID is valid only on the socket to which it was issued. |
+| `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
 
@@ -69,13 +69,15 @@ area.
 
 ### `hello`
 
-Negotiates the connection before any optional state messages.
+Negotiates the connection before any optional state messages. The connecting client always sends
+`hello` first; the bridge never initiates a connection or sends `hello` itself, and only replies
+with `hello_ack` after it receives and validates one.
 
 The envelope uses `protocolVersion: 0` because no version has been selected yet. The payload fields are:
 
 ```json
 {
-  "endpoint": "bridge",
+  "endpoint": "client",
   "supportedProtocolVersions": [1],
   "auth": {
     "method": "one_time_local_token",
@@ -84,7 +86,8 @@ The envelope uses `protocolVersion: 0` because no version has been selected yet.
 }
 ```
 
-`endpoint` is either `bridge` or `client`.
+`endpoint` identifies the sender's role and is always `client` in v1, because only the connecting
+client sends `hello`.
 
 Required payload fields: `endpoint`, `supportedProtocolVersions`, `auth`. v1 accepts only `auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack` only after token validation.
 
@@ -215,6 +218,11 @@ Required payload fields: `code`, `message`, `retryable`. `details` is nullable a
 
 Canonical v1 error codes include `malformed_message`, `frame_too_large`, `unsupported_version`, `unsupported_capability`, `unauthenticated`, `unauthorized`, `replayed_message`, `stale_session`, `rate_limited`, and `internal_error`. Error codes are for branching; diagnostic messages are not.
 
+An error sent before version negotiation completes uses `protocolVersion: 0`. If no session has
+been established on that socket, its `sessionId` is also `null`; this includes
+`unsupported_version` and authentication failures. After a successful `hello_ack`, errors use the
+selected protocol version (`1` in v1) and the active session identity.
+
 ### `ping` and `pong`
 
 Carry no application state. They prove liveness for the current `sessionId`.
@@ -223,8 +231,10 @@ Carry no application state. They prove liveness for the current `sessionId`.
 
 ## Session and recovery rules
 
-1. The client and bridge exchange `hello` using `protocolVersion: 0`.
-2. They select the highest mutually supported protocol version and exchange `hello_ack`; if none exists, the connection ends with `unsupported_version`.
+1. The connecting client sends `hello` using `protocolVersion: 0`.
+2. The bridge selects the highest mutually supported protocol version and replies with `hello_ack`;
+   if none exists, the bridge replies with an `unsupported_version` error using
+   `protocolVersion: 0` and `sessionId: null`, then ends the connection.
 3. They exchange `capabilities` using the selected version.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.

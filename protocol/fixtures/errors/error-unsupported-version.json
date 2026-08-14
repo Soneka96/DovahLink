@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 0,
+  "messageType": "error",
+  "messageId": "message-error-unsupported-version-1",
+  "sessionId": null,
+  "correlationId": "message-hello-1",
+  "payload": {
+    "code": "unsupported_version",
+    "message": "No mutually supported protocol version",
+    "retryable": false,
+    "details": null
+  }
+}

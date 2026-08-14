@@ -10,6 +10,7 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 
+/// Exercises connection-status rendering and accessibility behavior.
 void main() {
   setUp(initDependencies);
 

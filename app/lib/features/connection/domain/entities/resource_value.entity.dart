@@ -11,6 +11,7 @@ class ResourceValueEntity extends Equatable {
   /// The maximum available amount.
   final double maximum;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [current, maximum];
 }

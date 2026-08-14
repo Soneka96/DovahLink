@@ -25,6 +25,7 @@ class CharacterSnapshotEntity extends Equatable {
   /// The complete read-only character state.
   final CharacterStateEntity character;
 
+  /// See [Equatable.props].
   @override
   List<Object?> get props => [session, revision, occurredAt, character];
 }

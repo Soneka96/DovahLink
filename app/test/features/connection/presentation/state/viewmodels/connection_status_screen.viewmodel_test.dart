@@ -10,10 +10,11 @@ import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 
+/// Exercises [ConnectionStatusScreenViewModel.fromStore] projections.
 void main() {
   group('ConnectionStatusScreenViewModel fromStore()', () {
     test(
-      'Method fromStore() constructs a disconnected ViewModel correctly',
+      'fromStore constructs a disconnected ViewModel correctly',
       () {
         final ConnectionStatusScreenViewModel viewModel =
             ConnectionStatusScreenViewModel.fromStore(const CreateStore()());
@@ -25,7 +26,7 @@ void main() {
       },
     );
 
-    test('Method fromStore() constructs a connected ViewModel correctly', () {
+    test('fromStore constructs a connected ViewModel correctly', () {
       final Store<AppState> store = const CreateStore()();
       store.dispatch(
         const ConnectionEstablishedAction(
@@ -42,7 +43,7 @@ void main() {
       expect(viewModel.error, isNull);
     });
 
-    test('Method fromStore() labels every lifecycle phase correctly', () {
+    test('fromStore labels every lifecycle phase correctly', () {
       final List<MapEntry<ConnectionPhase, String>> cases = [
         const MapEntry(ConnectionPhase.none, 'Unknown'),
         const MapEntry(ConnectionPhase.connecting, 'Connecting'),

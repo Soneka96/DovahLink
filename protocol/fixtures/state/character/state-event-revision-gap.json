@@ -1,0 +1,19 @@
+{
+  "protocolVersion": 1,
+  "messageType": "state_event",
+  "messageId": "message-character-event-gap-1",
+  "sessionId": "session-1",
+  "correlationId": null,
+  "payload": {
+    "stateArea": "character",
+    "baseRevision": 5,
+    "revision": 6,
+    "occurredAt": "2026-08-11T12:00:05Z",
+    "data": {
+      "level": 13,
+      "health": {"current": 200.0, "maximum": 220.0},
+      "magicka": {"current": 100.0, "maximum": 120.0},
+      "stamina": {"current": 160.0, "maximum": 160.0}
+    }
+  }
+}

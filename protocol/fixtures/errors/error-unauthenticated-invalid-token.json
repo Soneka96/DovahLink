@@ -1,0 +1,13 @@
+{
+  "protocolVersion": 0,
+  "messageType": "error",
+  "messageId": "message-error-invalid-token-1",
+  "sessionId": null,
+  "correlationId": "message-hello-1",
+  "payload": {
+    "code": "unauthenticated",
+    "message": "Invalid one-time token",
+    "retryable": false,
+    "details": null
+  }
+}

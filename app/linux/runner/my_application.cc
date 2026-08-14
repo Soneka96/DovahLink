@@ -7,19 +7,22 @@
 
 #include "flutter/generated_plugin_registrant.h"
 
+/// Stores the GTK application instance and its Dart entry-point arguments.
 struct _MyApplication {
   GtkApplication parent_instance;
+
+  /// Command-line arguments forwarded to the Dart entry point.
   char** dart_entrypoint_arguments;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
-// Called when first Flutter frame received.
+/// Shows the application window after the first Flutter frame is rendered.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 
-// Implements GApplication::activate.
+/// Creates and presents the GTK window that hosts the Flutter view.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
@@ -78,7 +81,7 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
-// Implements GApplication::local_command_line.
+/// Captures command-line arguments and activates the application instance.
 static gboolean my_application_local_command_line(GApplication* application,
                                                   gchar*** arguments,
                                                   int* exit_status) {
@@ -99,7 +102,7 @@ static gboolean my_application_local_command_line(GApplication* application,
   return TRUE;
 }
 
-// Implements GApplication::startup.
+/// Performs application startup before delegating to GTK.
 static void my_application_startup(GApplication* application) {
   // MyApplication* self = MY_APPLICATION(object);
 
@@ -108,7 +111,7 @@ static void my_application_startup(GApplication* application) {
   G_APPLICATION_CLASS(my_application_parent_class)->startup(application);
 }
 
-// Implements GApplication::shutdown.
+/// Performs application shutdown after delegating to GTK.
 static void my_application_shutdown(GApplication* application) {
   // MyApplication* self = MY_APPLICATION(object);
 
@@ -117,13 +120,14 @@ static void my_application_shutdown(GApplication* application) {
   G_APPLICATION_CLASS(my_application_parent_class)->shutdown(application);
 }
 
-// Implements GObject::dispose.
+/// Releases application-owned command-line arguments.
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
+/// Binds the application lifecycle callbacks to the GTK type.
 static void my_application_class_init(MyApplicationClass* klass) {
   G_APPLICATION_CLASS(klass)->activate = my_application_activate;
   G_APPLICATION_CLASS(klass)->local_command_line =
@@ -133,6 +137,7 @@ static void my_application_class_init(MyApplicationClass* klass) {
   G_OBJECT_CLASS(klass)->dispose = my_application_dispose;
 }
 
+/// Initializes one application instance.
 static void my_application_init(MyApplication* self) {}
 
 MyApplication* my_application_new() {
