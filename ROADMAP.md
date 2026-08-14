@@ -118,11 +118,19 @@ revision semantics defined in `ARCHITECTURE.md` while the protocol surface is st
 
 - Add the approved `bridgeInstanceId`, `playContextId`, `clientId`, and socket-bound `sessionId`
   lifetimes to the canonical contract and adapters.
-- Make state revisions belong to one authoritative state area and play context rather than one
-  socket session.
+- Define authoritative state identity as one `bridgeInstanceId`, `playContextId`, and state area;
+  a bridge restart creates a new state identity even when the same play context remains loaded.
+- Keep `sessionId` scoped to authenticated socket delivery only; reconnecting creates a new session
+  without resetting the current authoritative revision.
+- Make state revisions belong to that authoritative bridge instance, state area, and play context
+  rather than one socket session.
 - Advance a revision only when authoritative state changes; unchanged snapshot requests reuse it.
 - Invalidate prior state when a new play context replaces the previous loaded game.
+- Add an executable bridge-restart acceptance test proving cached state from the previous bridge
+  lifetime is rejected, including when its play context and revision match the new bridge's values.
 - Keep the independent validation client as proof that the protocol has no Flutter-only behavior.
+- Keep published v1 session-scoped until this phase's versioned migration; do not change only a
+  consistency assertion or silently reinterpret existing v1 messages.
 - Version and update the schema, fixtures, bridge, validation client, Flutter consumer, and tests
   together rather than reinterpreting published v1 messages.
 
@@ -133,9 +141,11 @@ game-process identifier, concurrent sockets, LAN exposure, new state areas, or g
 
 ### Acceptance criteria
 
-Messages identify the correct bridge, play context, client, and socket session; reconnects and loaded
-save changes cannot make old state current; unchanged snapshots do not manufacture revisions; and
-official and independent clients pass the versioned contract tests.
+Messages identify the correct bridge, play context, client, and socket session; bridge restarts,
+reconnects, and loaded save changes cannot make old state current; reconnects do not reset the
+authoritative revision; unchanged snapshots do not manufacture revisions; the bridge-restart
+acceptance test rejects prior-lifetime cached state; and official and independent clients pass the
+versioned contract tests.
 
 ## 3. Local Device Pairing and Reconnection
 
@@ -230,9 +240,12 @@ allowing delivery pressure to block Skyrim.
 
 - Replace the Phase 1 request/response loop with full-duplex asynchronous delivery.
 - Prefer native events and sample only where no trustworthy event exists.
-- Treat rate classes as maximum frequencies and publish only on authoritative change.
+- Treat rate classes as maximum frequencies and publish unsolicited replaceable state only on
+  authoritative change.
 - Separate replaceable state, ordered reliable events, and recovery/control traffic.
 - Coalesce replaceable state to its latest value under pressure.
+- Always deliver initial, recovery, and explicitly requested snapshots, even when the state is
+  unchanged; these snapshots reuse the current authoritative revision.
 - Keep game-thread capture small and perform network I/O and serialization elsewhere.
 - Instrument capture, queues, coalescing, disconnects, and recovery before tuning thresholds.
 
@@ -247,9 +260,11 @@ replay requires a separately approved acknowledgement and persistence contract.
 
 ### Acceptance criteria
 
-A subscriber receives an initial snapshot followed by complete post-change state rather than a patch.
-Unchanged values produce no traffic, replaceable state coalesces, reliable events stay ordered, and a
-client that cannot consume them in time is explicitly disconnected without stalling Skyrim.
+A subscriber receives an initial snapshot followed by complete post-change state rather than a patch;
+initial, recovery, and explicitly requested snapshots are delivered even when unchanged, while
+unchanged unsolicited replaceable state produces no traffic; replaceable state coalesces, reliable
+events stay ordered, and a client that cannot consume them in time is explicitly disconnected
+without stalling Skyrim.
 
 ## 5. PC / Second-Screen Baseline
 

@@ -671,6 +671,64 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_live_state,
         )
 
+    def test_state_identity_and_snapshot_exceptions_are_explicit(self) -> None:
+        """Keep bridge lifetime identity and snapshot delivery exceptions in the roadmap."""
+        identity = self._markdown_section(
+            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        )
+        live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
+        normalized_identity = self._normalize_whitespace(identity)
+        normalized_live_state = self._normalize_whitespace(live_state)
+
+        self.assertIn(
+            "authoritative state identity as one `bridgeInstanceId`, `playContextId`, and state area",
+            normalized_identity,
+        )
+        self.assertIn(
+            "a bridge restart creates a new state identity even when the same play context remains loaded",
+            normalized_identity,
+        )
+        self.assertIn(
+            "`sessionId` scoped to authenticated socket delivery only",
+            normalized_identity,
+        )
+        self.assertIn(
+            "reconnecting creates a new session without resetting the current authoritative revision",
+            normalized_identity,
+        )
+        self.assertIn(
+            "unchanged snapshot requests reuse it",
+            normalized_identity,
+        )
+        self.assertIn(
+            "Invalidate prior state when a new play context replaces the previous loaded game",
+            normalized_identity,
+        )
+        self.assertIn(
+            "Keep published v1 session-scoped until this phase's versioned migration",
+            normalized_identity,
+        )
+        self.assertIn(
+            "executable bridge-restart acceptance test proving cached state from the previous bridge lifetime is rejected",
+            normalized_identity,
+        )
+        self.assertIn(
+            "publish unsolicited replaceable state only on authoritative change",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "Always deliver initial, recovery, and explicitly requested snapshots, even when the state is unchanged",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "these snapshots reuse the current authoritative revision",
+            normalized_live_state,
+        )
+        self.assertIn(
+            "unchanged unsolicited replaceable state produces no traffic",
+            normalized_live_state,
+        )
+
     def test_dependency_audit_targets_the_next_public_release(self) -> None:
         """Keep maintenance commitments meaningful after the initial public release."""
         dependency_audit = self._markdown_section(
