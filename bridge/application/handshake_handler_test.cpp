@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
 using dovahlink::application::SessionManager;
@@ -136,6 +137,49 @@ TEST_CASE("HandleHello selects the highest mutually supported version when the c
     CHECK(ack->selectedProtocolVersion == 2);
     REQUIRE(ack->clientIdentityKind.has_value());
     CHECK(*ack->clientIdentityKind == "unpaired");
+}
+
+TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto a v2 response",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{1, 2}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
+    // No context has been begun, so playContextId stays null even though
+    // bridgeInstanceId is present.
+    CHECK_FALSE(result.response.playContextId.has_value());
+}
+
+TEST_CASE("HandleHello stamps the play context already active at connect time onto a v2 response",
+          "[application][handshake_handler]") {
+    // Proves a reconnect mid-game (or any connection made while a play
+    // context is already loaded) reports it immediately in hello_ack,
+    // matching protocol/fixtures/v2/connection/hello-ack-active-context.json.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+    activePlayContext.Begin("context-1");
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{1, 2}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    REQUIRE(result.response.playContextId.has_value());
+    CHECK(*result.response.playContextId == "context-1");
 }
 
 TEST_CASE("HandleHello selects v2 when the client offers only v2", "[application][handshake_handler]") {

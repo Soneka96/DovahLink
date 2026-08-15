@@ -67,7 +67,9 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
                              security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                              ConnectionId connection, ConnectionTimeoutTracker& timeoutTracker,
-                             std::chrono::steady_clock::time_point now) {
+                             std::chrono::steady_clock::time_point now,
+                             const std::optional<std::string>& bridgeInstanceId,
+                             const ActivePlayContext& activePlayContext) {
     if (helloEnvelope.protocolVersion != 0) {
         return Fail(helloEnvelope, "malformed_message", "hello must use protocolVersion 0", false);
     }
@@ -126,6 +128,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     }
 
     bool isV2 = *negotiatedVersion >= 2;
+    auto context = isV2 ? activePlayContext.AcquireCurrent() : nullptr;
     protocol::Envelope response{
         // hello_ack keeps protocolVersion 0 for v1, matching v1's unchanged
         // "no version selected yet" convention; a v2 selection uses the
@@ -141,10 +144,12 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
             .selectedProtocolVersion = *negotiatedVersion,
             .clientIdentityKind = isV2 ? std::optional<std::string>("unpaired") : std::nullopt,
         }),
-        // bridgeInstanceId and playContextId are populated once bridge-
-        // instance and play-context identity are threaded into this layer
-        // (later steps); clientId echoes the identity the client just
-        // established in this same hello.
+        // bridgeInstanceId is this bridge's own identity; playContextId
+        // reflects whatever play context is already active at connect time
+        // (e.g. a reconnect mid-game), which may be none. clientId echoes
+        // the identity the client just established in this same hello.
+        .bridgeInstanceId = isV2 ? bridgeInstanceId : std::nullopt,
+        .playContextId = isV2 ? (context ? std::optional<std::string>(context->id) : std::nullopt) : std::nullopt,
         .clientId = isV2 ? hello->clientId : std::nullopt,
     };
 

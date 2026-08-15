@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/connection_timeout_tracker.hpp"
+#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "protocol/envelope.hpp"
 #include "security/throttle.hpp"
@@ -49,12 +50,19 @@ struct HandshakeResult {
 /// @param connection Transport connection identifier.
 /// @param timeoutTracker Connection timeout tracker.
 /// @param now Current monotonic time.
+/// @param bridgeInstanceId This bridge process's identity, stamped onto a v2 response; no value if
+///     generation failed at startup, or if this call site does not participate in identity
+///     stamping (the default, for callers that do not care, e.g. most handshake-mechanics tests).
+/// @param activePlayContext Source of the play context active at connect time, stamped onto a v2
+///     response's `playContextId`; an empty (kNoContext) default when unspecified.
 /// @return Response envelope and close decision for the connection.
 [[nodiscard]] HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                                            security::TokenStore& tokenStore,
                                            security::FailedTokenThrottle& tokenThrottle,
                                            SessionManager& sessionManager, ConnectionId connection,
                                            ConnectionTimeoutTracker& timeoutTracker,
-                                           std::chrono::steady_clock::time_point now);
+                                           std::chrono::steady_clock::time_point now,
+                                           const std::optional<std::string>& bridgeInstanceId = std::nullopt,
+                                           const ActivePlayContext& activePlayContext = ActivePlayContext());
 
 }  // namespace dovahlink::application

@@ -56,6 +56,8 @@ struct SubscriptionState {
 ///     unused when `protocolVersion < 2`.
 /// @param subscriptionState Per-connection subscription bookkeeping driving the v2 context-change
 ///     resync mechanism; unused when `protocolVersion < 2`.
+/// @param bridgeInstanceId This bridge process's identity, stamped onto every v2 response envelope;
+///     unused when `protocolVersion < 2`.
 /// @param steadyNow Current monotonic time.
 /// @param wallNow Current wall-clock time.
 /// @return Responses and the connection-close decision.
@@ -65,6 +67,7 @@ struct SubscriptionState {
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const CharacterStateProvider& stateProvider,
     RevisionTracker& revisions, const ActivePlayContext& activePlayContext, SubscriptionState& subscriptionState,
-    std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
+    const std::optional<std::string>& bridgeInstanceId, std::chrono::steady_clock::time_point steadyNow,
+    std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

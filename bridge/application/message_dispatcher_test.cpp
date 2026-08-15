@@ -65,6 +65,8 @@ struct Fixture {
     ActivePlayContext activePlayContext;
     /// Per-connection subscription bookkeeping driving the v2 resync mechanism.
     SubscriptionState subscriptionState;
+    /// This bridge process's identity, stamped onto every v2 response envelope.
+    std::optional<std::string> bridgeInstanceId = "bridge-1";
 
     /// Creates the fixture with its test session already authenticated.
     Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId)) {
@@ -77,7 +79,7 @@ struct Fixture {
                            std::int64_t protocolVersion = kSupportedProtocolVersion) {
         return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, protocolVersion, kConnection,
                                      sessions, replayGuard, violations, rateLimiter, timeout, stateProvider,
-                                     revisions, activePlayContext, subscriptionState, steadyNow,
+                                     revisions, activePlayContext, subscriptionState, bridgeInstanceId, steadyNow,
                                      std::chrono::system_clock::now());
     }
 };
@@ -221,6 +223,93 @@ TEST_CASE("ProcessInboundMessage's v1 path ignores an active v2 play context",
     CHECK(*characterState->level == 7);
 }
 
+TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and the active playContextId onto a v2 pong",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+
+    auto result = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
+    REQUIRE(result.responses[0].playContextId.has_value());
+    CHECK(*result.responses[0].playContextId == "context-1");
+}
+
+TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a v2 pong when no context is active",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+
+    auto result = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
+    CHECK_FALSE(result.responses[0].playContextId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage never stamps bridgeInstanceId or playContextId on the v1 path",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+
+    auto result = fixture.Process(PingMessage());
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK_FALSE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK_FALSE(result.responses[0].playContextId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage does not stamp identity onto an early dispatcher-level rejection, "
+          "even on the v2 path",
+          "[application][message_dispatcher]") {
+    // Documents the deliberate scope boundary explained in
+    // message_dispatcher.cpp: Reject()'s connection-hygiene errors
+    // (malformed shape, stale session, replay, rate limit) return before
+    // the stamping loop and are not part of authoritative-state staleness
+    // detection.
+    Fixture fixture;
+
+    auto result = fixture.Process("not json at all {{{", SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK_FALSE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK_FALSE(result.responses[0].playContextId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto a v2 response when generation "
+          "failed at startup",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.bridgeInstanceId = std::nullopt;
+
+    auto result = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK_FALSE(result.responses[0].bridgeInstanceId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId onto a v2 HandleClientCapabilities error "
+          "response too, not just ping/subscribe/snapshot_request",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    std::string message =
+        R"({"protocolVersion": 2, "messageType": "capabilities", "messageId": "message-cap-1", )"
+        R"("sessionId": ")" +
+        std::string(kSessionId) +
+        R"(", "correlationId": null, "payload": {"capabilities": [{"id": "state.inventory", "version": 1}]}})";
+
+    auto result = fixture.Process(message, SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unsupported_capability");
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
+}
+
 TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision counter when the "
           "play context is replaced",
           "[application][message_dispatcher]") {
@@ -354,7 +443,16 @@ TEST_CASE("ProcessInboundMessage's v2 resync prepends an unsolicited snapshot to
     CHECK(ping.responses[0].messageType == "state_snapshot");
     CHECK(ping.responses[0].protocolVersion == 2);
     CHECK_FALSE(ping.responses[0].correlationId.has_value());
+    // playContextId itself flips within this one connection, from
+    // "context-1" (stamped on the earlier subscribe response, implicitly)
+    // to "context-2" here -- not just the response count/data changing.
+    REQUIRE(ping.responses[0].playContextId.has_value());
+    CHECK(*ping.responses[0].playContextId == "context-2");
+    REQUIRE(ping.responses[0].bridgeInstanceId.has_value());
+    CHECK(*ping.responses[0].bridgeInstanceId == "bridge-1");
     CHECK(ping.responses[1].messageType == "pong");
+    REQUIRE(ping.responses[1].playContextId.has_value());
+    CHECK(*ping.responses[1].playContextId == "context-2");
 }
 
 TEST_CASE("ProcessInboundMessage's v2 resync does not fire for a connection that never subscribed",

@@ -91,8 +91,8 @@ struct Fixture {
     /// Source of the acquired play context on the v2 path; empty for these v1 tests.
     ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4,      listenerV6,   slot,           tokenStore,
-                         tokenThrottle,    sessionManager, stateProvider, activePlayContext};
+    BridgeWorkerPool pool{listenerV4,   listenerV6,     slot,          tokenStore,        tokenThrottle,
+                         sessionManager, stateProvider, activePlayContext, /*bridgeInstanceId=*/std::nullopt};
 };
 
 }  // namespace

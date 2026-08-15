@@ -30,10 +30,13 @@ public:
     /// @param sessionManager Session ownership manager.
     /// @param stateProvider Provider of current character state on the v1 (session-scoped) path.
     /// @param activePlayContext Source of the acquired play context on the v2 (play-context-scoped) path.
+    /// @param bridgeInstanceId This bridge process's identity, stamped onto every v2 response
+    ///     envelope; no value if generation failed at startup.
     BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
                      transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                     const CharacterStateProvider& stateProvider, const ActivePlayContext& activePlayContext);
+                     const CharacterStateProvider& stateProvider, const ActivePlayContext& activePlayContext,
+                     std::optional<std::string> bridgeInstanceId);
 
     /// Stops and joins any workers that remain active.
     ~BridgeWorkerPool() override;
@@ -82,6 +85,9 @@ private:
 
     /// Source of the acquired play context on the v2 (play-context-scoped) path.
     const ActivePlayContext& activePlayContext_;
+
+    /// This bridge process's identity, stamped onto every v2 response envelope.
+    std::optional<std::string> bridgeInstanceId_;
 
     /// Signals both accept workers to stop.
     std::atomic<bool> stopping_{false};

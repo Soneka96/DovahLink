@@ -167,10 +167,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     // This bridge instance's identity, per ARCHITECTURE.md's runtime/identity
     // model: one value for this plugin's whole running lifetime, independent
-    // of any play context. Not yet wire-visible (protocol v2 is a later
-    // step); generated and logged now so it exists before anything depends
-    // on it. A generation failure is not fatal -- nothing reads this value
-    // yet -- but is logged so a future consumer's absence is traceable.
+    // of any play context. Stamped onto every v2 response envelope via
+    // BridgeWorkerPool below. A generation failure is not fatal -- it is
+    // logged, and every v2 response simply carries no bridgeInstanceId
+    // value, the same "unavailable" shape a `null` would already encode.
     static std::optional<std::string> bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
     SKSE::log::info("Bridge instance ID: {}", bridgeInstanceId.value_or("(unavailable)"));
 
@@ -207,7 +207,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore,
-        activePlayContext);
+        activePlayContext, bridgeInstanceId);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

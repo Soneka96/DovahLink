@@ -133,8 +133,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
-                             stateProvider, activePlayContext, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
+                             activePlayContext, /*bridgeInstanceId=*/std::nullopt, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -205,6 +205,7 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
+    std::optional<std::string> bridgeInstanceId = "bridge-1";
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -214,7 +215,7 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext);
+                             activePlayContext, bridgeInstanceId);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -232,11 +233,18 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     REQUIRE(helloAck.messageType == "hello_ack");
     REQUIRE(helloAck.sessionId.has_value());
     CHECK(helloAck.protocolVersion == 2);
+    // The end-to-end point of this step: bridgeInstanceId reaches the wire,
+    // and playContextId is null (no play context is active in this test).
+    REQUIRE(helloAck.bridgeInstanceId.has_value());
+    CHECK(*helloAck.bridgeInstanceId == "bridge-1");
+    CHECK_FALSE(helloAck.playContextId.has_value());
     std::string sessionId = *helloAck.sessionId;
 
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
     CHECK(capabilities.protocolVersion == 2);
+    REQUIRE(capabilities.bridgeInstanceId.has_value());
+    CHECK(*capabilities.bridgeInstanceId == "bridge-1");
 
     ClientWriteText(clientWs, R"({"protocolVersion": 2, "messageType": "ping", "messageId": "message-ping-1", )"
                                   R"("sessionId": ")" +
@@ -244,6 +252,8 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     auto pong = ClientReadEnvelope(clientWs);
     CHECK(pong.messageType == "pong");
     CHECK(pong.protocolVersion == 2);
+    REQUIRE(pong.bridgeInstanceId.has_value());
+    CHECK(*pong.bridgeInstanceId == "bridge-1");
 
     ClientWriteText(clientWs,
                      R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-1", )"
@@ -255,6 +265,68 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     auto snapshot = ClientReadEnvelope(clientWs);
     CHECK(snapshot.messageType == "state_snapshot");
     CHECK(snapshot.protocolVersion == 2);
+    REQUIRE(snapshot.bridgeInstanceId.has_value());
+    CHECK(*snapshot.bridgeInstanceId == "bridge-1");
+    CHECK_FALSE(snapshot.playContextId.has_value());
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+}
+
+TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a real playContextId "
+          "when a context is already active at connect time",
+          "[application][connection_session]") {
+    // The capabilities envelope is built outside ProcessInboundMessage's own
+    // stamping loop (BuildBridgeCapabilities, sent once right after
+    // hello_ack); this is its own, separately wired stamping site.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    SessionManager sessionManager;
+    FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
+    activePlayContext.Begin("context-1");
+    std::optional<std::string> bridgeInstanceId = "bridge-1";
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
+                             activePlayContext, bridgeInstanceId);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessageV2(kValidHexToken));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    REQUIRE(helloAck.playContextId.has_value());
+    CHECK(*helloAck.playContextId == "context-1");
+
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+    REQUIRE(capabilities.playContextId.has_value());
+    CHECK(*capabilities.playContextId == "context-1");
 
     boost::system::error_code closeEc;
     clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
@@ -293,8 +365,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
-                             stateProvider, activePlayContext, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
+                             activePlayContext, /*bridgeInstanceId=*/std::nullopt, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -355,7 +427,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext);
+                             activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);

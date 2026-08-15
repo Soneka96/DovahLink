@@ -28,7 +28,8 @@ void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& e
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
                           security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                           ConnectionId connection, const CharacterStateProvider& stateProvider,
-                          const ActivePlayContext& activePlayContext, SteadyNowProvider steadyNow) {
+                          const ActivePlayContext& activePlayContext,
+                          const std::optional<std::string>& bridgeInstanceId, SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
         return;
     }
@@ -62,8 +63,8 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         return;
     }
 
-    auto handshake =
-        HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout, postReadNow);
+    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout,
+                                 postReadNow, bridgeInstanceId, activePlayContext);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
@@ -86,6 +87,11 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
     auto capabilities = BuildBridgeCapabilities(sessionId, protocolVersion);
     if (capabilities.has_value()) {
+        if (protocolVersion >= 2) {
+            auto context = activePlayContext.AcquireCurrent();
+            capabilities->bridgeInstanceId = bridgeInstanceId;
+            capabilities->playContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+        }
         SendIfPossible(ws, *capabilities);
     }
     // If BuildBridgeCapabilities itself failed (the same unreachable-in-
@@ -111,10 +117,10 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
             break;
         }
 
-        auto dispatch =
-            ProcessInboundMessage(*raw, receivedMessageCount, sessionId, protocolVersion, connection, sessionManager,
-                                  replayGuard, violations, rateLimiter, timeout, stateProvider, revisions,
-                                  activePlayContext, subscriptionState, steadyNow(), std::chrono::system_clock::now());
+        auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, protocolVersion, connection,
+                                             sessionManager, replayGuard, violations, rateLimiter, timeout,
+                                             stateProvider, revisions, activePlayContext, subscriptionState,
+                                             bridgeInstanceId, steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

@@ -11,10 +11,11 @@ BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4, tran
                                    transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                                    security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                                    const CharacterStateProvider& stateProvider,
-                                   const ActivePlayContext& activePlayContext)
+                                   const ActivePlayContext& activePlayContext,
+                                   std::optional<std::string> bridgeInstanceId)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot), tokenStore_(tokenStore),
       tokenThrottle_(tokenThrottle), sessionManager_(sessionManager), stateProvider_(stateProvider),
-      activePlayContext_(activePlayContext) {}
+      activePlayContext_(activePlayContext), bridgeInstanceId_(std::move(bridgeInstanceId)) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
@@ -61,7 +62,7 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
 
             transport::WebSocketSession session(std::move(socketHandle));
             RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_,
-                                 activePlayContext_);
+                                 activePlayContext_, bridgeInstanceId_);
         });
     }
 }

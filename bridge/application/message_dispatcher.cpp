@@ -156,6 +156,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                       const ActivePlayContext& activePlayContext,
                                       SubscriptionState& subscriptionState,
+                                      const std::optional<std::string>& bridgeInstanceId,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
     ++receivedMessageCount;
@@ -233,6 +234,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                              : static_cast<const CharacterStateProvider&>(noContextProvider);
     RevisionTracker& effectiveRevisions =
         protocolVersion < 2 ? revisions : (context ? context->revisions : noContextRevisions);
+    std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
 
     // Protocol v2's "existing connected clients learn context transitions"
     // mechanism (protocol/schema/README.md): on every message, a subscribed
@@ -242,7 +244,6 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     // cadence rather than pushed independently (Phase 4 scope).
     std::vector<protocol::Envelope> prepended;
     if (protocolVersion >= 2) {
-        std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
         bool contextChanged = currentContextId != subscriptionState.lastKnownPlayContextId;
         if (contextChanged && !subscriptionState.subscribedStateAreas.empty()) {
             auto resyncSnapshot =
@@ -288,6 +289,21 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
 
     result.responses.insert(result.responses.begin(), std::make_move_iterator(prepended.begin()),
                             std::make_move_iterator(prepended.end()));
+
+    // Stamps the connection's bridge and play-context identity onto every
+    // v2 response built above. Scoped to responses reached through `result`
+    // -- the earlier Reject() calls above return directly and are not
+    // stamped, since those are connection-hygiene failures (malformed
+    // shape, stale session, replay, rate limit) uncorrelated with
+    // authoritative-state staleness detection, not state the client
+    // compares (bridgeInstanceId, playContextId) against.
+    if (protocolVersion >= 2) {
+        for (protocol::Envelope& response : result.responses) {
+            response.bridgeInstanceId = bridgeInstanceId;
+            response.playContextId = currentContextId;
+        }
+    }
+
     return result;
 }
 

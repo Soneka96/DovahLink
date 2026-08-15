@@ -111,21 +111,23 @@ int main() {
     dovahlink::application::GameLifecycleTracker lifecycleTracker;
     dovahlink::application::ActivePlayContext activePlayContext;
 
+    // Skyrim-independent stand-in for the real plugin's bridgeInstanceId
+    // generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
+    // process launch, stamped onto every v2 response envelope via
+    // BridgeWorkerPool below and printed after READY so a process-boundary
+    // test can observe it changing across a kill-and-relaunch cycle without
+    // a running Skyrim.
+    auto bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
+
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
                                                               tokenThrottle, sessionManager, characterStateStore,
-                                                              activePlayContext);
+                                                              activePlayContext, bridgeInstanceId);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();
     std::cout << "READY" << std::endl;
-
-    // Skyrim-independent stand-in for the real plugin's bridgeInstanceId
-    // generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
-    // process launch, printed so a process-boundary test can observe it
-    // changing across a kill-and-relaunch cycle without a running Skyrim.
-    auto bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
     std::cout << "BRIDGE_INSTANCE " << bridgeInstanceId.value_or("(unavailable)") << std::endl;
 
     std::int64_t level = 5;
