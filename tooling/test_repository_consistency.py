@@ -998,6 +998,42 @@ class RepositoryConsistencyTests(unittest.TestCase):
             architecture,
         )
 
+    def test_sdk_readme_documents_planned_status_without_an_implementation_skeleton(self) -> None:
+        """Guard sdk/README.md's content and the absence of a real Dart package."""
+        sdk_readme = self._read("sdk/README.md")
+
+        for required_phrase in (
+            "This directory owns the reusable, supported client SDK implementations for the "
+            "DovahLink protocol.",
+            "consumers do not need to implement transport, Bridge-version compatibility "
+            "detection,\nauthentication, pairing recovery, reconnect, session and "
+            "authoritative-state identity, revisions,\nsubscriptions, snapshots, recovery, or "
+            "reusable client persistence themselves.",
+            "Skyrim\n   |\nDovahLink Bridge / mod\n   |\nprotocol/\n   |\nDart Client SDK\n   |\n"
+            "Official Flutter app",
+            "`protocol/` remains the sole canonical language-neutral Bridge/client contract",
+            "the SDK implements\nthat contract for Dart consumers and is not a second protocol "
+            "authority",
+            "the SDK's first production consumer, not a privileged one — see",
+            "Planned. This directory currently contains only this README; no Dart package exists "
+            "yet.",
+            "The real\npackage is created when `ROADMAP.md`'s Phase 5, \"Dart Client SDK "
+            "Foundation,\" begins, at:",
+            "sdk/\n  dart/\n    dovahlink_client/",
+            "the app-side Dart client documented in",
+            "remains the active Dart consumer for the identity,\npairing, and live-synchronization "
+            "foundations already in progress",
+        ):
+            self.assertIn(required_phrase, sdk_readme)
+
+        # No implementation skeleton: the future package's own directory must not exist yet.
+        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart").exists())
+        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client").exists())
+        for filename in ("pubspec.yaml", "pubspec.lock"):
+            self.assertFalse((REPOSITORY_ROOT / "sdk" / filename).exists())
+        for stray_path in ("lib", ".dart_tool"):
+            self.assertFalse((REPOSITORY_ROOT / "sdk" / stray_path).exists())
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
