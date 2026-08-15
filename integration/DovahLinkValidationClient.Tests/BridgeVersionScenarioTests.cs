@@ -319,6 +319,9 @@ public class BridgeVersionScenarioTests
         Assert.Equal(1, exitCode);
         Assert.True(socket.CloseCalled);
         Assert.Contains("instead of capabilities", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        // Only "hello" was sent: proves ExecuteAsync stopped at the capabilities check rather
+        // than also sending "subscribe" before returning.
+        Assert.Single(socket.SentMessages);
     }
 
     /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
@@ -347,6 +350,13 @@ public class BridgeVersionScenarioTests
         Assert.Equal(1, exitCode);
         Assert.True(socket.CloseCalled);
         Assert.Contains("instead of subscription_ack", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        // "hello" and "subscribe" were sent, and nothing after: ExecuteAsync never sends a third
+        // message, so this count alone proves no further request followed the failed check.
+        Assert.Equal(2, socket.SentMessages.Count);
+        // The next check down (acceptedStateAreas) would independently reject this same fixture
+        // and produce the same exit code and send count: only this negative assertion proves
+        // execution didn't fall through into it after a dropped return.
+        Assert.DoesNotContain("did not accept", output.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
@@ -375,6 +385,11 @@ public class BridgeVersionScenarioTests
         Assert.Equal(1, exitCode);
         Assert.True(socket.CloseCalled);
         Assert.Contains("did not accept the character state subscription", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, socket.SentMessages.Count);
+        // A dropped return here falls through to a 4th ReceiveAsync on an exhausted queue, which
+        // the generic catch also turns into exit code 1 with the same send count: only this
+        // negative assertion proves execution didn't fall through into that catch.
+        Assert.DoesNotContain("Bridge connection failed", output.ToString());
     }
 
     /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when
@@ -401,6 +416,8 @@ public class BridgeVersionScenarioTests
         Assert.Equal(1, exitCode);
         Assert.True(socket.CloseCalled);
         Assert.Contains("did not accept the character state subscription", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, socket.SentMessages.Count);
+        Assert.DoesNotContain("Bridge connection failed", output.ToString());
     }
 
     /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
@@ -432,6 +449,7 @@ public class BridgeVersionScenarioTests
         Assert.Equal(1, exitCode);
         Assert.True(socket.CloseCalled);
         Assert.Contains("instead of state_snapshot", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, socket.SentMessages.Count);
     }
 
     /// <summary>Verifies that ValidationRun completes the full exchange when the Bridge reports a
