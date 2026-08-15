@@ -129,10 +129,12 @@ revision semantics defined in `ARCHITECTURE.md` while the protocol surface is st
 - Add an executable bridge-restart acceptance test proving cached state from the previous bridge
   lifetime is rejected, including when its play context and revision match the new bridge's values.
 - Keep the independent validation client as proof that the protocol has no Flutter-only behavior.
-- Keep published v1 session-scoped until this phase's versioned migration; do not change only a
-  consistency assertion or silently reinterpret existing v1 messages.
-- Version and update the schema, fixtures, bridge, validation client, Flutter consumer, and tests
-  together rather than reinterpreting published v1 messages.
+- Do not silently reinterpret messages from the previously published experimental release as
+  already carrying this ownership; that release is archived, not a supported compatibility target.
+- Update the schema, fixtures, bridge, validation client, Flutter consumer, and tests together as
+  one canonical contract change, not as a separate protocol generation kept alongside an older one.
+- Identify compatibility by the DovahLink Bridge/mod release version rather than an independent
+  protocol-generation number, per `ai/context/protocol/compatibility.md`.
 
 ### Dependencies and boundaries
 
@@ -145,7 +147,7 @@ Messages identify the correct bridge, play context, client, and socket session; 
 reconnects, and loaded save changes cannot make old state current; reconnects do not reset the
 authoritative revision; unchanged snapshots do not manufacture revisions; the bridge-restart
 acceptance test rejects prior-lifetime cached state; and official and independent clients pass the
-versioned contract tests.
+canonical contract tests.
 
 ## 3. Local Device Pairing and Reconnection
 
@@ -159,9 +161,8 @@ a long token, or reusing the one-time bootstrap credential.
 
 ### Scope and behavior
 
-- Introduce pairing as a new, explicitly versioned protocol-v2 flow. Published protocol v1 remains
-  frozen; its `one_time_local_token` behavior must not be silently reinterpreted as the pairing
-  flow.
+- Introduce pairing as part of the current canonical contract. The Phase 1 `one_time_local_token`
+  bootstrap behavior must not be silently reinterpreted as the pairing flow.
 - Require an unpaired client to explicitly request pairing. The bridge must not display a pairing
   code on every launch or on every ordinary connection attempt.
 - When pairing is requested, generate a short-lived, single-use six-digit pairing code and display
@@ -182,9 +183,9 @@ a long token, or reusing the one-time bootstrap credential.
 - In the first implementation, invalidate device credentials when the bridge or Skyrim process
   restarts. This keeps credential persistence out of the initial pairing proof and matches the
   bridge-instance lifetime defined in `ARCHITECTURE.md`.
-- Preserve the Phase 1 one-time bootstrap token as a development and compatibility path until the
-  versioned pairing flow is implemented. Normal user pairing should not require manually copying
-  a long environment token after this phase is delivered.
+- Preserve the Phase 1 one-time bootstrap token as a development and compatibility path until
+  pairing is implemented. Normal user pairing should not require manually copying a long
+  environment token after this phase is delivered.
 - Allow distinct clients to pair over time while retaining the single-connected-client limit.
   Concurrent sessions and independent per-client delivery remain Phase 8 work.
 
@@ -224,7 +225,7 @@ to the first pairing implementation.
   diagnostics.
 - The loopback-only restriction and single-connected-client limit remain intact; this phase does
   not accidentally enable LAN or concurrent-client behavior.
-- Independent and official clients use the same versioned pairing contract, with no Flutter-only
+- Independent and official clients use the same canonical pairing contract, with no Flutter-only
   or Skyrim-specific wire behavior.
 
 ## 4. Live State Synchronization Foundation

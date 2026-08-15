@@ -715,9 +715,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_identity,
         )
         self.assertIn(
-            "Keep published v1 session-scoped until this phase's versioned migration",
+            "Do not silently reinterpret messages from the previously published experimental "
+            "release as already carrying this ownership",
             normalized_identity,
         )
+        roadmap = self._read("ROADMAP.md")
+        for retired_term in (
+            "protocol-v2 flow",
+            "versioned pairing flow",
+            "versioned contract tests",
+            "versioned pairing contract",
+        ):
+            self.assertNotIn(retired_term, roadmap)
         self.assertIn(
             "executable bridge-restart acceptance test proving cached state from the previous bridge lifetime is rejected",
             normalized_identity,
