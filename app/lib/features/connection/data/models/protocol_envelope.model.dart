@@ -13,17 +13,15 @@ part 'protocol_envelope.model.g.dart';
 class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   /// Creates a decoded protocol envelope.
   const ProtocolEnvelopeModel({
-    required this.protocolVersion,
     required this.messageType,
     required this.messageId,
     required this.sessionId,
     required this.correlationId,
     required this.payload,
-    this.bridgeInstanceId,
-    this.playContextId,
-    this.clientId,
+    required this.bridgeInstanceId,
+    required this.playContextId,
+    required this.clientId,
   }) : super(
-         protocolVersion: protocolVersion,
          messageType: messageType,
          messageId: messageId,
          sessionId: sessionId,
@@ -36,22 +34,12 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
 
   /// Decodes and validates one protocol envelope.
   factory ProtocolEnvelopeModel.fromJson(JsonMap json) {
-    final ProtocolEnvelopeModel model;
     try {
-      model = _$ProtocolEnvelopeModelFromJson(json);
+      return _$ProtocolEnvelopeModelFromJson(json);
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid protocol envelope: $error');
     }
-    if (model.protocolVersion < 0) {
-      throw ProtocolFormatException('protocolVersion must be non-negative');
-    }
-    return model;
   }
-
-  /// The negotiated protocol version for this message.
-  @JsonKey(required: true, fromJson: _readInteger)
-  @override
-  final int protocolVersion;
 
   /// The canonical message type.
   @JsonKey(required: true)
@@ -79,46 +67,24 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   final JsonMap payload;
 
   /// The identity of the bridge instance that produced this message.
-  /// Decoded tolerantly regardless of [protocolVersion]: an absent key and
-  /// an explicit JSON `null` both decode to `null` here. Only [toJson]
-  /// enforces which version may write this key.
-  @JsonKey()
+  /// Required key, nullable value: absent (not merely null) is rejected,
+  /// matching protocol/schema/README.md's envelope table.
+  @JsonKey(required: true)
   @override
   final String? bridgeInstanceId;
 
   /// The identity of the currently loaded play context, when one is active.
-  /// See [bridgeInstanceId] for the same absent-vs-null decode tolerance.
-  @JsonKey()
+  /// See [bridgeInstanceId] for the same required-key, nullable-value shape.
+  @JsonKey(required: true)
   @override
   final String? playContextId;
 
   /// The identity of the logical client, established at `hello`. See
-  /// [bridgeInstanceId] for the same absent-vs-null decode tolerance.
-  @JsonKey()
+  /// [bridgeInstanceId] for the same required-key, nullable-value shape.
+  @JsonKey(required: true)
   @override
   final String? clientId;
 
   /// Encodes this envelope as a JSON object.
-  ///
-  /// Version-gated per `protocol/schema/README.md`'s v2 encoding rule: below
-  /// protocol version 2, [bridgeInstanceId], [playContextId], and [clientId]
-  /// are omitted entirely rather than encoded as `null`, since
-  /// `json_serializable`'s generated output cannot conditionally omit a key
-  /// based on a sibling field.
-  JsonMap toJson() {
-    final JsonMap json = _$ProtocolEnvelopeModelToJson(this);
-    if (protocolVersion < 2) {
-      json
-        ..remove('bridgeInstanceId')
-        ..remove('playContextId')
-        ..remove('clientId');
-    }
-    return json;
-  }
-}
-
-/// Reads an integer while rejecting numeric values with a fractional part.
-int _readInteger(Object? value) {
-  if (value is int) return value;
-  throw const FormatException('value must be an integer');
+  JsonMap toJson() => _$ProtocolEnvelopeModelToJson(this);
 }

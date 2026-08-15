@@ -12,16 +12,17 @@ ProtocolEnvelopeModel _$ProtocolEnvelopeModelFromJson(
   $checkKeys(
     json,
     requiredKeys: const [
-      'protocolVersion',
       'messageType',
       'messageId',
       'sessionId',
       'correlationId',
       'payload',
+      'bridgeInstanceId',
+      'playContextId',
+      'clientId',
     ],
   );
   final val = ProtocolEnvelopeModel(
-    protocolVersion: $checkedConvert('protocolVersion', (v) => _readInteger(v)),
     messageType: $checkedConvert('messageType', (v) => v as String),
     messageId: $checkedConvert('messageId', (v) => v as String),
     sessionId: $checkedConvert('sessionId', (v) => v as String?),
@@ -37,7 +38,6 @@ ProtocolEnvelopeModel _$ProtocolEnvelopeModelFromJson(
 Map<String, dynamic> _$ProtocolEnvelopeModelToJson(
   ProtocolEnvelopeModel instance,
 ) => <String, dynamic>{
-  'protocolVersion': instance.protocolVersion,
   'messageType': instance.messageType,
   'messageId': instance.messageId,
   'sessionId': instance.sessionId,
