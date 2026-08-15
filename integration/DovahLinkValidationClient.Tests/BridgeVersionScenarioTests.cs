@@ -1,3 +1,4 @@
+using System.Net.WebSockets;
 using System.Text.Json.Nodes;
 using DovahLinkValidationClient;
 
@@ -131,6 +132,86 @@ public class BridgeVersionScenarioTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Bridge rejected hello", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure instead of throwing when the connection
+    /// ends before a complete hello_ack is received.</summary>
+    [Fact]
+    public async Task ExecuteAsyncReturnsFailureWhenTheConnectionEndsBeforeHelloAck()
+    {
+        var socket = new FakeWebSocket(receiveException: new WebSocketException("peer reset"));
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge connection failed", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure instead of throwing when hello_ack is
+    /// missing a required envelope field.</summary>
+    [Fact]
+    public async Task ExecuteAsyncReturnsFailureWhenHelloAckIsMalformed()
+    {
+        const string malformedHelloAck =
+            """{"sessionId":"session-1","correlationId":"message-hello-1","payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""";
+        var socket = new FakeWebSocket([malformedHelloAck]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge connection failed", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure instead of throwing when sending hello
+    /// itself fails.</summary>
+    [Fact]
+    public async Task ExecuteAsyncReturnsFailureWhenSendingHelloFails()
+    {
+        var socket = new FakeWebSocket(sendException: new WebSocketException("connection reset"));
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge connection failed", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure instead of throwing when receiving
+    /// hello_ack times out.</summary>
+    [Fact]
+    public async Task ExecuteAsyncReturnsFailureWhenReceivingHelloAckTimesOut()
+    {
+        var socket = new FakeWebSocket(receiveException: new OperationCanceledException("receive timed out"));
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge connection failed", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure instead of throwing when hello_ack
+    /// carries no sessionId, violating the connection wrapper's own protocol contract.</summary>
+    [Fact]
+    public async Task ExecuteAsyncReturnsFailureWhenHelloAckCarriesNoSessionId()
+    {
+        string helloAckWithoutSessionId = new Envelope(
+            "hello_ack", "message-ack-1", null, "message-hello-1",
+            new JsonObject { ["bridgeVersion"] = "0.2.0", ["clientIdentityKind"] = "unpaired" }).Encode();
+        var socket = new FakeWebSocket([helloAckWithoutSessionId]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge connection failed", output.ToString());
     }
 
     /// <summary>Verifies that ValidationRun completes the full exchange when the Bridge reports a

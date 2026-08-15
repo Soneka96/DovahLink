@@ -1,3 +1,4 @@
+using System.Net.WebSockets;
 using System.Text.Json.Nodes;
 
 namespace DovahLinkValidationClient;
@@ -17,59 +18,68 @@ public static class ValidationRun
     /// <param name="token">The one-time bridge authentication token.</param>
     /// <param name="output">Destination for progress and diagnostic messages.</param>
     /// <returns>0 when an initial state snapshot was received; 1 on any failure, including a
-    /// rejected hello or an incompatible Bridge version.</returns>
+    /// rejected hello, an incompatible Bridge version, or a connection or protocol failure.</returns>
     public static async Task<int> ExecuteAsync(BridgeConnection connection, string token, TextWriter output)
     {
         string clientId = Guid.NewGuid().ToString();
-        var helloPayload = new JsonObject
+        try
         {
-            ["endpoint"] = "client",
-            ["clientId"] = clientId,
-            ["auth"] = new JsonObject
+            var helloPayload = new JsonObject
             {
-                ["method"] = "one_time_local_token",
-                ["token"] = token,
-            },
-        };
-        await connection.SendAsync(new Envelope("hello", Guid.NewGuid().ToString(), null, null, helloPayload));
+                ["endpoint"] = "client",
+                ["clientId"] = clientId,
+                ["auth"] = new JsonObject
+                {
+                    ["method"] = "one_time_local_token",
+                    ["token"] = token,
+                },
+            };
+            await connection.SendAsync(new Envelope("hello", Guid.NewGuid().ToString(), null, null, helloPayload));
 
-        Envelope helloAck = await connection.ReceiveAsync();
-        if (helloAck.MessageType != "hello_ack")
+            Envelope helloAck = await connection.ReceiveAsync();
+            if (helloAck.MessageType != "hello_ack")
+            {
+                output.WriteLine($"Bridge rejected hello: {helloAck.MessageType} {helloAck.Payload}");
+                return 1;
+            }
+            string sessionId = helloAck.SessionId ?? throw new InvalidOperationException("hello_ack carried no sessionId.");
+            string? bridgeVersion = helloAck.Payload["bridgeVersion"]?.GetValue<string>();
+
+            // The Bridge does not evaluate this itself and does not reject the connection on
+            // compatibility grounds (protocol/schema/README.md): this client fails explicitly on its
+            // own side, before continuing the exchange, rather than risk misinterpreting an
+            // incompatible release's messages.
+            BridgeVersionCompatibilityResult compatibility = BridgeVersionCompatibility.Evaluate(bridgeVersion);
+            if (compatibility != BridgeVersionCompatibilityResult.Supported)
+            {
+                output.WriteLine(
+                    $"Bridge version '{bridgeVersion}' is incompatible ({compatibility}); this client supports " +
+                    $"{BridgeVersionCompatibility.MinimumSupportedVersion} to " +
+                    $"{BridgeVersionCompatibility.MaximumSupportedVersion}.");
+                await connection.CloseAsync();
+                return 1;
+            }
+            output.WriteLine($"hello_ack: sessionId={sessionId} bridgeVersion={bridgeVersion}");
+
+            Envelope capabilities = await connection.ReceiveAsync();
+            output.WriteLine($"capabilities: {capabilities.Payload}");
+
+            var subscribePayload = new JsonObject { ["stateAreas"] = new JsonArray("character") };
+            await connection.SendAsync(new Envelope("subscribe", Guid.NewGuid().ToString(), sessionId, null, subscribePayload));
+
+            Envelope subscriptionAck = await connection.ReceiveAsync();
+            output.WriteLine($"subscription_ack: {subscriptionAck.Payload}");
+
+            Envelope snapshot = await connection.ReceiveAsync();
+            output.WriteLine($"state_snapshot: {snapshot.Payload}");
+
+            return 0;
+        }
+        catch (Exception ex) when (ex is WebSocketException or InvalidOperationException
+            or FormatException or OperationCanceledException)
         {
-            output.WriteLine($"Bridge rejected hello: {helloAck.MessageType} {helloAck.Payload}");
+            output.WriteLine($"Bridge connection failed: {ex.Message}");
             return 1;
         }
-        string sessionId = helloAck.SessionId ?? throw new InvalidOperationException("hello_ack carried no sessionId.");
-        string? bridgeVersion = helloAck.Payload["bridgeVersion"]?.GetValue<string>();
-
-        // The Bridge does not evaluate this itself and does not reject the connection on
-        // compatibility grounds (protocol/schema/README.md): this client fails explicitly on its
-        // own side, before continuing the exchange, rather than risk misinterpreting an
-        // incompatible release's messages.
-        BridgeVersionCompatibilityResult compatibility = BridgeVersionCompatibility.Evaluate(bridgeVersion);
-        if (compatibility != BridgeVersionCompatibilityResult.Supported)
-        {
-            output.WriteLine(
-                $"Bridge version '{bridgeVersion}' is incompatible ({compatibility}); this client supports " +
-                $"{BridgeVersionCompatibility.MinimumSupportedVersion} to " +
-                $"{BridgeVersionCompatibility.MaximumSupportedVersion}.");
-            await connection.CloseAsync();
-            return 1;
-        }
-        output.WriteLine($"hello_ack: sessionId={sessionId} bridgeVersion={bridgeVersion}");
-
-        Envelope capabilities = await connection.ReceiveAsync();
-        output.WriteLine($"capabilities: {capabilities.Payload}");
-
-        var subscribePayload = new JsonObject { ["stateAreas"] = new JsonArray("character") };
-        await connection.SendAsync(new Envelope("subscribe", Guid.NewGuid().ToString(), sessionId, null, subscribePayload));
-
-        Envelope subscriptionAck = await connection.ReceiveAsync();
-        output.WriteLine($"subscription_ack: {subscriptionAck.Payload}");
-
-        Envelope snapshot = await connection.ReceiveAsync();
-        output.WriteLine($"state_snapshot: {snapshot.Payload}");
-
-        return 0;
     }
 }

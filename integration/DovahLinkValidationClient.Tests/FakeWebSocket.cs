@@ -22,6 +22,9 @@ internal sealed class FakeWebSocket : WebSocket
     /// <summary>An optional receive failure surfaced by both receive overloads.</summary>
     private readonly Exception? _receiveException;
 
+    /// <summary>An optional send failure surfaced by the send overload.</summary>
+    private readonly Exception? _sendException;
+
     /// <summary>Completes blocked close work after abort.</summary>
     private readonly TaskCompletionSource _closeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -34,18 +37,21 @@ internal sealed class FakeWebSocket : WebSocket
     /// <param name="blockCloseOutput">Whether a close response should remain pending.</param>
     /// <param name="initialState">The socket state visible at construction.</param>
     /// <param name="receiveException">An optional exception thrown by receive operations.</param>
+    /// <param name="sendException">An optional exception thrown by the send operation.</param>
     public FakeWebSocket(
         IEnumerable<string>? receiveMessages = null,
         bool blockClose = false,
         bool blockCloseOutput = false,
         WebSocketState initialState = WebSocketState.Open,
-        Exception? receiveException = null)
+        Exception? receiveException = null,
+        Exception? sendException = null)
     {
         _receiveMessages = new Queue<byte[]>((receiveMessages ?? [DefaultMessage]).Select(Encoding.UTF8.GetBytes));
         _blockClose = blockClose;
         _blockCloseOutput = blockCloseOutput;
         _state = initialState;
         _receiveException = receiveException;
+        _sendException = sendException;
     }
 
     /// <summary>Records whether the array-segment receive overload was called.</summary>
@@ -162,6 +168,6 @@ internal sealed class FakeWebSocket : WebSocket
         bool endOfMessage,
         CancellationToken cancellationToken)
     {
-        return Task.CompletedTask;
+        return _sendException is not null ? Task.FromException(_sendException) : Task.CompletedTask;
     }
 }
