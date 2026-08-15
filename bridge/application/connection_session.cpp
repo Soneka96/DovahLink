@@ -28,7 +28,7 @@ void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& e
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
                           security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                           ConnectionId connection, const CharacterStateProvider& stateProvider,
-                          SteadyNowProvider steadyNow) {
+                          const ActivePlayContext& activePlayContext, SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
         return;
     }
@@ -113,7 +113,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         auto dispatch =
             ProcessInboundMessage(*raw, receivedMessageCount, sessionId, protocolVersion, connection, sessionManager,
                                   replayGuard, violations, rateLimiter, timeout, stateProvider, revisions,
-                                  steadyNow(), std::chrono::system_clock::now());
+                                  activePlayContext, steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

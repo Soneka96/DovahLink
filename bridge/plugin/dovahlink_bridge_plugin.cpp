@@ -193,20 +193,21 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     // The authoritative, play-context-owned identity and state introduced by
     // task.md's PlayContext restructuring. `characterStateStore` above stays
-    // the v1 dispatch path, completely unchanged: message_dispatcher,
-    // subscription_handler, and RunConnectionSession still read from it, and
+    // the v1 dispatch path, completely unchanged: message_dispatcher and
+    // subscription_handler still read from it for v1 connections, and
     // `levelIncreaseHandler` still writes into it. `activePlayContext` is
-    // real and lifecycle-driven from here on -- GameLifecycleTracker
-    // transitions create and invalidate its play contexts -- but nothing
-    // reads its character state or revisions until version-routed dispatch
-    // (v1 session-scoped, v2 play-context-scoped) is added.
+    // real and lifecycle-driven -- GameLifecycleTracker transitions create
+    // and invalidate its play contexts -- and message_dispatcher.cpp now
+    // reads its character state and revisions for v2 connections; v1
+    // connections never touch it.
     static dovahlink::application::GameLifecycleTracker lifecycleTracker;
     static dovahlink::application::ActivePlayContext activePlayContext;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker, activePlayContext);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore);
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore,
+        activePlayContext);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

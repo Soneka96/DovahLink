@@ -114,7 +114,8 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
-                                                              tokenThrottle, sessionManager, characterStateStore);
+                                                              tokenThrottle, sessionManager, characterStateStore,
+                                                              activePlayContext);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();

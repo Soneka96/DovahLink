@@ -28,11 +28,12 @@ public:
     /// @param tokenStore One-time token store shared by connections.
     /// @param tokenThrottle Failed-token throttle shared by connections.
     /// @param sessionManager Session ownership manager.
-    /// @param stateProvider Provider of current character state.
+    /// @param stateProvider Provider of current character state on the v1 (session-scoped) path.
+    /// @param activePlayContext Source of the acquired play context on the v2 (play-context-scoped) path.
     BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
                      transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                     const CharacterStateProvider& stateProvider);
+                     const CharacterStateProvider& stateProvider, const ActivePlayContext& activePlayContext);
 
     /// Stops and joins any workers that remain active.
     ~BridgeWorkerPool() override;
@@ -78,6 +79,9 @@ private:
 
     /// Source of captured character state.
     const CharacterStateProvider& stateProvider_;
+
+    /// Source of the acquired play context on the v2 (play-context-scoped) path.
+    const ActivePlayContext& activePlayContext_;
 
     /// Signals both accept workers to stop.
     std::atomic<bool> stopping_{false};

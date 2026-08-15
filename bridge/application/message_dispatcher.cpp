@@ -93,6 +93,16 @@ DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::V
     return result;
 }
 
+/// Supplies the existing unavailable character-state shape (every field
+/// absent) for the v2 path when no play context is currently active. Reuses
+/// HandleSubscribe/HandleSnapshotRequest unchanged rather than inventing a
+/// new wire signal, per protocol/schema/README.md's v2 section.
+class NullCharacterStateProvider : public CharacterStateProvider {
+public:
+    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
+    [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return CharacterSnapshot{}; }
+};
+
 /// Builds a pong response correlated with an incoming ping.
 /// @param pingEnvelope Envelope of the ping being acknowledged.
 /// @param sessionId Authenticated session identifier.
@@ -121,6 +131,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       security::InboundMessageRateLimiter& rateLimiter,
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
+                                      const ActivePlayContext& activePlayContext,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
     ++receivedMessageCount;
@@ -188,8 +199,31 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         return FromHandlerResponse(std::move(*error), violations, steadyNow);
     }
 
+    // Routes to v1's session-scoped state, this connection's acquired v2
+    // play context, or (v2 with no active context) throwaway state
+    // producing the existing unavailable shape -- resolved once so
+    // kSubscribe and kSnapshotRequest below share identical routing, per
+    // protocol/schema/README.md's v2 section ("NoContext ... reuses the
+    // existing unavailable state-area shape"). The throwaway RevisionTracker
+    // is freshly constructed on every call, so a NoContext response always
+    // reports revision 1: there is no authoritative state outside a play
+    // context for a revision to persist against, and the client already
+    // keys staleness off `playContextId: null` rather than this number
+    // (ARCHITECTURE.md's "Authoritative state and revisions").
+    std::shared_ptr<PlayContext> context =
+        protocolVersion >= 2 ? activePlayContext.AcquireCurrent() : nullptr;
+    NullCharacterStateProvider noContextProvider;
+    RevisionTracker noContextRevisions;
+    const CharacterStateProvider& effectiveProvider =
+        protocolVersion < 2 ? stateProvider
+        : context           ? static_cast<const CharacterStateProvider&>(context->characterState)
+                             : static_cast<const CharacterStateProvider&>(noContextProvider);
+    RevisionTracker& effectiveRevisions =
+        protocolVersion < 2 ? revisions : (context ? context->revisions : noContextRevisions);
+
     if (envelope->messageType == protocol::message_type::kSubscribe) {
-        auto result = HandleSubscribe(*envelope, sessionId, protocolVersion, stateProvider, revisions, wallNow);
+        auto result =
+            HandleSubscribe(*envelope, sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
         DispatchResult dispatch = FromHandlerResponse(std::move(result.subscriptionAck), violations, steadyNow);
         for (auto& snapshot : result.snapshots) {
             dispatch.responses.push_back(std::move(snapshot));
@@ -198,7 +232,8 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     }
 
     // Only kSnapshotRequest remains, per kAllowedMessageTypes.
-    auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, stateProvider, revisions, wallNow);
+    auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, effectiveProvider,
+                                          effectiveRevisions, wallNow);
     return FromHandlerResponse(std::move(response), violations, steadyNow);
 }
 

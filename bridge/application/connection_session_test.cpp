@@ -22,6 +22,7 @@
 #include <thread>
 #include <utility>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::CharacterSnapshot;
 using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::RunConnectionSession;
@@ -108,6 +109,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     int clockCalls = 0;
     // Simulate a hello completing at +4s, then authenticated traffic at
@@ -132,7 +134,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
-                             stateProvider, steadyNow);
+                             stateProvider, activePlayContext, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -202,6 +204,7 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -210,7 +213,8 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
+                             activePlayContext);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -271,6 +275,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     for (int failure = 0; failure < 4; ++failure) {
         tokenThrottle.RecordFailure(start + std::chrono::seconds(4));
@@ -289,7 +294,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1,
-                             stateProvider, steadyNow);
+                             stateProvider, activePlayContext, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -340,6 +345,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
     FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -348,7 +354,8 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
+                             activePlayContext);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);

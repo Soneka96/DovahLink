@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::CharacterSnapshot;
 using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::ConnectionTimeoutTracker;
@@ -59,6 +60,8 @@ struct Fixture {
     FakeCharacterStateProvider stateProvider;
     /// Tracks revisions for state responses and events.
     RevisionTracker revisions;
+    /// Source of the acquired play context on the v2 path; empty (kNoContext) until a test begins one.
+    ActivePlayContext activePlayContext;
 
     /// Creates the fixture with its test session already authenticated.
     Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId)) {
@@ -71,7 +74,7 @@ struct Fixture {
                            std::int64_t protocolVersion = kSupportedProtocolVersion) {
         return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, protocolVersion, kConnection,
                                      sessions, replayGuard, violations, rateLimiter, timeout, stateProvider,
-                                     revisions, steadyNow, std::chrono::system_clock::now());
+                                     revisions, activePlayContext, steadyNow, std::chrono::system_clock::now());
     }
 };
 
@@ -79,6 +82,20 @@ struct Fixture {
 std::string PingMessage(std::string messageId = "message-ping-1") {
     return R"({"protocolVersion": 1, "messageType": "ping", "messageId": ")" + messageId +
            R"(", "sessionId": ")" + kSessionId + R"(", "correlationId": null, "payload": {}})";
+}
+
+/// Builds a subscribe envelope for the character state area at the given protocol version.
+std::string SubscribeMessage(std::int64_t protocolVersion, std::string messageId = "message-sub-1") {
+    return R"({"protocolVersion": )" + std::to_string(protocolVersion) +
+           R"(, "messageType": "subscribe", "messageId": ")" + messageId + R"(", "sessionId": ")" + kSessionId +
+           R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})";
+}
+
+/// Builds a snapshot_request envelope for the character state area at the given protocol version.
+std::string SnapshotRequestMessage(std::int64_t protocolVersion, std::string messageId = "message-snap-req-1") {
+    return R"({"protocolVersion": )" + std::to_string(protocolVersion) +
+           R"(, "messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" +
+           kSessionId + R"(", "correlationId": null, "payload": {"stateArea": "character"}})";
 }
 
 }  // namespace
@@ -146,6 +163,185 @@ TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a sn
     REQUIRE(result.responses.size() == 2);
     CHECK(result.responses[0].messageType == "subscription_ack");
     CHECK(result.responses[1].messageType == "state_snapshot");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 path with no active play context returns the unavailable "
+          "character shape, not the v1 provider's data",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+
+    auto result = fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 2);
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(result.responses[1].payload);
+    REQUIRE(snapshot.has_value());
+    auto characterState = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(characterState.has_value());
+    CHECK_FALSE(characterState->level.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage's v2 path with an active play context reads that context's "
+          "character state, not the v1 provider's",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto context = fixture.activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(99);
+
+    auto result = fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 2);
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(result.responses[1].payload);
+    REQUIRE(snapshot.has_value());
+    auto characterState = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(characterState.has_value());
+    REQUIRE(characterState->level.has_value());
+    CHECK(*characterState->level == 99);
+}
+
+TEST_CASE("ProcessInboundMessage's v1 path ignores an active v2 play context",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto context = fixture.activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(99);
+
+    auto result = fixture.Process(SubscribeMessage(kSupportedProtocolVersion));
+
+    REQUIRE(result.responses.size() == 2);
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(result.responses[1].payload);
+    REQUIRE(snapshot.has_value());
+    auto characterState = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(characterState.has_value());
+    REQUIRE(characterState->level.has_value());
+    // The fixture's v1 stateProvider always reports level 7 (FakeCharacterStateProvider above);
+    // seeing it rather than 99 proves v1 never reads the active play context.
+    CHECK(*characterState->level == 7);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision counter when the "
+          "play context is replaced",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+
+    auto firstSubscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(firstSubscribe.responses.size() == 2);
+    auto firstSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(firstSubscribe.responses[1].payload);
+    REQUIRE(firstSnapshot.has_value());
+    CHECK(firstSnapshot->revision == 1);
+
+    auto secondRequest = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-1"),
+                                         SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(secondRequest.responses.size() == 1);
+    auto secondSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(secondRequest.responses[0].payload);
+    REQUIRE(secondSnapshot.has_value());
+    CHECK(secondSnapshot->revision == 2);
+
+    // A new play context replaces the old one; its revision counter starts
+    // fresh rather than continuing from 2 (application/play_context_test.cpp
+    // proves this at the ActivePlayContext level; this proves it flows
+    // through actual dispatch).
+    fixture.activePlayContext.Begin("context-2");
+    auto afterReplace = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-2"),
+                                        SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(afterReplace.responses.size() == 1);
+    auto snapshotAfterReplace = dovahlink::protocol::DecodeStateSnapshotPayload(afterReplace.responses[0].payload);
+    REQUIRE(snapshotAfterReplace.has_value());
+    CHECK(snapshotAfterReplace->revision == 1);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 path falls back to the unavailable shape after the active "
+          "play context is reset, without crashing",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto context = fixture.activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(99);
+
+    auto withContext =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(withContext.responses.size() == 2);
+    auto withContextSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(withContext.responses[1].payload);
+    REQUIRE(withContextSnapshot.has_value());
+    auto withContextState = dovahlink::protocol::DecodeCharacterState(withContextSnapshot->data);
+    REQUIRE(withContextState.has_value());
+    REQUIRE(withContextState->level.has_value());
+    CHECK(*withContextState->level == 99);
+
+    // A return to the main menu (or any invalidation without a replacement)
+    // clears the active context entirely; the next v2 request must not
+    // dereference the now-dangling handle, and must fall back to the same
+    // unavailable shape NoContext always produces.
+    fixture.activePlayContext.Reset();
+    auto afterReset = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2), SteadyClock::now(),
+                                      /*protocolVersion=*/2);
+    REQUIRE(afterReset.responses.size() == 1);
+    auto afterResetSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(afterReset.responses[0].payload);
+    REQUIRE(afterResetSnapshot.has_value());
+    auto afterResetState = dovahlink::protocol::DecodeCharacterState(afterResetSnapshot->data);
+    REQUIRE(afterResetState.has_value());
+    CHECK_FALSE(afterResetState->level.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage's v2 path with an active play context reads that context's "
+          "character state via snapshot_request too, not just subscribe",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto context = fixture.activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(42);
+
+    auto result = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2), SteadyClock::now(),
+                                  /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(result.responses[0].payload);
+    REQUIRE(snapshot.has_value());
+    auto characterState = dovahlink::protocol::DecodeCharacterState(snapshot->data);
+    REQUIRE(characterState.has_value());
+    REQUIRE(characterState->level.has_value());
+    CHECK(*characterState->level == 42);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 NoContext path reports revision 1 on every independent call, "
+          "never persisting across them",
+          "[application][message_dispatcher]") {
+    // Documents the deliberate NoContext revision behavior explained in
+    // message_dispatcher.cpp: each call gets a fresh throwaway
+    // RevisionTracker, since there is no authoritative state to version
+    // without a play context.
+    Fixture fixture;
+
+    auto first = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-1"),
+                                 SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(first.responses.size() == 1);
+    auto firstSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(first.responses[0].payload);
+    REQUIRE(firstSnapshot.has_value());
+    CHECK(firstSnapshot->revision == 1);
+
+    auto second = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-2"),
+                                  SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(second.responses.size() == 1);
+    auto secondSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(second.responses[0].payload);
+    REQUIRE(secondSnapshot.has_value());
+    CHECK(secondSnapshot->revision == 1);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 capabilities handling is unaffected by play-context routing",
+          "[application][message_dispatcher]") {
+    // HandleClientCapabilities never touches CharacterStateProvider/
+    // RevisionTracker, so it must behave identically under v2 whether or
+    // not a play context is active -- proven explicitly here rather than
+    // left as an unstated assumption.
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    std::string message =
+        R"({"protocolVersion": 2, "messageType": "capabilities", "messageId": "message-cap-1", )"
+        R"("sessionId": ")" +
+        std::string(kSessionId) + R"(", "correlationId": null, "payload": {"capabilities": []}})";
+
+    auto result = fixture.Process(message, SteadyClock::now(), /*protocolVersion=*/2);
+
+    CHECK_FALSE(result.closeConnection);
+    CHECK(result.responses.empty());
 }
 
 TEST_CASE("ProcessInboundMessage accepts an empty capabilities list with no response",

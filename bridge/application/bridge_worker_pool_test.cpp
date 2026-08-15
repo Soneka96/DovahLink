@@ -22,6 +22,7 @@
 #include <string>
 #include <thread>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::CharacterSnapshot;
 using dovahlink::application::CharacterStateProvider;
@@ -87,8 +88,11 @@ struct Fixture {
     SessionManager sessionManager;
     /// Provides the deterministic character snapshot.
     FakeCharacterStateProvider stateProvider;
+    /// Source of the acquired play context on the v2 path; empty for these v1 tests.
+    ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4, listenerV6, slot, tokenStore, tokenThrottle, sessionManager, stateProvider};
+    BridgeWorkerPool pool{listenerV4,      listenerV6,   slot,           tokenStore,
+                         tokenThrottle,    sessionManager, stateProvider, activePlayContext};
 };
 
 }  // namespace
