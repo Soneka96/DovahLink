@@ -18,9 +18,11 @@ public static class BridgeScenario
     /// <param name="token">The one-time local authentication token.</param>
     /// <param name="messageId">The message identifier for the envelope.</param>
     /// <param name="supportedProtocolVersions">The protocol versions supported by the client; defaults to version 1.</param>
+    /// <param name="clientId">The logical client identity to offer; omitted from the payload when null,
+    /// required by the bridge once protocol version 2 is negotiated.</param>
     /// <returns>A hello envelope containing the client endpoint, supported protocol versions, and authentication details.</returns>
     public static Envelope HelloEnvelope(
-        string token, string messageId = "message-hello-1", int[]? supportedProtocolVersions = null)
+        string token, string messageId = "message-hello-1", int[]? supportedProtocolVersions = null, string? clientId = null)
     {
         var payload = new JsonObject
         {
@@ -32,6 +34,10 @@ public static class BridgeScenario
                 ["token"] = token,
             },
         };
+        if (clientId is not null)
+        {
+            payload["clientId"] = clientId;
+        }
         return new Envelope(0, "hello", messageId, null, null, payload);
     }
 
