@@ -1,4 +1,4 @@
-# Protocol schema v1
+# Protocol schema
 
 ## Common envelope
 
@@ -7,25 +7,35 @@ object per message; framing is not part of the JSON payload.
 
 ```json
 {
-  "protocolVersion": 1,
   "messageType": "state_snapshot",
   "messageId": "opaque-message-id",
   "sessionId": "opaque-connection-id",
   "correlationId": null,
-  "payload": {}
+  "payload": {},
+  "bridgeInstanceId": "opaque-bridge-instance-id",
+  "playContextId": null,
+  "clientId": "opaque-client-id"
 }
 ```
 
 | Field | Type | Required | Meaning |
 |---|---|---:|---|
-| `protocolVersion` | non-negative integer | yes | `0` for pre-negotiation `hello`, `hello_ack`, and errors sent before a version is selected; after `hello_ack` selects v1, every message uses `1`. |
 | `messageType` | string | yes | Canonical message identifier. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
+| `bridgeInstanceId` | string or `null` | yes | Identifies the running bridge process; changes on every bridge restart. `null` on the client's own `hello` (the client does not know it yet) and on a narrow set of early connection-hygiene rejections the bridge cannot attach an identity to; present otherwise. |
+| `playContextId` | string or `null` | yes | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load, or after a return to the main menu) — genuine semantic absence, not a placeholder. |
+| `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` before `hello` completes, the same shape `sessionId` already uses. |
 
-Unknown top-level fields are ignored only when the negotiated version permits forward-compatible reading. Required fields with the wrong type invalidate the message. Every message type below lists its required payload fields; fields not listed are not sent in v1.
+Unknown top-level fields are ignored only when forward-compatible reading is permitted by the
+current schema. Required fields with the wrong type invalidate the message. Every message type below
+lists its required payload fields; fields not listed are not sent.
+
+Compatibility with this schema is identified by the DovahLink Bridge/mod release version, not an
+independent protocol-generation number carried on every message — see
+[`ai/context/protocol/compatibility.md`](../../ai/context/protocol/compatibility.md).
 
 ## State envelope
 
@@ -41,9 +51,14 @@ Unknown top-level fields are ignored only when the negotiated version permits fo
 ```
 
 - `stateArea` is a canonical identifier such as `character` or `location`.
-- `revision` is a non-negative integer, monotonically increasing within one state area and session.
-- Revisions are scoped to one state area and session. They reset when `sessionId` changes and are
-  never compared across sessions.
+- `revision` is a non-negative integer, monotonically increasing within one
+  `(bridgeInstanceId, playContextId, stateArea)`.
+- A revision belongs to that authoritative bridge instance, play context, and state area rather
+  than to a socket session: it advances only when that authoritative state changes, is not reset by
+  a reconnect, and is invalidated when the play context changes. Clients detect stale cached state
+  by comparing `(bridgeInstanceId, playContextId)` against what they have cached; a mismatch means
+  the cached state came from a different bridge lifetime or play context and must be discarded
+  before the next snapshot is trusted.
 - `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
 - `data` contains the state-area contract.
 - An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.
@@ -60,7 +75,7 @@ An event additionally contains `baseRevision`, the revision the event expects th
 }
 ```
 
-In v1, `data` is the complete post-change state for the state area, not a patch. `revision` must equal `baseRevision + 1`. If an event's `revision` is at or below the client's current revision, the client ignores it as a duplicate or stale message. If its `revision` is higher than the current revision and `baseRevision` does not equal the current revision, the client marks the state area stale and requests a fresh snapshot.
+`data` is the complete post-change state for the state area, not a patch. `revision` must equal `baseRevision + 1`. If an event's `revision` is at or below the client's current revision, the client ignores it as a duplicate or stale message. If its `revision` is higher than the current revision and `baseRevision` does not equal the current revision, the client marks the state area stale and requests a fresh snapshot.
 
 An accepted snapshot becomes the baseline for its state area and supersedes older events for that
 area.
@@ -73,12 +88,10 @@ Negotiates the connection before any optional state messages. The connecting cli
 `hello` first; the bridge never initiates a connection or sends `hello` itself, and only replies
 with `hello_ack` after it receives and validates one.
 
-The envelope uses `protocolVersion: 0` because no version has been selected yet. The payload fields are:
-
 ```json
 {
   "endpoint": "client",
-  "supportedProtocolVersions": [1],
+  "clientId": "opaque-client-id",
   "auth": {
     "method": "one_time_local_token",
     "token": "redacted-in-documentation"
@@ -86,28 +99,42 @@ The envelope uses `protocolVersion: 0` because no version has been selected yet.
 }
 ```
 
-`endpoint` identifies the sender's role and is always `client` in v1, because only the connecting
-client sends `hello`.
+`endpoint` identifies the sender's role and is always `client`, because only the connecting client
+sends `hello`. `clientId` identifies the logical client/installation independently of any
+connection; it persists across reconnects and is not itself a trust credential.
 
-Required payload fields: `endpoint`, `supportedProtocolVersions`, `auth`. v1 accepts only `auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack` only after token validation.
+Required payload fields: `endpoint`, `clientId`, `auth`. The current contract accepts only
+`auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack`
+only after token validation.
 
 ### `hello_ack`
 
-Uses `protocolVersion: 0`, carries the newly issued non-null `sessionId` in its envelope, and selects one common version:
+Carries the newly issued non-null `sessionId` in its envelope, and exposes the bootstrap
+compatibility information a client needs before trusting the rest of the exchange:
 
 ```json
 {
-  "selectedProtocolVersion": 1
+  "bridgeVersion": "0.1.0",
+  "clientIdentityKind": "unpaired"
 }
 ```
 
-Required payload field: `selectedProtocolVersion`. All messages after this acknowledgement use the selected version and the server-issued session identity.
+`bridgeVersion` is the DovahLink Bridge/mod release version (matching `bridge/vcpkg.json`'s
+`version-string`). The bridge always answers a validated `hello` with `hello_ack`; it does not
+receive or evaluate a client-declared compatibility range itself. Checking `bridgeVersion` against
+its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
+responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.
+
+`clientIdentityKind` is always `"unpaired"` in the current phase; a future pairing phase adds
+`"paired"` without changing this shape.
+
+Required payload fields: `bridgeVersion`, `clientIdentityKind`.
 
 `hello_ack.correlationId` is the `messageId` of the `hello` it answers.
 
 ### `capabilities`
 
-Declares supported features after version negotiation.
+Declares supported features after `hello_ack`.
 
 ```json
 {
@@ -117,11 +144,15 @@ Declares supported features after version negotiation.
 }
 ```
 
-Capability IDs and versions are canonical protocol values. A missing capability means the feature is unavailable and the client must remain usable without it.
+Capability IDs and versions are canonical protocol values, independent of the Bridge release
+version. A missing capability means the feature is unavailable and the client must remain usable
+without it.
 
 Required payload field: `capabilities`. Each capability requires `id` and `version`.
 
-Both endpoints send `capabilities`. In v1, the only registered capability is `state.character` version `1`; unregistered capability IDs are rejected. The bridge may advertise `state.character`; the client sends an empty capability list because no client-side capability IDs are defined yet.
+Both endpoints send `capabilities`. The only registered capability is `state.character` version
+`1`; unregistered capability IDs are rejected. The bridge may advertise `state.character`; the
+client sends an empty capability list because no client-side capability IDs are defined yet.
 
 ### `subscribe`
 
@@ -177,11 +208,11 @@ An initial snapshot correlates to `subscribe`; a recovery snapshot correlates to
 
 Contains one ordered update from `baseRevision` to `revision` for one subscribed state area.
 
-Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. v1 events contain complete post-change state, not partial patches.
+Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. Events contain complete post-change state, not partial patches.
 
 ### `character` state area
 
-The v1 `character` state area contains a complete read-only snapshot of the player's
+The `character` state area contains a complete read-only snapshot of the player's
 current level and three resource pools:
 
 ```json
@@ -205,8 +236,8 @@ Reports a structured failure without exposing infrastructure exceptions:
 
 ```json
 {
-  "code": "unsupported_version",
-  "message": "No mutually supported protocol version",
+  "code": "unauthenticated",
+  "message": "Token validation failed",
   "retryable": false,
   "details": null
 }
@@ -216,12 +247,16 @@ Reports a structured failure without exposing infrastructure exceptions:
 
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
 
-Canonical v1 error codes include `malformed_message`, `frame_too_large`, `unsupported_version`, `unsupported_capability`, `unauthenticated`, `unauthorized`, `replayed_message`, `stale_session`, `rate_limited`, and `internal_error`. Error codes are for branching; diagnostic messages are not.
+Canonical error codes include `malformed_message`, `frame_too_large`, `unsupported_capability`,
+`unauthenticated`, `unauthorized`, `replayed_message`, `stale_session`, `rate_limited`, and
+`internal_error`. Error codes are for branching; diagnostic messages are not. There is no
+Bridge-version-incompatibility wire error code: a client detects incompatibility itself from
+`hello_ack.bridgeVersion` and fails without completing the rest of the exchange, per
+`ai/context/protocol/compatibility.md`.
 
-An error sent before version negotiation completes uses `protocolVersion: 0`. If no session has
-been established on that socket, its `sessionId` is also `null`; this includes
-`unsupported_version` and authentication failures. After a successful `hello_ack`, errors use the
-selected protocol version (`1` in v1) and the active session identity.
+If no session has been established on a socket, an `error`'s `sessionId` is `null`; this includes
+authentication failures and violations detected before decoding completes. After a successful
+`hello_ack`, errors carry the active session identity.
 
 ### `ping` and `pong`
 
@@ -231,11 +266,13 @@ Carry no application state. They prove liveness for the current `sessionId`.
 
 ## Session and recovery rules
 
-1. The connecting client sends `hello` using `protocolVersion: 0`.
-2. The bridge selects the highest mutually supported protocol version and replies with `hello_ack`;
-   if none exists, the bridge replies with an `unsupported_version` error using
-   `protocolVersion: 0` and `sessionId: null`, then ends the connection.
-3. They exchange `capabilities` using the selected version.
+1. The connecting client sends `hello`.
+2. The bridge authenticates the client and replies with `hello_ack`, which exposes the bridge's
+   release version for the client to evaluate against its own declared supported range. The bridge
+   does not reject a connection on compatibility grounds; it does not receive or evaluate a
+   client-declared version range itself. A client that finds the exposed version outside its
+   supported range fails explicitly on its own side rather than continuing the exchange.
+3. They exchange `capabilities`.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
 6. Each authenticated socket receives a unique `sessionId`. The session is bound exclusively to
@@ -248,108 +285,3 @@ Carry no application state. They prove liveness for the current `sessionId`.
    baseline.
 9. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
 10. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
-
-## Protocol schema v2 (identity foundation)
-
-Protocol v2 is additive to v1: the same envelope and message shapes above apply, extended with the
-identity fields below. v1 is unchanged and remains a fully supported wire contract; a v1-only client
-that never offers version 2 is unaffected.
-
-### Envelope identity fields
-
-Once negotiation selects v2, every envelope from `hello_ack` onward gains three fields:
-
-```json
-{
-  "protocolVersion": 2,
-  "messageType": "state_snapshot",
-  "messageId": "opaque-message-id",
-  "sessionId": "opaque-connection-id",
-  "correlationId": null,
-  "payload": {},
-  "bridgeInstanceId": "opaque-bridge-instance-id",
-  "playContextId": null,
-  "clientId": "opaque-client-id"
-}
-```
-
-| Field | Type | Meaning |
-|---|---|---|
-| `bridgeInstanceId` | string | Identifies the running bridge process. Changes on every bridge restart. |
-| `playContextId` | string or `null` | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load). |
-| `clientId` | string or `null` | Identifies the logical client, established at `hello`. `null` before `hello` completes, the same shape `sessionId` already uses. |
-
-Encoding is explicitly version-gated by `protocolVersion`, not inferred from whether a value is
-present: v1 omits these three JSON keys entirely; v2 always emits them, as a value or `null`. A v2
-reader tolerates a missing key the same as an explicit `null`; only a writer's negotiated version
-decides whether the keys appear at all.
-
-### Identity lifetimes
-
-- `bridgeInstanceId` — one running bridge process lifetime; a restart mints a new one.
-- `playContextId` — the currently loaded play context. A new game, a load (including reloading the
-  same save, or loading a different save), and a return to the main menu each invalidate the previous
-  context; a new game or a successful load mints a fresh one. Not derived from save filename or save
-  identity.
-- `clientId` — one logical client/installation, supplied by the client in `hello` and independent of
-  any connection. Persists across reconnects.
-- `sessionId` — unchanged from v1: one authenticated socket session, invalidated when its socket
-  closes.
-
-Clients detect stale cached state by comparing `(bridgeInstanceId, playContextId)` against what they
-have cached; a mismatch means the cached state came from a different bridge lifetime or play context
-and must be discarded before the next snapshot is trusted.
-
-### State revisions (v2)
-
-A v2 state revision belongs to `(bridgeInstanceId, playContextId, stateArea)` rather than to a
-session: it advances only when that authoritative state changes, is not reset by a reconnect, and is
-invalidated when the play context changes. v1's session-scoped revisions (above) are unchanged.
-
-### `hello` (v2)
-
-`hello` gains a required `clientId` once the client offers version 2:
-
-```json
-{
-  "endpoint": "client",
-  "supportedProtocolVersions": [1, 2],
-  "clientId": "opaque-client-id",
-  "auth": {
-    "method": "one_time_local_token",
-    "token": "redacted-in-documentation"
-  }
-}
-```
-
-`clientId` is required in the payload once `supportedProtocolVersions` includes `2`; it is validated
-at the application layer after negotiation, not by the payload shape decoder.
-
-### `hello_ack` (v2)
-
-The bridge selects the highest mutually supported version. Once that selection is `2`, `hello_ack`'s
-own envelope uses `protocolVersion: 2` (unlike v1, which keeps `hello_ack` at `0`) and carries the
-envelope-level identity fields above:
-
-```json
-{
-  "selectedProtocolVersion": 2,
-  "clientIdentityKind": "unpaired"
-}
-```
-
-`clientIdentityKind` is always `"unpaired"` in this phase; a future pairing phase adds `"paired"`
-without changing this shape.
-
-### Negotiation
-
-`hello.supportedProtocolVersions` may list both `1` and `2`. The bridge selects the highest version
-it also supports and replies accordingly; an old v1-only client that only ever offers `[1]` continues
-to receive exactly the v1 contract above, unchanged.
-
-### Existing connected clients learn context transitions
-
-Protocol v2 introduces no new message type for this. A connection already subscribed learns about a
-`playContextId` change on its next inbound message, bounded by that connection's own keepalive
-cadence: the bridge compares the current context against what that connection was last told, and
-prepends an unavailable-state message or a fresh snapshot to that call's responses when it changed.

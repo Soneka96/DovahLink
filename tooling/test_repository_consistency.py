@@ -13,7 +13,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     """Verify that release-facing configuration and documentation remain aligned."""
 
     def test_target_identity_and_revision_architecture_is_explicit(self) -> None:
-        """Keep target state ownership distinct from the published session-scoped v1 contract."""
+        """Keep target state ownership explicit in the current canonical contract."""
         architecture = self._read("ARCHITECTURE.md")
         schema = self._read("protocol/schema/README.md")
         normalized_architecture = self._normalize_whitespace(architecture)
@@ -41,7 +41,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "reconnecting does not create a new authoritative revision",
             "use `playContextId` and the state-area revision together to reject stale state",
             "invalidates the previous context's state and establishes fresh authoritative state",
-            "must not be implemented by silently reinterpreting existing v1 messages",
+            "must not be implemented by silently reinterpreting messages from the previously "
+            "published experimental release",
             "Transport location is not identity",
             "receives no undocumented protocol behavior or privileged access",
             "Screens, dashboard modules, orientation, widget layout",
@@ -49,19 +50,20 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, normalized_architecture)
 
         self.assertIn(
-            "Revisions are scoped to one state area and session",
+            "belongs to that authoritative bridge instance, play context, and state area",
             schema,
         )
-        # The v1 sections above stay clean of the target identity terms;
-        # protocol v2's own section is where they are deliberately introduced
-        # (this inverts a prior assertion that required their total absence,
-        # back when only v1 existed).
-        v2_heading = "## Protocol schema v2 (identity foundation)"
-        self.assertIn(v2_heading, schema)
-        v1_section = schema[: schema.index(v2_heading)]
         for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
-            self.assertNotIn(target_identity, v1_section)
             self.assertIn(target_identity, schema)
+        # The retired protocol-generation compatibility model must not silently creep back in.
+        for retired_term in (
+            "protocolVersion",
+            "supportedProtocolVersions",
+            "selectedProtocolVersion",
+            "unsupported_version",
+        ):
+            self.assertNotIn(retired_term, schema)
+            self.assertNotIn(retired_term, architecture)
         self.assertIn(
             "The official Flutter application is one client of the canonical protocol",
             normalized_architecture,
