@@ -60,7 +60,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 ## File rules
 
-- One public class or model per file.
+- One primary public class or model per file. Datasource files are the documented exception below:
+  each contains both the abstract interface and its concrete implementation.
 - Use these suffixes: `.widget.dart`, `.section.dart`, `.screen.dart`, `.usecase.dart`,
   `.params.dart`, `.entity.dart`, `.model.dart`, `.actions.dart`, `.middleware.dart`,
   `.reducer.dart`, `.selectors.dart`, `.state.dart`, `.viewmodel.dart`, `.repository.dart`,

@@ -20,13 +20,13 @@ Integration tests prove that the SKSE bridge and Flutter client agree on the can
 
 Cover at least:
 
-- initial negotiation
+- compatibility bootstrap
 - capability exchange
 - snapshot delivery
 - ordered event delivery
 - duplicate and out-of-order events
 - reconnect and snapshot recovery
-- incompatible Bridge/client combination
+- an incompatible Bridge/client version during the compatibility bootstrap
 - unsupported capability
 - malformed message
 - oversized frame

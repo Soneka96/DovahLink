@@ -19,8 +19,8 @@ the corresponding `ROADMAP.md` phase to Complete.
 - Revisions now advance only when authoritative state actually changes; repeated unchanged snapshot
   requests reuse the existing revision instead of manufacturing a new one.
 - A client reconnect now preserves the authoritative revision it left off at, instead of resetting
-  it. This is about revision continuity within a session, not the separate one-time-token limitation
-  below, which still requires a bridge restart before a second successful session.
+  it. This is about revision continuity across a reconnect, not the separate one-time-token
+  limitation below, which still requires a bridge restart before a second successful session.
 
 ### Changed
 

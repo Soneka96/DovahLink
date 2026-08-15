@@ -612,6 +612,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "CHANGELOG.md entries must be strictly descending with no duplicate versions.",
         )
 
+    def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
+        """Guard the datasource file-count exception and one shared term for the compatibility
+        bootstrap step and its failure case, across the docs that reference them."""
+        architecture = self._read("ai/context/flutter/architecture.md")
+        self.assertIn(
+            "One primary public class or model per file. Datasource files are the documented "
+            "exception below:",
+            architecture,
+        )
+
+        testing = self._read("ai/context/integration/testing.md")
+        self.assertIn("- compatibility bootstrap\n", testing)
+        self.assertIn(
+            "- an incompatible Bridge/client version during the compatibility bootstrap\n",
+            testing,
+        )
+
+        changelog = self._read("CHANGELOG.md")
+        self.assertIn("revision continuity across a reconnect", changelog)
+
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""
         roadmap = self._read("ROADMAP.md")
