@@ -55,7 +55,7 @@ struct Fixture {
     std::optional<std::string> clientId = "client-1";
 
     /// Creates the fixture with its test session already authenticated.
-    Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId)) {
+    Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, "client-1")) {
         REQUIRE(sessionLease.has_value());
     }
 

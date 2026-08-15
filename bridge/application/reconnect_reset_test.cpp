@@ -34,14 +34,14 @@ const std::string kFingerprint = "fingerprint-1";
 TEST_CASE("a reconnect after disconnect frees the one-connected-client slot for a new session",
           "[application][reconnect_reset]") {
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
 
     // Connection A disconnects (timeout, protocol violation, or a clean close).
     sessionA.reset();
 
     // Connection B's reconnect claims a brand new session, not a resumption of A's.
-    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2");
+    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2", "client-2");
     REQUIRE(sessionB.has_value());
     CHECK(sessions.IsValidForConnection("session-2", kConnectionB));
     CHECK_FALSE(sessions.IsValidForConnection("session-1", kConnectionA));
@@ -80,7 +80,7 @@ TEST_CASE("the same connection reconnecting after invalidation still gets an ent
     // socket handle); this proves reuse of the identifier itself never resumes
     // the old session or its per-session state.
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
     RevisionTracker revisionsA;
     revisionsA.StartSnapshot(kCharacter, kFingerprint);
@@ -90,10 +90,16 @@ TEST_CASE("the same connection reconnecting after invalidation still gets an ent
     sessionA.reset();
 
     // kConnectionA itself reconnects, not a different connection.
-    auto reconnectedSession = sessions.TryCreateSession(kConnectionA, "session-2");
+    auto reconnectedSession = sessions.TryCreateSession(kConnectionA, "session-2", "client-2");
     REQUIRE(reconnectedSession.has_value());
     CHECK(sessions.IsValidForConnection("session-2", kConnectionA));
     CHECK_FALSE(sessions.IsValidForConnection("session-1", kConnectionA));
+    // The reused connection's client identity is the reconnect's own, not a
+    // holdover from the session it replaced -- the same "no shared state
+    // across sessions" property this file proves for revisions and replay.
+    auto clientId = sessions.ClientIdForConnection(kConnectionA);
+    REQUIRE(clientId.has_value());
+    CHECK(*clientId == "client-2");
 
     RevisionTracker revisionsReconnected;
     CHECK(revisionsReconnected.StartSnapshot(kCharacter, kFingerprint) == 1);
@@ -102,7 +108,7 @@ TEST_CASE("the same connection reconnecting after invalidation still gets an ent
 TEST_CASE("the full reconnect flow establishes an independent session end to end",
           "[application][reconnect_reset]") {
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
     RevisionTracker revisionsA;
     ReplayGuard replayA;
@@ -115,7 +121,7 @@ TEST_CASE("the full reconnect flow establishes an independent session end to end
     sessionA.reset();
 
     // Connection B reconnects with entirely fresh per-session state.
-    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2");
+    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2", "client-2");
     REQUIRE(sessionB.has_value());
     RevisionTracker revisionsB;
     ReplayGuard replayB;

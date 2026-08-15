@@ -120,7 +120,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .clientId = hello->clientId,
     };
 
-    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId);
+    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId);
     if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
     }

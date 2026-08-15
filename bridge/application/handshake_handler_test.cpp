@@ -81,6 +81,11 @@ TEST_CASE("HandleHello accepts a valid token and hello", "[application][handshak
     CHECK(*result.response.correlationId == "message-hello-1");
     CHECK_FALSE(result.response.messageId.empty());
     CHECK(sessions.IsValidForConnection(*result.response.sessionId, /*connection=*/1));
+    // The authenticated client identity is now session-owned state, derived
+    // from SessionManager rather than a repeated envelope field.
+    auto sessionClientId = sessions.ClientIdForConnection(/*connection=*/1);
+    REQUIRE(sessionClientId.has_value());
+    CHECK(*sessionClientId == "client-1");
 
     auto ack = dovahlink::protocol::DecodeHelloAckPayload(result.response.payload);
     REQUIRE(ack.has_value());
@@ -336,7 +341,7 @@ TEST_CASE("rate-limited handshakes do not extend the failed-attempt window",
 TEST_CASE("HandleHello rejects a second connection while a session is already active",
           "[application][handshake_handler]") {
     SessionManager sessions;
-    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session");
+    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session", "existing-client");
     REQUIRE(existingLease.has_value());
 
     TokenStore tokenStore(ValidTokenBytes());
