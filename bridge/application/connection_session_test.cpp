@@ -23,8 +23,6 @@
 #include <utility>
 
 using dovahlink::application::ActivePlayContext;
-using dovahlink::application::CharacterSnapshot;
-using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
@@ -46,15 +44,7 @@ using dovahlink::transport::WebSocketSession;
 namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
-
-/// Supplies a deterministic character snapshot to the real connection session.
-class FakeCharacterStateProvider : public CharacterStateProvider {
-public:
-    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
-    [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override {
-        return CharacterSnapshot{.level = 30};
-    }
-};
+constexpr const char* kBridgeVersion = "0.1.0";
 
 /// Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {
@@ -78,22 +68,34 @@ void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socke
     REQUIRE_FALSE(ec);
 }
 
-/// Builds a hello message using the supplied authentication token.
-std::string HelloMessage(const std::string& token) {
-    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
+/// Builds a hello message using the supplied authentication token and clientId.
+std::string HelloMessage(const std::string& token, std::string clientId = "client-1") {
+    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
            R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("supportedProtocolVersions": [1], "auth": {"method": "one_time_local_token", "token": ")" +
-           token + R"("}}})";
+           R"("clientId": ")" +
+           clientId + R"(", "auth": {"method": "one_time_local_token", "token": ")" + token +
+           R"("}}, "bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
-/// Builds a hello message offering protocol v1 and v2 with a clientId, using
-/// the supplied authentication token.
-std::string HelloMessageV2(const std::string& token) {
-    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("supportedProtocolVersions": [1, 2], "clientId": "client-1", )"
-           R"("auth": {"method": "one_time_local_token", "token": ")" +
-           token + R"("}}})";
+/// Builds a ping message for an established session.
+std::string PingMessage(const std::string& sessionId) {
+    return R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": ")" + sessionId +
+           R"(", "correlationId": null, "payload": {}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a subscribe message for the character state area on an established session.
+std::string SubscribeMessage(const std::string& sessionId, std::string messageId = "message-sub-1") {
+    return R"({"messageType": "subscribe", "messageId": ")" + messageId + R"(", "sessionId": ")" + sessionId +
+           R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a snapshot_request message for the character state area on an established session.
+std::string SnapshotRequestMessage(const std::string& sessionId, std::string messageId = "message-snap-1") {
+    return R"({"messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" + sessionId +
+           R"(", "correlationId": null, "payload": {"stateArea": "character"}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 }  // namespace
@@ -108,8 +110,9 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
+    auto context = activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(30);
     auto start = std::chrono::steady_clock::now();
     int clockCalls = 0;
     // Simulate a hello completing at +4s, then authenticated traffic at
@@ -133,8 +136,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext, /*bridgeInstanceId=*/std::nullopt, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -156,16 +159,11 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
 
-    ClientWriteText(clientWs, R"({"protocolVersion": 1, "messageType": "ping", "messageId": "message-ping-1", )"
-                                  R"("sessionId": ")" +
-                                  sessionId + R"(", "correlationId": null, "payload": {}})");
+    ClientWriteText(clientWs, PingMessage(sessionId));
     auto pong = ClientReadEnvelope(clientWs);
     CHECK(pong.messageType == "pong");
 
-    ClientWriteText(clientWs,
-                     R"({"protocolVersion": 1, "messageType": "subscribe", "messageId": "message-sub-1", )"
-                     R"("sessionId": ")" +
-                         sessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    ClientWriteText(clientWs, SubscribeMessage(sessionId));
     auto subscriptionAck = ClientReadEnvelope(clientWs);
     CHECK(subscriptionAck.messageType == "subscription_ack");
     auto snapshot = ClientReadEnvelope(clientWs);
@@ -188,13 +186,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     CHECK(clockCalls >= 4);
 }
 
-TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every response, not just hello_ack",
+TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not just hello_ack",
           "[application][connection_session]") {
-    // Proves the actual end-to-end point of threading
-    // HandshakeResult::negotiatedProtocolVersion through connection_session.cpp:
-    // a v2-negotiated connection's pong, capabilities, subscription_ack, and
-    // state_snapshot all carry protocolVersion 2, not the v1 constant every
-    // one of them used unconditionally before.
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -203,7 +196,6 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
 
@@ -214,8 +206,8 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext, bridgeInstanceId);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -228,12 +220,14 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    ClientWriteText(clientWs, HelloMessageV2(kValidHexToken));
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken));
     auto helloAck = ClientReadEnvelope(clientWs);
     REQUIRE(helloAck.messageType == "hello_ack");
     REQUIRE(helloAck.sessionId.has_value());
-    CHECK(helloAck.protocolVersion == 2);
-    // The end-to-end point of this step: bridgeInstanceId reaches the wire,
+    auto ack = dovahlink::protocol::DecodeHelloAckPayload(helloAck.payload);
+    REQUIRE(ack.has_value());
+    CHECK(ack->bridgeVersion == kBridgeVersion);
+    // The end-to-end point of this test: bridgeInstanceId reaches the wire,
     // and playContextId is null (no play context is active in this test).
     REQUIRE(helloAck.bridgeInstanceId.has_value());
     CHECK(*helloAck.bridgeInstanceId == "bridge-1");
@@ -242,29 +236,20 @@ TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every respon
 
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
-    CHECK(capabilities.protocolVersion == 2);
     REQUIRE(capabilities.bridgeInstanceId.has_value());
     CHECK(*capabilities.bridgeInstanceId == "bridge-1");
 
-    ClientWriteText(clientWs, R"({"protocolVersion": 2, "messageType": "ping", "messageId": "message-ping-1", )"
-                                  R"("sessionId": ")" +
-                                  sessionId + R"(", "correlationId": null, "payload": {}})");
+    ClientWriteText(clientWs, PingMessage(sessionId));
     auto pong = ClientReadEnvelope(clientWs);
     CHECK(pong.messageType == "pong");
-    CHECK(pong.protocolVersion == 2);
     REQUIRE(pong.bridgeInstanceId.has_value());
     CHECK(*pong.bridgeInstanceId == "bridge-1");
 
-    ClientWriteText(clientWs,
-                     R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-1", )"
-                     R"("sessionId": ")" +
-                         sessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    ClientWriteText(clientWs, SubscribeMessage(sessionId));
     auto subscriptionAck = ClientReadEnvelope(clientWs);
     CHECK(subscriptionAck.messageType == "subscription_ack");
-    CHECK(subscriptionAck.protocolVersion == 2);
     auto snapshot = ClientReadEnvelope(clientWs);
     CHECK(snapshot.messageType == "state_snapshot");
-    CHECK(snapshot.protocolVersion == 2);
     REQUIRE(snapshot.bridgeInstanceId.has_value());
     CHECK(*snapshot.bridgeInstanceId == "bridge-1");
     CHECK_FALSE(snapshot.playContextId.has_value());
@@ -291,7 +276,6 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
     activePlayContext.Begin("context-1");
     std::optional<std::string> bridgeInstanceId = "bridge-1";
@@ -303,8 +287,8 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext, bridgeInstanceId);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -317,7 +301,7 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    ClientWriteText(clientWs, HelloMessageV2(kValidHexToken));
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken));
     auto helloAck = ClientReadEnvelope(clientWs);
     REQUIRE(helloAck.messageType == "hello_ack");
     REQUIRE(helloAck.playContextId.has_value());
@@ -336,12 +320,11 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
     REQUIRE_FALSE(serverAcceptEc);
 }
 
-TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses the same play context",
+TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the same play context",
           "[application][connection_session]") {
-    // The mirror of reconnect_reset_test.cpp's v1 "reconnect == fresh
-    // everything" coverage: for v2, ActivePlayContext (and the RevisionTracker
-    // it owns) is pool-lifetime, not per-connection, so a reconnect to the
-    // same still-active play context must NOT reset the revision sequence.
+    // For every connection, ActivePlayContext (and the RevisionTracker it
+    // owns) is pool-lifetime, not per-connection, so a reconnect to the same
+    // still-active play context must NOT reset the revision sequence.
     boost::asio::io_context ioc;
     auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
@@ -360,7 +343,6 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
     // connections below, matching how BridgeWorkerPool actually owns them at
     // pool lifetime rather than per-connection.
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(5);
@@ -375,7 +357,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, firstTokenStore, firstTokenThrottle, sessionManager, /*connection=*/1,
-                             stateProvider, activePlayContext, bridgeInstanceId);
+                             activePlayContext, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket firstClientSocket(ioc);
@@ -387,7 +369,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
     firstClientWs.handshake("127.0.0.1", "/", firstHandshakeEc);
     REQUIRE_FALSE(firstHandshakeEc);
 
-    ClientWriteText(firstClientWs, HelloMessageV2(kValidHexToken));
+    ClientWriteText(firstClientWs, HelloMessage(kValidHexToken));
     auto firstHelloAck = ClientReadEnvelope(firstClientWs);
     REQUIRE(firstHelloAck.messageType == "hello_ack");
     REQUIRE(firstHelloAck.sessionId.has_value());
@@ -399,10 +381,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
     auto firstCapabilities = ClientReadEnvelope(firstClientWs);
     CHECK(firstCapabilities.messageType == "capabilities");
 
-    ClientWriteText(
-        firstClientWs,
-        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-1", "sessionId": ")" +
-            firstSessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    ClientWriteText(firstClientWs, SubscribeMessage(firstSessionId));
     auto firstAck = ClientReadEnvelope(firstClientWs);
     CHECK(firstAck.messageType == "subscription_ack");
     auto firstSnapshot = ClientReadEnvelope(firstClientWs);
@@ -412,10 +391,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
 
     // A real change before the next pull, still on this same connection.
     context->characterState.OnLevelCaptured(6);
-    ClientWriteText(firstClientWs,
-                     R"({"protocolVersion": 2, "messageType": "snapshot_request", "messageId": )"
-                     R"("message-snap-1", "sessionId": ")" +
-                         firstSessionId + R"(", "correlationId": null, "payload": {"stateArea": "character"}})");
+    ClientWriteText(firstClientWs, SnapshotRequestMessage(firstSessionId));
     auto secondSnapshot = ClientReadEnvelope(firstClientWs);
     auto secondDecoded = dovahlink::protocol::DecodeStateSnapshotPayload(secondSnapshot.payload);
     REQUIRE(secondDecoded.has_value());
@@ -440,7 +416,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, secondTokenStore, secondTokenThrottle, sessionManager, /*connection=*/2,
-                             stateProvider, activePlayContext, bridgeInstanceId);
+                             activePlayContext, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket secondClientSocket(ioc);
@@ -452,7 +428,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
     secondClientWs.handshake("127.0.0.1", "/", secondHandshakeEc);
     REQUIRE_FALSE(secondHandshakeEc);
 
-    ClientWriteText(secondClientWs, HelloMessageV2(kValidHexToken));
+    ClientWriteText(secondClientWs, HelloMessage(kValidHexToken));
     auto secondHelloAck = ClientReadEnvelope(secondClientWs);
     REQUIRE(secondHelloAck.messageType == "hello_ack");
     REQUIRE(secondHelloAck.sessionId.has_value());
@@ -473,10 +449,7 @@ TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses t
     // resetting to 1 (proving the revision survives the reconnect) nor
     // advancing past 2 (proving the reused RevisionTracker still correctly
     // sees this as unchanged).
-    ClientWriteText(
-        secondClientWs,
-        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-2", "sessionId": ")" +
-            secondSessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    ClientWriteText(secondClientWs, SubscribeMessage(secondSessionId, "message-sub-2"));
     auto reconnectAck = ClientReadEnvelope(secondClientWs);
     CHECK(reconnectAck.messageType == "subscription_ack");
     auto reconnectSnapshot = ClientReadEnvelope(secondClientWs);
@@ -504,7 +477,6 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     for (int failure = 0; failure < 4; ++failure) {
@@ -523,8 +495,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext, /*bridgeInstanceId=*/std::nullopt, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -574,7 +546,6 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
     SessionManager sessionManager;
-    FakeCharacterStateProvider stateProvider;
     ActivePlayContext activePlayContext;
 
     boost::system::error_code serverAcceptEc;
@@ -584,8 +555,8 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider,
-                             activePlayContext, /*bridgeInstanceId=*/std::nullopt);
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);

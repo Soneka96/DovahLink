@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 using dovahlink::application::ActivePlayContext;
+using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::PlayContext;
@@ -143,4 +144,42 @@ TEST_CASE("ApplyLifecycleTransition with neither field set leaves the active con
     ApplyLifecycleTransition(active, GameLifecycleTracker::Transition{});
 
     CHECK(active.AcquireCurrent() == begun);
+}
+
+TEST_CASE("ActivePlayContextLevelSink forwards a capture into the currently active context",
+          "[application][play_context]") {
+    ActivePlayContext active;
+    auto context = active.Begin("ctx-1");
+    ActivePlayContextLevelSink sink(active);
+
+    sink.OnLevelCaptured(12);
+
+    REQUIRE(context->characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK(*context->characterState.CurrentCharacterSnapshot().level == 12);
+}
+
+TEST_CASE("ActivePlayContextLevelSink drops a capture when no context is active",
+          "[application][play_context]") {
+    ActivePlayContext active;
+    ActivePlayContextLevelSink sink(active);
+
+    // Must not throw or dereference a null context; there is simply nowhere
+    // to attribute the capture.
+    sink.OnLevelCaptured(12);
+
+    CHECK_FALSE(active.AcquireCurrent());
+}
+
+TEST_CASE("ActivePlayContextLevelSink routes to whichever context is active at capture time, "
+          "not the one active when the sink was constructed",
+          "[application][play_context]") {
+    ActivePlayContext active;
+    ActivePlayContextLevelSink sink(active);
+    active.Begin("ctx-1");
+
+    auto second = active.Begin("ctx-2");
+    sink.OnLevelCaptured(7);
+
+    REQUIRE(second->characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK(*second->characterState.CurrentCharacterSnapshot().level == 7);
 }

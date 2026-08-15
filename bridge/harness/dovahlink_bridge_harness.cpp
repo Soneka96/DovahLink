@@ -7,7 +7,6 @@
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
-#include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
 #include "application/play_context.hpp"
@@ -35,6 +34,11 @@ using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
+
+// Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
+// bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
+// stand-in for the real plugin, not an independent release.
+constexpr const char* kBridgeVersion = "0.1.0";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
@@ -122,7 +126,6 @@ int main() {
     dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes), tokenTtl);
     dovahlink::security::FailedTokenThrottle tokenThrottle;
     dovahlink::application::SessionManager sessionManager;
-    dovahlink::application::CharacterStateStore characterStateStore;
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
     dovahlink::application::GameLifecycleTracker lifecycleTracker(
         [playContextIdOverride]() -> std::optional<std::string> {
@@ -132,10 +135,15 @@ int main() {
             return dovahlink::security::GenerateOpaqueId();
         });
     dovahlink::application::ActivePlayContext activePlayContext;
+    // Routes "increase_level" captures below into whichever play context is
+    // active, the same seam dovahlink_bridge_plugin.cpp's real
+    // LevelIncreaseHandler uses; a capture with no active context is dropped,
+    // matching real play (main menu, before any load).
+    dovahlink::application::ActivePlayContextLevelSink levelSink(activePlayContext);
 
     // Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     // generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
-    // process launch, stamped onto every v2 response envelope via
+    // process launch, stamped onto every response envelope via
     // BridgeWorkerPool below and printed after READY so a process-boundary
     // test can observe it changing across a kill-and-relaunch cycle without
     // a running Skyrim.
@@ -144,8 +152,8 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
-                                                              tokenThrottle, sessionManager, characterStateStore,
-                                                              activePlayContext, bridgeInstanceId);
+                                                              tokenThrottle, sessionManager, activePlayContext,
+                                                              bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();
@@ -153,13 +161,12 @@ int main() {
     std::cout << "BRIDGE_INSTANCE " << bridgeInstanceId.value_or("(unavailable)") << std::endl;
 
     std::int64_t level = 5;
-    characterStateStore.OnLevelCaptured(level);
 
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line == "increase_level") {
             ++level;
-            characterStateStore.OnLevelCaptured(level);
+            levelSink.OnLevelCaptured(level);
             std::cout << "LEVEL " << level << std::endl;
         } else if (line == "new_game") {
             auto transition =

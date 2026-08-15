@@ -21,6 +21,16 @@ std::shared_ptr<PlayContext> ActivePlayContext::Begin(std::string id) {
     return context;
 }
 
+ActivePlayContextLevelSink::ActivePlayContextLevelSink(ActivePlayContext& activePlayContext)
+    : activePlayContext_(activePlayContext) {}
+
+void ActivePlayContextLevelSink::OnLevelCaptured(std::optional<std::int64_t> level) {
+    auto context = activePlayContext_.AcquireCurrent();
+    if (context) {
+        context->characterState.OnLevelCaptured(level);
+    }
+}
+
 void ApplyLifecycleTransition(ActivePlayContext& activePlayContext,
                                const GameLifecycleTracker::Transition& transition) {
     if (transition.contextInvalidated) {

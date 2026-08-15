@@ -86,6 +86,12 @@ private:
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
 };
 
+// The DovahLink Bridge/mod release version exposed to clients in
+// hello_ack.bridgeVersion (ai/context/protocol/compatibility.md), matching
+// bridge/vcpkg.json's version-string. Kept in sync with the plugin metadata
+// version below by convention; both describe the same release.
+constexpr const char* kBridgeVersion = "0.1.0";
+
 }  // namespace
 
 // Hand-written plugin metadata and address-library compatibility declaration.
@@ -167,10 +173,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     // This bridge instance's identity, per ARCHITECTURE.md's runtime/identity
     // model: one value for this plugin's whole running lifetime, independent
-    // of any play context. Stamped onto every v2 response envelope via
+    // of any play context. Stamped onto every response envelope via
     // BridgeWorkerPool below. A generation failure is not fatal -- it is
-    // logged, and every v2 response simply carries no bridgeInstanceId
-    // value, the same "unavailable" shape a `null` would already encode.
+    // logged, and every response simply carries no bridgeInstanceId value,
+    // the same "unavailable" shape a `null` would already encode.
     static std::optional<std::string> bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
     SKSE::log::info("Bridge instance ID: {}", bridgeInstanceId.value_or("(unavailable)"));
 
@@ -184,30 +190,28 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
     static dovahlink::application::SessionManager sessionManager;
-    static dovahlink::application::CharacterStateStore characterStateStore;
 
-    static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
-    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(levelAccessor, characterStateStore);
-    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
-    static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
-
-    // The authoritative, play-context-owned identity and state introduced by
-    // task.md's PlayContext restructuring. `characterStateStore` above stays
-    // the v1 dispatch path, completely unchanged: message_dispatcher and
-    // subscription_handler still read from it for v1 connections, and
-    // `levelIncreaseHandler` still writes into it. `activePlayContext` is
-    // real and lifecycle-driven -- GameLifecycleTracker transitions create
-    // and invalidate its play contexts -- and message_dispatcher.cpp now
-    // reads its character state and revisions for v2 connections; v1
-    // connections never touch it.
+    // The authoritative, play-context-owned identity and state per
+    // ARCHITECTURE.md's runtime/identity model. `activePlayContext` is
+    // lifecycle-driven -- GameLifecycleTracker transitions create and
+    // invalidate its play contexts -- and is the sole state message_dispatcher
+    // and subscription_handler read from. Declared before
+    // `levelIncreaseHandler` below, which routes its captures into whichever
+    // context is active through `ActivePlayContextLevelSink`.
     static dovahlink::application::GameLifecycleTracker lifecycleTracker;
     static dovahlink::application::ActivePlayContext activePlayContext;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker, activePlayContext);
 
+    static dovahlink::application::ActivePlayContextLevelSink levelSink(activePlayContext);
+    static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
+    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(levelAccessor, levelSink);
+    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
+    static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
+
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore,
-        activePlayContext, bridgeInstanceId);
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, activePlayContext,
+        bridgeInstanceId, kBridgeVersion);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

@@ -2,10 +2,13 @@
 
 #include "application/character_state_store.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/level_event_sink.hpp"
 #include "application/revision_tracker.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -54,6 +57,22 @@ private:
 
     /// Currently active play context, or `nullptr` outside an active context.
     std::shared_ptr<PlayContext> current_;
+};
+
+/// Routes captured level values into whichever play context is currently active, dropping the
+/// capture when none is: there is no authoritative state outside a play context to attribute it
+/// to (ARCHITECTURE.md's "Authoritative state and revisions").
+class ActivePlayContextLevelSink : public LevelEventSink {
+public:
+    /// Binds the sink to the play context it routes captures into.
+    explicit ActivePlayContextLevelSink(ActivePlayContext& activePlayContext);
+
+    /// @copydoc LevelEventSink::OnLevelCaptured
+    void OnLevelCaptured(std::optional<std::int64_t> level) override;
+
+private:
+    /// Source of the currently active play context.
+    ActivePlayContext& activePlayContext_;
 };
 
 /// Applies one `GameLifecycleTracker` transition to an `ActivePlayContext`: invalidation resets
