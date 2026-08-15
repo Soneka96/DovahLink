@@ -262,19 +262,19 @@ seeing another pairing code unless trust was actually removed.
   connection takeover or generation-replacement semantics; runtime tests must prove that normal
   close, crash, rapid restart, timeout, and Bridge restart all recover automatically.
 - Allow distinct clients to pair over time while retaining the single-connected-client limit.
-  Concurrent sessions and independent per-client delivery remain Phase 8 work.
+  Concurrent sessions and independent per-client delivery remain Phase 9 work.
 
 ### Dependencies and boundaries
 
 This phase depends on Phase 2 and remains loopback-only. The pairing code is a local bootstrap
 mechanism, not a substitute for authenticated encryption or a complete LAN trust protocol. Phone
 and LAN pairing, discovery, encrypted transport, replay protection, and remote revocation belong to
-Phase 21 and must receive a separate security design.
+Phase 22 and must receive a separate security design.
 
 The pairing notification is a runtime-facing adapter concern; it must not place Skyrim presentation
 details into the canonical protocol. The protocol should carry pairing state and outcomes, while
 the bridge/plugin boundary owns the native in-game notification mechanism. An optional QR-code
-convenience flow may be considered for Phase 21, but it must not become a dependency for entering a
+convenience flow may be considered for Phase 22, but it must not become a dependency for entering a
 code manually or require a separate client or mod.
 
 Persistent trust storage is scoped to the current Windows user, but loopback TCP itself is not proof
@@ -286,10 +286,10 @@ the full threat-boundary documentation this phase must produce.
 
 The Phase 3 trust-store implementation only needs to satisfy the current single-Bridge-process
 requirement, but its boundary must not make later multi-process support require rewriting the
-pairing protocol or trust-domain model; Phase 9 will eventually permit multiple Bridge processes for
+pairing protocol or trust-domain model; Phase 10 will eventually permit multiple Bridge processes for
 the same Windows user, and shared per-user trust must be able to gain multi-process synchronization
-later without changing client authentication semantics. This phase does not implement Phase 8
-concurrent-client delivery, Phase 9 multi-Bridge discovery, or Phase 10 automatic connection/transport
+later without changing client authentication semantics. This phase does not implement Phase 9
+concurrent-client delivery, Phase 10 multi-Bridge discovery, or Phase 11 automatic connection/transport
 selection; reconnect here targets the already-known local endpoint rather than discovering or
 selecting among Bridge processes.
 
@@ -339,7 +339,7 @@ selecting among Bridge processes.
   another pairing code unless trust was actually removed; force-closing/crashing the client and an
   immediate restart both recover automatically through bounded retry, not connection takeover.
 - The loopback-only restriction and single-connected-client limit remain intact; this phase does not
-  accidentally enable LAN or concurrent-client behavior, and does not implement Phase 9/10 Bridge
+  accidentally enable LAN or concurrent-client behavior, and does not implement Phase 10/11 Bridge
   discovery or endpoint-selection behavior.
 - Independent and official clients use the same canonical pairing contract, with no Flutter-only or
   Skyrim-specific wire behavior.
@@ -385,7 +385,68 @@ unchanged unsolicited replaceable state produces no traffic; replaceable state c
 events stay ordered, and a client that cannot consume them in time is explicitly disconnected
 without stalling Skyrim.
 
-## 5. PC / Second-Screen Baseline
+## 5. Dart Client SDK Foundation
+
+**Status:** Planned
+
+### Outcome
+
+Dart applications can participate correctly in DovahLink — transport, Bridge-version compatibility
+detection, authentication, pairing recovery, reconnect, session and authoritative-state identity,
+revisions, subscriptions, snapshots, recovery, and reusable client persistence — without
+implementing that behavior themselves, and the official Flutter application becomes the first
+production consumer proving the supported SDK API is sufficient to build a complete client.
+
+### Scope and behavior
+
+- Create the real `sdk/dart/dovahlink_client/` package and establish it as a first-class repository
+  ownership boundary alongside `app/`, `bridge/`, `protocol/`, and `integration/`, per
+  `ARCHITECTURE.md` and `ai/context/sdk/`.
+- Migrate the reusable Dart-side connection, compatibility, authentication, pairing, reconnect,
+  session, revision, subscription, and recovery behavior already implemented directly in `app/` by
+  Phases 2 through 4 into the SDK boundary, rather than redesigning approved semantics.
+- Establish the SDK's explicit supported Bridge/mod-version range and its own persistence boundary
+  (stable local `clientId`, client credential, pairing recovery state, reusable cache metadata),
+  versioned and migration-owned by the SDK per `ai/context/sdk/persistence.md`.
+- Expose one underlying client engine through a small simple API plus focused expert capability
+  views (lifecycle, diagnostics, administration), per `ai/context/sdk/architecture.md` and
+  `api-design.md`; do not build a second parallel service stack.
+- Wire the official Flutter application through the SDK's public API and retire its parallel
+  app-private protocol/client implementation in this same phase; the app must not construct raw
+  transport, compatibility, authentication, pairing, reconnect, revision, or subscription logic
+  after this phase completes.
+- Keep the SDK repository-internal and unpublished; publication, package stability guarantees, and
+  a public release workflow remain a separate future decision.
+
+### Dependencies and boundaries
+
+This phase depends on Phases 2, 3, and 4 and consumes their approved identity, pairing/reconnection,
+and live-synchronization semantics rather than redesigning them. It does not implement Phase 9
+concurrent-client delivery, Phase 10 multi-Bridge discovery, Phase 11 automatic connection/transport
+selection, or Phase 22 secure LAN transport; when those phases are implemented, their Dart client
+behavior extends the SDK rather than being built privately into the app again. The independent .NET
+validation client remains a separate implementation of the canonical contract and does not consume,
+wrap, or generate from the Dart SDK.
+
+### Acceptance criteria
+
+- The `sdk/dart/dovahlink_client/` package exists with a curated public API; internal transport,
+  codec, persistence, compatibility, and state-machine types are not accidentally exported.
+- The SDK declares an explicit supported Bridge/mod-version range rather than inferring compatibility
+  from SemVer, and canonical contract changes are assessed against that declared range per
+  `ai/context/protocol/compatibility.md`.
+- The official Flutter application consumes the SDK exclusively for normal DovahLink communication;
+  its parallel app-private protocol/client stack is retired in this phase, not left running alongside
+  the SDK.
+- One underlying client engine backs every exposed API view; there is no duplicate transport,
+  session, or cache stack behind a "simple" and an "advanced" surface.
+- SDK-owned persistence (client credential, pairing recovery state, cache metadata) is versioned and
+  migration-owned by the SDK; the app never needs to understand or migrate that private schema.
+- The independent .NET validator still passes the same canonical fixtures without depending on the
+  Dart SDK.
+- The SDK is not published outside the repository as part of this phase.
+
+## 6. PC / Second-Screen Baseline
 
 **Status:** Planned
 
@@ -397,7 +458,8 @@ sample state understandable without developer documentation.
 ### Scope and behavior
 
 - Extend the Phase 0.5 shell into a connected desktop-sized client.
-- Use the same canonical protocol and pairing flow available to independent clients.
+- Connect through the Dart Client SDK's public API rather than app-private protocol/client code,
+  proving the SDK sufficient to build a complete connected client.
 - Present connecting, connected, recovering, incompatible, unavailable, stale, and disconnected
   states clearly.
 - Keep the client useful when Skyrim is absent or optional state is unavailable.
@@ -405,7 +467,7 @@ sample state understandable without developer documentation.
 
 ### Dependencies and boundaries
 
-This phase validates Phases 2 through 4. It remains loopback-only and excludes automatic discovery,
+This phase validates Phases 2 through 5. It remains loopback-only and excludes automatic discovery,
 broad player state, mobile packaging, dashboard customization, and actions.
 
 ### Acceptance criteria
@@ -413,7 +475,7 @@ broad player state, mobile packaging, dashboard customization, and actions.
 The desktop client connects, shows trustworthy sample state, reconnects after interruption, rejects
 stale context, and explains actionable failures without developer guidance.
 
-## 6. Core UI Theme System
+## 7. Core UI Theme System
 
 **Status:** Planned
 
@@ -440,7 +502,7 @@ theme data, and dashboard behavior remain later phases.
 Existing surfaces use shared tokens or components and remain useful at supported sizes and
 accessibility settings without optional resources.
 
-## 7. Live Player State
+## 8. Live Player State
 
 **Status:** Planned
 
@@ -466,7 +528,7 @@ map navigation, and commands.
 Approved values remain accurate through play, reconnect, and play-context replacement; unavailable
 state degrades clearly; and cross-side tests prove bridge/client agreement.
 
-## 8. Multi-Client Runtime Foundation
+## 9. Multi-Client Runtime Foundation
 
 **Status:** Planned
 
@@ -487,7 +549,7 @@ destabilize Skyrim or healthy clients.
 
 ### Dependencies and boundaries
 
-This phase follows the Phase 7 single-client proof and remains loopback-only. It excludes LAN,
+This phase follows the Phase 8 single-client proof and remains loopback-only. It excludes LAN,
 synchronized layouts, accounts, collaboration, and control permissions.
 
 ### Acceptance criteria
@@ -495,7 +557,7 @@ synchronized layouts, accounts, collaboration, and control permissions.
 At least two clients receive consistent state and recover independently; client count does not
 multiply equivalent Skyrim reads; and a slow client does not stall a healthy client.
 
-## 9. Multi-Bridge and Local Discovery Foundation
+## 10. Multi-Bridge and Local Discovery Foundation
 
 **Status:** Planned
 
@@ -515,14 +577,14 @@ Multiple bridge processes coexist on one machine without port collisions or ambi
 
 ### Dependencies and boundaries
 
-This phase depends on Phases 2 and 8. LAN discovery belongs to Phase 21.
+This phase depends on Phases 2 and 9. LAN discovery belongs to Phase 22.
 
 ### Acceptance criteria
 
 Two harness bridges run concurrently without manual port editing, appear as distinct choices, accept
 independent clients, and cannot corrupt each other's discovery state.
 
-## 10. Automatic Connection and Transport Selection
+## 11. Automatic Connection and Transport Selection
 
 **Status:** Planned
 
@@ -542,7 +604,7 @@ The client chooses the best path to the intended local bridge while preserving m
 
 ### Dependencies and boundaries
 
-This phase consumes Phase 9 and remains loopback-only. It excludes a resident monitor, LAN access,
+This phase consumes Phase 10 and remains loopback-only. It excludes a resident monitor, LAN access,
 internet exposure, hosted relay, and accounts.
 
 ### Acceptance criteria
@@ -550,7 +612,7 @@ internet exposure, hosted relay, and accounts.
 The client reconnects to the intended bridge, never confuses simultaneous instances, backs off
 responsibly, and provides actionable manual recovery.
 
-## 11. Mod Awareness
+## 12. Mod Awareness
 
 **Status:** Planned
 
@@ -576,7 +638,7 @@ promises.
 Clean and modded setups produce trustworthy capability summaries, unsupported cases fall back safely,
 and features do not consume raw CommonLib details.
 
-## 12. Interactive Map Foundation
+## 13. Interactive Map Foundation
 
 **Status:** Planned
 
@@ -603,7 +665,7 @@ every worldspace, and a parallel navmesh database.
 The base map tracks accurately, handles worldspace and play-context changes, survives reconnects,
 and never invents discovery or cleared state.
 
-## 13. Map Asset and Worldspace System
+## 14. Map Asset and Worldspace System
 
 **Status:** Planned
 
@@ -622,14 +684,14 @@ Map imagery and worldspaces grow without bloating live traffic or loading every 
 
 ### Dependencies and boundaries
 
-This phase extends Phase 12. Assets do not become live protocol messages.
+This phase extends Phase 13. Assets do not become live protocol messages.
 
 ### Acceptance criteria
 
 Packages load independently from live state, additional worldspaces do not inflate ordinary traffic,
 and missing assets cannot break synchronization.
 
-## 14. Quests
+## 15. Quests
 
 **Status:** Planned
 
@@ -653,7 +715,7 @@ This read-only phase does not activate quests, change stages, repair quests, or 
 Representative quests remain accurate through loads and reconnects, and hidden information is not
 fabricated.
 
-## 15. Navigation / Path Guidance
+## 16. Navigation / Path Guidance
 
 **Status:** Planned
 
@@ -679,7 +741,7 @@ authoritative. Arbitrary map destinations remain deferred.
 A reliable native route renders and invalidates correctly; an unreliable route is explicitly
 deferred.
 
-## 16. Inventory
+## 17. Inventory
 
 **Status:** Planned
 
@@ -704,7 +766,7 @@ This phase does not equip, drop, consume, transfer, favorite, or modify items.
 Inventory reconciles without stale duplicates, remains responsive at realistic sizes, and does not
 repeatedly rescan during idle play without reason.
 
-## 17. Equipment
+## 18. Equipment
 
 **Status:** Planned
 
@@ -727,7 +789,7 @@ This read-only phase excludes equip, unequip, loadouts, and remote item actions.
 
 Equipment matches authoritative state and cannot remain falsely equipped after invalidation.
 
-## 18. Magic, Spells, Shouts, and Powers
+## 19. Magic, Spells, Shouts, and Powers
 
 **Status:** Planned
 
@@ -751,7 +813,7 @@ This read-only phase excludes casting, equipping, unlocking, and spending resour
 Abilities appear in correct categories, selection and cooldown remain current, and unknown behavior
 degrades without fabricated values.
 
-## 19. Favorites and Hotkeys
+## 20. Favorites and Hotkeys
 
 **Status:** Planned
 
@@ -775,7 +837,7 @@ This read-only phase excludes activation, item use, casting, and assignment chan
 Favorites remain consistent through changes, reconnects, and play-context replacement; unresolved
 entries remain visible without misidentification.
 
-## 20. Customizable Dashboard
+## 21. Customizable Dashboard
 
 **Status:** Planned
 
@@ -801,7 +863,7 @@ and protocol-level dashboard configuration.
 Valid layouts persist and recover, modules cannot be resized into broken states, and corrupt
 preferences fall back safely.
 
-## 21. Secure LAN Transport and Network Discovery
+## 22. Secure LAN Transport and Network Discovery
 
 **Status:** Planned
 
@@ -817,7 +879,7 @@ Approved LAN clients securely discover and connect to the intended bridge withou
 - Authenticate endpoints before trusting advertised metadata.
 - Preserve per-client authorization, revocation, replay protection, and session binding.
 - Add approved wired and Wi-Fi/LAN candidates where platforms permit.
-- Feed candidates into Phase 10 and preserve manual connection.
+- Feed candidates into Phase 11 and preserve manual connection.
 
 ### Dependencies and boundaries
 
@@ -829,7 +891,7 @@ does not imply internet exposure, hosted relay, accounts, or cloud presence.
 Clients distinguish and securely connect to the intended bridge; spoofed or unpaired endpoints are
 not trusted; revocation works; and localhost remains preferred where applicable.
 
-## 22. Mobile / Tablet Client
+## 23. Mobile / Tablet Client
 
 **Status:** Planned
 
@@ -843,12 +905,12 @@ The companion experience works naturally on supported phones and tablets through
 - Support landscape second-screen presentation where appropriate.
 - Reuse domain and protocol boundaries with device-specific presentation.
 - Preserve pairing, recovery, background, resume, and network transitions.
-- Use the Phase 10 policy with manual fallback.
+- Use the Phase 11 policy with manual fallback.
 - Keep layout preferences local and provide mobile defaults.
 
 ### Dependencies and boundaries
 
-This phase depends on Phase 21 and does not imply internet access, hosted relay, accounts, or
+This phase depends on Phase 22 and does not imply internet access, hosted relay, accounts, or
 identical layouts.
 
 ### Acceptance criteria
@@ -856,7 +918,7 @@ identical layouts.
 A device pairs and reconnects securely, survives background and network changes, presents existing
 features accessibly, and cannot confuse another discovered bridge.
 
-## 23. Item Knowledge and Search
+## 24. Item Knowledge and Search
 
 **Status:** Planned
 
@@ -881,7 +943,7 @@ separate.
 Search remains responsive, provenance is clear, and outdated knowledge cannot create false live-state
 claims.
 
-## 24. Legacy of the Dragonborn Integration
+## 25. Legacy of the Dragonborn Integration
 
 **Status:** Planned
 
@@ -906,7 +968,7 @@ museum state.
 Supported setups report verified state, unsupported setups fall back to ordinary knowledge, and
 ambiguous values are not authoritative.
 
-## 25. Installed UI Detection
+## 26. Installed UI Detection
 
 **Status:** Planned
 
@@ -932,7 +994,7 @@ manager.
 Supported installs are identified reproducibly, ambiguous setups do not activate adapters, and
 failure cannot prevent startup.
 
-## 26. Optional UI Mod Adapters
+## 27. Optional UI Mod Adapters
 
 **Status:** Planned
 
@@ -957,7 +1019,7 @@ Adapters cannot replace dashboard structure, behavior, protocol models, or execu
 Adapters pass visual, fallback, accessibility, and version checks; invalid resources fall back to
 the native theme.
 
-## 27. Safe Companion Authorization Foundation
+## 28. Safe Companion Authorization Foundation
 
 **Status:** Planned after read-only product validation
 
@@ -991,7 +1053,7 @@ The contract can deny control independently from reads; unauthorized, replayed, 
 and unknown test commands are rejected deterministically; decisions are attributable; and no Skyrim
 mutation is exposed.
 
-## 28. Runtime Profiling and Advanced Bridge Hardening
+## 29. Runtime Profiling and Advanced Bridge Hardening
 
 **Status:** Planned
 
@@ -1019,7 +1081,7 @@ hypothetical protocol complexity.
 Every optimization names a measured problem, demonstrates improvement, preserves recovery, and keeps
 game-thread cost negligible for approved targets.
 
-## 29. CommonLib Dependency Maintenance Audit
+## 30. CommonLib Dependency Maintenance Audit
 
 **Status:** Planned
 

@@ -649,31 +649,32 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "2. Bridge Identity and Authoritative State Foundation",
             "3. Local Device Pairing and Reconnection",
             "4. Live State Synchronization Foundation",
-            "5. PC / Second-Screen Baseline",
-            "6. Core UI Theme System",
-            "7. Live Player State",
-            "8. Multi-Client Runtime Foundation",
-            "9. Multi-Bridge and Local Discovery Foundation",
-            "10. Automatic Connection and Transport Selection",
-            "11. Mod Awareness",
-            "12. Interactive Map Foundation",
-            "13. Map Asset and Worldspace System",
-            "14. Quests",
-            "15. Navigation / Path Guidance",
-            "16. Inventory",
-            "17. Equipment",
-            "18. Magic, Spells, Shouts, and Powers",
-            "19. Favorites and Hotkeys",
-            "20. Customizable Dashboard",
-            "21. Secure LAN Transport and Network Discovery",
-            "22. Mobile / Tablet Client",
-            "23. Item Knowledge and Search",
-            "24. Legacy of the Dragonborn Integration",
-            "25. Installed UI Detection",
-            "26. Optional UI Mod Adapters",
-            "27. Safe Companion Authorization Foundation",
-            "28. Runtime Profiling and Advanced Bridge Hardening",
-            "29. CommonLib Dependency Maintenance Audit",
+            "5. Dart Client SDK Foundation",
+            "6. PC / Second-Screen Baseline",
+            "7. Core UI Theme System",
+            "8. Live Player State",
+            "9. Multi-Client Runtime Foundation",
+            "10. Multi-Bridge and Local Discovery Foundation",
+            "11. Automatic Connection and Transport Selection",
+            "12. Mod Awareness",
+            "13. Interactive Map Foundation",
+            "14. Map Asset and Worldspace System",
+            "15. Quests",
+            "16. Navigation / Path Guidance",
+            "17. Inventory",
+            "18. Equipment",
+            "19. Magic, Spells, Shouts, and Powers",
+            "20. Favorites and Hotkeys",
+            "21. Customizable Dashboard",
+            "22. Secure LAN Transport and Network Discovery",
+            "23. Mobile / Tablet Client",
+            "24. Item Knowledge and Search",
+            "25. Legacy of the Dragonborn Integration",
+            "26. Installed UI Detection",
+            "27. Optional UI Mod Adapters",
+            "28. Safe Companion Authorization Foundation",
+            "29. Runtime Profiling and Advanced Bridge Hardening",
+            "30. CommonLib Dependency Maintenance Audit",
         ]
         actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?\.? .+)$", roadmap)
 
@@ -682,14 +683,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 4)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
             if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
                 expected_status = "**Status:** Complete"
-            elif heading.startswith("27. "):
+            elif heading.startswith("28. "):
                 expected_status = "**Status:** Planned after read-only product validation"
             else:
                 expected_status = "**Status:** Planned"
@@ -713,29 +714,37 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("`ROADMAP.md`'s Phase 4\nand Phase 3 entries", integration_readme)
 
         ordering = {heading: roadmap.index(f"## {heading}") for heading in expected_headings}
-        self.assertLess(ordering["5. PC / Second-Screen Baseline"], ordering["6. Core UI Theme System"])
-        self.assertLess(ordering["6. Core UI Theme System"], ordering["7. Live Player State"])
-        self.assertLess(ordering["7. Live Player State"], ordering["8. Multi-Client Runtime Foundation"])
-        self.assertLess(ordering["8. Multi-Client Runtime Foundation"], ordering["12. Interactive Map Foundation"])
         self.assertLess(
-            ordering["21. Secure LAN Transport and Network Discovery"],
-            ordering["22. Mobile / Tablet Client"],
+            ordering["4. Live State Synchronization Foundation"],
+            ordering["5. Dart Client SDK Foundation"],
+        )
+        self.assertLess(
+            ordering["5. Dart Client SDK Foundation"], ordering["6. PC / Second-Screen Baseline"]
+        )
+        self.assertLess(ordering["6. PC / Second-Screen Baseline"], ordering["7. Core UI Theme System"])
+        self.assertLess(ordering["7. Core UI Theme System"], ordering["8. Live Player State"])
+        self.assertLess(ordering["8. Live Player State"], ordering["9. Multi-Client Runtime Foundation"])
+        self.assertLess(ordering["9. Multi-Client Runtime Foundation"], ordering["13. Interactive Map Foundation"])
+        self.assertLess(
+            ordering["22. Secure LAN Transport and Network Discovery"],
+            ordering["23. Mobile / Tablet Client"],
         )
 
         identity = self._markdown_section(
             "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
         )
         authorization = self._markdown_section(
-            "ROADMAP.md", "27. Safe Companion Authorization Foundation"
+            "ROADMAP.md", "28. Safe Companion Authorization Foundation"
         )
         deferred = self._markdown_section("ROADMAP.md", "Deferred possibilities")
         self.assertIn("does not add a separate\ngame-process identifier", identity)
         dependency_expectations = {
             "3. Local Device Pairing and Reconnection": "depends on Phase 2",
-            "5. PC / Second-Screen Baseline": "validates Phases 2 through 4",
-            "8. Multi-Client Runtime Foundation": "follows the Phase 7 single-client proof",
-            "9. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 8",
-            "27. Safe Companion Authorization Foundation": (
+            "5. Dart Client SDK Foundation": "depends on Phases 2, 3, and 4",
+            "6. PC / Second-Screen Baseline": "validates Phases 2 through 5",
+            "9. Multi-Client Runtime Foundation": "follows the Phase 8 single-client proof",
+            "10. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 9",
+            "28. Safe Companion Authorization Foundation": (
                 "depends on identity, multi-client isolation, and security"
             ),
         }
@@ -772,7 +781,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Give WebSocket-level Ping/Pong and a bounded idle timeout sole ownership of "
             "connection liveness",
             "receives a specific revoked/not-trusted outcome",
-            "does not implement Phase 9/10 Bridge discovery or endpoint-selection behavior",
+            "does not implement Phase 10/11 Bridge discovery or endpoint-selection behavior",
             "administration behavior (list trusted clients, revoke one, reset all) in a reusable "
             "Bridge application/domain service rather than inside a Skyrim console-command handler",
             "revoking a trusted client removes its active trust, invalidates any current "
@@ -1025,7 +1034,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_dependency_audit_targets_the_next_public_release(self) -> None:
         """Keep maintenance commitments meaningful after the initial public release."""
         dependency_audit = self._markdown_section(
-            "ROADMAP.md", "29. CommonLib Dependency Maintenance Audit"
+            "ROADMAP.md", "30. CommonLib Dependency Maintenance Audit"
         )
 
         self.assertNotIn("before public release", dependency_audit)
