@@ -314,7 +314,8 @@ TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision c
           "play context is replaced",
           "[application][message_dispatcher]") {
     Fixture fixture;
-    fixture.activePlayContext.Begin("context-1");
+    auto firstContext = fixture.activePlayContext.Begin("context-1");
+    firstContext->characterState.OnLevelCaptured(5);
 
     auto firstSubscribe =
         fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
@@ -323,6 +324,10 @@ TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision c
     REQUIRE(firstSnapshot.has_value());
     CHECK(firstSnapshot->revision == 1);
 
+    // A real level change between pulls is what makes the second pull
+    // legitimately advance, per RevisionTracker's fingerprint comparison
+    // (revision_tracker_test.cpp): an unchanged pull would reuse revision 1.
+    firstContext->characterState.OnLevelCaptured(6);
     auto secondRequest = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-1"),
                                          SteadyClock::now(), /*protocolVersion=*/2);
     REQUIRE(secondRequest.responses.size() == 1);
@@ -336,7 +341,10 @@ TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision c
     // through actual dispatch). This connection is already subscribed, so
     // the request also triggers the resync mechanism (its own test below):
     // an unsolicited snapshot at the front of the response, ahead of the
-    // request's own answer.
+    // request's own answer. Both reflect the same freshly-captured state
+    // read within this one dispatch call -- with nothing mutating it in
+    // between -- so they correctly share one revision rather than
+    // manufacturing two for identical data.
     fixture.activePlayContext.Begin("context-2");
     auto afterReplace = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-2"),
                                         SteadyClock::now(), /*protocolVersion=*/2);
@@ -346,7 +354,7 @@ TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision c
     CHECK(resyncSnapshot->revision == 1);
     auto snapshotAfterReplace = dovahlink::protocol::DecodeStateSnapshotPayload(afterReplace.responses[1].payload);
     REQUIRE(snapshotAfterReplace.has_value());
-    CHECK(snapshotAfterReplace->revision == 2);
+    CHECK(snapshotAfterReplace->revision == 1);
 }
 
 TEST_CASE("ProcessInboundMessage's v2 path falls back to the unavailable shape after the active "

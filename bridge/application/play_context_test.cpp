@@ -9,6 +9,8 @@ using dovahlink::application::PlayContext;
 
 namespace {
 constexpr const char* kCharacter = "character";
+constexpr const char* kFingerprintA = "{\"level\":5}";
+constexpr const char* kFingerprintB = "{\"level\":6}";
 }  // namespace
 
 TEST_CASE("AcquireCurrent is nullptr before any context begins", "[application][play_context]") {
@@ -52,7 +54,7 @@ TEST_CASE("a context handle acquired before Reset stays valid after the active c
     // Reset() only clears ActivePlayContext's own reference; a shared_ptr a
     // caller already holds keeps the context alive and usable.
     CHECK(acquired->id == "ctx-1");
-    acquired->revisions.StartSnapshot(kCharacter);
+    acquired->revisions.StartSnapshot(kCharacter, kFingerprintA);
     CHECK(acquired->revisions.CurrentRevision(kCharacter) == 1);
 }
 
@@ -76,14 +78,14 @@ TEST_CASE("a new Begin discards the previous context's revision counter rather t
           "[application][play_context]") {
     ActivePlayContext active;
     auto first = active.Begin("ctx-1");
-    first->revisions.StartSnapshot(kCharacter);
-    first->revisions.StartSnapshot(kCharacter);
+    first->revisions.StartSnapshot(kCharacter, kFingerprintA);
+    first->revisions.StartSnapshot(kCharacter, kFingerprintB);
     REQUIRE(first->revisions.CurrentRevision(kCharacter) == 2);
 
     auto second = active.Begin("ctx-2");
     CHECK(second != first);
     // The new context starts a fresh sequence...
-    CHECK(second->revisions.StartSnapshot(kCharacter) == 1);
+    CHECK(second->revisions.StartSnapshot(kCharacter, kFingerprintA) == 1);
     // ...while the handle a caller acquired before the swap keeps its own state untouched.
     CHECK(first->revisions.CurrentRevision(kCharacter) == 2);
 }

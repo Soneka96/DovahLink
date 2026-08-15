@@ -6,6 +6,7 @@
 #include "security/limits.hpp"
 
 #include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 
 #include <algorithm>
 #include <array>
@@ -134,13 +135,18 @@ std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& session
                                                        const CharacterStateProvider& provider,
                                                        RevisionTracker& revisions,
                                                        std::chrono::system_clock::time_point now) {
+    // BuildResyncSnapshot only ever fires on the v2 path (see its call site's
+    // `protocolVersion >= 2` guard below), so a fingerprint is always
+    // supplied here -- never std::nullopt's v1 unconditional-advance mode.
     const std::string stateArea(protocol::state_area::kCharacter);
     CharacterSnapshot snapshot = provider.CurrentCharacterSnapshot();
-    std::int64_t revision = revisions.NextSnapshotRevision(stateArea);
+    std::optional<std::string> fingerprint =
+        std::make_optional(boost::json::serialize(BuildCharacterStateData(snapshot)));
+    std::int64_t revision = revisions.NextSnapshotRevision(stateArea, fingerprint);
     auto envelope = BuildCharacterSnapshotEnvelope(sessionId, protocolVersion, /*correlationId=*/std::nullopt,
                                                     snapshot, revision, now);
     if (envelope.has_value()) {
-        revisions.StartSnapshot(stateArea);
+        revisions.StartSnapshot(stateArea, fingerprint);
     }
     return envelope;
 }

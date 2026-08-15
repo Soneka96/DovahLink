@@ -189,15 +189,15 @@ public class StateScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
-    /// <summary>Verifies that each pull advances the revision without a state change.</summary>
+    /// <summary>Verifies that a v1 pull advances the revision even without a state change.</summary>
     [Fact]
-    public async Task RevisionAdvancesOnEachPullEvenWithoutAnInterveningStateChange()
+    public async Task RevisionAdvancesOnEachPullEvenWithoutAnInterveningStateChangeForV1()
     {
         // RevisionTracker::StartSnapshot (application/revision_tracker.cpp)
-        // increments unconditionally on every call -- a second pull with no
-        // increase_level in between still lands at a higher revision, same
-        // (unchanged) data. Documents real behavior: revision tracks "a
-        // fresh baseline was captured," not "the value changed."
+        // increments unconditionally on every call when given no fingerprint
+        // -- v1's published, frozen behavior, which this phase must not
+        // reinterpret even though v2 (see the sibling test below) now
+        // compares captured state instead.
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _) =
             await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
@@ -217,6 +217,47 @@ public class StateScenarioTests
         Assert.Equal(5, secondSnapshot.Payload["data"]!["level"]!.GetValue<int>());
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
+    /// <summary>Verifies that a v2 pull with no intervening state change reuses the revision.</summary>
+    [Fact]
+    public async Task RevisionIsReusedOnEachPullWithoutAnInterveningStateChangeForV2()
+    {
+        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
+        await harness.WaitForReadyAsync();
+        // An active play context is required for a real, persistent
+        // PlayContext-owned RevisionTracker: without one, the v2 NoContext
+        // path uses a throwaway tracker rebuilt on every call, which would
+        // trivially -- and uninformatively -- report revision 1 every time.
+        await harness.WriteLineAsync("new_game");
+        await harness.ReadLineAsync();  // PLAY_CONTEXT <id>
+
+        await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await connection.SendAsync(BridgeScenario.HelloEnvelope(
+            BridgeScenario.ValidHexToken, supportedProtocolVersions: [1, 2], clientId: ClientIdentity.Current.ToString()));
+        Envelope helloAck = await connection.ReceiveAsync();
+        Assert.Equal("hello_ack", helloAck.MessageType);
+        string sessionId = helloAck.SessionId!;
+        await connection.ReceiveAsync();  // capabilities
+
+        await connection.SendAsync(new Envelope(2, "subscribe", "message-sub-v2-1", sessionId, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        await connection.ReceiveAsync();  // subscription_ack
+        Envelope firstSnapshot = await connection.ReceiveAsync();
+        Assert.Equal(1, firstSnapshot.Payload["revision"]!.GetValue<int>());
+        Assert.Null(firstSnapshot.Payload["data"]!["level"]);
+
+        await connection.SendAsync(new Envelope(2, "snapshot_request", "message-snap-v2-nochange", sessionId, null,
+            new JsonObject { ["stateArea"] = "character" }));
+        Envelope secondSnapshot = await connection.ReceiveAsync();
+        // A freshly-begun play context's captured character state is
+        // unavailable (no harness command populates it) on both pulls --
+        // still unchanged, so the revision is still correctly reused.
+        Assert.Equal(1, secondSnapshot.Payload["revision"]!.GetValue<int>());
+        Assert.Null(secondSnapshot.Payload["data"]!["level"]);
+
+        await harness.WriteLineAsync("quit");
+        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>Verifies that an unknown snapshot area returns an unsupported-capability error.</summary>

@@ -4,6 +4,8 @@
 #include "application/timestamp.hpp"
 #include "protocol/messages.hpp"
 
+#include <boost/json/serialize.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <type_traits>
@@ -21,21 +23,30 @@ static_assert(std::is_nothrow_move_constructible_v<SubscribeResult>);
 
 /// Prepares a character snapshot at the next revision without committing it.
 /// @param correlationId Message ID that caused the snapshot, when applicable.
+/// @param revision Set to the revision this snapshot will receive.
+/// @param fingerprint Set to the captured state's serialized fingerprint once `protocolVersion` is 2
+///     or higher -- the same wire-visible data `BuildCharacterStateData` produces -- so
+///     `CommitCharacterSnapshot` compares against the same basis this preview used. Left empty for
+///     v1, which always advances unconditionally and has no defined "unchanged state" comparison.
 /// @param snapshotBuilder Builds the fallible envelope before revision commit.
 std::optional<protocol::Envelope> PrepareCharacterSnapshot(
     const std::string& sessionId, std::int64_t protocolVersion, std::optional<std::string> correlationId,
     const CharacterStateProvider& stateProvider, const RevisionTracker& revisions,
-    const std::string& stateArea, std::int64_t& revision,
+    const std::string& stateArea, std::int64_t& revision, std::optional<std::string>& fingerprint,
     std::chrono::system_clock::time_point now, SnapshotEnvelopeBuilder& snapshotBuilder) {
     CharacterSnapshot snapshot = stateProvider.CurrentCharacterSnapshot();
-    revision = revisions.NextSnapshotRevision(stateArea);
+    fingerprint = protocolVersion >= 2
+                     ? std::make_optional(boost::json::serialize(BuildCharacterStateData(snapshot)))
+                     : std::nullopt;
+    revision = revisions.NextSnapshotRevision(stateArea, fingerprint);
     return snapshotBuilder(sessionId, protocolVersion, std::move(correlationId), snapshot, revision, now);
 }
 
 /// Commits the previously prepared character snapshot revision.
+/// @param fingerprint The same fingerprint `PrepareCharacterSnapshot` computed for this snapshot.
 void CommitCharacterSnapshot(RevisionTracker& revisions, const std::string& stateArea,
-                             std::int64_t revision) {
-    std::int64_t committedRevision = revisions.StartSnapshot(stateArea);
+                             const std::optional<std::string>& fingerprint, std::int64_t revision) {
+    std::int64_t committedRevision = revisions.StartSnapshot(stateArea, fingerprint);
     assert(committedRevision == revision);
     (void)committedRevision;
 }
@@ -141,8 +152,10 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
     std::vector<protocol::Envelope> snapshots;
     if (!accepted.empty()) {
         std::int64_t revision = 0;
+        std::optional<std::string> fingerprint;
         auto snapshot = PrepareCharacterSnapshot(sessionId, protocolVersion, subscribeEnvelope.messageId,
-                                                 stateProvider, revisions, stateArea, revision, now, snapshotBuilder);
+                                                 stateProvider, revisions, stateArea, revision, fingerprint, now,
+                                                 snapshotBuilder);
         if (!snapshot.has_value()) {
             return SubscribeResult{
                 .subscriptionAck = protocol::BuildErrorEnvelope(subscribeEnvelope.messageId, protocolVersion,
@@ -151,7 +164,7 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
             };
         }
         snapshots.push_back(std::move(*snapshot));
-        CommitCharacterSnapshot(revisions, stateArea, revision);
+        CommitCharacterSnapshot(revisions, stateArea, fingerprint, revision);
     }
 
     return SubscribeResult{
@@ -178,14 +191,15 @@ protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotReque
     }
 
     std::int64_t revision = 0;
+    std::optional<std::string> fingerprint;
     auto snapshot = PrepareCharacterSnapshot(sessionId, protocolVersion, snapshotRequestEnvelope.messageId,
-                                             stateProvider, revisions, request->stateArea, revision, now,
-                                             snapshotBuilder);
+                                             stateProvider, revisions, request->stateArea, revision, fingerprint,
+                                             now, snapshotBuilder);
     if (!snapshot.has_value()) {
         return protocol::BuildErrorEnvelope(snapshotRequestEnvelope.messageId, protocolVersion, sessionId,
                                              "internal_error", "Unable to build state snapshot", false);
     }
-    CommitCharacterSnapshot(revisions, request->stateArea, revision);
+    CommitCharacterSnapshot(revisions, request->stateArea, fingerprint, revision);
     return std::move(*snapshot);
 }
 
