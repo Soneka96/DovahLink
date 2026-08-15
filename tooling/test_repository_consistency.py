@@ -52,8 +52,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Revisions are scoped to one state area and session",
             schema,
         )
+        # The v1 sections above stay clean of the target identity terms;
+        # protocol v2's own section is where they are deliberately introduced
+        # (this inverts a prior assertion that required their total absence,
+        # back when only v1 existed).
+        v2_heading = "## Protocol schema v2 (identity foundation)"
+        self.assertIn(v2_heading, schema)
+        v1_section = schema[: schema.index(v2_heading)]
         for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
-            self.assertNotIn(target_identity, schema)
+            self.assertNotIn(target_identity, v1_section)
+            self.assertIn(target_identity, schema)
         self.assertIn(
             "The official Flutter application is one client of the canonical protocol",
             normalized_architecture,

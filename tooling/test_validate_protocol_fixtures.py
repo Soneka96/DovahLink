@@ -220,6 +220,9 @@ class ValidateAllTests(unittest.TestCase):
             "state/character/state-snapshot-unknown-field.json",
             "connection/ping.json",
             "connection/pong.json",
+            "v2/connection/hello.json",
+            "v2/connection/hello-ack.json",
+            "v2/connection/hello-ack-active-context.json",
         }
         self.assertEqual(set(checked), expected)
 

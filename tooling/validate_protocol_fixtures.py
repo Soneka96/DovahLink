@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Validate every protocol/fixtures/**/*.json file against the v1 envelope contract
+"""Validate every protocol/fixtures/**/*.json file against the shared envelope contract
 documented in protocol/schema/README.md.
 
 This checks envelope shape only (required fields, types, and the sessionId
-null-ability rule for hello and pre-session error messages). Per-message-type
-payload validation belongs to the registered message codecs consuming these
-fixtures on the bridge and client sides.
+null-ability rule for hello and pre-session error messages) -- the baseline
+both v1 and v2 fixtures satisfy. It does not check v2's additional optional
+identity fields (bridgeInstanceId, playContextId, clientId); those are
+validated by the registered message codecs consuming these fixtures on the
+bridge and client sides, along with all other per-message-type payload
+validation.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ class FixtureError(ValueError):
 
 
 def validate_envelope(name: str, message: object) -> None:
-    """Validate a protocol message against the v1 envelope contract.
+    """Validate a protocol message against the shared v1/v2 envelope contract.
 
     Args:
         name: Fixture name used in validation error messages.

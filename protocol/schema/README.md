@@ -248,3 +248,108 @@ Carry no application state. They prove liveness for the current `sessionId`.
    baseline.
 9. During snapshot recovery, events are buffered or withheld by the bridge until the snapshot baseline is established; the client never guesses the cutoff.
 10. A revision gap or queue-loss recovery requires a new `snapshot_request` before the state is presented as current; duplicate or stale events at or below the current revision are ignored.
+
+## Protocol schema v2 (identity foundation)
+
+Protocol v2 is additive to v1: the same envelope and message shapes above apply, extended with the
+identity fields below. v1 is unchanged and remains a fully supported wire contract; a v1-only client
+that never offers version 2 is unaffected.
+
+### Envelope identity fields
+
+Once negotiation selects v2, every envelope from `hello_ack` onward gains three fields:
+
+```json
+{
+  "protocolVersion": 2,
+  "messageType": "state_snapshot",
+  "messageId": "opaque-message-id",
+  "sessionId": "opaque-connection-id",
+  "correlationId": null,
+  "payload": {},
+  "bridgeInstanceId": "opaque-bridge-instance-id",
+  "playContextId": null,
+  "clientId": "opaque-client-id"
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `bridgeInstanceId` | string | Identifies the running bridge process. Changes on every bridge restart. |
+| `playContextId` | string or `null` | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load). |
+| `clientId` | string or `null` | Identifies the logical client, established at `hello`. `null` before `hello` completes, the same shape `sessionId` already uses. |
+
+Encoding is explicitly version-gated by `protocolVersion`, not inferred from whether a value is
+present: v1 omits these three JSON keys entirely; v2 always emits them, as a value or `null`. A v2
+reader tolerates a missing key the same as an explicit `null`; only a writer's negotiated version
+decides whether the keys appear at all.
+
+### Identity lifetimes
+
+- `bridgeInstanceId` — one running bridge process lifetime; a restart mints a new one.
+- `playContextId` — the currently loaded play context. A new game, a load (including reloading the
+  same save, or loading a different save), and a return to the main menu each invalidate the previous
+  context; a new game or a successful load mints a fresh one. Not derived from save filename or save
+  identity.
+- `clientId` — one logical client/installation, supplied by the client in `hello` and independent of
+  any connection. Persists across reconnects.
+- `sessionId` — unchanged from v1: one authenticated socket session, invalidated when its socket
+  closes.
+
+Clients detect stale cached state by comparing `(bridgeInstanceId, playContextId)` against what they
+have cached; a mismatch means the cached state came from a different bridge lifetime or play context
+and must be discarded before the next snapshot is trusted.
+
+### State revisions (v2)
+
+A v2 state revision belongs to `(bridgeInstanceId, playContextId, stateArea)` rather than to a
+session: it advances only when that authoritative state changes, is not reset by a reconnect, and is
+invalidated when the play context changes. v1's session-scoped revisions (above) are unchanged.
+
+### `hello` (v2)
+
+`hello` gains a required `clientId` once the client offers version 2:
+
+```json
+{
+  "endpoint": "client",
+  "supportedProtocolVersions": [1, 2],
+  "clientId": "opaque-client-id",
+  "auth": {
+    "method": "one_time_local_token",
+    "token": "redacted-in-documentation"
+  }
+}
+```
+
+`clientId` is required in the payload once `supportedProtocolVersions` includes `2`; it is validated
+at the application layer after negotiation, not by the payload shape decoder.
+
+### `hello_ack` (v2)
+
+The bridge selects the highest mutually supported version. Once that selection is `2`, `hello_ack`'s
+own envelope uses `protocolVersion: 2` (unlike v1, which keeps `hello_ack` at `0`) and carries the
+envelope-level identity fields above:
+
+```json
+{
+  "selectedProtocolVersion": 2,
+  "clientIdentityKind": "unpaired"
+}
+```
+
+`clientIdentityKind` is always `"unpaired"` in this phase; a future pairing phase adds `"paired"`
+without changing this shape.
+
+### Negotiation
+
+`hello.supportedProtocolVersions` may list both `1` and `2`. The bridge selects the highest version
+it also supports and replies accordingly; an old v1-only client that only ever offers `[1]` continues
+to receive exactly the v1 contract above, unchanged.
+
+### Existing connected clients learn context transitions
+
+Protocol v2 introduces no new message type for this. A connection already subscribed learns about a
+`playContextId` change on its next inbound message, bounded by that connection's own keepalive
+cadence: the bridge compares the current context against what that connection was last told, and
+prepends an unavailable-state message or a fresh snapshot to that call's responses when it changed.

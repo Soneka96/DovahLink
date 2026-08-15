@@ -11,7 +11,12 @@ fixtures/
   state/
     character/
   errors/
+  v2/
+    connection/
 ```
+
+`v2/` mirrors this same tree for protocol v2 fixtures, added incrementally as v2 coverage grows
+rather than duplicated up front; a v1 fixture and its v2 counterpart are never the same file.
 
 ## Rules
 

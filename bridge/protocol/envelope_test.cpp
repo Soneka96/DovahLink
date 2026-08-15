@@ -64,6 +64,54 @@ TEST_CASE("hello-ack fixture decodes with the issued sessionId and correlationId
     CHECK(*envelope.correlationId == "message-hello-1");
 }
 
+TEST_CASE("v2 hello fixture decodes with a null sessionId and a clientId in its payload",
+          "[protocol][envelope]") {
+    auto envelope = DecodeFixture("v2/connection/hello.json");
+    CHECK(envelope.protocolVersion == 0);
+    CHECK(envelope.messageType == "hello");
+    CHECK_FALSE(envelope.sessionId.has_value());
+    REQUIRE(envelope.payload.if_contains("clientId"));
+    CHECK(envelope.payload.at("clientId").as_string() == "client-1");
+}
+
+TEST_CASE("v2 hello-ack fixture decodes at protocolVersion 2 with all three envelope identity fields",
+          "[protocol][envelope]") {
+    auto envelope = DecodeFixture("v2/connection/hello-ack.json");
+    CHECK(envelope.protocolVersion == 2);
+    CHECK(envelope.messageType == "hello_ack");
+    REQUIRE(envelope.bridgeInstanceId.has_value());
+    CHECK(*envelope.bridgeInstanceId == "bridge-1");
+    CHECK_FALSE(envelope.playContextId.has_value());
+    REQUIRE(envelope.clientId.has_value());
+    CHECK(*envelope.clientId == "client-1");
+}
+
+TEST_CASE("v2 hello-ack-active-context fixture decodes with a non-null playContextId",
+          "[protocol][envelope]") {
+    // Proves the identity fields also carry a real value, not only null --
+    // the shape a reconnect into an already-loaded play context produces.
+    auto envelope = DecodeFixture("v2/connection/hello-ack-active-context.json");
+    CHECK(envelope.protocolVersion == 2);
+    REQUIRE(envelope.playContextId.has_value());
+    CHECK(*envelope.playContextId == "context-1");
+}
+
+TEST_CASE("EncodeEnvelope round-trips the v2 hello-ack fixture's identity fields", "[protocol][envelope]") {
+    auto original = DecodeFixture("v2/connection/hello-ack.json");
+
+    std::string encoded = dovahlink::protocol::EncodeEnvelope(original);
+
+    auto reparsed = dovahlink::protocol::ParseBoundedJson(encoded);
+    REQUIRE(reparsed.has_value());
+    auto roundTripped = dovahlink::protocol::DecodeEnvelope(*reparsed);
+    REQUIRE(roundTripped.has_value());
+
+    CHECK(roundTripped->protocolVersion == original.protocolVersion);
+    CHECK(roundTripped->bridgeInstanceId == original.bridgeInstanceId);
+    CHECK(roundTripped->playContextId == original.playContextId);
+    CHECK(roundTripped->clientId == original.clientId);
+}
+
 TEST_CASE("character-state-snapshot fixture decodes with its payload intact", "[protocol][envelope]") {
     auto envelope = DecodeFixture("state/character/character-state-snapshot.json");
     CHECK(envelope.protocolVersion == 1);
