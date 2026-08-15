@@ -154,7 +154,11 @@ SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope, con
         CommitCharacterSnapshot(revisions, stateArea, revision);
     }
 
-    return SubscribeResult{.subscriptionAck = std::move(*ackEnvelope), .snapshots = std::move(snapshots)};
+    return SubscribeResult{
+        .subscriptionAck = std::move(*ackEnvelope),
+        .snapshots = std::move(snapshots),
+        .acceptedStateAreas = std::move(accepted),
+    };
 }
 
 protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotRequestEnvelope,

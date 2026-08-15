@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,18 @@ struct DispatchResult {
 
     /// Whether the connection must close after responses are sent.
     bool closeConnection = false;
+};
+
+/// Per-connection subscription bookkeeping for protocol v2's "existing
+/// connected clients learn context transitions" mechanism
+/// (protocol/schema/README.md's v2 section). Unused by the v1 path.
+struct SubscriptionState {
+    /// State areas this connection is currently subscribed to.
+    std::vector<std::string> subscribedStateAreas;
+
+    /// `playContextId` last reported to this connection, or no value before
+    /// the first v2 message that could carry one.
+    std::optional<std::string> lastKnownPlayContextId;
 };
 
 /// Counts, validates, rate-limits, and dispatches one inbound message.
@@ -41,6 +54,8 @@ struct DispatchResult {
 /// @param revisions Per-session state revision tracker on the v1 (session-scoped) path.
 /// @param activePlayContext Source of the acquired play context on the v2 (play-context-scoped) path;
 ///     unused when `protocolVersion < 2`.
+/// @param subscriptionState Per-connection subscription bookkeeping driving the v2 context-change
+///     resync mechanism; unused when `protocolVersion < 2`.
 /// @param steadyNow Current monotonic time.
 /// @param wallNow Current wall-clock time.
 /// @return Responses and the connection-close decision.
@@ -49,7 +64,7 @@ struct DispatchResult {
     std::int64_t protocolVersion, ConnectionId connection, SessionManager& sessionManager, ReplayGuard& replayGuard,
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const CharacterStateProvider& stateProvider,
-    RevisionTracker& revisions, const ActivePlayContext& activePlayContext,
+    RevisionTracker& revisions, const ActivePlayContext& activePlayContext, SubscriptionState& subscriptionState,
     std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

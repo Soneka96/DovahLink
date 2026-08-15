@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <iterator>
 #include <string_view>
 #include <utility>
 
@@ -122,6 +123,28 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
                                          "internal_error", "Unable to build response", false);
 }
 
+/// Builds an unsolicited fresh snapshot reflecting whichever character-state
+/// source is currently effective, for protocol v2's context-change resync
+/// mechanism. `correlationId` is null: this message is unsolicited, matching
+/// `capabilities`/`state_event`'s existing convention (protocol/schema/README.md).
+/// @return The snapshot envelope, or no value if it could not be built (the
+///     same unreachable-in-practice CSPRNG failure every envelope-building
+///     path in this codebase shares).
+std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& sessionId, std::int64_t protocolVersion,
+                                                       const CharacterStateProvider& provider,
+                                                       RevisionTracker& revisions,
+                                                       std::chrono::system_clock::time_point now) {
+    const std::string stateArea(protocol::state_area::kCharacter);
+    CharacterSnapshot snapshot = provider.CurrentCharacterSnapshot();
+    std::int64_t revision = revisions.NextSnapshotRevision(stateArea);
+    auto envelope = BuildCharacterSnapshotEnvelope(sessionId, protocolVersion, /*correlationId=*/std::nullopt,
+                                                    snapshot, revision, now);
+    if (envelope.has_value()) {
+        revisions.StartSnapshot(stateArea);
+    }
+    return envelope;
+}
+
 }
 
 DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t& receivedMessageCount,
@@ -132,6 +155,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                       const ActivePlayContext& activePlayContext,
+                                      SubscriptionState& subscriptionState,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
     ++receivedMessageCount;
@@ -187,22 +211,11 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
 
     timeoutTracker.RecordActivity(steadyNow);
 
-    if (envelope->messageType == protocol::message_type::kPing) {
-        return DispatchResult{.responses = {BuildPong(*envelope, sessionId, protocolVersion)}};
-    }
-
-    if (envelope->messageType == protocol::message_type::kCapabilities) {
-        auto error = HandleClientCapabilities(*envelope, sessionId, protocolVersion);
-        if (!error.has_value()) {
-            return DispatchResult{};
-        }
-        return FromHandlerResponse(std::move(*error), violations, steadyNow);
-    }
-
     // Routes to v1's session-scoped state, this connection's acquired v2
     // play context, or (v2 with no active context) throwaway state
-    // producing the existing unavailable shape -- resolved once so
-    // kSubscribe and kSnapshotRequest below share identical routing, per
+    // producing the existing unavailable shape -- resolved once, ahead of
+    // every message type, so the resync check below and kSubscribe/
+    // kSnapshotRequest further down share identical routing, per
     // protocol/schema/README.md's v2 section ("NoContext ... reuses the
     // existing unavailable state-area shape"). The throwaway RevisionTracker
     // is freshly constructed on every call, so a NoContext response always
@@ -221,20 +234,61 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     RevisionTracker& effectiveRevisions =
         protocolVersion < 2 ? revisions : (context ? context->revisions : noContextRevisions);
 
-    if (envelope->messageType == protocol::message_type::kSubscribe) {
-        auto result =
-            HandleSubscribe(*envelope, sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
-        DispatchResult dispatch = FromHandlerResponse(std::move(result.subscriptionAck), violations, steadyNow);
-        for (auto& snapshot : result.snapshots) {
-            dispatch.responses.push_back(std::move(snapshot));
+    // Protocol v2's "existing connected clients learn context transitions"
+    // mechanism (protocol/schema/README.md): on every message, a subscribed
+    // v2 connection whose remembered context differs from the current one
+    // gets an unsolicited fresh snapshot prepended to whatever this message
+    // would otherwise produce, bounded by the connection's own keepalive
+    // cadence rather than pushed independently (Phase 4 scope).
+    std::vector<protocol::Envelope> prepended;
+    if (protocolVersion >= 2) {
+        std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+        bool contextChanged = currentContextId != subscriptionState.lastKnownPlayContextId;
+        if (contextChanged && !subscriptionState.subscribedStateAreas.empty()) {
+            auto resyncSnapshot =
+                BuildResyncSnapshot(sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
+            if (resyncSnapshot.has_value()) {
+                prepended.push_back(std::move(*resyncSnapshot));
+                subscriptionState.lastKnownPlayContextId = currentContextId;
+            }
+            // Building failed (unreachable-in-practice CSPRNG failure):
+            // lastKnownPlayContextId stays stale so the next message retries.
+        } else {
+            subscriptionState.lastKnownPlayContextId = currentContextId;
         }
-        return dispatch;
     }
 
-    // Only kSnapshotRequest remains, per kAllowedMessageTypes.
-    auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, effectiveProvider,
-                                          effectiveRevisions, wallNow);
-    return FromHandlerResponse(std::move(response), violations, steadyNow);
+    DispatchResult result;
+    if (envelope->messageType == protocol::message_type::kPing) {
+        result = DispatchResult{.responses = {BuildPong(*envelope, sessionId, protocolVersion)}};
+    } else if (envelope->messageType == protocol::message_type::kCapabilities) {
+        auto error = HandleClientCapabilities(*envelope, sessionId, protocolVersion);
+        result = error.has_value() ? FromHandlerResponse(std::move(*error), violations, steadyNow)
+                                    : DispatchResult{};
+    } else if (envelope->messageType == protocol::message_type::kSubscribe) {
+        auto subscribeResult =
+            HandleSubscribe(*envelope, sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
+        // Only a genuinely processed request (never a failure -- malformed
+        // payload, or an internal error building the response) replaces the
+        // remembered subscription: a rejected request carries no client
+        // intent to unsubscribe, so a prior subscription must survive it.
+        if (protocolVersion >= 2 && subscribeResult.subscriptionAck.messageType == protocol::message_type::kSubscriptionAck) {
+            subscriptionState.subscribedStateAreas = subscribeResult.acceptedStateAreas;
+        }
+        result = FromHandlerResponse(std::move(subscribeResult.subscriptionAck), violations, steadyNow);
+        for (auto& snapshot : subscribeResult.snapshots) {
+            result.responses.push_back(std::move(snapshot));
+        }
+    } else {
+        // Only kSnapshotRequest remains, per kAllowedMessageTypes.
+        auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, effectiveProvider,
+                                              effectiveRevisions, wallNow);
+        result = FromHandlerResponse(std::move(response), violations, steadyNow);
+    }
+
+    result.responses.insert(result.responses.begin(), std::make_move_iterator(prepended.begin()),
+                            std::make_move_iterator(prepended.end()));
+    return result;
 }
 
 }  // namespace dovahlink::application

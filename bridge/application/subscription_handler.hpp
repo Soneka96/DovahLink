@@ -62,6 +62,12 @@ struct SubscribeResult {
 
     /// Snapshots for accepted state areas, in request order.
     std::vector<protocol::Envelope> snapshots;
+
+    /// State areas accepted by this request, exposed structurally (beyond
+    /// `subscriptionAck`'s encoded payload) for the dispatcher's own
+    /// per-connection subscription bookkeeping. Empty when the request
+    /// itself failed before areas could be evaluated.
+    std::vector<std::string> acceptedStateAreas;
 };
 
 /// Handles a subscription request and builds initial snapshots before any events.

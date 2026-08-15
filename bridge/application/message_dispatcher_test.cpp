@@ -22,6 +22,7 @@ using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::RevisionTracker;
 using dovahlink::application::SessionManager;
+using dovahlink::application::SubscriptionState;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ViolationTracker;
 
@@ -62,6 +63,8 @@ struct Fixture {
     RevisionTracker revisions;
     /// Source of the acquired play context on the v2 path; empty (kNoContext) until a test begins one.
     ActivePlayContext activePlayContext;
+    /// Per-connection subscription bookkeeping driving the v2 resync mechanism.
+    SubscriptionState subscriptionState;
 
     /// Creates the fixture with its test session already authenticated.
     Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId)) {
@@ -74,7 +77,8 @@ struct Fixture {
                            std::int64_t protocolVersion = kSupportedProtocolVersion) {
         return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, protocolVersion, kConnection,
                                      sessions, replayGuard, violations, rateLimiter, timeout, stateProvider,
-                                     revisions, activePlayContext, steadyNow, std::chrono::system_clock::now());
+                                     revisions, activePlayContext, subscriptionState, steadyNow,
+                                     std::chrono::system_clock::now());
     }
 };
 
@@ -240,14 +244,20 @@ TEST_CASE("ProcessInboundMessage's v2 path discards the old context's revision c
     // A new play context replaces the old one; its revision counter starts
     // fresh rather than continuing from 2 (application/play_context_test.cpp
     // proves this at the ActivePlayContext level; this proves it flows
-    // through actual dispatch).
+    // through actual dispatch). This connection is already subscribed, so
+    // the request also triggers the resync mechanism (its own test below):
+    // an unsolicited snapshot at the front of the response, ahead of the
+    // request's own answer.
     fixture.activePlayContext.Begin("context-2");
     auto afterReplace = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2, "message-snap-req-2"),
                                         SteadyClock::now(), /*protocolVersion=*/2);
-    REQUIRE(afterReplace.responses.size() == 1);
-    auto snapshotAfterReplace = dovahlink::protocol::DecodeStateSnapshotPayload(afterReplace.responses[0].payload);
+    REQUIRE(afterReplace.responses.size() == 2);
+    auto resyncSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(afterReplace.responses[0].payload);
+    REQUIRE(resyncSnapshot.has_value());
+    CHECK(resyncSnapshot->revision == 1);
+    auto snapshotAfterReplace = dovahlink::protocol::DecodeStateSnapshotPayload(afterReplace.responses[1].payload);
     REQUIRE(snapshotAfterReplace.has_value());
-    CHECK(snapshotAfterReplace->revision == 1);
+    CHECK(snapshotAfterReplace->revision == 2);
 }
 
 TEST_CASE("ProcessInboundMessage's v2 path falls back to the unavailable shape after the active "
@@ -270,12 +280,15 @@ TEST_CASE("ProcessInboundMessage's v2 path falls back to the unavailable shape a
     // A return to the main menu (or any invalidation without a replacement)
     // clears the active context entirely; the next v2 request must not
     // dereference the now-dangling handle, and must fall back to the same
-    // unavailable shape NoContext always produces.
+    // unavailable shape NoContext always produces. This connection is
+    // already subscribed, so the request also triggers the resync
+    // mechanism: an unsolicited snapshot at the front of the response,
+    // ahead of the request's own answer -- both unavailable.
     fixture.activePlayContext.Reset();
     auto afterReset = fixture.Process(SnapshotRequestMessage(/*protocolVersion=*/2), SteadyClock::now(),
                                       /*protocolVersion=*/2);
-    REQUIRE(afterReset.responses.size() == 1);
-    auto afterResetSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(afterReset.responses[0].payload);
+    REQUIRE(afterReset.responses.size() == 2);
+    auto afterResetSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(afterReset.responses[1].payload);
     REQUIRE(afterResetSnapshot.has_value());
     auto afterResetState = dovahlink::protocol::DecodeCharacterState(afterResetSnapshot->data);
     REQUIRE(afterResetState.has_value());
@@ -323,6 +336,185 @@ TEST_CASE("ProcessInboundMessage's v2 NoContext path reports revision 1 on every
     auto secondSnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(second.responses[0].payload);
     REQUIRE(secondSnapshot.has_value());
     CHECK(secondSnapshot->revision == 1);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync prepends an unsolicited snapshot to a ping once the "
+          "subscribed context changes",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    fixture.activePlayContext.Begin("context-2");
+    auto ping = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(ping.responses.size() == 2);
+    CHECK(ping.responses[0].messageType == "state_snapshot");
+    CHECK(ping.responses[0].protocolVersion == 2);
+    CHECK_FALSE(ping.responses[0].correlationId.has_value());
+    CHECK(ping.responses[1].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync does not fire for a connection that never subscribed",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+
+    fixture.activePlayContext.Begin("context-2");
+    auto ping = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(ping.responses.size() == 1);
+    CHECK(ping.responses[0].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync does not re-fire for a later message against the same "
+          "unchanged context",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    auto firstPing = fixture.Process(PingMessage("message-ping-1"), SteadyClock::now(), /*protocolVersion=*/2);
+    auto secondPing = fixture.Process(PingMessage("message-ping-2"), SteadyClock::now(), /*protocolVersion=*/2);
+
+    CHECK(firstPing.responses.size() == 1);
+    CHECK(secondPing.responses.size() == 1);
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync survives two context changes with no message processed "
+          "in between, comparing against the original remembered context",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    // Two replacements land before this connection reads anything again;
+    // only lastKnownPlayContextId ("context-1", set at subscribe time)
+    // should matter, not the discarded intermediate "context-2".
+    fixture.activePlayContext.Begin("context-2");
+    fixture.activePlayContext.Begin("context-3");
+    auto ping = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(ping.responses.size() == 2);
+    CHECK(ping.responses[0].messageType == "state_snapshot");
+    CHECK(ping.responses[1].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync fires exactly once even when the triggering message "
+          "is itself a re-subscribe",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto firstSubscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(firstSubscribe.responses.size() == 2);
+
+    fixture.activePlayContext.Begin("context-2");
+    auto secondSubscribe = fixture.Process(SubscribeMessage(/*protocolVersion=*/2, "message-sub-2"),
+                                           SteadyClock::now(), /*protocolVersion=*/2);
+
+    // The resync snapshot, then this request's own ack and snapshot.
+    REQUIRE(secondSubscribe.responses.size() == 3);
+    CHECK(secondSubscribe.responses[0].messageType == "state_snapshot");
+    CHECK_FALSE(secondSubscribe.responses[0].correlationId.has_value());
+    CHECK(secondSubscribe.responses[1].messageType == "subscription_ack");
+    CHECK(secondSubscribe.responses[2].messageType == "state_snapshot");
+    REQUIRE(secondSubscribe.responses[2].correlationId.has_value());
+    CHECK(*secondSubscribe.responses[2].correlationId == "message-sub-2");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync survives a malformed re-subscribe: the prior "
+          "subscription is not cleared by a rejected request",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    std::string malformedSubscribe =
+        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-bad", )"
+        R"("sessionId": ")" +
+        std::string(kSessionId) + R"(", "correlationId": null, "payload": {}})";
+    auto malformedResult = fixture.Process(malformedSubscribe, SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(malformedResult.responses.size() == 1);
+    auto malformedError = dovahlink::protocol::DecodeErrorPayload(malformedResult.responses[0].payload);
+    REQUIRE(malformedError.has_value());
+    CHECK(malformedError->code == "malformed_message");
+
+    // The prior subscription must still be intact: a later context change
+    // still triggers resync, proving subscribedStateAreas was never cleared
+    // by the rejected request above.
+    fixture.activePlayContext.Begin("context-2");
+    auto ping = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(ping.responses.size() == 2);
+    CHECK(ping.responses[0].messageType == "state_snapshot");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync stops after an explicit unsubscribe (an empty "
+          "stateAreas list)",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    std::string unsubscribeMessage =
+        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-unsub-1", )"
+        R"("sessionId": ")" +
+        std::string(kSessionId) + R"(", "correlationId": null, "payload": {"stateAreas": []}})";
+    auto unsubscribe = fixture.Process(unsubscribeMessage, SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(unsubscribe.responses.size() == 1);
+    CHECK(unsubscribe.responses[0].messageType == "subscription_ack");
+
+    fixture.activePlayContext.Begin("context-2");
+    auto ping = fixture.Process(PingMessage(), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(ping.responses.size() == 1);
+    CHECK(ping.responses[0].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage's v2 resync also fires for a capabilities message, not just "
+          "subscribe-shaped ones",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe =
+        fixture.Process(SubscribeMessage(/*protocolVersion=*/2), SteadyClock::now(), /*protocolVersion=*/2);
+    REQUIRE(subscribe.responses.size() == 2);
+
+    fixture.activePlayContext.Begin("context-2");
+    std::string capabilitiesMessage =
+        R"({"protocolVersion": 2, "messageType": "capabilities", "messageId": "message-cap-1", )"
+        R"("sessionId": ")" +
+        std::string(kSessionId) + R"(", "correlationId": null, "payload": {"capabilities": []}})";
+    auto result = fixture.Process(capabilitiesMessage, SteadyClock::now(), /*protocolVersion=*/2);
+
+    // Ordinarily an empty capabilities list gets no response at all; the
+    // resync mechanism is the only reason this response is non-empty here.
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "state_snapshot");
+}
+
+TEST_CASE("ProcessInboundMessage's resync mechanism never fires on the v1 path, even with a "
+          "subscribed connection and a changing play context",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+    auto subscribe = fixture.Process(SubscribeMessage(kSupportedProtocolVersion));
+    REQUIRE(subscribe.responses.size() == 2);
+
+    fixture.activePlayContext.Begin("context-2");
+    auto ping = fixture.Process(PingMessage());
+
+    REQUIRE(ping.responses.size() == 1);
+    CHECK(ping.responses[0].messageType == "pong");
 }
 
 TEST_CASE("ProcessInboundMessage's v2 capabilities handling is unaffected by play-context routing",
