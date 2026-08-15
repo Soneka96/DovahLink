@@ -3,43 +3,26 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-/// <summary>Exercises Envelope's version-gated encoding and tolerant decoding of the v2 identity fields.</summary>
+/// <summary>Exercises Envelope's unconditional encoding and decoding of the identity fields.</summary>
 public class EnvelopeTests
 {
-    /// <summary>Builds a minimal envelope at the given protocol version and identity field values.</summary>
-    /// <param name="protocolVersion">The envelope's protocol version.</param>
+    /// <summary>Builds a minimal envelope with the given identity field values.</summary>
     /// <param name="bridgeInstanceId">The bridge instance identity to encode.</param>
     /// <param name="playContextId">The play context identity to encode.</param>
     /// <param name="clientId">The client identity to encode.</param>
     /// <returns>The constructed envelope.</returns>
     private static Envelope MakeEnvelope(
-        int protocolVersion, string? bridgeInstanceId = null, string? playContextId = null, string? clientId = null)
+        string? bridgeInstanceId = null, string? playContextId = null, string? clientId = null)
     {
-        return new Envelope(protocolVersion, "ping", "message-1", "session-1", null, new JsonObject(),
+        return new Envelope("ping", "message-1", "session-1", null, new JsonObject(),
             bridgeInstanceId, playContextId, clientId);
     }
 
-    /// <summary>Verifies that v1 omits the v2 identity keys entirely, even when the record's fields are set.</summary>
+    /// <summary>Verifies that empty identity fields are emitted as JSON null rather than omitted.</summary>
     [Fact]
-    public void EncodeOmitsTheV2IdentityFieldsForProtocolVersion1EvenWhenSet()
+    public void EncodeEmitsJsonNullForEmptyIdentityFields()
     {
-        // Proves the gate is the version, not whether the fields happen to
-        // be populated (protocol/schema/README.md's v2 section: "explicitly
-        // version-gated, not inferred from whether the optional is empty").
-        Envelope envelope = MakeEnvelope(1, "bridge-1", "context-1", "client-1");
-
-        JsonObject encoded = JsonNode.Parse(envelope.Encode())!.AsObject();
-
-        Assert.False(encoded.ContainsKey("bridgeInstanceId"));
-        Assert.False(encoded.ContainsKey("playContextId"));
-        Assert.False(encoded.ContainsKey("clientId"));
-    }
-
-    /// <summary>Verifies that v2 emits JSON null for empty identity fields rather than omitting them.</summary>
-    [Fact]
-    public void EncodeEmitsJsonNullForEmptyV2IdentityFields()
-    {
-        Envelope envelope = MakeEnvelope(2);
+        Envelope envelope = MakeEnvelope();
 
         JsonObject encoded = JsonNode.Parse(envelope.Encode())!.AsObject();
 
@@ -51,11 +34,11 @@ public class EnvelopeTests
         Assert.Null(encoded["clientId"]);
     }
 
-    /// <summary>Verifies that v2 emits string values for populated identity fields.</summary>
+    /// <summary>Verifies that populated identity fields are emitted as their string values.</summary>
     [Fact]
-    public void EncodeEmitsValuesForPopulatedV2IdentityFields()
+    public void EncodeEmitsValuesForPopulatedIdentityFields()
     {
-        Envelope envelope = MakeEnvelope(2, "bridge-1", "context-1", "client-1");
+        Envelope envelope = MakeEnvelope("bridge-1", "context-1", "client-1");
 
         JsonObject encoded = JsonNode.Parse(envelope.Encode())!.AsObject();
 
@@ -64,28 +47,12 @@ public class EnvelopeTests
         Assert.Equal("client-1", encoded["clientId"]!.GetValue<string>());
     }
 
-    /// <summary>Verifies that decoding a v1 message with the identity keys omitted yields null fields.</summary>
+    /// <summary>Verifies that decoding a message with explicit null identity fields yields null fields.</summary>
     [Fact]
-    public void DecodeTreatsOmittedV2IdentityKeysAsNull()
+    public void DecodeTreatsExplicitNullIdentityKeysAsNull()
     {
         const string json = """
-            {"protocolVersion": 1, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
-             "correlationId": null, "payload": {}}
-            """;
-
-        Envelope envelope = Envelope.Decode(json);
-
-        Assert.Null(envelope.BridgeInstanceId);
-        Assert.Null(envelope.PlayContextId);
-        Assert.Null(envelope.ClientId);
-    }
-
-    /// <summary>Verifies that decoding a v2 message with explicit null identity fields yields null fields.</summary>
-    [Fact]
-    public void DecodeTreatsExplicitNullV2IdentityKeysAsNull()
-    {
-        const string json = """
-            {"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
              "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": null,
              "clientId": null}
             """;
@@ -97,12 +64,12 @@ public class EnvelopeTests
         Assert.Null(envelope.ClientId);
     }
 
-    /// <summary>Verifies that decoding a v2 message with string identity fields yields their values.</summary>
+    /// <summary>Verifies that decoding a message with string identity fields yields their values.</summary>
     [Fact]
-    public void DecodeReadsV2IdentityFieldValues()
+    public void DecodeReadsIdentityFieldValues()
     {
         const string json = """
-            {"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
              "correlationId": null, "payload": {}, "bridgeInstanceId": "bridge-1",
              "playContextId": "context-1", "clientId": "client-1"}
             """;
@@ -114,11 +81,11 @@ public class EnvelopeTests
         Assert.Equal("client-1", envelope.ClientId);
     }
 
-    /// <summary>Verifies that a v2 envelope with mixed set and null identity fields round-trips exactly.</summary>
+    /// <summary>Verifies that an envelope with mixed set and null identity fields round-trips exactly.</summary>
     [Fact]
-    public void EncodeThenDecodeRoundTripsMixedV2IdentityFields()
+    public void EncodeThenDecodeRoundTripsMixedIdentityFields()
     {
-        Envelope original = MakeEnvelope(2, "bridge-1", null, "client-1");
+        Envelope original = MakeEnvelope("bridge-1", null, "client-1");
 
         Envelope roundTripped = Envelope.Decode(original.Encode());
 
@@ -127,59 +94,78 @@ public class EnvelopeTests
         Assert.Equal(original.ClientId, roundTripped.ClientId);
     }
 
-    /// <summary>Verifies that the v2 identity fields are still emitted above protocol version 2, guarding
-    /// against the gate narrowing from >= 2 to == 2.</summary>
-    [Fact]
-    public void EncodeAlsoEmitsTheV2IdentityFieldsAtProtocolVersion3()
-    {
-        Envelope envelope = MakeEnvelope(3, "bridge-1", "context-1", "client-1");
-
-        JsonObject encoded = JsonNode.Parse(envelope.Encode())!.AsObject();
-
-        Assert.Equal("bridge-1", encoded["bridgeInstanceId"]!.GetValue<string>());
-    }
-
-    /// <summary>Verifies that decoding tolerates a v1 message that carries a v2 identity field anyway.</summary>
-    [Fact]
-    public void DecodeTreatsAV1MessageCarryingAV2IdentityFieldAnywayTolerantly()
-    {
-        // Decode never rejects on protocolVersion/identity-field mismatch:
-        // only Encode enforces which version may write these fields.
-        const string json = """
-            {"protocolVersion": 1, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
-             "correlationId": null, "payload": {}, "bridgeInstanceId": "bridge-1"}
-            """;
-
-        Envelope envelope = Envelope.Decode(json);
-
-        Assert.Equal("bridge-1", envelope.BridgeInstanceId);
-    }
-
     /// <summary>Verifies that decoding rejects a non-string, non-null identity field as a malformed envelope.</summary>
     [Fact]
     public void DecodeRejectsANonStringNonNullIdentityField()
     {
         const string json = """
-            {"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
-             "correlationId": null, "payload": {}, "bridgeInstanceId": 5}
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": 5, "playContextId": null,
+             "clientId": null}
             """;
 
         Assert.Throws<FormatException>(() => Envelope.Decode(json));
     }
 
-    /// <summary>Verifies that decoding one present identity key alongside two absent ones reads only that value.</summary>
+    /// <summary>Verifies that decoding rejects a non-string, non-null playContextId as a malformed envelope.</summary>
     [Fact]
-    public void DecodeReadsOnePresentIdentityFieldWhileTheOthersStayAbsent()
+    public void DecodeRejectsANonStringNonNullPlayContextId()
     {
         const string json = """
-            {"protocolVersion": 2, "messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
-             "correlationId": null, "payload": {}, "clientId": "client-1"}
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": 5,
+             "clientId": null}
             """;
 
-        Envelope envelope = Envelope.Decode(json);
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
 
-        Assert.Null(envelope.BridgeInstanceId);
-        Assert.Null(envelope.PlayContextId);
-        Assert.Equal("client-1", envelope.ClientId);
+    /// <summary>Verifies that decoding rejects a non-string, non-null clientId as a malformed envelope.</summary>
+    [Fact]
+    public void DecodeRejectsANonStringNonNullClientId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": null,
+             "clientId": 5}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that decoding rejects a message missing the bridgeInstanceId key entirely.</summary>
+    [Fact]
+    public void DecodeRejectsMissingBridgeInstanceId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "playContextId": null, "clientId": null}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that decoding rejects a message missing the playContextId key entirely.</summary>
+    [Fact]
+    public void DecodeRejectsMissingPlayContextId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "clientId": null}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that decoding rejects a message missing the clientId key entirely.</summary>
+    [Fact]
+    public void DecodeRejectsMissingClientId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": null}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
     }
 }

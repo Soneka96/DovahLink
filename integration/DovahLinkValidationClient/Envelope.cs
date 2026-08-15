@@ -5,21 +5,19 @@ namespace DovahLinkValidationClient;
 /// <summary>
 /// An independent encoder and decoder for one DovahLink protocol envelope.
 /// </summary>
-/// <param name="ProtocolVersion">The protocol version carried by the message.</param>
 /// <param name="MessageType">The canonical message type.</param>
 /// <param name="MessageId">The unique message identifier.</param>
 /// <param name="SessionId">The session identifier, when one exists.</param>
 /// <param name="CorrelationId">The correlated request identifier, when one exists.</param>
 /// <param name="Payload">The message-specific JSON object.</param>
 /// <param name="BridgeInstanceId">The identity of the bridge instance that produced this message.
-/// Only encoded once <paramref name="ProtocolVersion"/> is 2 or higher; absent (not merely null)
-/// below that.</param>
+/// `null` on the client's own <c>hello</c> (the client does not know it yet) and on a narrow set of
+/// early connection-hygiene rejections the bridge cannot attach an identity to; present otherwise.</param>
 /// <param name="PlayContextId">The identity of the currently loaded play context, when one is
-/// active. Only encoded once <paramref name="ProtocolVersion"/> is 2 or higher.</param>
-/// <param name="ClientId">The identity of the logical client, established at <c>hello</c>. Only
-/// encoded once <paramref name="ProtocolVersion"/> is 2 or higher.</param>
+/// active. `null` outside an active play context -- genuine semantic absence, not a placeholder.</param>
+/// <param name="ClientId">The identity of the logical client, established at <c>hello</c>. `null`
+/// before <c>hello</c> completes, the same shape <paramref name="SessionId"/> already uses.</param>
 public sealed record Envelope(
-    int ProtocolVersion,
     string MessageType,
     string MessageId,
     string? SessionId,
@@ -37,21 +35,15 @@ public sealed record Envelope(
     {
         var root = new JsonObject
         {
-            ["protocolVersion"] = ProtocolVersion,
             ["messageType"] = MessageType,
             ["messageId"] = MessageId,
             ["sessionId"] = SessionId,
             ["correlationId"] = CorrelationId,
             ["payload"] = Payload.DeepClone(),
+            ["bridgeInstanceId"] = BridgeInstanceId,
+            ["playContextId"] = PlayContextId,
+            ["clientId"] = ClientId,
         };
-        // v1 omits these keys entirely; v2 always emits them, as a value or
-        // JSON null, matching protocol/schema/README.md's v2 encoding rule.
-        if (ProtocolVersion >= 2)
-        {
-            root["bridgeInstanceId"] = BridgeInstanceId;
-            root["playContextId"] = PlayContextId;
-            root["clientId"] = ClientId;
-        }
         return root.ToJsonString();
     }
 
@@ -68,21 +60,30 @@ public sealed record Envelope(
         {
             root = JsonNode.Parse(json)?.AsObject() ?? throw new FormatException("Envelope is not a JSON object.");
 
-            int protocolVersion = root["protocolVersion"]?.GetValue<int>() ?? throw new FormatException("Missing protocolVersion.");
             string messageType = root["messageType"]?.GetValue<string>() ?? throw new FormatException("Missing messageType.");
             string messageId = root["messageId"]?.GetValue<string>() ?? throw new FormatException("Missing messageId.");
             string? sessionId = root["sessionId"]?.GetValue<string>();
             string? correlationId = root["correlationId"]?.GetValue<string>();
             JsonObject payload = root["payload"]?.AsObject() ?? throw new FormatException("Missing payload.");
-            // Decoded tolerantly regardless of protocolVersion (absent and
-            // explicit null are indistinguishable through JsonObject's
-            // indexer, and both correctly decode to null here): only Encode
-            // enforces which version may write these fields.
+            // Required keys, nullable values: absent (not merely null) is
+            // rejected, matching protocol/schema/README.md's envelope table.
+            if (!root.ContainsKey("bridgeInstanceId"))
+            {
+                throw new FormatException("Missing bridgeInstanceId.");
+            }
+            if (!root.ContainsKey("playContextId"))
+            {
+                throw new FormatException("Missing playContextId.");
+            }
+            if (!root.ContainsKey("clientId"))
+            {
+                throw new FormatException("Missing clientId.");
+            }
             string? bridgeInstanceId = root["bridgeInstanceId"]?.GetValue<string>();
             string? playContextId = root["playContextId"]?.GetValue<string>();
             string? clientId = root["clientId"]?.GetValue<string>();
 
-            return new Envelope(protocolVersion, messageType, messageId, sessionId, correlationId, payload,
+            return new Envelope(messageType, messageId, sessionId, correlationId, payload,
                 bridgeInstanceId, playContextId, clientId);
         }
         catch (InvalidOperationException ex)
