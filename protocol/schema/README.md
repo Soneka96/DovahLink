@@ -14,7 +14,7 @@ object per message; framing is not part of the JSON payload.
   "payload": {},
   "bridgeInstanceId": "opaque-bridge-instance-id",
   "playContextId": null,
-  "clientId": "opaque-client-id"
+  "clientId": null
 }
 ```
 
@@ -25,9 +25,9 @@ object per message; framing is not part of the JSON payload.
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
-| `bridgeInstanceId` | string or `null` | yes | Identifies the running bridge process; changes on every bridge restart. `null` on the client's own `hello` (the client does not know it yet) and on a narrow set of early connection-hygiene rejections the bridge cannot attach an identity to; present otherwise. |
+| `bridgeInstanceId` | string or `null` | yes | Identifies the running bridge process; changes on every bridge restart. `null` on the client's own `hello` (the client does not know it yet) and when this Bridge process could not generate its own identity at startup; present on every Bridge-originated message otherwise, including error responses. |
 | `playContextId` | string or `null` | yes | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load, or after a return to the main menu) — genuine semantic absence, not a placeholder. |
-| `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` before `hello` completes, the same shape `sessionId` already uses. |
+| `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` on the client's own `hello` (not yet established) and on every message the Bridge sends after `hello_ack`: once a session exists, the Bridge derives the authenticated client from that session rather than repeating it on the wire. `hello_ack` itself still carries the value it accepted, confirming the identity the session now owns. |
 
 Unknown top-level fields are ignored only when forward-compatible reading is permitted by the
 current schema. Required fields with the wrong type invalidate the message. Every message type below
