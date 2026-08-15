@@ -8,6 +8,7 @@
     "clientIdentityKind": "unpaired"
   },
   "bridgeInstanceId": "bridge-1",
+
   "playContextId": null,
   "clientId": "client-1"
 }

@@ -80,6 +80,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     auto sessionLease = std::move(handshake.sessionLease);
 
     std::string sessionId = *handshake.response.sessionId;
+    std::optional<std::string> clientId = handshake.response.clientId;
 
     ws.SwitchToIdleTimeout();
 
@@ -88,6 +89,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         auto context = activePlayContext.AcquireCurrent();
         capabilities->bridgeInstanceId = bridgeInstanceId;
         capabilities->playContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+        capabilities->clientId = clientId;
         SendIfPossible(ws, *capabilities);
     }
     // If BuildBridgeCapabilities itself failed (the same unreachable-in-
@@ -114,7 +116,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
         auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager,
                                              replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                             subscriptionState, bridgeInstanceId, steadyNow(),
+                                             subscriptionState, bridgeInstanceId, clientId, steadyNow(),
                                              std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);

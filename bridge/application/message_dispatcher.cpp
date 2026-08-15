@@ -157,6 +157,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       const ActivePlayContext& activePlayContext,
                                       SubscriptionState& subscriptionState,
                                       const std::optional<std::string>& bridgeInstanceId,
+                                      const std::optional<std::string>& clientId,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
     ++receivedMessageCount;
@@ -281,16 +282,17 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     result.responses.insert(result.responses.begin(), std::make_move_iterator(prepended.begin()),
                             std::make_move_iterator(prepended.end()));
 
-    // Stamps the connection's bridge and play-context identity onto every
-    // response built above. Scoped to responses reached through `result` --
-    // the earlier Reject() calls above return directly and are not stamped,
-    // since those are connection-hygiene failures (malformed shape, stale
-    // session, replay, rate limit) uncorrelated with authoritative-state
-    // staleness detection, not state the client compares (bridgeInstanceId,
-    // playContextId) against.
+    // Stamps the connection's bridge, play-context, and client identity onto
+    // every response built above. Scoped to responses reached through
+    // `result` -- the earlier Reject() calls above return directly and are
+    // not stamped, since those are connection-hygiene failures (malformed
+    // shape, stale session, replay, rate limit) uncorrelated with
+    // authoritative-state staleness detection, not state the client compares
+    // (bridgeInstanceId, playContextId) against.
     for (protocol::Envelope& response : result.responses) {
         response.bridgeInstanceId = bridgeInstanceId;
         response.playContextId = currentContextId;
+        response.clientId = clientId;
     }
 
     return result;

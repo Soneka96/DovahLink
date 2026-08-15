@@ -53,6 +53,8 @@ struct SubscriptionState {
 ///     resync mechanism.
 /// @param bridgeInstanceId This bridge process's identity, stamped onto every response envelope
 ///     reached through normal dispatch (not the early connection-hygiene rejections below).
+/// @param clientId The authenticated session's client identity, stamped onto every response
+///     envelope reached through normal dispatch (not the early connection-hygiene rejections below).
 /// @param steadyNow Current monotonic time.
 /// @param wallNow Current wall-clock time.
 /// @return Responses and the connection-close decision.
@@ -62,6 +64,7 @@ struct SubscriptionState {
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const ActivePlayContext& activePlayContext,
     SubscriptionState& subscriptionState, const std::optional<std::string>& bridgeInstanceId,
-    std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
+    const std::optional<std::string>& clientId, std::chrono::steady_clock::time_point steadyNow,
+    std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

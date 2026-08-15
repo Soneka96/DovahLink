@@ -238,12 +238,16 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
     CHECK(capabilities.messageType == "capabilities");
     REQUIRE(capabilities.bridgeInstanceId.has_value());
     CHECK(*capabilities.bridgeInstanceId == "bridge-1");
+    REQUIRE(capabilities.clientId.has_value());
+    CHECK(*capabilities.clientId == "client-1");
 
     ClientWriteText(clientWs, PingMessage(sessionId));
     auto pong = ClientReadEnvelope(clientWs);
     CHECK(pong.messageType == "pong");
     REQUIRE(pong.bridgeInstanceId.has_value());
     CHECK(*pong.bridgeInstanceId == "bridge-1");
+    REQUIRE(pong.clientId.has_value());
+    CHECK(*pong.clientId == "client-1");
 
     ClientWriteText(clientWs, SubscribeMessage(sessionId));
     auto subscriptionAck = ClientReadEnvelope(clientWs);
@@ -252,6 +256,8 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
     CHECK(snapshot.messageType == "state_snapshot");
     REQUIRE(snapshot.bridgeInstanceId.has_value());
     CHECK(*snapshot.bridgeInstanceId == "bridge-1");
+    REQUIRE(snapshot.clientId.has_value());
+    CHECK(*snapshot.clientId == "client-1");
     CHECK_FALSE(snapshot.playContextId.has_value());
 
     boost::system::error_code closeEc;

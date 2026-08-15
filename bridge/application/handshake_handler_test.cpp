@@ -186,6 +186,7 @@ TEST_CASE("HandleHello rejects a structurally malformed payload", "[application]
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
 
     Envelope hello{
         .messageType = "hello",
@@ -194,12 +195,18 @@ TEST_CASE("HandleHello rejects a structurally malformed payload", "[application]
         .correlationId = std::nullopt,
         .payload = boost::json::parse(R"({"endpoint": "client"})").get_object(),  // missing required fields
     };
-    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
+    // This is the earliest Fail() call site in HandleHello -- runs before
+    // the token or session checks below -- so it exercises the
+    // bridgeInstanceId stamping at the structurally-first possible point.
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
 
     CHECK(result.closeConnection);
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "malformed_message");
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("HandleHello rejects a wrong token without consuming the real one",
@@ -218,6 +225,31 @@ TEST_CASE("HandleHello rejects a wrong token without consuming the real one",
     REQUIRE(error.has_value());
     CHECK(error->code == "unauthenticated");
     CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("HandleHello stamps a supplied bridgeInstanceId onto a rejected-token failure response",
+          "[application][handshake_handler]") {
+    // The bridge's own identity is known before any hello arrives (it is
+    // generated once at startup), so a rejection during the handshake itself
+    // -- unlike the narrow set of failures where identity generation itself
+    // failed -- should still carry it.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+
+    auto hello = BuildHelloEnvelope(kWrongHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("HandleHello rejects a non-hex presented token the same way as a wrong one",
