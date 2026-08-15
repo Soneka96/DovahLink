@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "state_event",
   "messageId": "message-character-event-gap-1",
   "sessionId": "session-1",
@@ -15,5 +14,8 @@
       "magicka": {"current": 100.0, "maximum": 120.0},
       "stamina": {"current": 160.0, "maximum": 160.0}
     }
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

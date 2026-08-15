@@ -1,10 +1,12 @@
 {
-  "protocolVersion": 1,
   "messageType": "capabilities",
   "messageId": "message-capabilities-client-1",
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
     "capabilities": []
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "subscription_ack",
   "messageId": "message-subscription-ack-1",
   "sessionId": "session-1",
@@ -7,5 +6,8 @@
   "payload": {
     "acceptedStateAreas": ["character"],
     "rejectedStateAreas": []
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

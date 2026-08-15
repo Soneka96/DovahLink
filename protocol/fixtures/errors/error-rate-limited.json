@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "error",
   "messageId": "message-error-rate-limited-1",
   "sessionId": "session-1",
@@ -9,5 +8,8 @@
     "message": "Inbound message rate exceeded 100 messages per second",
     "retryable": true,
     "details": null
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "state_snapshot",
   "messageId": "message-character-snapshot-1",
   "sessionId": "session-1",
@@ -14,5 +13,8 @@
       "magicka": {"current": 90.0, "maximum": 120.0},
       "stamina": {"current": 140.0, "maximum": 160.0}
     }
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

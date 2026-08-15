@@ -1,15 +1,17 @@
 {
-  "protocolVersion": 0,
   "messageType": "hello",
   "messageId": "message-hello-1",
   "sessionId": null,
   "correlationId": null,
   "payload": {
     "endpoint": "client",
-    "supportedProtocolVersions": [1],
+    "clientId": "client-1",
     "auth": {
       "method": "one_time_local_token",
       "token": "redacted-in-documentation"
     }
-  }
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
 }

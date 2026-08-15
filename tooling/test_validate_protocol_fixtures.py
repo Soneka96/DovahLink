@@ -12,24 +12,28 @@ from validate_protocol_fixtures import FIXTURES_DIR, FixtureError, main, validat
 def _valid_hello() -> dict:
     """Create a valid hello message envelope for use in tests."""
     return {
-        "protocolVersion": 0,
         "messageType": "hello",
         "messageId": "m-1",
         "sessionId": None,
         "correlationId": None,
         "payload": {},
+        "bridgeInstanceId": None,
+        "playContextId": None,
+        "clientId": None,
     }
 
 
 def _valid_snapshot() -> dict:
     """Create a valid state snapshot envelope for testing."""
     return {
-        "protocolVersion": 1,
         "messageType": "state_snapshot",
         "messageId": "m-2",
         "sessionId": "session-1",
         "correlationId": "m-1",
         "payload": {},
+        "bridgeInstanceId": "bridge-1",
+        "playContextId": None,
+        "clientId": "client-1",
     }
 
 
@@ -43,12 +47,14 @@ def _valid_error(session_id: str | None) -> dict:
         A protocol-compliant error envelope.
     """
     return {
-        "protocolVersion": 0,
         "messageType": "error",
         "messageId": "m-3",
         "sessionId": session_id,
         "correlationId": "m-1",
         "payload": {"code": "unauthenticated", "message": "boom", "retryable": False, "details": None},
+        "bridgeInstanceId": None,
+        "playContextId": None,
+        "clientId": None,
     }
 
 
@@ -63,10 +69,37 @@ class ValidateEnvelopeTests(unittest.TestCase):
         """Accept a valid non-hello envelope."""
         validate_envelope("snapshot.json", _valid_snapshot())
 
+    def test_valid_snapshot_with_active_play_context_passes(self) -> None:
+        """Accept a non-null playContextId identifying an active play context."""
+        message = _valid_snapshot()
+        message["playContextId"] = "context-1"
+        validate_envelope("snapshot.json", message)
+
     def test_missing_field_rejected(self) -> None:
         """Reject an envelope missing a required field."""
         message = _valid_snapshot()
         del message["payload"]
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_missing_bridge_instance_id_rejected(self) -> None:
+        """Reject an envelope missing the bridgeInstanceId key entirely."""
+        message = _valid_snapshot()
+        del message["bridgeInstanceId"]
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_missing_play_context_id_rejected(self) -> None:
+        """Reject an envelope missing the playContextId key entirely."""
+        message = _valid_snapshot()
+        del message["playContextId"]
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_missing_client_id_rejected(self) -> None:
+        """Reject an envelope missing the clientId key entirely."""
+        message = _valid_snapshot()
+        del message["clientId"]
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
@@ -75,17 +108,24 @@ class ValidateEnvelopeTests(unittest.TestCase):
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", [])
 
-    def test_negative_protocol_version_rejected(self) -> None:
-        """Reject a negative protocol version."""
+    def test_non_string_bridge_instance_id_rejected(self) -> None:
+        """Reject a bridgeInstanceId with the wrong type."""
         message = _valid_snapshot()
-        message["protocolVersion"] = -1
+        message["bridgeInstanceId"] = 1
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
-    def test_non_integer_protocol_version_rejected(self) -> None:
-        """Reject a non-integer protocol version."""
+    def test_non_string_play_context_id_rejected(self) -> None:
+        """Reject a playContextId with the wrong type."""
         message = _valid_snapshot()
-        message["protocolVersion"] = "1"
+        message["playContextId"] = 1
+        with self.assertRaises(FixtureError):
+            validate_envelope("bad.json", message)
+
+    def test_non_string_client_id_rejected(self) -> None:
+        """Reject a clientId with the wrong type."""
+        message = _valid_snapshot()
+        message["clientId"] = 1
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
@@ -121,14 +161,6 @@ class ValidateEnvelopeTests(unittest.TestCase):
         """Reject an envelope whose payload is not an object."""
         message = _valid_snapshot()
         message["payload"] = "not an object"
-        with self.assertRaises(FixtureError):
-            validate_envelope("bad.json", message)
-
-    def test_bool_protocol_version_rejected(self) -> None:
-        """Reject a Boolean protocol version despite Python's integer inheritance."""
-        # bool is a subclass of int in Python; must not slip past isinstance(int).
-        message = _valid_snapshot()
-        message["protocolVersion"] = True
         with self.assertRaises(FixtureError):
             validate_envelope("bad.json", message)
 
@@ -197,6 +229,7 @@ class ValidateAllTests(unittest.TestCase):
         expected = {
             "connection/hello.json",
             "connection/hello-ack.json",
+            "connection/hello-ack-active-context.json",
             "capabilities/capabilities-bridge.json",
             "capabilities/capabilities-client.json",
             "subscriptions/subscribe.json",
@@ -212,7 +245,6 @@ class ValidateAllTests(unittest.TestCase):
             "errors/error-unauthenticated-expired-token.json",
             "errors/error-unauthenticated-invalid-token.json",
             "errors/error-unauthenticated-reused-token.json",
-            "errors/error-unsupported-version.json",
             "subscriptions/snapshot-request.json",
             "state/character/state-event-revision-gap.json",
             "state/character/state-event-duplicate.json",
@@ -220,9 +252,6 @@ class ValidateAllTests(unittest.TestCase):
             "state/character/state-snapshot-unknown-field.json",
             "connection/ping.json",
             "connection/pong.json",
-            "v2/connection/hello.json",
-            "v2/connection/hello-ack.json",
-            "v2/connection/hello-ack-active-context.json",
         }
         self.assertEqual(set(checked), expected)
 

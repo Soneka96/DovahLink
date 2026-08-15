@@ -3,12 +3,10 @@
 documented in protocol/schema/README.md.
 
 This checks envelope shape only (required fields, types, and the sessionId
-null-ability rule for hello and pre-session error messages) -- the baseline
-both v1 and v2 fixtures satisfy. It does not check v2's additional optional
-identity fields (bridgeInstanceId, playContextId, clientId); those are
-validated by the registered message codecs consuming these fixtures on the
-bridge and client sides, along with all other per-message-type payload
-validation.
+null-ability rule for hello and pre-session error messages). It does not
+check field-specific message or payload semantics beyond basic type shape;
+those are validated by the registered message codecs consuming these
+fixtures on the bridge and client sides.
 """
 
 from __future__ import annotations
@@ -20,12 +18,14 @@ from pathlib import Path
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "protocol" / "fixtures"
 
 REQUIRED_FIELDS = (
-    "protocolVersion",
     "messageType",
     "messageId",
     "sessionId",
     "correlationId",
     "payload",
+    "bridgeInstanceId",
+    "playContextId",
+    "clientId",
 )
 
 
@@ -51,10 +51,6 @@ def validate_envelope(name: str, message: object) -> None:
     missing = [field for field in REQUIRED_FIELDS if field not in message]
     if missing:
         raise FixtureError(f"{name}: missing required field(s): {', '.join(missing)}")
-
-    protocol_version = message["protocolVersion"]
-    if not isinstance(protocol_version, int) or isinstance(protocol_version, bool) or protocol_version < 0:
-        raise FixtureError(f"{name}: protocolVersion must be a non-negative integer")
 
     message_type = message["messageType"]
     if not isinstance(message_type, str) or not message_type:
@@ -83,6 +79,18 @@ def validate_envelope(name: str, message: object) -> None:
     payload = message["payload"]
     if not isinstance(payload, dict):
         raise FixtureError(f"{name}: payload must be an object")
+
+    bridge_instance_id = message["bridgeInstanceId"]
+    if bridge_instance_id is not None and not isinstance(bridge_instance_id, str):
+        raise FixtureError(f"{name}: bridgeInstanceId must be a string or null")
+
+    play_context_id = message["playContextId"]
+    if play_context_id is not None and not isinstance(play_context_id, str):
+        raise FixtureError(f"{name}: playContextId must be a string or null")
+
+    client_id = message["clientId"]
+    if client_id is not None and not isinstance(client_id, str):
+        raise FixtureError(f"{name}: clientId must be a string or null")
 
 
 def validate_all(fixtures_dir: Path = FIXTURES_DIR) -> list[str]:

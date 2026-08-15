@@ -1,10 +1,9 @@
 {
-  "protocolVersion": 1,
   "messageType": "state_snapshot",
   "messageId": "message-character-snapshot-unknown-field-1",
   "sessionId": "session-1",
   "correlationId": "message-subscribe-1",
-  "futureDiagnosticHint": "modeled future-compatible sender; unregistered in v1",
+  "futureDiagnosticHint": "modeled future-compatible sender; unregistered field",
   "payload": {
     "stateArea": "character",
     "revision": 1,
@@ -15,5 +14,8 @@
       "magicka": {"current": 90.0, "maximum": 120.0},
       "stamina": {"current": 140.0, "maximum": 160.0}
     }
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

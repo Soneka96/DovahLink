@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "error",
   "messageId": "message-error-stale-session-1",
   "sessionId": "session-2",
@@ -9,5 +8,8 @@
     "message": "sessionId does not match an active session on this socket",
     "retryable": false,
     "details": null
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }
