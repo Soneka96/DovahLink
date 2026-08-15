@@ -8,11 +8,12 @@ The future implementation is divided into explicit areas:
 app/          Flutter client
 bridge/       native SKSE bridge
 protocol/     canonical cross-side schemas and shared fixtures
+sdk/          reusable supported client SDK implementations
 integration/  cross-area tests and scenarios
 ai/context/   AI development conventions
 ```
 
-These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; client and bridge adapters consume them but do not redefine them.
+These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; client and bridge adapters consume them but do not redefine them. The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when the Dart Client SDK Foundation phase begins; see `sdk/README.md` for its current planned status.
 
 ## Target shape
 
@@ -21,6 +22,11 @@ These are ownership boundaries, not folders to pre-create. Add an area when its 
 │ Skyrim      │────▶│ Skyrim       │────▶│ DovahLink     │
 │ game state  │     │ bridge       │     │ protocol      │
 └─────────────┘     └──────────────┘     └───────┬───────┘
+                                                  │
+                                          ┌───────▼───────┐
+                                          │ Dart Client   │
+                                          │ SDK           │
+                                          └───────┬───────┘
                                                   │
                                     ┌─────────────┴─────────────┐
                                     │                           │
@@ -43,6 +49,10 @@ SkyrimWebSocket is the starting reference and bridge foundation, not a separate 
 Defines the canonical connection, pairing, capability, state, and error contract between the bridge and clients. It is the seam between the two sides of one product, not a third implementation layer.
 
 SKSE owns native response and application types. Flutter owns client models. Both map to and from the protocol contract; neither side's internal types become the contract.
+
+### SDK
+
+Implements the canonical contract for Dart consumers and is not a second protocol authority: it maps the wire contract into typed client/domain models without those models becoming the contract itself. The official Flutter app is the SDK's first production consumer; after the Dart Client SDK Foundation phase (`ROADMAP.md`), normal DovahLink communication from the app goes through the SDK rather than through app-private transport, compatibility, authentication, pairing, reconnect, or session code. See `ai/context/sdk/` for SDK-specific conventions and `sdk/README.md` for its current planned status.
 
 ### Clients
 
@@ -180,7 +190,10 @@ Detection and adapters may supply supported presentation values; they must not r
 ## Architectural non-goals
 
 - No service layer before local connectivity is proven.
-- No shared client-implementation abstraction before there is a second client; protocol independence
-  does not require shared application code.
+- The Dart Client SDK Foundation phase (`ROADMAP.md`) intentionally introduces a shared client
+  implementation before a second product client exists, replacing the earlier assumption that such
+  an abstraction should wait for a second client: the reusable connection lifecycle, compatibility
+  detection, authentication, pairing, reconnect, and state-identity behavior it consumes has grown
+  substantial enough to deserve its own boundary, with the official app as its first consumer.
 - No permanent protocol complexity for hypothetical features.
 - No dependency on an installed Skyrim UI mod for the default client presentation.

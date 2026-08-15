@@ -933,6 +933,71 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "do not invent persistence during the connection proof", secrets_and_logging
         )
 
+    def test_architecture_establishes_sdk_boundary_and_replaces_client_non_goal(self) -> None:
+        """Guard the sdk/ repository boundary and the retired single-client non-goal."""
+        architecture = self._read("ARCHITECTURE.md")
+
+        self.assertIn("sdk/", architecture)
+        self.assertIn("reusable supported client SDK implementations", architecture)
+        self.assertIn(
+            "The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when "
+            "the Dart Client SDK Foundation phase begins",
+            architecture,
+        )
+        self.assertIn("Dart Client", architecture)
+        # Prove the SDK box actually sits between the protocol box and the client boxes in the
+        # diagram itself (box-drawing prefix disambiguates from the phrase's other prose uses).
+        self.assertLess(
+            architecture.index("│ DovahLink"), architecture.index("│ Dart Client")
+        )
+        self.assertLess(
+            architecture.index("│ Dart Client"), architecture.index("│ Desktop")
+        )
+        self.assertIn(
+            "see `sdk/README.md` for its current planned status", architecture
+        )
+        self.assertEqual(architecture.count("for its current planned status"), 2)
+        self.assertIn("### SDK", architecture)
+        self.assertIn(
+            "Implements the canonical contract for Dart consumers and is not a second protocol "
+            "authority",
+            architecture,
+        )
+        self.assertIn(
+            "it maps the wire contract into typed client/domain models without those models "
+            "becoming the contract itself",
+            architecture,
+        )
+        self.assertIn(
+            "The official Flutter app is the SDK's first production consumer", architecture
+        )
+        self.assertIn("See `ai/context/sdk/` for SDK-specific conventions", architecture)
+        self.assertIn(
+            "normal DovahLink communication from the app goes through the SDK rather than "
+            "through app-private transport, compatibility, authentication, pairing, reconnect, "
+            "or session code",
+            architecture,
+        )
+
+        non_goals = self._markdown_section("ARCHITECTURE.md", "Architectural non-goals")
+        normalized_non_goals = self._normalize_whitespace(non_goals)
+        self.assertIn(
+            "intentionally introduces a shared client implementation before a second product "
+            "client exists, replacing the earlier assumption that such an abstraction should "
+            "wait for a second client",
+            normalized_non_goals,
+        )
+        self.assertIn(
+            "has grown substantial enough to deserve its own boundary, with the official app as "
+            "its first consumer",
+            normalized_non_goals,
+        )
+        # The retired single-client-first non-goal this replaces must not silently creep back in.
+        self.assertNotIn(
+            "No shared client-implementation abstraction before there is a second client",
+            architecture,
+        )
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
