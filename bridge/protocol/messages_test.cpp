@@ -8,7 +8,6 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -19,55 +18,63 @@ TEST_CASE("hello fixture decodes to the expected HelloPayload", "[protocol][mess
     auto hello = dovahlink::protocol::DecodeHelloPayload(envelope.payload);
     REQUIRE(hello.has_value());
     CHECK(hello->endpoint == "client");
-    CHECK(hello->supportedProtocolVersions == std::vector<std::int64_t>{1});
     CHECK(hello->authMethod == "one_time_local_token");
     CHECK_FALSE(hello->authToken.empty());
-    CHECK_FALSE(hello->clientId.has_value());
+    CHECK(hello->clientId == "client-1");
 }
 
 TEST_CASE("hello-ack fixture decodes to the expected HelloAckPayload", "[protocol][messages]") {
     auto envelope = DecodeFixtureEnvelope("connection/hello-ack.json");
     auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
     REQUIRE(helloAck.has_value());
-    CHECK(helloAck->selectedProtocolVersion == 1);
-    CHECK_FALSE(helloAck->clientIdentityKind.has_value());
+    CHECK(helloAck->bridgeVersion == "0.1.0");
+    CHECK(helloAck->clientIdentityKind == "unpaired");
 }
 
-TEST_CASE("v2 hello fixture decodes with its clientId", "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("v2/connection/hello.json");
-    auto hello = dovahlink::protocol::DecodeHelloPayload(envelope.payload);
-    REQUIRE(hello.has_value());
-    CHECK(hello->supportedProtocolVersions == (std::vector<std::int64_t>{1, 2}));
-    REQUIRE(hello->clientId.has_value());
-    CHECK(*hello->clientId == "client-1");
-}
-
-TEST_CASE("v2 hello-ack fixture decodes with its clientIdentityKind", "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("v2/connection/hello-ack.json");
-    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
-    REQUIRE(helloAck.has_value());
-    CHECK(helloAck->selectedProtocolVersion == 2);
-    REQUIRE(helloAck->clientIdentityKind.has_value());
-    CHECK(*helloAck->clientIdentityKind == "unpaired");
-}
-
-TEST_CASE("hello decodes an explicit null clientId the same as absent", "[protocol][messages]") {
+TEST_CASE("hello is rejected when clientId is null", "[protocol][messages]") {
     boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "client", "supportedProtocolVersions": [1, 2], "clientId": null,
+                                      R"({"endpoint": "client", "clientId": null,
             "auth": {"method": "one_time_local_token", "token": "t"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
-    REQUIRE(hello.has_value());
-    CHECK_FALSE(hello->clientId.has_value());
+    REQUIRE_FALSE(hello.has_value());
 }
 
-TEST_CASE("hello-ack decodes an explicit null clientIdentityKind the same as absent",
-          "[protocol][messages]") {
+TEST_CASE("hello is rejected when clientId is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+                                      R"({"endpoint": "client",
+            "auth": {"method": "one_time_local_token", "token": "t"}})")
+                                      .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when clientIdentityKind is null", "[protocol][messages]") {
     boost::json::object payload =
-        boost::json::parse(R"({"selectedProtocolVersion": 2, "clientIdentityKind": null})").get_object();
+        boost::json::parse(R"({"bridgeVersion": "0.1.0", "clientIdentityKind": null})").get_object();
     auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
-    REQUIRE(helloAck.has_value());
-    CHECK_FALSE(helloAck->clientIdentityKind.has_value());
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when clientIdentityKind is an empty string", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"bridgeVersion": "0.1.0", "clientIdentityKind": ""})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when bridgeVersion is null", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"bridgeVersion": null, "clientIdentityKind": "unpaired"})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when bridgeVersion is not a string", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"bridgeVersion": 1, "clientIdentityKind": "unpaired"})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
 }
 
 TEST_CASE("capabilities-bridge fixture decodes to the expected CapabilitiesPayload", "[protocol][messages]") {
@@ -190,22 +197,6 @@ TEST_CASE("state-event-stale fixture decodes to a revision below a later "
     CHECK(event->revision == 1);
 }
 
-TEST_CASE("error-unsupported-version fixture decodes to the expected ErrorPayload", "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("errors/error-unsupported-version.json");
-    CHECK(envelope.protocolVersion == 0);
-    CHECK(envelope.messageType == "error");
-    CHECK_FALSE(envelope.sessionId.has_value());
-    REQUIRE(envelope.correlationId.has_value());
-    CHECK(*envelope.correlationId == "message-hello-1");
-
-    auto error = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
-    REQUIRE(error.has_value());
-    CHECK(error->code == "unsupported_version");
-    CHECK_FALSE(error->message.empty());
-    CHECK_FALSE(error->retryable);
-    CHECK_FALSE(error->details.has_value());
-}
-
 TEST_CASE("error-rate-limited fixture decodes as retryable", "[protocol][messages]") {
     auto envelope = DecodeFixtureEnvelope("errors/error-rate-limited.json");
     auto error = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
@@ -219,7 +210,6 @@ TEST_CASE("every error fixture decodes to a valid ErrorPayload", "[protocol][mes
         "errors/error-unauthenticated-invalid-token.json",
         "errors/error-unauthenticated-expired-token.json",
         "errors/error-unauthenticated-reused-token.json",
-        "errors/error-unsupported-version.json",
         "errors/error-frame-too-large.json",
         "errors/error-stale-session.json",
         "errors/error-replayed-message.json",
@@ -244,69 +234,12 @@ TEST_CASE("EncodeHelloAckPayload round-trips the hello-ack fixture's payload", "
     auto roundTripped = dovahlink::protocol::DecodeHelloAckPayload(encoded);
 
     REQUIRE(roundTripped.has_value());
-    CHECK(roundTripped->selectedProtocolVersion == original->selectedProtocolVersion);
+    CHECK(roundTripped->bridgeVersion == original->bridgeVersion);
     CHECK(roundTripped->clientIdentityKind == original->clientIdentityKind);
-}
-
-TEST_CASE("EncodeHelloAckPayload omits clientIdentityKind for a v1 selection, even when set",
-          "[protocol][messages]") {
-    // Proves the gate is selectedProtocolVersion, not whether the optional
-    // happens to be empty, matching the envelope's own v1-omit/v2-present rule.
-    dovahlink::protocol::HelloAckPayload payload{
-        .selectedProtocolVersion = 1,
-        .clientIdentityKind = std::string("unpaired"),
-    };
-
-    boost::json::object encoded = dovahlink::protocol::EncodeHelloAckPayload(payload);
-
-    CHECK(encoded.if_contains("clientIdentityKind") == nullptr);
-}
-
-TEST_CASE("EncodeHelloAckPayload round-trips the v2 hello-ack fixture's clientIdentityKind",
-          "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("v2/connection/hello-ack.json");
-    auto original = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
-    REQUIRE(original.has_value());
-
-    boost::json::object encoded = dovahlink::protocol::EncodeHelloAckPayload(*original);
-    REQUIRE(encoded.if_contains("clientIdentityKind") != nullptr);
-    CHECK(encoded.at("clientIdentityKind").as_string() == "unpaired");
-
-    auto roundTripped = dovahlink::protocol::DecodeHelloAckPayload(encoded);
-    REQUIRE(roundTripped.has_value());
-    CHECK(roundTripped->clientIdentityKind == original->clientIdentityKind);
-}
-
-TEST_CASE("EncodeHelloAckPayload emits JSON null for an empty clientIdentityKind at v2",
-          "[protocol][messages]") {
-    dovahlink::protocol::HelloAckPayload payload{
-        .selectedProtocolVersion = 2,
-        .clientIdentityKind = std::nullopt,
-    };
-
-    boost::json::object encoded = dovahlink::protocol::EncodeHelloAckPayload(payload);
-
-    REQUIRE(encoded.if_contains("clientIdentityKind") != nullptr);
-    CHECK(encoded.at("clientIdentityKind").is_null());
-}
-
-TEST_CASE("EncodeHelloAckPayload also emits clientIdentityKind at selectedProtocolVersion 3",
-          "[protocol][messages]") {
-    // Guards the >= 2 gate against narrowing to == 2, matching envelope.cpp's
-    // equivalent boundary test.
-    dovahlink::protocol::HelloAckPayload payload{
-        .selectedProtocolVersion = 3,
-        .clientIdentityKind = std::string("unpaired"),
-    };
-
-    boost::json::object encoded = dovahlink::protocol::EncodeHelloAckPayload(payload);
-
-    REQUIRE(encoded.if_contains("clientIdentityKind") != nullptr);
-    CHECK(encoded.at("clientIdentityKind").as_string() == "unpaired");
 }
 
 TEST_CASE("EncodeErrorPayload round-trips a fixture with details absent", "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("errors/error-unsupported-version.json");
+    auto envelope = DecodeFixtureEnvelope("errors/error-malformed-message.json");
     auto original = dovahlink::protocol::DecodeErrorPayload(envelope.payload);
     REQUIRE(original.has_value());
     REQUIRE_FALSE(original->details.has_value());
@@ -371,10 +304,9 @@ TEST_CASE("BuildErrorEnvelope answers the original message and encodes a "
     auto originalEnvelope = DecodeFixtureEnvelope("connection/hello.json");
 
     auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
-        originalEnvelope.messageId, /*protocolVersion=*/0,
+        originalEnvelope.messageId,
         /*sessionId=*/std::nullopt, "unauthenticated", "Invalid or expired one-time token", /*retryable=*/false);
 
-    CHECK(errorEnvelope.protocolVersion == 0);
     CHECK(errorEnvelope.messageType == "error");
     CHECK_FALSE(errorEnvelope.messageId.empty());
     CHECK_FALSE(errorEnvelope.sessionId.has_value());
@@ -387,17 +319,14 @@ TEST_CASE("BuildErrorEnvelope answers the original message and encodes a "
     CHECK_FALSE(error->retryable);
 }
 
-TEST_CASE("BuildErrorEnvelope carries the caller's protocolVersion and "
-          "sessionId through unchanged",
-          "[protocol][messages]") {
+TEST_CASE("BuildErrorEnvelope carries the caller's sessionId through unchanged", "[protocol][messages]") {
     auto originalEnvelope = DecodeFixtureEnvelope("subscriptions/subscribe.json");
 
     auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
-        originalEnvelope.messageId, /*protocolVersion=*/1,
+        originalEnvelope.messageId,
         /*sessionId=*/std::string("session-1"), "rate_limited", "Inbound message rate exceeded 100 messages per second",
         /*retryable=*/true);
 
-    CHECK(errorEnvelope.protocolVersion == 1);
     REQUIRE(errorEnvelope.sessionId.has_value());
     CHECK(*errorEnvelope.sessionId == "session-1");
 }
@@ -410,7 +339,7 @@ TEST_CASE("BuildErrorEnvelope accepts a nullopt correlationId for input that "
     // this is why correlationId is a plain parameter rather than requiring
     // a whole original Envelope.
     auto errorEnvelope = dovahlink::protocol::BuildErrorEnvelope(
-        /*correlationId=*/std::nullopt, /*protocolVersion=*/1,
+        /*correlationId=*/std::nullopt,
         /*sessionId=*/std::string("session-1"), "malformed_message", "Malformed message", false);
 
     CHECK_FALSE(errorEnvelope.correlationId.has_value());
@@ -486,7 +415,7 @@ TEST_CASE("EncodeStateSnapshotPayload round-trips the character-state-snapshot "
 
 TEST_CASE("hello is rejected when endpoint is not 'client'", "[protocol][messages]") {
     boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "bridge", "supportedProtocolVersions": [1],
+                                      R"({"endpoint": "bridge", "clientId": "client-1",
             "auth": {"method": "one_time_local_token", "token": "t"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
@@ -495,7 +424,7 @@ TEST_CASE("hello is rejected when endpoint is not 'client'", "[protocol][message
 
 TEST_CASE("hello is rejected when auth.method is not 'one_time_local_token'", "[protocol][messages]") {
     boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "client", "supportedProtocolVersions": [1],
+                                      R"({"endpoint": "client", "clientId": "client-1",
             "auth": {"method": "password", "token": "t"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
@@ -504,14 +433,14 @@ TEST_CASE("hello is rejected when auth.method is not 'one_time_local_token'", "[
 
 TEST_CASE("hello is rejected when auth is missing", "[protocol][messages]") {
     boost::json::object payload =
-        boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [1]})").get_object();
+        boost::json::parse(R"({"endpoint": "client", "clientId": "client-1"})").get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
     REQUIRE_FALSE(hello.has_value());
 }
 
 TEST_CASE("hello is rejected when clientId is present but not a string", "[protocol][messages]") {
     boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "client", "supportedProtocolVersions": [1, 2], "clientId": 5,
+                                      R"({"endpoint": "client", "clientId": 5,
             "auth": {"method": "one_time_local_token", "token": "t"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
@@ -520,7 +449,7 @@ TEST_CASE("hello is rejected when clientId is present but not a string", "[proto
 
 TEST_CASE("hello is rejected when clientId is an empty string", "[protocol][messages]") {
     boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "client", "supportedProtocolVersions": [1, 2], "clientId": "",
+                                      R"({"endpoint": "client", "clientId": "",
             "auth": {"method": "one_time_local_token", "token": "t"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
@@ -530,7 +459,7 @@ TEST_CASE("hello is rejected when clientId is an empty string", "[protocol][mess
 TEST_CASE("hello-ack is rejected when clientIdentityKind is present but not a string",
           "[protocol][messages]") {
     boost::json::object payload =
-        boost::json::parse(R"({"selectedProtocolVersion": 2, "clientIdentityKind": 5})").get_object();
+        boost::json::parse(R"({"bridgeVersion": "0.1.0", "clientIdentityKind": 5})").get_object();
     auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
     REQUIRE_FALSE(helloAck.has_value());
 }
@@ -604,8 +533,21 @@ TEST_CASE("error is rejected when retryable is missing", "[protocol][messages]")
     REQUIRE_FALSE(error.has_value());
 }
 
-TEST_CASE("hello_ack is rejected when selectedProtocolVersion is missing", "[protocol][messages]") {
-    boost::json::object payload = boost::json::parse(R"({})").get_object();
+TEST_CASE("hello_ack is rejected when bridgeVersion is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"clientIdentityKind": "unpaired"})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when bridgeVersion is empty", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"bridgeVersion": "", "clientIdentityKind": "unpaired"})").get_object();
+    auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
+    REQUIRE_FALSE(helloAck.has_value());
+}
+
+TEST_CASE("hello_ack is rejected when clientIdentityKind is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"bridgeVersion": "0.1.0"})").get_object();
     auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(payload);
     REQUIRE_FALSE(helloAck.has_value());
 }
@@ -615,20 +557,6 @@ TEST_CASE("subscription_ack is rejected when rejectedStateAreas is the wrong typ
         boost::json::parse(R"({"acceptedStateAreas": ["character"], "rejectedStateAreas": "none"})").get_object();
     auto subscriptionAck = dovahlink::protocol::DecodeSubscriptionAckPayload(payload);
     REQUIRE_FALSE(subscriptionAck.has_value());
-}
-
-TEST_CASE("hello accepts an empty supportedProtocolVersions array", "[protocol][messages]") {
-    // Decoding does not enforce a non-empty intersection with what the bridge
-    // supports; an empty list structurally decodes, and the resulting "no
-    // mutually supported version" outcome is an application-layer negotiation
-    // concern, not a codec one.
-    boost::json::object payload = boost::json::parse(
-                                      R"({"endpoint": "client", "supportedProtocolVersions": [],
-            "auth": {"method": "one_time_local_token", "token": "t"}})")
-                                      .get_object();
-    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
-    REQUIRE(hello.has_value());
-    CHECK(hello->supportedProtocolVersions.empty());
 }
 
 TEST_CASE("character state is rejected when level is negative", "[protocol][messages]") {
