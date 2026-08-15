@@ -10,6 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 abstract interface class ConnectionLocalDataSource {
   /// Returns the persisted client ID, generating and persisting a fresh one
   /// on first use. Regenerates after cleared app data or reinstall.
+  /// @throws StateError if a freshly generated ID cannot be persisted; never
+  ///     returns an ID that failed to persist, since a later call or launch
+  ///     could then generate and use a different one.
   Future<String> resolveClientId();
 }
 
@@ -41,7 +44,10 @@ class ConnectionLocalDataSourceImpl
     }
 
     final String generated = _generateUuidV4();
-    await _preferences.setString(preferencesKey, generated);
+    final bool persisted = await _preferences.setString(preferencesKey, generated);
+    if (!persisted) {
+      throw StateError('Failed to persist the generated client ID.');
+    }
     return generated;
   }
 

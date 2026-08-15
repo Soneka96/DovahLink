@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/features/connection/data/datasources/connection_local.datasource.dart';
@@ -7,6 +8,10 @@ import 'package:dovahlink_client/features/connection/data/datasources/connection
 final RegExp _uuidV4Pattern = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
+
+/// Simulates a [SharedPreferences] write failure, which the real plugin's
+/// [SharedPreferences.setMockInitialValues] test backend cannot express.
+class _MockSharedPreferences extends Mock implements SharedPreferences {}
 
 /// Exercises [ConnectionLocalDataSourceImpl.resolveClientId].
 void main() {
@@ -30,6 +35,37 @@ void main() {
           ),
           clientId,
         );
+      },
+    );
+
+    test(
+      'throws when persisting the freshly generated client ID fails',
+      () async {
+        final _MockSharedPreferences preferences = _MockSharedPreferences();
+        when(
+          () => preferences.getString(
+            ConnectionLocalDataSourceImpl.preferencesKey,
+          ),
+        ).thenReturn(null);
+        when(
+          () => preferences.setString(
+            ConnectionLocalDataSourceImpl.preferencesKey,
+            any(),
+          ),
+        ).thenAnswer((_) async => false);
+        final ConnectionLocalDataSourceImpl dataSource =
+            ConnectionLocalDataSourceImpl(preferences);
+
+        await expectLater(
+          dataSource.resolveClientId(),
+          throwsA(isA<StateError>()),
+        );
+        verify(
+          () => preferences.setString(
+            ConnectionLocalDataSourceImpl.preferencesKey,
+            any(that: matches(_uuidV4Pattern)),
+          ),
+        ).called(1);
       },
     );
 
