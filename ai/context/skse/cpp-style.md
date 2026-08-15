@@ -17,6 +17,58 @@
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.
 
+## Parameter grouping and context objects
+
+- Use a request value type for per-call operation data only when its fields form one operation-level
+  contract and grouping makes their coupling, invariant, provenance, or lifetime relationship explicit.
+  Do not group fields merely to reduce parameter count or because they are available together. A reviewer
+  should be able to state the grouping rationale in one sentence.
+- Classify project-owned composites by semantics, not by names, aliases, wrappers, nesting, or parameter
+  count. Apply the same review recursively to project-owned nested composites; do not reinterpret
+  standard-library or third-party types. For every field, identify the specific role it has in the same
+  operation contract or invariant; a vague association, shared provenance, or future convenience is not
+  sufficient. Do not add fields for future extensibility, convenience access, or test setup.
+- The bridge targets C++23. Public aggregate requests may use the C++20 designated-initialization
+  feature for readability. Designators name only direct non-static data members and, when used, must
+  follow declaration order; later members may be omitted. Omitted members use their default member
+  initializer, if present, otherwise empty list-initialization, which may value-initialize, invoke a
+  constructor, or be ill-formed. Designated initialization does not make fields required, cannot be
+  enforced as the only construction syntax, and does not remove the risks of positional initialization.
+  Treat aggregate members and declaration order as API: adding, removing, reordering, or changing a
+  member can break callers or change the meaning of existing initialization.
+- If omission must be rejected, ensure initialization of the omitted member from `{}` is ill-formed;
+  omitting a default member initializer alone is insufficient. If supplied values or cross-field
+  relationships must be validated, use member types whose public construction paths enforce their
+  invariant or use a non-aggregate with inaccessible representation and enforcing constructors,
+  factories, or mutators. A factory is not an invariant boundary if direct construction or mutation
+  remains available.
+- Treat a request as value-like rather than inherently immutable when it exposes public aggregate
+  members. `const` makes only that interface read-only; it does not provide deep immutability or prevent
+  mutation through aliases. Use an encapsulated type when the invariant must hold for the object's
+  lifetime.
+- Use a focused class for state or dependencies required across calls by one cohesive capability, state
+  machine, or lifecycle. Each stored dependency must directly support that responsibility, be used by
+  production behavior, and have an explicit ownership and validity contract. Constructor injection
+  requires dependencies to be supplied; it does not establish ownership, lifetime, or validity.
+  References, reference wrappers, string views, and spans are non-owning; document their external owner,
+  lifetime, invalidation, and mutability requirements. Use an owning value or smart pointer only
+  according to the actual ownership model.
+- Avoid catch-all composite types whose members are unrelated or grow opportunistically, regardless of
+  whether they are named `Context`, `Options`, `Dependencies`, `Request`, `State`, `View`, or something
+  else. Domain-specific composites are acceptable only when every field belongs to the same operation
+  contract or invariant. Do not pass a composite orchestration object to a leaf handler; pass only the
+  data or narrow capability it directly requires. A capability must not expose its owner, connection,
+  broad session object, context, registry, broad getter, downcast, or unrelated operation. A narrow
+  session identifier or other scalar value is acceptable when it is directly part of the leaf contract.
+- Treat non-owning references, reference wrappers, string views, and spans as especially risky in queued,
+  deferred, or asynchronous work: copying the request does not extend the source lifetime. Document the
+  external owner, lifetime, invalidation, and mutability requirements, and use an owning representation
+  when the work may outlive the source.
+- Test each documented semantic branch, representative category of representable invalid input, and
+  observable construction or handling failure. Record or run compile-time and construction-constraint
+  tests for states impossible through the supported public API instead of requiring runtime tests for
+  impossible values. Do not add production API surface solely for tests.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.
