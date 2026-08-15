@@ -753,6 +753,45 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for deferred_action in ("equipment", "favorites or hotkeys", "map markers", "fast travel"):
             self.assertIn(deferred_action, deferred)
 
+    def test_pairing_phase_establishes_persistent_per_user_trust(self) -> None:
+        """Guard the persistent-trust pairing redesign and its retired restart-bound predecessor."""
+        pairing = self._markdown_section("ROADMAP.md", "3. Local Device Pairing and Reconnection")
+        normalized_pairing = self._normalize_whitespace(pairing)
+
+        for required_phrase in (
+            "Permit only one active pairing challenge globally",
+            "final confirmation is idempotent",
+            "Persist completed trust so it survives Skyrim, Bridge, and Windows restarts, save "
+            "changes, `playContextId` changes, and `bridgeInstanceId` changes",
+            "Persistent trust belongs to the current Windows user profile running the client and "
+            "the Bridge",
+            "Scope `clientId` to the client installation and the Windows user profile running it",
+            "a `shortId` is never authentication or authorization material",
+            "is enabled only when an explicit `DOVAHLINK_DEV_TOKEN`",
+            "token authentication is a separate provider from device pairing",
+            "Give WebSocket-level Ping/Pong and a bounded idle timeout sole ownership of "
+            "connection liveness",
+            "receives a specific revoked/not-trusted outcome",
+            "does not implement Phase 9/10 Bridge discovery or endpoint-selection behavior",
+            "administration behavior (list trusted clients, revoke one, reset all) in a reusable "
+            "Bridge application/domain service rather than inside a Skyrim console-command handler",
+            "revoking a trusted client removes its active trust, invalidates any current "
+            "authenticated session it owns, closes that connection, and rejects reuse of the "
+            "revoked credential",
+            "never crashes Skyrim, never silently trusts a client, never invents or merges "
+            "uncertain credentials",
+            "an approved per-user secure-storage mechanism for the platform; do not invent "
+            "cryptography",
+        ):
+            self.assertIn(required_phrase, normalized_pairing)
+
+        # The restart-bound credential model this phase replaces must not silently creep back in.
+        for retired_phrase in (
+            "invalidate device credentials when the bridge or Skyrim process",
+            "Long-term credential persistence across bridge restarts is intentionally deferred",
+        ):
+            self.assertNotIn(retired_phrase, normalized_pairing)
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
