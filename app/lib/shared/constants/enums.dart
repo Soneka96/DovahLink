@@ -18,6 +18,11 @@ enum ConnectionPhase {
   /// The client has an accepted session and current state.
   connected,
 
+  /// A newly accepted v2 session's bridge/play-context identity does not
+  /// match what was previously cached; any state cached under the old
+  /// identity must be refreshed before it can be trusted again.
+  stale,
+
   /// The client is rebuilding state from a fresh snapshot.
   recovering,
 
@@ -34,6 +39,7 @@ enum ConnectionPhase {
     ConnectionPhase.connecting => 'Connecting',
     ConnectionPhase.negotiating => 'Negotiating',
     ConnectionPhase.connected => 'Connected',
+    ConnectionPhase.stale => 'Stale',
     ConnectionPhase.recovering => 'Recovering',
     ConnectionPhase.unavailable => 'Unavailable',
     ConnectionPhase.incompatible => 'Incompatible',

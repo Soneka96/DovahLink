@@ -11,6 +11,7 @@ void main() {
       expect(ConnectionPhase.connecting.label, 'Connecting');
       expect(ConnectionPhase.negotiating.label, 'Negotiating');
       expect(ConnectionPhase.connected.label, 'Connected');
+      expect(ConnectionPhase.stale.label, 'Stale');
       expect(ConnectionPhase.recovering.label, 'Recovering');
       expect(ConnectionPhase.unavailable.label, 'Unavailable');
       expect(ConnectionPhase.incompatible.label, 'Incompatible');
