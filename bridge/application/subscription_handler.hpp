@@ -25,7 +25,6 @@ public:
 
 /// Builds a character snapshot envelope from already-captured state and a provisional revision.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @param correlationId Message ID that caused the snapshot, when applicable.
 /// @param snapshot Captured application-owned character state.
 /// @param revision Provisional revision to encode without committing it.
@@ -33,27 +32,23 @@ public:
 /// @return Completed envelope, or no value if secure message-ID generation fails.
 /// Formatting, encoding, and allocation exceptions propagate to the caller.
 [[nodiscard]] std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
-    const std::string& sessionId, std::int64_t protocolVersion, std::optional<std::string> correlationId,
-    const CharacterSnapshot& snapshot, std::int64_t revision,
-    std::chrono::system_clock::time_point now);
+    const std::string& sessionId, std::optional<std::string> correlationId, const CharacterSnapshot& snapshot,
+    std::int64_t revision, std::chrono::system_clock::time_point now);
 
 /// Function used to prepare a snapshot envelope before its revision is committed.
 using SnapshotEnvelopeBuilder = decltype(BuildCharacterSnapshotEnvelope);
 
 /// Builds the bridge capabilities envelope for an authenticated session.
 /// @param sessionId Server-issued session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @return Capabilities envelope, or no value if an identifier cannot be generated.
-[[nodiscard]] std::optional<protocol::Envelope> BuildBridgeCapabilities(const std::string& sessionId,
-                                                                         std::int64_t protocolVersion);
+[[nodiscard]] std::optional<protocol::Envelope> BuildBridgeCapabilities(const std::string& sessionId);
 
 /// Validates a client capabilities envelope.
 /// @param capabilitiesEnvelope Decoded client capabilities message.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @return Error envelope when validation fails; no value when accepted.
 [[nodiscard]] std::optional<protocol::Envelope> HandleClientCapabilities(
-    const protocol::Envelope& capabilitiesEnvelope, const std::string& sessionId, std::int64_t protocolVersion);
+    const protocol::Envelope& capabilitiesEnvelope, const std::string& sessionId);
 
 /// Contains a subscription acknowledgement and its initial snapshots.
 struct SubscribeResult {
@@ -75,14 +70,13 @@ struct SubscribeResult {
 /// Revision state remains unchanged if any response cannot be prepared or snapshot building throws.
 /// @param subscribeEnvelope Decoded client subscription request.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @param stateProvider Source of current character state.
-/// @param revisions Session revision tracker.
+/// @param revisions Revision tracker for the play context this connection currently reads.
 /// @param now Timestamp assigned to generated snapshots.
 /// @param snapshotBuilder Builds a complete snapshot before revision state changes.
 /// @return Subscription acknowledgement and any accepted-area snapshots.
 [[nodiscard]] SubscribeResult HandleSubscribe(const protocol::Envelope& subscribeEnvelope,
-                                               const std::string& sessionId, std::int64_t protocolVersion,
+                                               const std::string& sessionId,
                                                const CharacterStateProvider& stateProvider,
                                                RevisionTracker& revisions,
                                                std::chrono::system_clock::time_point now,
@@ -93,14 +87,13 @@ struct SubscribeResult {
 /// Revision state remains unchanged if the snapshot cannot be prepared or snapshot building throws.
 /// @param snapshotRequestEnvelope Decoded client snapshot request.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @param stateProvider Source of current character state.
-/// @param revisions Session revision tracker.
+/// @param revisions Revision tracker for the play context this connection currently reads.
 /// @param now Timestamp assigned to the generated snapshot.
 /// @param snapshotBuilder Builds a complete snapshot before revision state changes.
 /// @return Snapshot envelope or a protocol error envelope.
 [[nodiscard]] protocol::Envelope HandleSnapshotRequest(const protocol::Envelope& snapshotRequestEnvelope,
-                                                        const std::string& sessionId, std::int64_t protocolVersion,
+                                                        const std::string& sessionId,
                                                         const CharacterStateProvider& stateProvider,
                                                         RevisionTracker& revisions,
                                                         std::chrono::system_clock::time_point now,

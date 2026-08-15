@@ -59,7 +59,6 @@ TEST_CASE("a CharacterStateStore satisfies HandleSubscribe's CharacterStateProvi
     RevisionTracker revisions;
     auto now = std::chrono::system_clock::now();
     Envelope subscribeEnvelope{
-        .protocolVersion = dovahlink::application::kSupportedProtocolVersion,
         .messageType = "subscribe",
         .messageId = "message-sub-1",
         .sessionId = std::string("session-1"),
@@ -67,8 +66,7 @@ TEST_CASE("a CharacterStateStore satisfies HandleSubscribe's CharacterStateProvi
         .payload = boost::json::parse(R"({"stateAreas": ["character"]})").get_object(),
     };
 
-    auto result = HandleSubscribe(subscribeEnvelope, "session-1", dovahlink::application::kSupportedProtocolVersion,
-                                   store, revisions, now);
+    auto result = HandleSubscribe(subscribeEnvelope, "session-1", store, revisions, now);
 
     REQUIRE(result.snapshots.size() == 1);
     auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(result.snapshots[0].payload);
