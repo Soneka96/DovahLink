@@ -815,6 +815,115 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_identity_model,
         )
 
+    def test_security_doc_establishes_persistent_trust_and_liveness_ownership(self) -> None:
+        """Guard the pairing/trust, developer-auth, liveness, and threat-boundary sections."""
+        security = self._read("ai/context/protocol/security.md")
+        for heading in (
+            "## Persistent local trust",
+            "## Developer authentication",
+            "## Connection liveness",
+            "## Local-OS-user threat boundary",
+        ):
+            self.assertIn(heading, security)
+
+        trust = self._markdown_section(
+            "ai/context/protocol/security.md", "Persistent local trust"
+        )
+        normalized_trust = self._normalize_whitespace(trust)
+        for required_phrase in (
+            "Normal users authenticate through pairing, not a configured long token",
+            "Only one pairing challenge may be active at a time, globally",
+            "Final confirmation is idempotent",
+            "scoped to the Windows user profile running the client and the Bridge",
+            "Do not invent cryptography",
+            "the official client must not share one `clientId`/credential between different "
+            "Windows user profiles",
+            "A `shortId` is never authentication or authorization material",
+            "An explicit local reset-all-trust operation exists",
+            "Revocation is immediate: revoking a trusted client removes its active trust, "
+            "invalidates its current authenticated session, closes that connection, and rejects "
+            "reuse of the revoked credential",
+            "the Bridge must not claim pairing is available when the in-game confirmation cannot "
+            "actually be presented",
+            "A client that fails before saving the credential creates no durable trust and may "
+            "pair again once the Bridge's pending challenge expires",
+            "A client that saves the credential but crashes before confirming retries "
+            "confirmation on restart",
+            "If the Bridge restarted while the credential was only pending, it reports the "
+            "pending credential as no longer known/valid; the client discards its incomplete "
+            "local credential and returns to unpaired",
+            "it never crashes Skyrim, never silently trusts a client, never invents or merges "
+            "uncertain credentials, and always supports a clean reset-and-re-pair path",
+            "A revoked client that reconnects with its old credential receives a specific "
+            "revoked/not-trusted outcome rather than a generic transport failure",
+            "Distinguishing a revoked `clientId` from one that was never paired may use a "
+            "minimal revocation tombstone containing no credential; re-pairing an intentionally "
+            "revoked `clientId` may remove or replace that tombstone and establish a new "
+            "credential",
+        ):
+            self.assertIn(required_phrase, normalized_trust)
+
+        developer_auth = self._markdown_section(
+            "ai/context/protocol/security.md", "Developer authentication"
+        )
+        normalized_developer_auth = self._normalize_whitespace(developer_auth)
+        for required_phrase in (
+            "enabled only when an explicit development token (`DOVAHLINK_DEV_TOKEN` or "
+            "equivalent approved configuration) is configured, with identical behavior across "
+            "debug, beta, and release builds",
+            "must not silently enroll the authenticating client into the persistent "
+            "trusted-device store",
+            "Developer authentication is not a switch that disables security",
+            "loopback restriction, input limits, protocol validation, a fresh `sessionId`, and "
+            "the single-connected-client limit",
+        ):
+            self.assertIn(required_phrase, normalized_developer_auth)
+
+        liveness = self._markdown_section(
+            "ai/context/protocol/security.md", "Connection liveness"
+        )
+        normalized_liveness = self._normalize_whitespace(liveness)
+        for required_phrase in (
+            "WebSocket-level Ping/Pong and a bounded idle timeout own connection liveness",
+            "invalidate `sessionId`, cancel or finish outstanding I/O, close the transport, then "
+            "release the connection slot",
+            "prefer bounded short retry/backoff over same-client connection takeover",
+            "rapid restart, timeout, and Bridge restart all recover cleanly under this policy",
+            "A dead `sessionId` can never become valid again",
+        ):
+            self.assertIn(required_phrase, normalized_liveness)
+
+        threat_boundary = self._markdown_section(
+            "ai/context/protocol/security.md", "Local-OS-user threat boundary"
+        )
+        normalized_threat_boundary = self._normalize_whitespace(threat_boundary)
+        for required_phrase in (
+            "loopback TCP itself is not proof of Windows-user identity",
+            "does not automatically make a loopback socket isolated from another simultaneously "
+            "logged-in local account",
+            "must be solved deliberately, with its own approved design, rather than assumed "
+            "from `127.0.0.1`",
+        ):
+            self.assertIn(required_phrase, normalized_threat_boundary)
+
+        secrets_and_logging = self._markdown_section(
+            "ai/context/protocol/security.md", "Secrets and logging"
+        )
+        for required_phrase in (
+            "Store credentials only through the approved trust-store and per-user secure-storage "
+            'mechanisms defined under "Persistent local trust" above; do not invent persistence '
+            "or cryptography of your own.",
+            "Never log credentials, developer tokens, or other security-sensitive credential "
+            "verifiers.",
+            "Pairing codes are not written to normal persistent logs merely because they are "
+            "short-lived.",
+        ):
+            self.assertIn(required_phrase, secrets_and_logging)
+        # The pre-pairing "no approved persistence design" bullet this replaced must not return.
+        self.assertNotIn(
+            "do not invent persistence during the connection proof", secrets_and_logging
+        )
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
