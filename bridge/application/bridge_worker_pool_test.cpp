@@ -37,6 +37,8 @@ using dovahlink::transport::test_support::RequireLoopbackListener;
 namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
+/// Bridge version reported by the fixture's worker pool.
+constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {
@@ -82,7 +84,7 @@ struct Fixture {
     ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4,        listenerV6,   slot,      tokenStore, tokenThrottle, sessionManager,
-                         activePlayContext, /*bridgeInstanceId=*/std::nullopt, /*bridgeVersion=*/"0.1.0"};
+                         activePlayContext, /*bridgeInstanceId=*/std::nullopt, /*bridgeVersion=*/kBridgeVersion};
 };
 
 }  // namespace

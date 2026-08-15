@@ -44,7 +44,7 @@ using dovahlink::transport::WebSocketSession;
 namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
-constexpr const char* kBridgeVersion = "0.1.0";
+constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {

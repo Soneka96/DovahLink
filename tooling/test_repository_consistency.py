@@ -533,6 +533,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 ["**Status:** Complete"],
             )
 
+    def test_bridge_version_literals_match_the_published_release(self) -> None:
+        """Guard every hand-maintained bridge-version literal against drift from vcpkg.json."""
+        manifest = json.loads(self._read("bridge/vcpkg.json"))
+        version = manifest["version-string"]
+
+        for source_path in (
+            "bridge/harness/dovahlink_bridge_harness.cpp",
+            "bridge/plugin/dovahlink_bridge_plugin.cpp",
+            "bridge/application/connection_session_test.cpp",
+            "bridge/application/bridge_worker_pool_test.cpp",
+        ):
+            self.assertIn(f'kBridgeVersion = "{version}"', self._read(source_path), source_path)
+
+        self.assertIn(
+            f'CHECK(helloAck->bridgeVersion == "{version}");',
+            self._read("bridge/protocol/messages_test.cpp"),
+        )
+
     def test_changelog_matches_the_published_bridge_version(self) -> None:
         """Keep CHANGELOG.md's newest entry synchronized with the published bridge version."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
