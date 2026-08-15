@@ -5,8 +5,8 @@ Integration tests prove that the SKSE bridge and Flutter client agree on the can
 ## Shared fixtures
 
 - Keep language-neutral protocol fixtures in the protocol area, not inside only the Flutter or SKSE test tree.
-- Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, incompatible versions, and stale revisions.
-- Every fixture must contain the protocol version required to decode it; expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
+- Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
+- Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
 - Shared fixtures are the source of truth for cross-side contract tests; client- or bridge-only fixtures must not redefine them.
 
 ## Contract tests
@@ -26,7 +26,7 @@ Cover at least:
 - ordered event delivery
 - duplicate and out-of-order events
 - reconnect and snapshot recovery
-- protocol-version mismatch
+- incompatible Bridge/client combination
 - unsupported capability
 - malformed message
 - oversized frame
