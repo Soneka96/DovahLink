@@ -533,6 +533,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 ["**Status:** Complete"],
             )
 
+    def test_changelog_matches_the_published_bridge_version(self) -> None:
+        """Keep CHANGELOG.md's newest entry synchronized with the published bridge version."""
+        manifest = json.loads(self._read("bridge/vcpkg.json"))
+        changelog = self._read("CHANGELOG.md")
+        entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
+
+        self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
+        self.assertEqual(entry_versions[0], manifest["version-string"])
+        for known_version in ("0.1.0", "0.2.0"):
+            self.assertIn(known_version, entry_versions)
+        parsed_versions = [tuple(int(part) for part in v.split(".")) for v in entry_versions]
+        self.assertEqual(
+            parsed_versions,
+            sorted(set(parsed_versions), reverse=True),
+            "CHANGELOG.md entries must be strictly descending with no duplicate versions.",
+        )
+
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""
         roadmap = self._read("ROADMAP.md")

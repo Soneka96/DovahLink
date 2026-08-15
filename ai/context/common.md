@@ -8,7 +8,11 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 
 - Roadmap phase numbers and application versions are separate; completing a phase does not require
   matching the application version to that phase number.
-- Do not add a changelog or release artifact until the repository has an approved release workflow.
+- A release is cut by building the versioned Bridge ZIP with `tooling/BridgeBuilder` and uploading
+  it to Nexus Mods manually. `CHANGELOG.md` at the repository root is the developer-facing record of
+  what changed in each release; update it in the same change that bumps `bridge/vcpkg.json`'s
+  `version-string` and flips the corresponding `ROADMAP.md` phase to Complete. Do not add any other
+  changelog, release artifact, or release automation beyond this without a maintainer decision.
 
 ## Repository boundaries
 
