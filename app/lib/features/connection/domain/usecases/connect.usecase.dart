@@ -18,6 +18,10 @@ class ConnectUseCase
   /// See [UseCase.call].
   @override
   Future<Either<Failure, ConnectionSessionEntity>> call(ConnectParams params) {
-    return _repository.connect(token: params.token);
+    return _repository.connect(
+      token: params.token,
+      clientId: params.clientId,
+      supportedProtocolVersions: params.supportedProtocolVersions,
+    );
   }
 }
