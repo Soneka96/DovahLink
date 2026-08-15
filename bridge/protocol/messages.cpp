@@ -94,11 +94,17 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
         return std::unexpected(authToken.error());
     }
 
+    auto clientId = DecodeOptionalString(RequireField(payload, "clientId"), "clientId");
+    if (!clientId) {
+        return std::unexpected(clientId.error());
+    }
+
     return HelloPayload{
         .endpoint = std::move(*endpoint),
         .supportedProtocolVersions = std::move(*supportedProtocolVersions),
         .authMethod = std::move(*authMethod),
         .authToken = std::move(*authToken),
+        .clientId = std::move(*clientId),
     };
 }
 
@@ -108,12 +114,28 @@ std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::
     if (!selectedProtocolVersion) {
         return std::unexpected(selectedProtocolVersion.error());
     }
-    return HelloAckPayload{.selectedProtocolVersion = *selectedProtocolVersion};
+    auto clientIdentityKind = DecodeOptionalString(RequireField(payload, "clientIdentityKind"), "clientIdentityKind");
+    if (!clientIdentityKind) {
+        return std::unexpected(clientIdentityKind.error());
+    }
+    return HelloAckPayload{
+        .selectedProtocolVersion = *selectedProtocolVersion,
+        .clientIdentityKind = std::move(*clientIdentityKind),
+    };
 }
 
 boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload) {
     boost::json::object obj;
     obj["selectedProtocolVersion"] = payload.selectedProtocolVersion;
+    // Additive once v2 is selected, matching the envelope's own v1-omit/
+    // v2-present convention (protocol/schema/README.md's v2 section);
+    // selectedProtocolVersion is this payload's own version signal, so no
+    // extra parameter is needed to decide the gate.
+    if (payload.selectedProtocolVersion >= 2) {
+        obj["clientIdentityKind"] = payload.clientIdentityKind.has_value()
+                                        ? boost::json::value(*payload.clientIdentityKind)
+                                        : boost::json::value(nullptr);
+    }
     return obj;
 }
 

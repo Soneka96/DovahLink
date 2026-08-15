@@ -53,6 +53,13 @@ struct HelloPayload {
     std::string authMethod;
     /// Authentication token supplied by the client.
     std::string authToken;
+    /// Identifier of the logical client. Shape-only here: absent or `null`
+    /// decodes as no value regardless of `supportedProtocolVersions`; that it
+    /// is required once negotiation selects protocol version 2 is an
+    /// application-layer rule (`HandleHello`), not a payload-shape rule, per
+    /// `messages.hpp`'s "codecs validate shape, application validates rules"
+    /// split.
+    std::optional<std::string> clientId;
 };
 
 /// Decodes a client hello payload and validates its supported authentication form.
@@ -63,6 +70,11 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(
 struct HelloAckPayload {
     /// Protocol version selected by the bridge.
     std::int64_t selectedProtocolVersion = 0;
+    /// Kind of client identity established by this handshake. Absent when
+    /// `selectedProtocolVersion < 2`; `"unpaired"` for every v2 handshake in
+    /// this phase. A future pairing phase adds `"paired"` without changing
+    /// this shape.
+    std::optional<std::string> clientIdentityKind;
 };
 
 /// Decodes a hello acknowledgment payload.
