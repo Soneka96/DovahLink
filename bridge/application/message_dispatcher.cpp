@@ -72,13 +72,20 @@ bool IsAllowedMessageType(std::string_view messageType) {
 /// @param retryable Whether the client may retry.
 /// @param violations Violation tracker to update.
 /// @param steadyNow Current monotonic time.
+/// @param bridgeInstanceId This bridge's own identity, stamped onto the response when known.
+/// @param currentContextId The currently active play context, stamped onto the response.
 DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId, std::string code,
                        std::string message, bool retryable, security::ViolationTracker& violations,
-                       std::chrono::steady_clock::time_point steadyNow) {
+                       std::chrono::steady_clock::time_point steadyNow,
+                       const std::optional<std::string>& bridgeInstanceId,
+                       const std::optional<std::string>& currentContextId) {
     bool limitReached = violations.RecordViolationAndCheckLimit(steadyNow);
+    protocol::Envelope response = protocol::BuildErrorEnvelope(std::move(correlationId), sessionId, std::move(code),
+                                                                std::move(message), retryable);
+    response.bridgeInstanceId = bridgeInstanceId;
+    response.playContextId = currentContextId;
     return DispatchResult{
-        .responses = {protocol::BuildErrorEnvelope(std::move(correlationId), sessionId, std::move(code),
-                                                     std::move(message), retryable)},
+        .responses = {std::move(response)},
         .closeConnection = limitReached,
     };
 }
@@ -156,7 +163,6 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       const ActivePlayContext& activePlayContext,
                                       SubscriptionState& subscriptionState,
                                       const std::optional<std::string>& bridgeInstanceId,
-                                      const std::optional<std::string>& clientId,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
     ++receivedMessageCount;
@@ -168,24 +174,40 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         return DispatchResult{.closeConnection = true};
     }
 
+    // Resolved once, ahead of every rejection and message type, so every
+    // response this call can produce -- including an early connection-
+    // hygiene rejection below -- carries the same bridge/play-context
+    // identity a client compares its cached state against (protocol/schema/
+    // README.md: present on every Bridge-originated message once
+    // authenticated). No active context: throwaway state producing the
+    // existing unavailable shape, freshly constructed on every call, so a
+    // NoContext response always reports revision 1 -- there is no
+    // authoritative state outside a play context for a revision to persist
+    // against, and the client already keys staleness off `playContextId:
+    // null` rather than this number (ARCHITECTURE.md's "Authoritative state
+    // and revisions").
+    std::shared_ptr<PlayContext> context = activePlayContext.AcquireCurrent();
+    std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+
     auto parsed = protocol::ParseBoundedJson(rawMessage);
     if (!parsed.has_value()) {
         if (parsed.error() == protocol::BoundedJsonError::kFrameTooLarge) {
             return DispatchResult{.closeConnection = true};
         }
         return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
-                       violations, steadyNow);
+                       violations, steadyNow, bridgeInstanceId, currentContextId);
     }
 
     auto envelope = protocol::DecodeEnvelope(*parsed);
     if (!envelope.has_value()) {
         return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
-                       violations, steadyNow);
+                       violations, steadyNow, bridgeInstanceId, currentContextId);
     }
 
     if (!IsAllowedMessageType(envelope->messageType)) {
         return Reject(envelope->messageId, sessionId, "malformed_message",
-                       "Unexpected message type: " + envelope->messageType, false, violations, steadyNow);
+                       "Unexpected message type: " + envelope->messageType, false, violations, steadyNow,
+                       bridgeInstanceId, currentContextId);
     }
 
     // Every allowed messageType requires a non-empty string sessionId at
@@ -197,40 +219,28 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     assert(envelope->sessionId.has_value());
     if (!sessionManager.IsValidForConnection(*envelope->sessionId, connection)) {
         return Reject(envelope->messageId, sessionId, "stale_session", "Session is not valid on this connection",
-                       false, violations, steadyNow);
+                       false, violations, steadyNow, bridgeInstanceId, currentContextId);
     }
 
     if (replayGuard.RecordMessage(envelope->messageId) == MessageIdCheckResult::kReplayed) {
         return Reject(envelope->messageId, sessionId, "replayed_message", "Duplicate messageId", false, violations,
-                       steadyNow);
+                       steadyNow, bridgeInstanceId, currentContextId);
     }
 
     if (rateLimiter.RecordMessageAndCheckLimit(steadyNow)) {
         return Reject(envelope->messageId, sessionId, "rate_limited",
-                       "Inbound message rate exceeded 100 messages per second", true, violations, steadyNow);
+                       "Inbound message rate exceeded 100 messages per second", true, violations, steadyNow,
+                       bridgeInstanceId, currentContextId);
     }
 
     timeoutTracker.RecordActivity(steadyNow);
 
-    // Routes to this connection's acquired play context, or (no active
-    // context) throwaway state producing the existing unavailable shape --
-    // resolved once, ahead of every message type, so the resync check below
-    // and kSubscribe/kSnapshotRequest further down share identical routing,
-    // per protocol/schema/README.md ("NoContext ... reuses the existing
-    // unavailable state-area shape"). The throwaway RevisionTracker is
-    // freshly constructed on every call, so a NoContext response always
-    // reports revision 1: there is no authoritative state outside a play
-    // context for a revision to persist against, and the client already
-    // keys staleness off `playContextId: null` rather than this number
-    // (ARCHITECTURE.md's "Authoritative state and revisions").
-    std::shared_ptr<PlayContext> context = activePlayContext.AcquireCurrent();
     NullCharacterStateProvider noContextProvider;
     RevisionTracker noContextRevisions;
     const CharacterStateProvider& effectiveProvider =
         context ? static_cast<const CharacterStateProvider&>(context->characterState)
                 : static_cast<const CharacterStateProvider&>(noContextProvider);
     RevisionTracker& effectiveRevisions = context ? context->revisions : noContextRevisions;
-    std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
 
     // The "existing connected clients learn context transitions" mechanism
     // (protocol/schema/README.md): on every message, a subscribed connection
@@ -281,17 +291,17 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     result.responses.insert(result.responses.begin(), std::make_move_iterator(prepended.begin()),
                             std::make_move_iterator(prepended.end()));
 
-    // Stamps the connection's bridge, play-context, and client identity onto
-    // every response built above. Scoped to responses reached through
-    // `result` -- the earlier Reject() calls above return directly and are
-    // not stamped, since those are connection-hygiene failures (malformed
-    // shape, stale session, replay, rate limit) uncorrelated with
-    // authoritative-state staleness detection, not state the client compares
-    // (bridgeInstanceId, playContextId) against.
+    // Stamps the connection's bridge and play-context identity onto every
+    // response built through normal dispatch. The earlier Reject() calls
+    // above stamp the same two fields themselves, at the point each is
+    // built, since they return directly rather than flowing through
+    // `result`. clientId is never stamped here or in Reject(): once
+    // authenticated, the client identity is session-owned state
+    // (SessionManager::ClientIdForConnection), not a value repeated on
+    // every response.
     for (protocol::Envelope& response : result.responses) {
         response.bridgeInstanceId = bridgeInstanceId;
         response.playContextId = currentContextId;
-        response.clientId = clientId;
     }
 
     return result;

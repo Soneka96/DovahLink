@@ -232,32 +232,49 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
     REQUIRE(helloAck.bridgeInstanceId.has_value());
     CHECK(*helloAck.bridgeInstanceId == "bridge-1");
     CHECK_FALSE(helloAck.playContextId.has_value());
+    // hello_ack is the one exception: it echoes the client-provided identity
+    // once, confirming what was accepted at authentication.
+    REQUIRE(helloAck.clientId.has_value());
+    CHECK(*helloAck.clientId == "client-1");
+    // The real end-to-end point: the session manager RunConnectionSession
+    // authenticated against, not a synthetic one, now owns the client
+    // identity as session state. TryCreateSession (and thus this) commits
+    // before HandleHello returns and its response is written, which
+    // happens-before the client finishing this read.
+    auto sessionClientId = sessionManager.ClientIdForConnection(/*connection=*/1);
+    REQUIRE(sessionClientId.has_value());
+    CHECK(*sessionClientId == "client-1");
     std::string sessionId = *helloAck.sessionId;
 
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
+    REQUIRE(capabilities.sessionId.has_value());
+    CHECK(*capabilities.sessionId == sessionId);
     REQUIRE(capabilities.bridgeInstanceId.has_value());
     CHECK(*capabilities.bridgeInstanceId == "bridge-1");
-    REQUIRE(capabilities.clientId.has_value());
-    CHECK(*capabilities.clientId == "client-1");
+    // Every post-hello_ack response derives the client from session state
+    // rather than repeating it on the wire.
+    CHECK_FALSE(capabilities.clientId.has_value());
 
     ClientWriteText(clientWs, PingMessage(sessionId));
     auto pong = ClientReadEnvelope(clientWs);
     CHECK(pong.messageType == "pong");
+    REQUIRE(pong.sessionId.has_value());
+    CHECK(*pong.sessionId == sessionId);
     REQUIRE(pong.bridgeInstanceId.has_value());
     CHECK(*pong.bridgeInstanceId == "bridge-1");
-    REQUIRE(pong.clientId.has_value());
-    CHECK(*pong.clientId == "client-1");
+    CHECK_FALSE(pong.clientId.has_value());
 
     ClientWriteText(clientWs, SubscribeMessage(sessionId));
     auto subscriptionAck = ClientReadEnvelope(clientWs);
     CHECK(subscriptionAck.messageType == "subscription_ack");
     auto snapshot = ClientReadEnvelope(clientWs);
     CHECK(snapshot.messageType == "state_snapshot");
+    REQUIRE(snapshot.sessionId.has_value());
+    CHECK(*snapshot.sessionId == sessionId);
     REQUIRE(snapshot.bridgeInstanceId.has_value());
     CHECK(*snapshot.bridgeInstanceId == "bridge-1");
-    REQUIRE(snapshot.clientId.has_value());
-    CHECK(*snapshot.clientId == "client-1");
+    CHECK_FALSE(snapshot.clientId.has_value());
     CHECK_FALSE(snapshot.playContextId.has_value());
 
     boost::system::error_code closeEc;

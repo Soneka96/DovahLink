@@ -51,10 +51,10 @@ struct SubscriptionState {
 ///     revisions belong to; a connection with no active context reads the existing unavailable shape.
 /// @param subscriptionState Per-connection subscription bookkeeping driving the context-change
 ///     resync mechanism.
-/// @param bridgeInstanceId This bridge process's identity, stamped onto every response envelope
-///     reached through normal dispatch (not the early connection-hygiene rejections below).
-/// @param clientId The authenticated session's client identity, stamped onto every response
-///     envelope reached through normal dispatch (not the early connection-hygiene rejections below).
+/// @param bridgeInstanceId This bridge process's identity, stamped onto every response this call
+///     produces, including an early connection-hygiene rejection. The authenticated client
+///     identity is never stamped on any response here: once a session exists, it is owned state
+///     (@ref SessionManager::ClientIdForConnection), not a value repeated on the wire.
 /// @param steadyNow Current monotonic time.
 /// @param wallNow Current wall-clock time.
 /// @return Responses and the connection-close decision.
@@ -64,7 +64,6 @@ struct SubscriptionState {
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const ActivePlayContext& activePlayContext,
     SubscriptionState& subscriptionState, const std::optional<std::string>& bridgeInstanceId,
-    const std::optional<std::string>& clientId, std::chrono::steady_clock::time_point steadyNow,
-    std::chrono::system_clock::time_point wallNow);
+    std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

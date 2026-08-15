@@ -51,8 +51,6 @@ struct Fixture {
     SubscriptionState subscriptionState;
     /// This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId = "bridge-1";
-    /// The authenticated session's client identity, stamped onto every response envelope.
-    std::optional<std::string> clientId = "client-1";
 
     /// Creates the fixture with its test session already authenticated.
     Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, "client-1")) {
@@ -63,7 +61,7 @@ struct Fixture {
     DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {
         return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
                                      replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                     subscriptionState, bridgeInstanceId, clientId, steadyNow,
+                                     subscriptionState, bridgeInstanceId, steadyNow,
                                      std::chrono::system_clock::now());
     }
 };
@@ -124,10 +122,8 @@ TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a sn
     REQUIRE(result.responses.size() == 2);
     CHECK(result.responses[0].messageType == "subscription_ack");
     CHECK(result.responses[1].messageType == "state_snapshot");
-    REQUIRE(result.responses[0].clientId.has_value());
-    CHECK(*result.responses[0].clientId == "client-1");
-    REQUIRE(result.responses[1].clientId.has_value());
-    CHECK(*result.responses[1].clientId == "client-1");
+    CHECK_FALSE(result.responses[0].clientId.has_value());
+    CHECK_FALSE(result.responses[1].clientId.has_value());
 }
 
 TEST_CASE("ProcessInboundMessage with no active play context returns the unavailable character shape",
@@ -161,7 +157,7 @@ TEST_CASE("ProcessInboundMessage with an active play context reads that context'
     CHECK(*characterState->level == 99);
 }
 
-TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId, playContextId, and clientId onto a pong",
+TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto a pong, never clientId",
           "[application][message_dispatcher]") {
     Fixture fixture;
     fixture.activePlayContext.Begin("context-1");
@@ -173,18 +169,9 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId, playContextId, and cli
     CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
     REQUIRE(result.responses[0].playContextId.has_value());
     CHECK(*result.responses[0].playContextId == "context-1");
-    REQUIRE(result.responses[0].clientId.has_value());
-    CHECK(*result.responses[0].clientId == "client-1");
-}
-
-TEST_CASE("ProcessInboundMessage stamps a null clientId onto a response when the session has none",
-          "[application][message_dispatcher]") {
-    Fixture fixture;
-    fixture.clientId = std::nullopt;
-
-    auto result = fixture.Process(PingMessage());
-
-    REQUIRE(result.responses.size() == 1);
+    // The authenticated client identity is session-owned state
+    // (SessionManager::ClientIdForConnection) once a session exists, not a
+    // value repeated on every response.
     CHECK_FALSE(result.responses[0].clientId.has_value());
 }
 
@@ -200,21 +187,52 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when no
     CHECK_FALSE(result.responses[0].playContextId.has_value());
 }
 
-TEST_CASE("ProcessInboundMessage does not stamp identity onto an early dispatcher-level rejection",
+TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto an early "
+          "dispatcher-level rejection too, never clientId",
           "[application][message_dispatcher]") {
-    // Documents the deliberate scope boundary explained in
-    // message_dispatcher.cpp: Reject()'s connection-hygiene errors
-    // (malformed shape, stale session, replay, rate limit) return before
-    // the stamping loop and are not part of authoritative-state staleness
-    // detection.
+    // Reject()'s connection-hygiene errors (malformed shape, stale session,
+    // replay, rate limit) are still responses on an authenticated
+    // connection: protocol/schema/README.md requires bridgeInstanceId and
+    // playContextId on every Bridge-originated message once authenticated,
+    // with no carve-out for these. Matches protocol/fixtures/errors/
+    // error-rate-limited.json, error-replayed-message.json, and
+    // error-stale-session.json, which all carry a real bridgeInstanceId.
+    Fixture fixture;
+    fixture.activePlayContext.Begin("context-1");
+
+    auto result = fixture.Process("not json at all {{{");
+
+    REQUIRE(result.responses.size() == 1);
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
+    REQUIRE(result.responses[0].playContextId.has_value());
+    CHECK(*result.responses[0].playContextId == "context-1");
+    CHECK_FALSE(result.responses[0].clientId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early dispatcher-level "
+          "rejection when no context is active",
+          "[application][message_dispatcher]") {
     Fixture fixture;
 
     auto result = fixture.Process("not json at all {{{");
 
     REQUIRE(result.responses.size() == 1);
-    CHECK_FALSE(result.responses[0].bridgeInstanceId.has_value());
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
     CHECK_FALSE(result.responses[0].playContextId.has_value());
-    CHECK_FALSE(result.responses[0].clientId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto an early dispatcher-level "
+          "rejection when generation failed at startup",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    fixture.bridgeInstanceId = std::nullopt;
+
+    auto result = fixture.Process("not json at all {{{");
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK_FALSE(result.responses[0].bridgeInstanceId.has_value());
 }
 
 TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto a response when generation "
@@ -247,8 +265,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId onto a HandleClientCapa
     CHECK(error->code == "unsupported_capability");
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
     CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
-    REQUIRE(result.responses[0].clientId.has_value());
-    CHECK(*result.responses[0].clientId == "client-1");
+    CHECK_FALSE(result.responses[0].clientId.has_value());
 }
 
 TEST_CASE("ProcessInboundMessage discards the old context's revision counter when the play context "
@@ -389,13 +406,11 @@ TEST_CASE("ProcessInboundMessage's resync prepends an unsolicited snapshot to a 
     CHECK(*ping.responses[0].playContextId == "context-2");
     REQUIRE(ping.responses[0].bridgeInstanceId.has_value());
     CHECK(*ping.responses[0].bridgeInstanceId == "bridge-1");
-    REQUIRE(ping.responses[0].clientId.has_value());
-    CHECK(*ping.responses[0].clientId == "client-1");
+    CHECK_FALSE(ping.responses[0].clientId.has_value());
     CHECK(ping.responses[1].messageType == "pong");
     REQUIRE(ping.responses[1].playContextId.has_value());
     CHECK(*ping.responses[1].playContextId == "context-2");
-    REQUIRE(ping.responses[1].clientId.has_value());
-    CHECK(*ping.responses[1].clientId == "client-1");
+    CHECK_FALSE(ping.responses[1].clientId.has_value());
 }
 
 TEST_CASE("ProcessInboundMessage's resync does not fire for a connection that never subscribed",
@@ -636,6 +651,10 @@ TEST_CASE("ProcessInboundMessage rejects a foreign sessionId as stale_session",
     auto error = dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "stale_session");
+    // Matches protocol/fixtures/errors/error-stale-session.json, which
+    // carries a real bridgeInstanceId despite being an early rejection.
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][message_dispatcher]") {
@@ -650,6 +669,10 @@ TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][m
     auto error = dovahlink::protocol::DecodeErrorPayload(second.responses[0].payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "replayed_message");
+    // Matches protocol/fixtures/errors/error-replayed-message.json, which
+    // carries a real bridgeInstanceId despite being an early rejection.
+    REQUIRE(second.responses[0].bridgeInstanceId.has_value());
+    CHECK(*second.responses[0].bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("ProcessInboundMessage counts unique, replayed, and malformed messages toward the session cap",
@@ -704,6 +727,10 @@ TEST_CASE("ProcessInboundMessage rejects the 101st message within a second as ra
     REQUIRE(error.has_value());
     CHECK(error->code == "rate_limited");
     CHECK(error->retryable);
+    // Matches protocol/fixtures/errors/error-rate-limited.json, which
+    // carries a real bridgeInstanceId despite being an early rejection.
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("ProcessInboundMessage closes the connection on the 3rd protocol violation within 30 seconds",
