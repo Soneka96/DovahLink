@@ -18,10 +18,11 @@ public static class ValidationRun
     /// <param name="token">The one-time bridge authentication token.</param>
     /// <param name="output">Destination for progress and diagnostic messages.</param>
     /// <returns>0 when an initial state snapshot was received; 1 on any failure, including a
-    /// rejected hello, an incompatible Bridge version, or a connection or protocol failure.</returns>
+    /// rejected hello, an unaccepted client identity, an incompatible Bridge version, or a
+    /// connection or protocol failure.</returns>
     public static async Task<int> ExecuteAsync(BridgeConnection connection, string token, TextWriter output)
     {
-        string clientId = Guid.NewGuid().ToString();
+        string clientId = ClientIdentity.Current.ToString();
         try
         {
             var helloPayload = new JsonObject
@@ -40,6 +41,14 @@ public static class ValidationRun
             if (helloAck.MessageType != "hello_ack")
             {
                 output.WriteLine($"Bridge rejected hello: {helloAck.MessageType} {helloAck.Payload}");
+                return 1;
+            }
+            if (helloAck.ClientId != clientId)
+            {
+                output.WriteLine(
+                    $"Bridge accepted a different client identity than requested: expected {clientId}, " +
+                    $"got {helloAck.ClientId ?? "null"}.");
+                await connection.CloseAsync();
                 return 1;
             }
             string sessionId = helloAck.SessionId ?? throw new InvalidOperationException("hello_ack carried no sessionId.");

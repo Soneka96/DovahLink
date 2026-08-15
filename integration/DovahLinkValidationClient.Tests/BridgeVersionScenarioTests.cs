@@ -75,6 +75,83 @@ public class BridgeVersionScenarioTests
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when
+    /// hello_ack accepts a different client identity than the one requested.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenHelloAckClientIdIsMismatched()
+    {
+        string helloAckWithMismatchedClientId = new Envelope(
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1",
+            new JsonObject { ["bridgeVersion"] = "0.2.0", ["clientIdentityKind"] = "unpaired" },
+            ClientId: "some-other-client").Encode();
+        // Only the hello_ack is queued: if ValidationRun incorrectly continued past the identity
+        // check, its next ReceiveAsync (for capabilities) would dequeue from an empty queue and
+        // throw, failing this test.
+        var socket = new FakeWebSocket([helloAckWithMismatchedClientId]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("different client identity", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when
+    /// hello_ack carries no client identity at all.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenHelloAckClientIdIsMissing()
+    {
+        string helloAckWithoutClientId = new Envelope(
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1",
+            new JsonObject { ["bridgeVersion"] = "0.2.0", ["clientIdentityKind"] = "unpaired" }).Encode();
+        var socket = new FakeWebSocket([helloAckWithoutClientId]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("got null", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun sends its stable process-lifetime identity as the hello
+    /// clientId, rather than a fresh identity per call.</summary>
+    [Fact]
+    public async Task ExecuteAsyncSendsTheStableClientIdentityInHello()
+    {
+        var socket = new FakeWebSocket(receiveException: new WebSocketException("peer reset"));
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Envelope hello = Envelope.Decode(Assert.Single(socket.SentMessages));
+        Assert.Equal(ClientIdentity.Current.ToString(), hello.Payload["clientId"]!.GetValue<string>());
+    }
+
+    /// <summary>Verifies that ValidationRun rejects an unaccepted client identity before it would
+    /// otherwise reject an incompatible Bridge version, proving the identity check runs first.</summary>
+    [Fact]
+    public async Task ExecuteAsyncRejectsIdentityMismatchBeforeCheckingBridgeVersionCompatibility()
+    {
+        string helloAckWithMismatchedClientIdAndUnsupportedVersion = new Envelope(
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1",
+            new JsonObject { ["bridgeVersion"] = "99.0.0", ["clientIdentityKind"] = "unpaired" },
+            ClientId: "some-other-client").Encode();
+        var socket = new FakeWebSocket([helloAckWithMismatchedClientIdAndUnsupportedVersion]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("different client identity", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("incompatible", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
     /// Bridge reports a version outside this client's supported range.</summary>
     [Fact]
@@ -82,7 +159,8 @@ public class BridgeVersionScenarioTests
     {
         string helloAckWithUnsupportedVersion = new Envelope(
             "hello_ack", "message-ack-1", "session-1", "message-hello-1",
-            new JsonObject { ["bridgeVersion"] = "99.0.0", ["clientIdentityKind"] = "unpaired" }).Encode();
+            new JsonObject { ["bridgeVersion"] = "99.0.0", ["clientIdentityKind"] = "unpaired" },
+            ClientId: ClientIdentity.Current.ToString()).Encode();
         // Only the hello_ack is queued: if ValidationRun incorrectly continued past the
         // compatibility check, its next ReceiveAsync (for capabilities) would dequeue from an
         // empty queue and throw, failing this test.
@@ -103,7 +181,8 @@ public class BridgeVersionScenarioTests
     public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenTheBridgeVersionIsMissing()
     {
         string helloAckWithoutVersion = new Envelope(
-            "hello_ack", "message-ack-1", "session-1", "message-hello-1", new JsonObject()).Encode();
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1", new JsonObject(),
+            ClientId: ClientIdentity.Current.ToString()).Encode();
         var socket = new FakeWebSocket([helloAckWithoutVersion]);
         var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
         var output = new StringWriter();
@@ -203,7 +282,8 @@ public class BridgeVersionScenarioTests
     {
         string helloAckWithoutSessionId = new Envelope(
             "hello_ack", "message-ack-1", null, "message-hello-1",
-            new JsonObject { ["bridgeVersion"] = "0.2.0", ["clientIdentityKind"] = "unpaired" }).Encode();
+            new JsonObject { ["bridgeVersion"] = "0.2.0", ["clientIdentityKind"] = "unpaired" },
+            ClientId: ClientIdentity.Current.ToString()).Encode();
         var socket = new FakeWebSocket([helloAckWithoutSessionId]);
         var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
         var output = new StringWriter();
@@ -224,7 +304,8 @@ public class BridgeVersionScenarioTests
         string[] responses =
         [
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
-                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" }).Encode(),
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
             new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
             new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
                 new JsonObject { ["acceptedStateAreas"] = new JsonArray("character"), ["rejectedStateAreas"] = new JsonArray() })

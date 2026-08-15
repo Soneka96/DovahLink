@@ -72,6 +72,9 @@ internal sealed class FakeWebSocket : WebSocket
     /// <summary>Records whether the connection disposed the socket.</summary>
     public bool DisposeCalled { get; private set; }
 
+    /// <summary>The complete text of every message passed to the send overload, in call order.</summary>
+    public List<string> SentMessages { get; } = [];
+
     /// <inheritdoc/>
     public override WebSocketCloseStatus? CloseStatus => null;
 
@@ -168,6 +171,11 @@ internal sealed class FakeWebSocket : WebSocket
         bool endOfMessage,
         CancellationToken cancellationToken)
     {
-        return _sendException is not null ? Task.FromException(_sendException) : Task.CompletedTask;
+        if (_sendException is not null)
+        {
+            return Task.FromException(_sendException);
+        }
+        SentMessages.Add(Encoding.UTF8.GetString(buffer));
+        return Task.CompletedTask;
     }
 }
