@@ -236,6 +236,15 @@ std::string ReadBridgeInstanceId(HarnessProcess& harness) {
     return line.substr(kPrefix.size());
 }
 
+/// Reads and validates one `PLAY_CONTEXT <id-or-(none)>` acknowledgment line,
+/// returning the text after the prefix.
+std::string ReadPlayContext(HarnessProcess& harness) {
+    constexpr std::string_view kPrefix = "PLAY_CONTEXT ";
+    std::string line = harness.ReadLine();
+    REQUIRE(line.starts_with(kPrefix));
+    return line.substr(kPrefix.size());
+}
+
 }  // namespace
 
 TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket and shuts down cleanly",
@@ -333,6 +342,60 @@ TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID acros
     }
 
     CHECK(firstId != secondId);
+}
+
+TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
+          "lifecycle",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    // No context before any load, matching GameLifecycleTracker's fresh
+    // kNoContext state; revert is idempotent there.
+    harness.WriteLine("revert");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    harness.WriteLine("new_game");
+    std::string newGameContext = ReadPlayContext(harness);
+    CHECK_FALSE(newGameContext.empty());
+    CHECK(newGameContext != "(none)");
+
+    // A second new_game with no intervening revert still invalidates the
+    // first context and mints a distinct one (GameLifecycleTracker's own
+    // "invalidate-if-active" rule for kNewGame).
+    harness.WriteLine("new_game");
+    std::string secondNewGameContext = ReadPlayContext(harness);
+    CHECK(secondNewGameContext != newGameContext);
+
+    // Loading (even conceptually "the same save" -- this harness has no save
+    // identity at all) mints a distinct context from the one just replaced,
+    // the single most important assertion this design makes
+    // (task.md's manual verification results).
+    harness.WriteLine("load_game");
+    std::string firstLoadContext = ReadPlayContext(harness);
+    CHECK_FALSE(firstLoadContext.empty());
+    CHECK(firstLoadContext != secondNewGameContext);
+
+    harness.WriteLine("load_game");
+    std::string secondLoadContext = ReadPlayContext(harness);
+    CHECK(secondLoadContext != firstLoadContext);
+
+    // A failed load still invalidates the current context (kPreLoadGame) but
+    // settles into kNoContext rather than reviving or replacing it.
+    harness.WriteLine("load_game_fail");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    harness.WriteLine("revert");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    // A fresh context after revert must not resurrect the reverted one.
+    harness.WriteLine("new_game");
+    CHECK(ReadPlayContext(harness) != secondLoadContext);
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
 }
 
 TEST_CASE("dovahlink_bridge_harness exits without printing READY when the token is missing",

@@ -1,13 +1,16 @@
 // Skyrim-independent process harness for the real bridge stack. It uses a
 // deterministic character level, accepts the same authentication token as the
 // plugin, prints READY followed by its generated bridge instance ID after
-// startup, and handles increase_level and quit commands on standard input.
+// startup, and handles increase_level, new_game, load_game, load_game_fail,
+// revert, and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
+#include "application/game_lifecycle_tracker.hpp"
+#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
 #include "security/throttle.hpp"
@@ -40,6 +43,19 @@ public:
     /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
+
+/// Processes one lifecycle event through the tracker and applies its
+/// resulting transition to the active play context, mirroring
+/// game_state/commonlib_game_lifecycle_sink.cpp's per-signal handling without
+/// any SKSE dependency.
+/// @return The transition produced by this event.
+dovahlink::application::GameLifecycleTracker::Transition ProcessLifecycleEvent(
+    dovahlink::application::GameLifecycleTracker& tracker,
+    dovahlink::application::ActivePlayContext& activePlayContext, dovahlink::application::LifecycleEvent event) {
+    auto transition = tracker.HandleEvent(event);
+    dovahlink::application::ApplyLifecycleTransition(activePlayContext, transition);
+    return transition;
+}
 
 /// Reads a positive harness-only token lifetime override from the environment.
 std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
@@ -92,6 +108,8 @@ int main() {
     dovahlink::security::FailedTokenThrottle tokenThrottle;
     dovahlink::application::SessionManager sessionManager;
     dovahlink::application::CharacterStateStore characterStateStore;
+    dovahlink::application::GameLifecycleTracker lifecycleTracker;
+    dovahlink::application::ActivePlayContext activePlayContext;
 
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
@@ -118,6 +136,35 @@ int main() {
             ++level;
             characterStateStore.OnLevelCaptured(level);
             std::cout << "LEVEL " << level << std::endl;
+        } else if (line == "new_game") {
+            auto transition =
+                ProcessLifecycleEvent(lifecycleTracker, activePlayContext, dovahlink::application::LifecycleEvent::kNewGame);
+            std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
+        } else if (line == "load_game") {
+            // Two raw signals in sequence, matching a real SKSE load: the
+            // save is selected (kPreLoadGame, invalidating any current
+            // context) before it finishes loading (kPostLoadGameSuccess,
+            // minting the new one). Only the final transition's ID is
+            // reported; both are applied to activePlayContext.
+            ProcessLifecycleEvent(lifecycleTracker, activePlayContext,
+                                  dovahlink::application::LifecycleEvent::kPreLoadGame);
+            auto transition = ProcessLifecycleEvent(lifecycleTracker, activePlayContext,
+                                                    dovahlink::application::LifecycleEvent::kPostLoadGameSuccess);
+            std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
+        } else if (line == "load_game_fail") {
+            // Same two-signal shape as load_game, but the load itself fails:
+            // kPreLoadGame still invalidates any current context, and
+            // kPostLoadGameFailure settles into kNoContext without minting a
+            // replacement.
+            ProcessLifecycleEvent(lifecycleTracker, activePlayContext,
+                                  dovahlink::application::LifecycleEvent::kPreLoadGame);
+            auto transition = ProcessLifecycleEvent(lifecycleTracker, activePlayContext,
+                                                    dovahlink::application::LifecycleEvent::kPostLoadGameFailure);
+            std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
+        } else if (line == "revert") {
+            auto transition =
+                ProcessLifecycleEvent(lifecycleTracker, activePlayContext, dovahlink::application::LifecycleEvent::kRevert);
+            std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
         } else if (line == "quit") {
             break;
         }

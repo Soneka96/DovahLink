@@ -134,8 +134,9 @@ public class CapabilitiesScenarioTests
         await harness.WaitForReadyAsync();
 
         await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        // 3 is offered by neither this test's client nor the bridge's supported set.
         await connection.SendAsync(BridgeScenario.HelloEnvelope(
-            BridgeScenario.ValidHexToken, messageId: "message-hello-mismatch", supportedProtocolVersions: [2]));
+            BridgeScenario.ValidHexToken, messageId: "message-hello-mismatch", supportedProtocolVersions: [3]));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
