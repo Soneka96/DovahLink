@@ -104,6 +104,11 @@ current wire contract until the Bridge Identity and Authoritative State Foundati
 updates and versions the schema, fixtures, bridge, validation client, and Flutter consumer. The
 target ownership above must not be implemented by silently reinterpreting existing v1 messages.
 
+Protocol v2 (`protocol/schema/README.md`'s "Protocol schema v2 (identity foundation)" section) now
+carries this target ownership on the wire, additive alongside the unchanged v1 contract above; see
+`ROADMAP.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
+the bridge and its clients.
+
 ## Live delivery and performance model
 
 - Prefer native Skyrim/SKSE events whenever a trustworthy event exists; sample only values that
