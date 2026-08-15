@@ -13,32 +13,25 @@ public static class BridgeScenario
     public static readonly Uri BridgeUri = new("ws://127.0.0.1:58231/");
 
     /// <summary>
-    /// Builds a version-0 hello envelope for client authentication.
+    /// Builds a hello envelope for client authentication.
     /// </summary>
     /// <param name="token">The one-time local authentication token.</param>
     /// <param name="messageId">The message identifier for the envelope.</param>
-    /// <param name="supportedProtocolVersions">The protocol versions supported by the client; defaults to version 1.</param>
-    /// <param name="clientId">The logical client identity to offer; omitted from the payload when null,
-    /// required by the bridge once protocol version 2 is negotiated.</param>
-    /// <returns>A hello envelope containing the client endpoint, supported protocol versions, and authentication details.</returns>
-    public static Envelope HelloEnvelope(
-        string token, string messageId = "message-hello-1", int[]? supportedProtocolVersions = null, string? clientId = null)
+    /// <param name="clientId">The logical client identity to offer, required by the bridge in every hello.</param>
+    /// <returns>A hello envelope containing the client endpoint and authentication details.</returns>
+    public static Envelope HelloEnvelope(string token, string messageId = "message-hello-1", string clientId = "client-1")
     {
         var payload = new JsonObject
         {
             ["endpoint"] = "client",
-            ["supportedProtocolVersions"] = new JsonArray((supportedProtocolVersions ?? [1]).Select(v => (JsonNode)v).ToArray()),
+            ["clientId"] = clientId,
             ["auth"] = new JsonObject
             {
                 ["method"] = "one_time_local_token",
                 ["token"] = token,
             },
         };
-        if (clientId is not null)
-        {
-            payload["clientId"] = clientId;
-        }
-        return new Envelope(0, "hello", messageId, null, null, payload);
+        return new Envelope("hello", messageId, null, null, payload);
     }
 
     /// <summary>
@@ -68,6 +61,14 @@ public static class BridgeScenario
         try
         {
             await harness.WaitForReadyAsync();
+            // A capture has nowhere to be attributed to before a play context
+            // exists (ActivePlayContextLevelSink drops it, matching real
+            // play: main menu has no play context). Begin one here so every
+            // scenario using this shared setup sees a real, non-"unavailable"
+            // character state, not because of anything specific to
+            // authentication or capabilities.
+            await harness.WriteLineAsync("new_game");
+            await harness.ReadLineAsync();  // PLAY_CONTEXT <id>
 
             connection = connectionFactory is null
                 ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)

@@ -29,8 +29,8 @@ public class BridgeScenarioTests
         string sessionId = "session-test-1";
         string[] responses =
         [
-            new Envelope(1, "hello_ack", "message-ack-1", sessionId, "message-hello-1", new JsonObject()).Encode(),
-            new Envelope(1, "pong", "message-pong-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1", new JsonObject()).Encode(),
+            new Envelope("pong", "message-pong-1", sessionId, null, new JsonObject()).Encode(),
         ];
         var socket = new FakeWebSocket(responses);
         var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));

@@ -10,7 +10,7 @@ namespace DovahLinkValidationClient.Tests;
 /// <see cref="RelaunchingTheHarnessReportsADifferentBridgeInstanceId"/> proves the harness-only half:
 /// bridgeInstanceId itself changes across a kill-and-relaunch cycle.
 /// <see cref="RestartingTheBridgeMakesTheOldBridgeInstanceAndPlayContextPairStaleEvenWithACoincidentalPlayContextIdMatch"/>
-/// completes the wire-level half over real protocol v2 envelopes, including the case where the two
+/// completes the wire-level half over real protocol envelopes, including the case where the two
 /// instances' playContextId and first-pull revision both coincidentally match.
 /// </remarks>
 public class RestartScenarioTests
@@ -77,7 +77,7 @@ public class RestartScenarioTests
 
     /// <summary>
     /// Launches one harness instance, drives it into an active play context via <c>new_game</c>,
-    /// negotiates protocol v2 over a fresh connection to capture the bridge's own reported
+    /// completes hello over a fresh connection to capture the bridge's own reported
     /// (bridgeInstanceId, playContextId) pair from the wire, then subscribes to the character state
     /// area to capture its first-pull revision.
     /// </summary>
@@ -103,13 +103,13 @@ public class RestartScenarioTests
 
         await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
         await connection.SendAsync(BridgeScenario.HelloEnvelope(
-            BridgeScenario.ValidHexToken, supportedProtocolVersions: [1, 2], clientId: ClientIdentity.Current.ToString()));
+            BridgeScenario.ValidHexToken, clientId: ClientIdentity.Current.ToString()));
         Envelope helloAck = await connection.ReceiveAsync();
         if (helloAck.MessageType != "hello_ack" || helloAck.SessionId is null || helloAck.BridgeInstanceId is null ||
             helloAck.PlayContextId is null)
         {
             throw new InvalidOperationException(
-                $"Expected a v2 hello_ack carrying a sessionId, bridgeInstanceId, and playContextId, got " +
+                $"Expected a hello_ack carrying a sessionId, bridgeInstanceId, and playContextId, got " +
                 $"{helloAck.MessageType}: {helloAck.Payload}");
         }
         // The bridge's own stdout report and its wire-level hello_ack must agree on the same
@@ -123,7 +123,7 @@ public class RestartScenarioTests
 
         await connection.ReceiveAsync();  // capabilities (unsolicited, sent right after hello_ack)
 
-        await connection.SendAsync(new Envelope(2, "subscribe", "message-sub-1", helloAck.SessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-1", helloAck.SessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         await connection.ReceiveAsync();  // subscription_ack
         Envelope snapshot = await connection.ReceiveAsync();

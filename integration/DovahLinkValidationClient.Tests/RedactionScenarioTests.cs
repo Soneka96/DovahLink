@@ -68,7 +68,7 @@ public class RedactionScenarioTests
         await connection.SendRawTextAsync("not json {{{");
         collectedText.Add(EnvelopeText(await connection.ReceiveAsync()));
 
-        await connection.SendAsync(new Envelope(1, "ping", "message-redact-3", sessionId + "-foreign", null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-redact-3", sessionId + "-foreign", null, new JsonObject()));
         collectedText.Add(EnvelopeText(await connection.ReceiveAsync()));
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);

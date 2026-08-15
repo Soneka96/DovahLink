@@ -8,7 +8,7 @@ internal sealed class FakeWebSocket : WebSocket
 {
     /// <summary>A default complete protocol envelope returned when no receive script is supplied.</summary>
     private const string DefaultMessage =
-        """{"protocolVersion":1,"messageType":"pong","messageId":"message-1","sessionId":"session-1","correlationId":null,"payload":{}}""";
+        """{"messageType":"pong","messageId":"message-1","sessionId":"session-1","correlationId":null,"payload":{},"bridgeInstanceId":null,"playContextId":null,"clientId":null}""";
 
     /// <summary>Complete messages returned by successive receive operations.</summary>
     private readonly Queue<byte[]> _receiveMessages;

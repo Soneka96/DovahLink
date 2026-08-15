@@ -23,7 +23,7 @@ public class LimitsScenarioTests
 
     /// <summary>Wraps raw JSON payload text in a protocol envelope.</summary>
     private static string EnvelopeWithRawPayload(string sessionId, string rawPayloadJson, string messageId = "message-limit-1") =>
-        $$"""{"protocolVersion": 1, "messageType": "ping", "messageId": "{{messageId}}", "sessionId": "{{sessionId}}", "correlationId": null, "payload": {{rawPayloadJson}}}""";
+        $$"""{"messageType": "ping", "messageId": "{{messageId}}", "sessionId": "{{sessionId}}", "correlationId": null, "payload": {{rawPayloadJson}}, "bridgeInstanceId": null, "playContextId": null, "clientId": null}""";
 
     /// <summary>Verifies that invalid JSON is rejected as a malformed message.</summary>
     [Fact]
@@ -285,7 +285,7 @@ public class LimitsScenarioTests
         Envelope first = await connection.ReceiveAsync();
         Assert.Equal("malformed_message", first.Payload["code"]!.GetValue<string>());
 
-        var ping = new Envelope(1, "ping", "message-mixed-dup", sessionId, null, new JsonObject());
+        var ping = new Envelope("ping", "message-mixed-dup", sessionId, null, new JsonObject());
         await connection.SendAsync(ping);
         await connection.ReceiveAsync();  // pong
         await connection.SendAsync(ping);  // same messageId again
@@ -312,7 +312,7 @@ public class LimitsScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        var ping = new Envelope(1, "ping", "message-dup-1", sessionId, null, new JsonObject());
+        var ping = new Envelope("ping", "message-dup-1", sessionId, null, new JsonObject());
         await connection.SendAsync(ping);
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
@@ -326,7 +326,7 @@ public class LimitsScenarioTests
 
         // One violation does not close the connection -- proven the same
         // way as the other scenario files, with a ping/pong right after.
-        await connection.SendAsync(new Envelope(1, "ping", "message-after-dup", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-after-dup", sessionId, null, new JsonObject()));
         Envelope secondPong = await connection.ReceiveAsync();
         Assert.Equal("pong", secondPong.MessageType);
 
@@ -392,7 +392,7 @@ public class LimitsScenarioTests
 
         for (int i = 0; i <= 100; i++)
         {
-            await connection.SendAsync(new Envelope(1, "ping", $"message-rate-{i}", sessionId, null, new JsonObject()));
+            await connection.SendAsync(new Envelope("ping", $"message-rate-{i}", sessionId, null, new JsonObject()));
         }
 
         Envelope? rateLimited = null;

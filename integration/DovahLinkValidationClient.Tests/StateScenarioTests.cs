@@ -16,7 +16,13 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-1", sessionId, null,
+        // A capture has nowhere to be attributed to until this scenario's
+        // level is actually captured into the play context ConnectAndAuthenticateAsync
+        // already began; increase_level is the only harness command that captures one.
+        await harness.WriteLineAsync("increase_level");
+        Assert.Equal("LEVEL 6", await harness.ReadLineAsync());
+
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
 
         Envelope ack = await connection.ReceiveAsync();
@@ -34,7 +40,7 @@ public class StateScenarioTests
         Assert.Equal(1, snapshot.Payload["revision"]!.GetValue<int>());
         Assert.False(string.IsNullOrEmpty(snapshot.Payload["occurredAt"]!.GetValue<string>()));
         JsonObject data = snapshot.Payload["data"]!.AsObject();
-        Assert.Equal(5, data["level"]!.GetValue<int>());
+        Assert.Equal(6, data["level"]!.GetValue<int>());
         // Health, magicka, and stamina are explicitly unavailable in Phase 1.
         Assert.Null(data["health"]);
         Assert.Null(data["magicka"]);
@@ -52,7 +58,7 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-unknown", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-unknown", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("inventory") }));
 
         Envelope ack = await connection.ReceiveAsync();
@@ -65,7 +71,7 @@ public class StateScenarioTests
         // (application/subscription_handler.hpp) -- and gets no snapshot.
         // Proven by the next message being the pong that answers this
         // ping, not a stray snapshot for an area that was never accepted.
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-1", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-1", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
@@ -81,7 +87,7 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-mixed", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-mixed", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character", "inventory") }));
 
         Envelope ack = await connection.ReceiveAsync();
@@ -94,7 +100,7 @@ public class StateScenarioTests
 
         // Exactly one snapshot (character's), none for the rejected area --
         // proven the same way, by the next message being a pong.
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-2", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-2", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
@@ -110,17 +116,19 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-2", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         await connection.ReceiveAsync();  // subscription_ack
         Envelope initialSnapshot = await connection.ReceiveAsync();
-        Assert.Equal(5, initialSnapshot.Payload["data"]!["level"]!.GetValue<int>());
+        // Nothing has captured a level into this context yet: an unavailable
+        // value, not a plausible default (protocol/schema/README.md).
+        Assert.Null(initialSnapshot.Payload["data"]!["level"]);
         Assert.Equal(1, initialSnapshot.Payload["revision"]!.GetValue<int>());
 
         await harness.WriteLineAsync("increase_level");
         Assert.Equal("LEVEL 6", await harness.ReadLineAsync());
 
-        await connection.SendAsync(new Envelope(1, "snapshot_request", "message-snap-1", sessionId, null,
+        await connection.SendAsync(new Envelope("snapshot_request", "message-snap-1", sessionId, null,
             new JsonObject { ["stateArea"] = "character" }));
 
         Envelope freshSnapshot = await connection.ReceiveAsync();
@@ -146,7 +154,7 @@ public class StateScenarioTests
         // Exercises subscription_handler.cpp's alreadySeen dedup on both
         // sides: "character" listed twice must appear once in accepted,
         // "inventory" listed twice must appear once in rejected.
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-dup", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-dup", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character", "character", "inventory", "inventory") }));
 
         Envelope ack = await connection.ReceiveAsync();
@@ -158,7 +166,7 @@ public class StateScenarioTests
 
         // Exactly one snapshot total, not two for the duplicated accepted
         // area -- proven the same way, by the next message being a pong.
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-3", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-3", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
@@ -174,7 +182,7 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-empty", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-empty", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray() }));
 
         Envelope ack = await connection.ReceiveAsync();
@@ -182,72 +190,30 @@ public class StateScenarioTests
         Assert.Empty(ack.Payload["acceptedStateAreas"]!.AsArray());
         Assert.Empty(ack.Payload["rejectedStateAreas"]!.AsArray());
 
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-4", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-4", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
-    /// <summary>Verifies that a v1 pull advances the revision even without a state change.</summary>
+    /// <summary>Verifies that a pull with no intervening state change reuses the revision.</summary>
     [Fact]
-    public async Task RevisionAdvancesOnEachPullEvenWithoutAnInterveningStateChangeForV1()
+    public async Task RevisionIsReusedOnEachPullWithoutAnInterveningStateChange()
     {
-        // RevisionTracker::StartSnapshot (application/revision_tracker.cpp)
-        // increments unconditionally on every call when given no fingerprint
-        // -- v1's published, frozen behavior, which this phase must not
-        // reinterpret even though v2 (see the sibling test below) now
-        // compares captured state instead.
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _) =
             await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "subscribe", "message-sub-3", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
-        await connection.ReceiveAsync();  // subscription_ack
-        Envelope firstSnapshot = await connection.ReceiveAsync();
-        Assert.Equal(1, firstSnapshot.Payload["revision"]!.GetValue<int>());
-        Assert.Equal(5, firstSnapshot.Payload["data"]!["level"]!.GetValue<int>());
-
-        await connection.SendAsync(new Envelope(1, "snapshot_request", "message-snap-nochange", sessionId, null,
-            new JsonObject { ["stateArea"] = "character" }));
-        Envelope secondSnapshot = await connection.ReceiveAsync();
-        Assert.Equal(2, secondSnapshot.Payload["revision"]!.GetValue<int>());
-        Assert.Equal(5, secondSnapshot.Payload["data"]!["level"]!.GetValue<int>());
-
-        await BridgeScenario.CloseAndQuitAsync(harness, connection);
-    }
-
-    /// <summary>Verifies that a v2 pull with no intervening state change reuses the revision.</summary>
-    [Fact]
-    public async Task RevisionIsReusedOnEachPullWithoutAnInterveningStateChangeForV2()
-    {
-        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        await harness.WaitForReadyAsync();
-        // An active play context is required for a real, persistent
-        // PlayContext-owned RevisionTracker: without one, the v2 NoContext
-        // path uses a throwaway tracker rebuilt on every call, which would
-        // trivially -- and uninformatively -- report revision 1 every time.
-        await harness.WriteLineAsync("new_game");
-        await harness.ReadLineAsync();  // PLAY_CONTEXT <id>
-
-        await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
-        await connection.SendAsync(BridgeScenario.HelloEnvelope(
-            BridgeScenario.ValidHexToken, supportedProtocolVersions: [1, 2], clientId: ClientIdentity.Current.ToString()));
-        Envelope helloAck = await connection.ReceiveAsync();
-        Assert.Equal("hello_ack", helloAck.MessageType);
-        string sessionId = helloAck.SessionId!;
-        await connection.ReceiveAsync();  // capabilities
-
-        await connection.SendAsync(new Envelope(2, "subscribe", "message-sub-v2-1", sessionId, null,
+        await connection.SendAsync(new Envelope("subscribe", "message-sub-v2-1", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         await connection.ReceiveAsync();  // subscription_ack
         Envelope firstSnapshot = await connection.ReceiveAsync();
         Assert.Equal(1, firstSnapshot.Payload["revision"]!.GetValue<int>());
         Assert.Null(firstSnapshot.Payload["data"]!["level"]);
 
-        await connection.SendAsync(new Envelope(2, "snapshot_request", "message-snap-v2-nochange", sessionId, null,
+        await connection.SendAsync(new Envelope("snapshot_request", "message-snap-v2-nochange", sessionId, null,
             new JsonObject { ["stateArea"] = "character" }));
         Envelope secondSnapshot = await connection.ReceiveAsync();
         // A freshly-begun play context's captured character state is
@@ -256,8 +222,7 @@ public class StateScenarioTests
         Assert.Equal(1, secondSnapshot.Payload["revision"]!.GetValue<int>());
         Assert.Null(secondSnapshot.Payload["data"]!["level"]);
 
-        await harness.WriteLineAsync("quit");
-        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
     /// <summary>Verifies that an unknown snapshot area returns an unsupported-capability error.</summary>
@@ -273,7 +238,7 @@ public class StateScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "snapshot_request", "message-snap-unknown", sessionId, null,
+        await connection.SendAsync(new Envelope("snapshot_request", "message-snap-unknown", sessionId, null,
             new JsonObject { ["stateArea"] = "inventory" }));
 
         Envelope error = await connection.ReceiveAsync();
