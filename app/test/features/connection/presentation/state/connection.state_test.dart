@@ -33,7 +33,6 @@ void main() {
     test('replaces and clears nullable values explicitly', () {
       const ConnectionSessionEntity session = ConnectionSessionEntity(
         sessionId: 'session-1',
-        protocolVersion: 1,
       );
       const ConnectionState state = ConnectionState(
         phase: ConnectionPhase.connected,

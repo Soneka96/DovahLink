@@ -10,7 +10,6 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 void main() {
   const ConnectionSessionEntity session = ConnectionSessionEntity(
     sessionId: 'session-1',
-    protocolVersion: 1,
   );
 
   group('ConnectionReducer processes lifecycle actions correctly', () {
@@ -63,11 +62,10 @@ void main() {
     });
 
     test(
-      'ConnectionEstablishedAction replaces the previous session and stays connected for v1',
+      'ConnectionEstablishedAction stays connected when neither the cached nor the new session has bridge or play-context identity',
       () {
         const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
           sessionId: 'session-0',
-          protocolVersion: 1,
         );
         const ConnectionState state = ConnectionState(
           phase: ConnectionPhase.recovering,
@@ -87,17 +85,15 @@ void main() {
     );
 
     test(
-      'ConnectionEstablishedAction stays connected when v2 identity matches the cached session',
+      'ConnectionEstablishedAction stays connected when identity matches the cached session',
       () {
         const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
           sessionId: 'session-0',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-1',
         );
         const ConnectionSessionEntity newSession = ConnectionSessionEntity(
           sessionId: 'session-1',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-1',
         );
@@ -118,17 +114,15 @@ void main() {
     );
 
     test(
-      'ConnectionEstablishedAction becomes stale when v2 bridgeInstanceId mismatches the cached session',
+      'ConnectionEstablishedAction becomes stale when bridgeInstanceId mismatches the cached session',
       () {
         const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
           sessionId: 'session-0',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-1',
         );
         const ConnectionSessionEntity newSession = ConnectionSessionEntity(
           sessionId: 'session-1',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-2',
           playContextId: 'context-1',
         );
@@ -149,17 +143,15 @@ void main() {
     );
 
     test(
-      'ConnectionEstablishedAction becomes stale when v2 playContextId mismatches the cached session',
+      'ConnectionEstablishedAction becomes stale when playContextId mismatches the cached session',
       () {
         const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
           sessionId: 'session-0',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-1',
         );
         const ConnectionSessionEntity newSession = ConnectionSessionEntity(
           sessionId: 'session-1',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-2',
         );
@@ -180,15 +172,13 @@ void main() {
     );
 
     test(
-      'ConnectionEstablishedAction stays connected when the cached session was v1 and the new one is v2',
+      'ConnectionEstablishedAction becomes stale when the cached session had no identity and the new one does',
       () {
         const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
           sessionId: 'session-0',
-          protocolVersion: 1,
         );
         const ConnectionSessionEntity newSession = ConnectionSessionEntity(
           sessionId: 'session-1',
-          protocolVersion: 2,
           bridgeInstanceId: 'bridge-1',
           playContextId: 'context-1',
         );
@@ -203,79 +193,7 @@ void main() {
           const ConnectionEstablishedAction(newSession),
         );
 
-        expect(result.phase, ConnectionPhase.connected);
-        expect(result.session, newSession);
-      },
-    );
-
-    test(
-      'ConnectionEstablishedAction stays connected when the cached session was v2 and the new one is v1',
-      () {
-        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
-          sessionId: 'session-0',
-          protocolVersion: 2,
-          bridgeInstanceId: 'bridge-1',
-          playContextId: 'context-1',
-        );
-        const ConnectionState state = ConnectionState(
-          phase: ConnectionPhase.recovering,
-          session: previousSession,
-          error: null,
-        );
-
-        final ConnectionState result = connectionReducer(
-          state,
-          const ConnectionEstablishedAction(session),
-        );
-
-        expect(result.phase, ConnectionPhase.connected);
-        expect(result.session, session);
-      },
-    );
-
-    test(
-      'ConnectionEstablishedAction stays connected when both sessions have no bridge or play-context identity yet',
-      () {
-        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
-          sessionId: 'session-0',
-          protocolVersion: 2,
-        );
-        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
-          sessionId: 'session-1',
-          protocolVersion: 2,
-        );
-        const ConnectionState state = ConnectionState(
-          phase: ConnectionPhase.recovering,
-          session: previousSession,
-          error: null,
-        );
-
-        final ConnectionState result = connectionReducer(
-          state,
-          const ConnectionEstablishedAction(newSession),
-        );
-
-        expect(result.phase, ConnectionPhase.connected);
-        expect(result.session, newSession);
-      },
-    );
-
-    test(
-      'ConnectionEstablishedAction stays connected for a v2 session with no prior cached session',
-      () {
-        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
-          sessionId: 'session-1',
-          protocolVersion: 2,
-          bridgeInstanceId: 'bridge-1',
-          playContextId: 'context-1',
-        );
-
-        final ConnectionState result = connectionReducer(
-          ConnectionState.initial(),
-          const ConnectionEstablishedAction(newSession),
-        );
-
-        expect(result.phase, ConnectionPhase.connected);
+        expect(result.phase, ConnectionPhase.stale);
         expect(result.session, newSession);
       },
     );

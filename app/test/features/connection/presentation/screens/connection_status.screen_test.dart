@@ -39,7 +39,7 @@ void main() {
       final Store<AppState> store = const CreateStore()();
       store.dispatch(
         const ConnectionEstablishedAction(
-          ConnectionSessionEntity(sessionId: 'session-1', protocolVersion: 1),
+          ConnectionSessionEntity(sessionId: 'session-1'),
         ),
       );
 
