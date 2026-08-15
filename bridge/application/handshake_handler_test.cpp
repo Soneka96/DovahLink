@@ -5,11 +5,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/parse.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,14 +35,27 @@ constexpr const char* kWrongHexToken =
 /// Decodes the canonical valid test token into the production byte format.
 std::vector<std::uint8_t> ValidTokenBytes() { return *DecodeHex(kValidHexToken); }
 
-/// Builds a hello envelope with controllable token, message ID, and version fields.
+/// Builds a hello envelope with controllable token, message ID, protocol
+/// version, offered supported versions, and an optional clientId.
 Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "message-hello-1",
-                             std::int64_t protocolVersion = 0) {
-    boost::json::object payload =
-        boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [1],
-            "auth": {"method": "one_time_local_token", "token": ")" +
-                            token + R"("}})")
-            .get_object();
+                             std::int64_t protocolVersion = 0,
+                             std::vector<std::int64_t> supportedProtocolVersions = {1},
+                             std::optional<std::string> clientId = std::nullopt) {
+    boost::json::array versions;
+    for (std::int64_t version : supportedProtocolVersions) {
+        versions.push_back(version);
+    }
+    boost::json::object payload;
+    payload["endpoint"] = "client";
+    payload["supportedProtocolVersions"] = versions;
+    if (clientId.has_value()) {
+        payload["clientId"] = *clientId;
+    }
+    boost::json::object auth;
+    auth["method"] = "one_time_local_token";
+    auth["token"] = token;
+    payload["auth"] = auth;
+
     return Envelope{
         .protocolVersion = protocolVersion,
         .messageType = "hello",
@@ -76,12 +91,141 @@ TEST_CASE("HandleHello accepts a valid token and supported version", "[applicati
     auto ack = dovahlink::protocol::DecodeHelloAckPayload(result.response.payload);
     REQUIRE(ack.has_value());
     CHECK(ack->selectedProtocolVersion == 1);
+    CHECK_FALSE(ack->clientIdentityKind.has_value());
+
+    // v1 is unchanged by v2's introduction: protocolVersion stays 0 on
+    // hello_ack itself, and no envelope identity field is populated.
+    CHECK(result.negotiatedProtocolVersion == 1);
+    CHECK(result.response.protocolVersion == 0);
+    CHECK_FALSE(result.response.clientId.has_value());
+    CHECK_FALSE(result.response.bridgeInstanceId.has_value());
+    CHECK_FALSE(result.response.playContextId.has_value());
 
     // Proves MarkAuthenticated actually ran: the handshake deadline was
     // start+5s (security::kHandshakeTimeout), so without MarkAuthenticated
     // switching to the 60s idle deadline, start+6s would already be timed
     // out.
     CHECK_FALSE(timeout.IsTimedOut(start + std::chrono::seconds(6)));
+}
+
+TEST_CASE("HandleHello selects the highest mutually supported version when the client offers v1 and v2",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{1, 2}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
+    CHECK(result.negotiatedProtocolVersion == 2);
+    // hello_ack's own envelope uses the negotiated version once it's v2,
+    // unlike v1's unchanged "stays 0" convention.
+    CHECK(result.response.protocolVersion == 2);
+    REQUIRE(result.response.clientId.has_value());
+    CHECK(*result.response.clientId == "client-1");
+    CHECK_FALSE(result.response.bridgeInstanceId.has_value());
+    CHECK_FALSE(result.response.playContextId.has_value());
+
+    auto ack = dovahlink::protocol::DecodeHelloAckPayload(result.response.payload);
+    REQUIRE(ack.has_value());
+    CHECK(ack->selectedProtocolVersion == 2);
+    REQUIRE(ack->clientIdentityKind.has_value());
+    CHECK(*ack->clientIdentityKind == "unpaired");
+}
+
+TEST_CASE("HandleHello selects v2 when the client offers only v2", "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{2}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK_FALSE(result.closeConnection);
+    CHECK(result.negotiatedProtocolVersion == 2);
+}
+
+TEST_CASE("HandleHello selects the highest version regardless of the offered array's order",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{2, 1}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK_FALSE(result.closeConnection);
+    CHECK(result.negotiatedProtocolVersion == 2);
+}
+
+TEST_CASE("HandleHello rejects an empty supportedProtocolVersions offer as unsupported_version",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{});
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK(result.closeConnection);
+    CHECK(result.negotiatedProtocolVersion == 0);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unsupported_version");
+}
+
+TEST_CASE("HandleHello does not echo a v1 hello's clientId onto the response",
+          "[application][handshake_handler]") {
+    // A v1-negotiated connection ignores clientId even if the client sent
+    // one anyway; only a v2 negotiation echoes it.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{1}, /*clientId=*/std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK(result.negotiatedProtocolVersion == 1);
+    CHECK_FALSE(result.response.clientId.has_value());
+}
+
+TEST_CASE("HandleHello rejects a v2 offer that omits clientId", "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/0,
+                                     /*supportedProtocolVersions=*/{1, 2});
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
+
+    CHECK(result.closeConnection);
+    CHECK(result.negotiatedProtocolVersion == 0);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "malformed_message");
+    // The token must not have been spent, and the failed-token throttle must
+    // not have counted this rejection: it happens before either check runs.
+    CHECK(tokenStore.IsAvailable());
+    CHECK_FALSE(throttle.IsBlocked(now));
 }
 
 TEST_CASE("HandleHello rejects a non-zero protocolVersion as malformed", "[application][handshake_handler]") {
@@ -139,13 +283,15 @@ TEST_CASE("HandleHello rejects a hello that does not include the supported versi
         .messageId = "message-hello-1",
         .sessionId = std::nullopt,
         .correlationId = std::nullopt,
-        .payload = boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [2],
+        // 3 is offered by neither this test's client nor kSupportedProtocolVersions.
+        .payload = boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [3],
             "auth": {"method": "one_time_local_token", "token": "abcd"}})")
                        .get_object(),
     };
     auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
 
     CHECK(result.closeConnection);
+    CHECK(result.negotiatedProtocolVersion == 0);
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "unsupported_version");

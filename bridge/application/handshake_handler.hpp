@@ -6,13 +6,22 @@
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
 
+#include <array>
 #include <chrono>
 #include <optional>
 
 namespace dovahlink::application {
 
 /// Only protocol version currently supported by the bridge after negotiation.
+/// Superseded by `kSupportedProtocolVersions` for negotiation itself; still
+/// used by call sites not yet threaded onto their connection's own
+/// negotiated version.
 inline constexpr std::int64_t kSupportedProtocolVersion = 1;
+
+/// Protocol versions this bridge can negotiate with a client, ascending.
+/// `HandleHello` selects the highest version also present in the client's
+/// `supportedProtocolVersions`.
+inline constexpr std::array<std::int64_t, 2> kSupportedProtocolVersions = {1, 2};
 
 /// Result of processing one client hello message.
 struct HandshakeResult {
@@ -24,6 +33,11 @@ struct HandshakeResult {
 
     /// Whether the connection must close after sending `response`.
     bool closeConnection = false;
+
+    /// Protocol version actually negotiated on success; `0` on any failure
+    /// path. Distinct from `response.protocolVersion`, which stays `0` for
+    /// `hello_ack` itself even when v1 is negotiated (protocol/schema/README.md).
+    std::int64_t negotiatedProtocolVersion = 0;
 };
 
 /// Validates one decoded hello and consumes the token only after session admission succeeds.

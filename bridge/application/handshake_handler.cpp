@@ -77,10 +77,28 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, "malformed_message", "Malformed hello payload", false);
     }
 
-    bool versionSupported = std::ranges::find(hello->supportedProtocolVersions, kSupportedProtocolVersion) !=
-                             hello->supportedProtocolVersions.end();
-    if (!versionSupported) {
+    // Highest version both sides support: kSupportedProtocolVersions is
+    // small and already ascending, so scanning it from the top and stopping
+    // at the first mutual match is simpler than building a full
+    // intersection.
+    std::optional<std::int64_t> negotiatedVersion;
+    for (auto it = kSupportedProtocolVersions.rbegin(); it != kSupportedProtocolVersions.rend(); ++it) {
+        if (std::ranges::find(hello->supportedProtocolVersions, *it) != hello->supportedProtocolVersions.end()) {
+            negotiatedVersion = *it;
+            break;
+        }
+    }
+    if (!negotiatedVersion.has_value()) {
         return Fail(helloEnvelope, "unsupported_version", "No mutually supported protocol version", false);
+    }
+
+    // clientId's payload-shape is already validated by DecodeHelloPayload;
+    // whether it is required is an application-layer rule that depends on
+    // the just-negotiated version, per messages.hpp's "codecs validate
+    // shape, application validates rules" split.
+    if (*negotiatedVersion >= 2 && !hello->clientId.has_value()) {
+        return Fail(helloEnvelope, "malformed_message", "clientId is required once protocol version 2 is negotiated",
+                     false);
     }
 
     if (tokenThrottle.IsBlocked(now)) {
@@ -107,14 +125,27 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, "internal_error", "Unable to establish a secure connection", false);
     }
 
+    bool isV2 = *negotiatedVersion >= 2;
     protocol::Envelope response{
-        .protocolVersion = 0,
+        // hello_ack keeps protocolVersion 0 for v1, matching v1's unchanged
+        // "no version selected yet" convention; a v2 selection uses the
+        // negotiated version itself so EncodeEnvelope's own >= 2 gate emits
+        // the envelope identity fields below (protocol/schema/README.md's v2
+        // section).
+        .protocolVersion = isV2 ? *negotiatedVersion : 0,
         .messageType = std::string(protocol::message_type::kHelloAck),
         .messageId = *responseMessageId,
         .sessionId = sessionId,
         .correlationId = helloEnvelope.messageId,
-        .payload = protocol::EncodeHelloAckPayload(
-            protocol::HelloAckPayload{.selectedProtocolVersion = kSupportedProtocolVersion}),
+        .payload = protocol::EncodeHelloAckPayload(protocol::HelloAckPayload{
+            .selectedProtocolVersion = *negotiatedVersion,
+            .clientIdentityKind = isV2 ? std::optional<std::string>("unpaired") : std::nullopt,
+        }),
+        // bridgeInstanceId and playContextId are populated once bridge-
+        // instance and play-context identity are threaded into this layer
+        // (later steps); clientId echoes the identity the client just
+        // established in this same hello.
+        .clientId = isV2 ? hello->clientId : std::nullopt,
     };
 
     auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId);
@@ -129,6 +160,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .response = std::move(response),
         .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
+        .negotiatedProtocolVersion = *negotiatedVersion,
     };
 }
 
