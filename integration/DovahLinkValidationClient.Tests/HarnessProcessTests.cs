@@ -74,7 +74,7 @@ public class HarnessProcessTests
     [Fact]
     public async Task WaitForReadyAsyncReturnsTheBridgeInstanceIdAfterReady()
     {
-        using var harness = new HarnessProcess(EchoLinesStartInfo("READY", "BRIDGE_INSTANCE abc123"));
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123"));
 
         string bridgeInstanceId = await harness.WaitForReadyAsync();
 
@@ -86,7 +86,7 @@ public class HarnessProcessTests
     [Fact]
     public async Task WaitForReadyAsyncThrowsWhenTheFirstLineIsNotReady()
     {
-        using var harness = new HarnessProcess(EchoLinesStartInfo("NOT_READY"));
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("NOT_READY"));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
         Assert.Contains("did not report READY", exception.Message);
@@ -96,26 +96,21 @@ public class HarnessProcessTests
     [Fact]
     public async Task WaitForReadyAsyncThrowsWhenTheBridgeInstanceLineIsMissingItsPrefix()
     {
-        using var harness = new HarnessProcess(EchoLinesStartInfo("READY", "NOT_THE_RIGHT_PREFIX"));
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "NOT_THE_RIGHT_PREFIX"));
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
         Assert.Contains("did not report its bridge instance ID", exception.Message);
     }
 
-    /// <summary>Builds a redirected <c>cmd.exe</c> specification that echoes each argument as its own stdout line.</summary>
-    /// <param name="lines">The lines to echo in order.</param>
-    private static ProcessStartInfo EchoLinesStartInfo(params string[] lines)
+    /// <summary>Verifies that a bridge instance line carrying only whitespace after its prefix fails the
+    /// handshake clearly instead of yielding an empty identifier.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheBridgeInstanceIdIsBlank()
     {
-        var startInfo = new ProcessStartInfo("cmd.exe")
-        {
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add("/d");
-        startInfo.ArgumentList.Add("/c");
-        startInfo.ArgumentList.Add(string.Join("&", lines.Select(line => $"echo {line}")));
-        return startInfo;
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE    "));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("reported an empty bridge instance ID", exception.Message);
+        Assert.Null(harness.BridgeInstanceId);
     }
 }

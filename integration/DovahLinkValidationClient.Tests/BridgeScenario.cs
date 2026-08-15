@@ -68,7 +68,7 @@ public static class BridgeScenario
             // character state, not because of anything specific to
             // authentication or capabilities.
             await harness.WriteLineAsync("new_game");
-            await harness.ReadLineAsync();  // PLAY_CONTEXT <id>
+            await ReadPlayContextReportAsync(harness);
 
             connection = connectionFactory is null
                 ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)
@@ -104,6 +104,34 @@ public static class BridgeScenario
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Reads and validates the harness's <c>new_game</c> play-context report line.
+    /// </summary>
+    /// <param name="harness">The harness process to read the report from.</param>
+    /// <returns>The reported play context ID.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the harness does not report a well-formed, non-empty play context ID.
+    /// </exception>
+    public static async Task<string> ReadPlayContextReportAsync(HarnessProcess harness)
+    {
+        const string playContextPrefix = "PLAY_CONTEXT ";
+        string? playContextLine = await harness.ReadLineAsync();
+        if (playContextLine is null || !playContextLine.StartsWith(playContextPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Harness did not report a play context for 'new_game': {playContextLine}. Stderr: {harness.StandardError}");
+        }
+
+        string playContextId = playContextLine[playContextPrefix.Length..];
+        if (string.IsNullOrWhiteSpace(playContextId))
+        {
+            throw new InvalidOperationException(
+                $"Harness reported an empty play context ID for 'new_game': {playContextLine}. Stderr: {harness.StandardError}");
+        }
+
+        return playContextId;
     }
 
     /// <summary>

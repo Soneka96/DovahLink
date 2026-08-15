@@ -92,14 +92,7 @@ public class RestartScenarioTests
         string bridgeInstanceId = await harness.WaitForReadyAsync();
 
         await harness.WriteLineAsync("new_game");
-        const string playContextPrefix = "PLAY_CONTEXT ";
-        string? playContextLine = await harness.ReadLineAsync();
-        if (playContextLine is null || !playContextLine.StartsWith(playContextPrefix, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Harness did not report a play context for 'new_game': {playContextLine}. Stderr: {harness.StandardError}");
-        }
-        string playContextIdFromHarness = playContextLine[playContextPrefix.Length..];
+        string playContextIdFromHarness = await BridgeScenario.ReadPlayContextReportAsync(harness);
 
         await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
         await connection.SendAsync(BridgeScenario.HelloEnvelope(
@@ -134,8 +127,7 @@ public class RestartScenarioTests
         }
         int revision = snapshot.Payload["revision"]!.GetValue<int>();
 
-        await harness.WriteLineAsync("quit");
-        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
 
         return (helloAck.BridgeInstanceId, helloAck.PlayContextId, revision);
     }

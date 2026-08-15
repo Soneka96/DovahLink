@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 
 namespace DovahLinkValidationClient.Tests;
@@ -89,7 +90,14 @@ public sealed class HarnessProcess : IDisposable
                 $"Harness did not report its bridge instance ID: {instanceLine}. Stderr: {StandardError}");
         }
 
-        BridgeInstanceId = instanceLine[prefix.Length..];
+        string instanceId = instanceLine[prefix.Length..];
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            throw new InvalidOperationException(
+                $"Harness reported an empty bridge instance ID: {instanceLine}. Stderr: {StandardError}");
+        }
+
+        BridgeInstanceId = instanceId;
         return BridgeInstanceId;
     }
 
@@ -209,6 +217,25 @@ public sealed class HarnessProcess : IDisposable
                 startInfo.EnvironmentVariables[key] = value;
             }
         }
+        return startInfo;
+    }
+
+    /// <summary>Builds a redirected <c>cmd.exe</c> specification that echoes each argument as its own
+    /// stdout line, for deterministic tests that exercise <see cref="HarnessProcess"/>'s own output
+    /// parsing without a real bridge harness.</summary>
+    /// <param name="lines">The lines to echo in order.</param>
+    internal static ProcessStartInfo CreateEchoingStartInfo(params string[] lines)
+    {
+        var startInfo = new ProcessStartInfo("cmd.exe")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add(string.Join("&", lines.Select(line => $"echo {line}")));
         return startInfo;
     }
 
