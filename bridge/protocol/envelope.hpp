@@ -14,8 +14,6 @@ namespace dovahlink::protocol {
 
 /// Represents the canonical protocol message envelope.
 struct Envelope {
-    /// Protocol version selected for this message.
-    std::int64_t protocolVersion = 0;
     /// Registered message type identifier.
     std::string messageType;
     /// Message identifier used for correlation and replay protection.
@@ -26,18 +24,18 @@ struct Envelope {
     std::optional<std::string> correlationId;
     /// Message-specific JSON object payload.
     boost::json::object payload;
-    /// Identity of the bridge instance that produced this message. Absent on
-    /// `protocolVersion < 2`; present but possibly null once v2 identity
-    /// (`protocolVersion >= 2`) applies, per `protocol/schema/README.md`'s v2
-    /// section.
+    /// Identity of the bridge instance that produced this message. `null` on
+    /// the client's own `hello` (the client does not know it yet) and on a
+    /// narrow set of early connection-hygiene rejections the bridge cannot
+    /// attach an identity to; present otherwise.
     std::optional<std::string> bridgeInstanceId;
     /// Identity of the currently loaded play context, when one is active.
-    /// Absent on `protocolVersion < 2`; present-but-null under v2 outside an
-    /// active play context (`NoContext`).
+    /// `null` outside an active play context (main menu, before any load, or
+    /// after a return to the main menu) -- genuine semantic absence, not a
+    /// placeholder.
     std::optional<std::string> playContextId;
-    /// Identity of the logical client, established at `hello`. Absent on
-    /// `protocolVersion < 2` and before `hello` on a v2 connection, the same
-    /// pre-session shape `sessionId` already uses.
+    /// Identity of the logical client, established at `hello`. `null` before
+    /// `hello` completes, the same shape `sessionId` already uses.
     std::optional<std::string> clientId;
 };
 
@@ -57,8 +55,7 @@ std::string EncodeEnvelope(const Envelope& envelope);
 /// Builds an outbound envelope with a cryptographically generated message ID.
 /// Returns `std::nullopt` when secure message-ID generation fails; callers must
 /// not send a missing result and should use their own error handling.
-std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string messageType,
-                                       std::optional<std::string> sessionId,
+std::optional<Envelope> BuildEnvelope(std::string messageType, std::optional<std::string> sessionId,
                                        std::optional<std::string> correlationId,
                                        boost::json::object payload);
 

@@ -31,21 +31,18 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
     }
     const boost::json::object& obj = message.get_object();
 
-    const boost::json::value* protocolVersionValue = obj.if_contains("protocolVersion");
     const boost::json::value* messageTypeValue = obj.if_contains("messageType");
     const boost::json::value* messageIdValue = obj.if_contains("messageId");
     const boost::json::value* sessionIdValue = obj.if_contains("sessionId");
     const boost::json::value* correlationIdValue = obj.if_contains("correlationId");
     const boost::json::value* payloadValue = obj.if_contains("payload");
+    const boost::json::value* bridgeInstanceIdValue = obj.if_contains("bridgeInstanceId");
+    const boost::json::value* playContextIdValue = obj.if_contains("playContextId");
+    const boost::json::value* clientIdValue = obj.if_contains("clientId");
 
-    if (!protocolVersionValue || !messageTypeValue || !messageIdValue || !sessionIdValue ||
-        !correlationIdValue || !payloadValue) {
+    if (!messageTypeValue || !messageIdValue || !sessionIdValue || !correlationIdValue || !payloadValue ||
+        !bridgeInstanceIdValue || !playContextIdValue || !clientIdValue) {
         return Fail("missing required envelope field");
-    }
-
-    auto protocolVersion = DecodeNonNegativeInt(protocolVersionValue, "protocolVersion");
-    if (!protocolVersion) {
-        return std::unexpected(protocolVersion.error());
     }
 
     auto messageType = DecodeNonEmptyString(messageTypeValue, "messageType");
@@ -95,25 +92,22 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         return Fail("payload must be an object");
     }
 
-    // Decoded tolerantly regardless of protocolVersion, matching
-    // protocol/compatibility.md's "readers ignore unknown optional fields"
-    // rule: the v1/v2 distinction governs what a writer sends (see
-    // EncodeEnvelope below), not what a reader accepts.
-    auto bridgeInstanceId = DecodeOptionalString(obj.if_contains("bridgeInstanceId"), "bridgeInstanceId");
+    // The key is now required (checked above); the value itself is still
+    // nullable, the same shape sessionId and correlationId already use.
+    auto bridgeInstanceId = DecodeOptionalString(bridgeInstanceIdValue, "bridgeInstanceId");
     if (!bridgeInstanceId) {
         return std::unexpected(bridgeInstanceId.error());
     }
-    auto playContextId = DecodeOptionalString(obj.if_contains("playContextId"), "playContextId");
+    auto playContextId = DecodeOptionalString(playContextIdValue, "playContextId");
     if (!playContextId) {
         return std::unexpected(playContextId.error());
     }
-    auto clientId = DecodeOptionalString(obj.if_contains("clientId"), "clientId");
+    auto clientId = DecodeOptionalString(clientIdValue, "clientId");
     if (!clientId) {
         return std::unexpected(clientId.error());
     }
 
     return Envelope{
-        .protocolVersion = *protocolVersion,
         .messageType = std::move(*messageType),
         .messageId = std::move(*messageId),
         .sessionId = std::move(sessionId),
@@ -127,7 +121,6 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
 
 std::string EncodeEnvelope(const Envelope& envelope) {
     boost::json::object obj;
-    obj["protocolVersion"] = envelope.protocolVersion;
     obj["messageType"] = envelope.messageType;
     obj["messageId"] = envelope.messageId;
     obj["sessionId"] =
@@ -135,22 +128,15 @@ std::string EncodeEnvelope(const Envelope& envelope) {
     obj["correlationId"] = envelope.correlationId.has_value() ? boost::json::value(*envelope.correlationId)
                                                                 : boost::json::value(nullptr);
     obj["payload"] = envelope.payload;
-    // v1 omits these keys entirely (protocol/schema/README.md's v1 section
-    // never defines them); v2 always emits them, as a value or `null`, per
-    // the v2 section's encoding rule. protocolVersion is the caller's
-    // negotiated-version signal for every message type except hello_ack,
-    // which sets protocolVersion to the just-selected version rather than 0
-    // once v2 is negotiated -- see handshake_handler.cpp's HandleHello.
-    if (envelope.protocolVersion >= 2) {
-        obj["bridgeInstanceId"] = EncodeNullableString(envelope.bridgeInstanceId);
-        obj["playContextId"] = EncodeNullableString(envelope.playContextId);
-        obj["clientId"] = EncodeNullableString(envelope.clientId);
-    }
+    // Always emitted as a value or `null`, per protocol/schema/README.md --
+    // no version gate left to condition this on.
+    obj["bridgeInstanceId"] = EncodeNullableString(envelope.bridgeInstanceId);
+    obj["playContextId"] = EncodeNullableString(envelope.playContextId);
+    obj["clientId"] = EncodeNullableString(envelope.clientId);
     return boost::json::serialize(obj);
 }
 
-std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string messageType,
-                                       std::optional<std::string> sessionId,
+std::optional<Envelope> BuildEnvelope(std::string messageType, std::optional<std::string> sessionId,
                                        std::optional<std::string> correlationId,
                                        boost::json::object payload) {
     auto messageId = security::GenerateOpaqueId();
@@ -158,7 +144,6 @@ std::optional<Envelope> BuildEnvelope(std::int64_t protocolVersion, std::string 
         return std::nullopt;
     }
     return Envelope{
-        .protocolVersion = protocolVersion,
         .messageType = std::move(messageType),
         .messageId = std::move(*messageId),
         .sessionId = std::move(sessionId),
