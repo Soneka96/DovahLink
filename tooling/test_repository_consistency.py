@@ -114,9 +114,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("timeout-minutes: 30", workflow)
+        # A job-level env: cannot reference the runner context (unresolved until a runner picks up
+        # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
+        self.assertNotIn(
+            "    env:\n      VCPKG_DEFAULT_BINARY_CACHE:",
+            workflow,
+        )
+        self.assertIn("      - name: Set VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn(
-            "    env:\n"
-            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            'run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\\vcpkg-binary-cache" >> $env:GITHUB_ENV',
             workflow,
         )
         self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
@@ -129,7 +135,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("ninja --version", workflow)
-        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
+            workflow.index("Prepare vcpkg binary cache"),
+        )
         self.assertLess(
             workflow.index("Prepare vcpkg binary cache"),
             workflow.index("Restore vcpkg binary cache"),
@@ -138,7 +147,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("ninja --version"),
             workflow.index("Configure Debug"),
         )
-        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
+        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("uses: actions/cache@v5", workflow)
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
@@ -268,9 +277,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("cmake --version=4.4.2", workflow)
         self.assertIn("ninja --version=1.13.2", workflow)
+        # A job-level env: cannot reference the runner context (unresolved until a runner picks up
+        # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
+        self.assertNotIn(
+            "    env:\n      VCPKG_DEFAULT_BINARY_CACHE:",
+            workflow,
+        )
+        self.assertIn("      - name: Set VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn(
-            "    env:\n"
-            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            'run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\\vcpkg-binary-cache" >> $env:GITHUB_ENV',
             workflow,
         )
         self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
@@ -283,7 +298,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("ninja --version", workflow)
-        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
+            workflow.index("Prepare vcpkg binary cache"),
+        )
         self.assertLess(
             workflow.index("Prepare vcpkg binary cache"),
             workflow.index("Restore vcpkg binary cache"),
@@ -304,7 +322,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("dotnet-version: 9.0.x", workflow)
         self.assertIn("uses: ilammy/msvc-dev-cmd@v1", workflow)
         self.assertIn("uses: actions/cache@v5", workflow)
-        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
+        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("run: cmake --preset windows-x64-debug", workflow)
         self.assertIn(
             "run: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness",
@@ -442,6 +460,32 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 r"(?m)^\s*uses:\s*[^\s#]+@(main|master|develop|latest)\s*(?:#|$)",
                 workflow_path.name,
             )
+
+    def test_workflow_job_level_env_never_uses_the_runner_context(self) -> None:
+        """Guard against a job-level env: value referencing the runner context.
+
+        The runner context is not resolved until a runner has picked up the job's steps, so
+        referencing it in a job-level env: (as opposed to a step-level one) makes the whole
+        workflow file invalid -- GitHub rejects the run before any job executes. This is exactly
+        the defect that silently made bridge-ci.yml and integration-ci.yml fail on every push.
+        """
+        workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
+        for workflow_path in sorted(workflow_directory.glob("*.yml")):
+            lines = workflow_path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if not line.startswith("    env:"):
+                    continue
+                end = index + 1
+                while end < len(lines) and (
+                    not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > 4
+                ):
+                    end += 1
+                block = "\n".join(lines[index:end])
+                self.assertNotIn(
+                    "${{ runner.",
+                    block,
+                    f"{workflow_path.name}: job-level env: cannot use the runner context:\n{block}",
+                )
 
     def test_local_ci_preflight_covers_all_workflow_command_payloads(self) -> None:
         """Require the local preflight to mirror every CI command surface in order."""
