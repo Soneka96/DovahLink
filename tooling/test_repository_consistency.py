@@ -581,6 +581,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         """Guard every hand-maintained bridge-version literal against drift from vcpkg.json."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
         version = manifest["version-string"]
+        version_components = ", ".join(version.split("."))
 
         for source_path in (
             "bridge/harness/dovahlink_bridge_harness.cpp",
@@ -589,6 +590,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "bridge/application/bridge_worker_pool_test.cpp",
         ):
             self.assertIn(f'kBridgeVersion = "{version}"', self._read(source_path), source_path)
+
+        compatibility = self._read(
+            "integration/DovahLinkValidationClient/BridgeVersionCompatibility.cs"
+        )
+        for limit in ("MinimumSupportedVersion", "MaximumSupportedVersion"):
+            self.assertIn(f"{limit} = new({version_components});", compatibility, limit)
 
         self.assertIn(
             f'CHECK(helloAck->bridgeVersion == "{version}");',
