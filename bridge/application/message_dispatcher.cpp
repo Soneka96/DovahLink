@@ -1,6 +1,7 @@
 #include "application/message_dispatcher.hpp"
 
 #include "application/handshake_handler.hpp"
+#include "application/revision_tracker.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
 #include "security/limits.hpp"
@@ -66,19 +67,18 @@ bool IsAllowedMessageType(std::string_view messageType) {
 /// Builds a protocol error and records the rejection as a violation.
 /// @param correlationId Message ID being rejected, when available.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
 /// @param code Canonical protocol error code.
 /// @param message Safe diagnostic message.
 /// @param retryable Whether the client may retry.
 /// @param violations Violation tracker to update.
 /// @param steadyNow Current monotonic time.
-DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId,
-                       std::int64_t protocolVersion, std::string code, std::string message, bool retryable,
-                       security::ViolationTracker& violations, std::chrono::steady_clock::time_point steadyNow) {
+DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId, std::string code,
+                       std::string message, bool retryable, security::ViolationTracker& violations,
+                       std::chrono::steady_clock::time_point steadyNow) {
     bool limitReached = violations.RecordViolationAndCheckLimit(steadyNow);
     return DispatchResult{
-        .responses = {protocol::BuildErrorEnvelope(std::move(correlationId), protocolVersion, sessionId,
-                                                     std::move(code), std::move(message), retryable)},
+        .responses = {protocol::BuildErrorEnvelope(std::move(correlationId), sessionId, std::move(code),
+                                                     std::move(message), retryable)},
         .closeConnection = limitReached,
     };
 }
@@ -96,9 +96,9 @@ DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::V
 }
 
 /// Supplies the existing unavailable character-state shape (every field
-/// absent) for the v2 path when no play context is currently active. Reuses
+/// absent) when no play context is currently active. Reuses
 /// HandleSubscribe/HandleSnapshotRequest unchanged rather than inventing a
-/// new wire signal, per protocol/schema/README.md's v2 section.
+/// new wire signal, per protocol/schema/README.md.
 class NullCharacterStateProvider : public CharacterStateProvider {
 public:
     /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
@@ -108,11 +108,9 @@ public:
 /// Builds a pong response correlated with an incoming ping.
 /// @param pingEnvelope Envelope of the ping being acknowledged.
 /// @param sessionId Authenticated session identifier.
-/// @param protocolVersion Connection's negotiated protocol version.
-protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::string& sessionId,
-                             std::int64_t protocolVersion) {
-    auto envelope = protocol::BuildEnvelope(protocolVersion, std::string(protocol::message_type::kPong),
-                                             sessionId, pingEnvelope.messageId, boost::json::object{});
+protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::string& sessionId) {
+    auto envelope = protocol::BuildEnvelope(std::string(protocol::message_type::kPong), sessionId,
+                                             pingEnvelope.messageId, boost::json::object{});
     if (envelope.has_value()) {
         return std::move(*envelope);
     }
@@ -120,31 +118,28 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
     // path in this codebase shares (see messages.hpp's BuildErrorEnvelope);
     // ping/pong carries no application payload to preserve, so an
     // internal_error is the honest answer.
-    return protocol::BuildErrorEnvelope(pingEnvelope.messageId, protocolVersion, sessionId,
-                                         "internal_error", "Unable to build response", false);
+    return protocol::BuildErrorEnvelope(pingEnvelope.messageId, sessionId, "internal_error",
+                                         "Unable to build response", false);
 }
 
 /// Builds an unsolicited fresh snapshot reflecting whichever character-state
-/// source is currently effective, for protocol v2's context-change resync
-/// mechanism. `correlationId` is null: this message is unsolicited, matching
+/// source is currently effective, for the context-change resync mechanism.
+/// `correlationId` is null: this message is unsolicited, matching
 /// `capabilities`/`state_event`'s existing convention (protocol/schema/README.md).
 /// @return The snapshot envelope, or no value if it could not be built (the
 ///     same unreachable-in-practice CSPRNG failure every envelope-building
 ///     path in this codebase shares).
-std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& sessionId, std::int64_t protocolVersion,
+std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& sessionId,
                                                        const CharacterStateProvider& provider,
                                                        RevisionTracker& revisions,
                                                        std::chrono::system_clock::time_point now) {
-    // BuildResyncSnapshot only ever fires on the v2 path (see its call site's
-    // `protocolVersion >= 2` guard below), so a fingerprint is always
-    // supplied here -- never std::nullopt's v1 unconditional-advance mode.
     const std::string stateArea(protocol::state_area::kCharacter);
     CharacterSnapshot snapshot = provider.CurrentCharacterSnapshot();
     std::optional<std::string> fingerprint =
         std::make_optional(boost::json::serialize(BuildCharacterStateData(snapshot)));
     std::int64_t revision = revisions.NextSnapshotRevision(stateArea, fingerprint);
-    auto envelope = BuildCharacterSnapshotEnvelope(sessionId, protocolVersion, /*correlationId=*/std::nullopt,
-                                                    snapshot, revision, now);
+    auto envelope =
+        BuildCharacterSnapshotEnvelope(sessionId, /*correlationId=*/std::nullopt, snapshot, revision, now);
     if (envelope.has_value()) {
         revisions.StartSnapshot(stateArea, fingerprint);
     }
@@ -154,12 +149,11 @@ std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& session
 }
 
 DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t& receivedMessageCount,
-                                      const std::string& sessionId, std::int64_t protocolVersion,
-                                      ConnectionId connection, SessionManager& sessionManager,
-                                      ReplayGuard& replayGuard, security::ViolationTracker& violations,
+                                      const std::string& sessionId, ConnectionId connection,
+                                      SessionManager& sessionManager, ReplayGuard& replayGuard,
+                                      security::ViolationTracker& violations,
                                       security::InboundMessageRateLimiter& rateLimiter,
                                       ConnectionTimeoutTracker& timeoutTracker,
-                                      const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
                                       const ActivePlayContext& activePlayContext,
                                       SubscriptionState& subscriptionState,
                                       const std::optional<std::string>& bridgeInstanceId,
@@ -179,18 +173,18 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         if (parsed.error() == protocol::BoundedJsonError::kFrameTooLarge) {
             return DispatchResult{.closeConnection = true};
         }
-        return Reject(/*correlationId=*/std::nullopt, sessionId, protocolVersion, "malformed_message",
-                       "Malformed message", false, violations, steadyNow);
+        return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
+                       violations, steadyNow);
     }
 
     auto envelope = protocol::DecodeEnvelope(*parsed);
     if (!envelope.has_value()) {
-        return Reject(/*correlationId=*/std::nullopt, sessionId, protocolVersion, "malformed_message",
-                       "Malformed message", false, violations, steadyNow);
+        return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
+                       violations, steadyNow);
     }
 
     if (!IsAllowedMessageType(envelope->messageType)) {
-        return Reject(envelope->messageId, sessionId, protocolVersion, "malformed_message",
+        return Reject(envelope->messageId, sessionId, "malformed_message",
                        "Unexpected message type: " + envelope->messageType, false, violations, steadyNow);
     }
 
@@ -202,84 +196,76 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     // otherwise reintroduce a silent nullopt dereference here.
     assert(envelope->sessionId.has_value());
     if (!sessionManager.IsValidForConnection(*envelope->sessionId, connection)) {
-        return Reject(envelope->messageId, sessionId, protocolVersion, "stale_session",
-                       "Session is not valid on this connection", false, violations, steadyNow);
-    }
-
-    if (replayGuard.RecordMessage(envelope->messageId) == MessageIdCheckResult::kReplayed) {
-        return Reject(envelope->messageId, sessionId, protocolVersion, "replayed_message", "Duplicate messageId",
+        return Reject(envelope->messageId, sessionId, "stale_session", "Session is not valid on this connection",
                        false, violations, steadyNow);
     }
 
+    if (replayGuard.RecordMessage(envelope->messageId) == MessageIdCheckResult::kReplayed) {
+        return Reject(envelope->messageId, sessionId, "replayed_message", "Duplicate messageId", false, violations,
+                       steadyNow);
+    }
+
     if (rateLimiter.RecordMessageAndCheckLimit(steadyNow)) {
-        return Reject(envelope->messageId, sessionId, protocolVersion, "rate_limited",
+        return Reject(envelope->messageId, sessionId, "rate_limited",
                        "Inbound message rate exceeded 100 messages per second", true, violations, steadyNow);
     }
 
     timeoutTracker.RecordActivity(steadyNow);
 
-    // Routes to v1's session-scoped state, this connection's acquired v2
-    // play context, or (v2 with no active context) throwaway state
-    // producing the existing unavailable shape -- resolved once, ahead of
-    // every message type, so the resync check below and kSubscribe/
-    // kSnapshotRequest further down share identical routing, per
-    // protocol/schema/README.md's v2 section ("NoContext ... reuses the
-    // existing unavailable state-area shape"). The throwaway RevisionTracker
-    // is freshly constructed on every call, so a NoContext response always
+    // Routes to this connection's acquired play context, or (no active
+    // context) throwaway state producing the existing unavailable shape --
+    // resolved once, ahead of every message type, so the resync check below
+    // and kSubscribe/kSnapshotRequest further down share identical routing,
+    // per protocol/schema/README.md ("NoContext ... reuses the existing
+    // unavailable state-area shape"). The throwaway RevisionTracker is
+    // freshly constructed on every call, so a NoContext response always
     // reports revision 1: there is no authoritative state outside a play
     // context for a revision to persist against, and the client already
     // keys staleness off `playContextId: null` rather than this number
     // (ARCHITECTURE.md's "Authoritative state and revisions").
-    std::shared_ptr<PlayContext> context =
-        protocolVersion >= 2 ? activePlayContext.AcquireCurrent() : nullptr;
+    std::shared_ptr<PlayContext> context = activePlayContext.AcquireCurrent();
     NullCharacterStateProvider noContextProvider;
     RevisionTracker noContextRevisions;
     const CharacterStateProvider& effectiveProvider =
-        protocolVersion < 2 ? stateProvider
-        : context           ? static_cast<const CharacterStateProvider&>(context->characterState)
-                             : static_cast<const CharacterStateProvider&>(noContextProvider);
-    RevisionTracker& effectiveRevisions =
-        protocolVersion < 2 ? revisions : (context ? context->revisions : noContextRevisions);
+        context ? static_cast<const CharacterStateProvider&>(context->characterState)
+                : static_cast<const CharacterStateProvider&>(noContextProvider);
+    RevisionTracker& effectiveRevisions = context ? context->revisions : noContextRevisions;
     std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
 
-    // Protocol v2's "existing connected clients learn context transitions"
-    // mechanism (protocol/schema/README.md): on every message, a subscribed
-    // v2 connection whose remembered context differs from the current one
-    // gets an unsolicited fresh snapshot prepended to whatever this message
-    // would otherwise produce, bounded by the connection's own keepalive
-    // cadence rather than pushed independently (Phase 4 scope).
+    // The "existing connected clients learn context transitions" mechanism
+    // (protocol/schema/README.md): on every message, a subscribed connection
+    // whose remembered context differs from the current one gets an
+    // unsolicited fresh snapshot prepended to whatever this message would
+    // otherwise produce, bounded by the connection's own keepalive cadence
+    // rather than pushed independently (Phase 4 scope).
     std::vector<protocol::Envelope> prepended;
-    if (protocolVersion >= 2) {
-        bool contextChanged = currentContextId != subscriptionState.lastKnownPlayContextId;
-        if (contextChanged && !subscriptionState.subscribedStateAreas.empty()) {
-            auto resyncSnapshot =
-                BuildResyncSnapshot(sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
-            if (resyncSnapshot.has_value()) {
-                prepended.push_back(std::move(*resyncSnapshot));
-                subscriptionState.lastKnownPlayContextId = currentContextId;
-            }
-            // Building failed (unreachable-in-practice CSPRNG failure):
-            // lastKnownPlayContextId stays stale so the next message retries.
-        } else {
+    bool contextChanged = currentContextId != subscriptionState.lastKnownPlayContextId;
+    if (contextChanged && !subscriptionState.subscribedStateAreas.empty()) {
+        auto resyncSnapshot = BuildResyncSnapshot(sessionId, effectiveProvider, effectiveRevisions, wallNow);
+        if (resyncSnapshot.has_value()) {
+            prepended.push_back(std::move(*resyncSnapshot));
             subscriptionState.lastKnownPlayContextId = currentContextId;
         }
+        // Building failed (unreachable-in-practice CSPRNG failure):
+        // lastKnownPlayContextId stays stale so the next message retries.
+    } else {
+        subscriptionState.lastKnownPlayContextId = currentContextId;
     }
 
     DispatchResult result;
     if (envelope->messageType == protocol::message_type::kPing) {
-        result = DispatchResult{.responses = {BuildPong(*envelope, sessionId, protocolVersion)}};
+        result = DispatchResult{.responses = {BuildPong(*envelope, sessionId)}};
     } else if (envelope->messageType == protocol::message_type::kCapabilities) {
-        auto error = HandleClientCapabilities(*envelope, sessionId, protocolVersion);
+        auto error = HandleClientCapabilities(*envelope, sessionId);
         result = error.has_value() ? FromHandlerResponse(std::move(*error), violations, steadyNow)
                                     : DispatchResult{};
     } else if (envelope->messageType == protocol::message_type::kSubscribe) {
-        auto subscribeResult =
-            HandleSubscribe(*envelope, sessionId, protocolVersion, effectiveProvider, effectiveRevisions, wallNow);
+        auto subscribeResult = HandleSubscribe(*envelope, sessionId, effectiveProvider, effectiveRevisions, wallNow);
         // Only a genuinely processed request (never a failure -- malformed
         // payload, or an internal error building the response) replaces the
         // remembered subscription: a rejected request carries no client
         // intent to unsubscribe, so a prior subscription must survive it.
-        if (protocolVersion >= 2 && subscribeResult.subscriptionAck.messageType == protocol::message_type::kSubscriptionAck) {
+        if (subscribeResult.subscriptionAck.messageType == protocol::message_type::kSubscriptionAck) {
             subscriptionState.subscribedStateAreas = subscribeResult.acceptedStateAreas;
         }
         result = FromHandlerResponse(std::move(subscribeResult.subscriptionAck), violations, steadyNow);
@@ -288,8 +274,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         }
     } else {
         // Only kSnapshotRequest remains, per kAllowedMessageTypes.
-        auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, effectiveProvider,
-                                              effectiveRevisions, wallNow);
+        auto response = HandleSnapshotRequest(*envelope, sessionId, effectiveProvider, effectiveRevisions, wallNow);
         result = FromHandlerResponse(std::move(response), violations, steadyNow);
     }
 
@@ -297,17 +282,15 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                             std::make_move_iterator(prepended.end()));
 
     // Stamps the connection's bridge and play-context identity onto every
-    // v2 response built above. Scoped to responses reached through `result`
-    // -- the earlier Reject() calls above return directly and are not
-    // stamped, since those are connection-hygiene failures (malformed
-    // shape, stale session, replay, rate limit) uncorrelated with
-    // authoritative-state staleness detection, not state the client
-    // compares (bridgeInstanceId, playContextId) against.
-    if (protocolVersion >= 2) {
-        for (protocol::Envelope& response : result.responses) {
-            response.bridgeInstanceId = bridgeInstanceId;
-            response.playContextId = currentContextId;
-        }
+    // response built above. Scoped to responses reached through `result` --
+    // the earlier Reject() calls above return directly and are not stamped,
+    // since those are connection-hygiene failures (malformed shape, stale
+    // session, replay, rate limit) uncorrelated with authoritative-state
+    // staleness detection, not state the client compares (bridgeInstanceId,
+    // playContextId) against.
+    for (protocol::Envelope& response : result.responses) {
+        response.bridgeInstanceId = bridgeInstanceId;
+        response.playContextId = currentContextId;
     }
 
     return result;
