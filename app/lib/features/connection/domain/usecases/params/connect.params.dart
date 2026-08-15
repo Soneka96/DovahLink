@@ -8,21 +8,13 @@ class ConnectParams extends Equatable {
   final String token;
 
   /// This installation's persisted logical client identity, supplied in the
-  /// v2 hello payload once negotiation reaches protocol version 2.
+  /// hello payload.
   final String clientId;
 
-  /// Protocol versions this client can negotiate; the bridge selects the
-  /// highest mutually supported version.
-  final List<int> supportedProtocolVersions;
-
   /// Creates connection parameters.
-  const ConnectParams({
-    required this.token,
-    required this.clientId,
-    this.supportedProtocolVersions = const [1, 2],
-  });
+  const ConnectParams({required this.token, required this.clientId});
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [token, clientId, supportedProtocolVersions];
+  List<Object?> get props => [token, clientId];
 }
