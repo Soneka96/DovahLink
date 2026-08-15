@@ -2,21 +2,10 @@
 
 namespace dovahlink::application {
 
-namespace {
-
-/// Computes the next snapshot revision from an already-locked revision map, given the captured
-/// state's fingerprint. With a fingerprint, returns the existing revision unchanged when it matches
-/// what is stored for `stateArea`; otherwise -- including when no fingerprint is supplied, or the
-/// area is not yet tracked -- returns the next sequential revision.
-/// @param currentRevision Map guarded by the caller's lock.
-/// @param stateArea Canonical state-area identifier.
-/// @param fingerprint Caller-computed representation of the captured state, or no value to always
-///     advance (v1's unconditional-advance contract).
-std::int64_t NextSnapshotRevisionLocked(
-    const std::unordered_map<std::string, std::pair<std::int64_t, std::optional<std::string>>>& currentRevision,
-    const std::string& stateArea, const std::optional<std::string>& fingerprint) {
-    auto it = currentRevision.find(stateArea);
-    if (it == currentRevision.end()) {
+std::int64_t RevisionTracker::NextRevisionLocked(const std::string& stateArea,
+                                                  const std::optional<std::string>& fingerprint) const {
+    auto it = currentRevision_.find(stateArea);
+    if (it == currentRevision_.end()) {
         return 1;
     }
     if (fingerprint.has_value() && it->second.second.has_value() && *fingerprint == *it->second.second) {
@@ -25,12 +14,10 @@ std::int64_t NextSnapshotRevisionLocked(
     return it->second.first + 1;
 }
 
-}  // namespace
-
 std::int64_t RevisionTracker::StartSnapshot(const std::string& stateArea,
                                             const std::optional<std::string>& fingerprint) {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::int64_t next = NextSnapshotRevisionLocked(currentRevision_, stateArea, fingerprint);
+    std::int64_t next = NextRevisionLocked(stateArea, fingerprint);
     currentRevision_[stateArea] = {next, fingerprint};
     return next;
 }
@@ -38,7 +25,7 @@ std::int64_t RevisionTracker::StartSnapshot(const std::string& stateArea,
 std::int64_t RevisionTracker::NextSnapshotRevision(const std::string& stateArea,
                                                     const std::optional<std::string>& fingerprint) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return NextSnapshotRevisionLocked(currentRevision_, stateArea, fingerprint);
+    return NextRevisionLocked(stateArea, fingerprint);
 }
 
 std::optional<std::pair<std::int64_t, std::int64_t>> RevisionTracker::NextEvent(

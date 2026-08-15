@@ -43,6 +43,31 @@ public:
     [[nodiscard]] std::int64_t NextSnapshotRevision(const std::string& stateArea,
                                                      const std::optional<std::string>& fingerprint) const;
 
+    /// Computes the next snapshot revision for a state area and commits it, atomically, only if
+    /// `buildSnapshot` succeeds -- both under the same lock, so no concurrently running snapshot for
+    /// the same state area can observe or commit a revision between this call's computation and its
+    /// conditional commit. A separate `NextSnapshotRevision` preview followed later by `StartSnapshot`
+    /// does not close that race: another caller's `StartSnapshot` can commit in between, making the
+    /// preview stale by the time the later call runs.
+    /// @param stateArea Canonical state-area identifier.
+    /// @param fingerprint Caller-computed representation of the captured state, or no value to always
+    ///     advance.
+    /// @param buildSnapshot Builds this call's result from the revision it assigns. A result with no
+    ///     value leaves the tracker's revision for this area unchanged, matching `StartSnapshot`'s
+    ///     all-or-nothing semantics for a caller that must not commit on build failure.
+    /// @return Whatever `buildSnapshot` returned.
+    template <typename BuildFn>
+    auto CommitSnapshotIfBuilt(const std::string& stateArea, const std::optional<std::string>& fingerprint,
+                               BuildFn&& buildSnapshot) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::int64_t next = NextRevisionLocked(stateArea, fingerprint);
+        auto result = buildSnapshot(next);
+        if (result.has_value()) {
+            currentRevision_[stateArea] = {next, fingerprint};
+        }
+        return result;
+    }
+
     /// Advances a state area for its next event. Unconditional by design -- an event represents a
     /// change the caller has already confirmed, unlike a snapshot pull which may or may not reflect
     /// one. Has no production caller yet (event delivery is Phase 4 scope; see ROADMAP.md); leaves
@@ -58,6 +83,16 @@ public:
     [[nodiscard]] std::optional<std::int64_t> CurrentRevision(const std::string& stateArea) const;
 
 private:
+    /// Computes the next revision from the already-locked `currentRevision_`, given a fingerprint.
+    /// Shared by `StartSnapshot`, `NextSnapshotRevision`, and `CommitSnapshotIfBuilt`. Caller must
+    /// hold `mutex_`.
+    /// @param stateArea Canonical state-area identifier.
+    /// @param fingerprint Caller-computed representation of the captured state, or no value to
+    ///     always advance.
+    /// @return Revision this fingerprint would receive if committed now.
+    [[nodiscard]] std::int64_t NextRevisionLocked(const std::string& stateArea,
+                                                   const std::optional<std::string>& fingerprint) const;
+
     /// Synchronizes access to `currentRevision_`.
     mutable std::mutex mutex_;
 

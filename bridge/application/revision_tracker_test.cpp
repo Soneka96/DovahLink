@@ -2,7 +2,12 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstdint>
+#include <future>
+#include <new>
+#include <optional>
 #include <string>
+#include <thread>
 
 using dovahlink::application::RevisionTracker;
 
@@ -92,6 +97,136 @@ TEST_CASE("NextSnapshotRevision with no fingerprint always previews an advance",
 
     CHECK(tracker.NextSnapshotRevision(kCharacter, std::nullopt) == 2);
     CHECK(tracker.CurrentRevision(kCharacter) == 1);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt commits the assigned revision when the builder succeeds",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+
+    auto result = tracker.CommitSnapshotIfBuilt(kCharacter, kFingerprintA,
+                                                 [](std::int64_t revision) -> std::optional<std::int64_t> {
+                                                     return revision;
+                                                 });
+
+    REQUIRE(result.has_value());
+    CHECK(*result == 1);
+    REQUIRE(tracker.CurrentRevision(kCharacter).has_value());
+    CHECK(*tracker.CurrentRevision(kCharacter) == 1);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt leaves the revision unchanged when the builder returns no value",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kCharacter, kFingerprintA);
+
+    auto result = tracker.CommitSnapshotIfBuilt(
+        kCharacter, kFingerprintB, [](std::int64_t) -> std::optional<std::int64_t> { return std::nullopt; });
+
+    CHECK_FALSE(result.has_value());
+    // Neither the revision nor the fingerprint basis advanced: a retry with
+    // the original fingerprint still reuses revision 1.
+    CHECK(tracker.CurrentRevision(kCharacter) == 1);
+    CHECK(tracker.StartSnapshot(kCharacter, kFingerprintA) == 1);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt passes the same revision StartSnapshot would have assigned",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kCharacter, kFingerprintA);
+    tracker.NextEvent(kCharacter);  // current revision now 2
+
+    std::int64_t observedRevision = 0;
+    tracker.CommitSnapshotIfBuilt(kCharacter, kFingerprintB, [&](std::int64_t revision) -> std::optional<bool> {
+        observedRevision = revision;
+        return true;
+    });
+
+    CHECK(observedRevision == 3);
+    CHECK(tracker.CurrentRevision(kCharacter) == 3);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt reuses the existing revision when the fingerprint is unchanged",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kCharacter, kFingerprintA);
+
+    std::int64_t observedRevision = 0;
+    auto result = tracker.CommitSnapshotIfBuilt(kCharacter, kFingerprintA,
+                                                 [&](std::int64_t revision) -> std::optional<std::int64_t> {
+                                                     observedRevision = revision;
+                                                     return revision;
+                                                 });
+
+    REQUIRE(result.has_value());
+    CHECK(*result == 1);
+    CHECK(observedRevision == 1);
+    CHECK(tracker.CurrentRevision(kCharacter) == 1);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt with no fingerprint always advances, matching StartSnapshot's "
+          "unconditional-advance contract",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.CommitSnapshotIfBuilt(kCharacter, std::nullopt,
+                                  [](std::int64_t revision) -> std::optional<std::int64_t> { return revision; });
+
+    auto result = tracker.CommitSnapshotIfBuilt(
+        kCharacter, std::nullopt, [](std::int64_t revision) -> std::optional<std::int64_t> { return revision; });
+
+    REQUIRE(result.has_value());
+    CHECK(*result == 2);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt leaves the revision uncommitted when the builder throws",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kCharacter, kFingerprintA);
+
+    CHECK_THROWS_AS(tracker.CommitSnapshotIfBuilt(
+                        kCharacter, kFingerprintB,
+                        [](std::int64_t) -> std::optional<std::int64_t> { throw std::bad_alloc{}; }),
+                    std::bad_alloc);
+
+    CHECK(tracker.CurrentRevision(kCharacter) == 1);
+    // If the lock did not release cleanly during unwind, this call on the
+    // same (non-recursive) mutex would deadlock rather than return.
+    CHECK(tracker.StartSnapshot(kCharacter, kFingerprintB) == 2);
+}
+
+TEST_CASE("CommitSnapshotIfBuilt holds its lock across the whole builder call, so a concurrent "
+          "snapshot for the same area cannot commit until it finishes -- the race a separate "
+          "preview-then-StartSnapshot pair leaves open",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    std::promise<void> builderEntered;
+    std::future<void> builderEnteredFuture = builderEntered.get_future();
+    std::promise<void> releaseBuilder;
+    std::future<void> releaseBuilderFuture = releaseBuilder.get_future();
+
+    std::thread committer([&] {
+        tracker.CommitSnapshotIfBuilt(kCharacter, kFingerprintA,
+                                      [&](std::int64_t revision) -> std::optional<std::int64_t> {
+                                          builderEntered.set_value();
+                                          releaseBuilderFuture.wait();
+                                          return revision;
+                                      });
+    });
+
+    builderEnteredFuture.wait();
+    // The committing thread is inside the builder right now, still holding
+    // the lock. A concurrent call for the same area must block on it until
+    // committer finishes -- if it did not, this call could observe the
+    // tracker before committer's revision 1 lands and would itself be
+    // assigned revision 1 instead of 2.
+    std::promise<std::int64_t> concurrentRevision;
+    std::thread concurrentCaller(
+        [&] { concurrentRevision.set_value(tracker.StartSnapshot(kCharacter, kFingerprintB)); });
+
+    releaseBuilder.set_value();
+    committer.join();
+    concurrentCaller.join();
+
+    CHECK(concurrentRevision.get_future().get() == 2);
 }
 
 TEST_CASE("NextEvent returns nullopt when no baseline has been established",

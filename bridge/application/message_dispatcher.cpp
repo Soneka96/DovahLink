@@ -137,13 +137,12 @@ std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& session
     CharacterSnapshot snapshot = provider.CurrentCharacterSnapshot();
     std::optional<std::string> fingerprint =
         std::make_optional(boost::json::serialize(BuildCharacterStateData(snapshot)));
-    std::int64_t revision = revisions.NextSnapshotRevision(stateArea, fingerprint);
-    auto envelope =
-        BuildCharacterSnapshotEnvelope(sessionId, /*correlationId=*/std::nullopt, snapshot, revision, now);
-    if (envelope.has_value()) {
-        revisions.StartSnapshot(stateArea, fingerprint);
-    }
-    return envelope;
+    // CommitSnapshotIfBuilt assigns and commits the revision atomically with building the
+    // envelope, closing the race a separate preview (NextSnapshotRevision) followed by a later
+    // commit (StartSnapshot) leaves open against another concurrent snapshot for this state area.
+    return revisions.CommitSnapshotIfBuilt(stateArea, fingerprint, [&](std::int64_t revision) {
+        return BuildCharacterSnapshotEnvelope(sessionId, /*correlationId=*/std::nullopt, snapshot, revision, now);
+    });
 }
 
 }
