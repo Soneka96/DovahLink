@@ -79,9 +79,9 @@ public sealed record Envelope(
             {
                 throw new FormatException("Missing clientId.");
             }
-            string? bridgeInstanceId = root["bridgeInstanceId"]?.GetValue<string>();
-            string? playContextId = root["playContextId"]?.GetValue<string>();
-            string? clientId = root["clientId"]?.GetValue<string>();
+            string? bridgeInstanceId = GetNonEmptyOrNull(root, "bridgeInstanceId");
+            string? playContextId = GetNonEmptyOrNull(root, "playContextId");
+            string? clientId = GetNonEmptyOrNull(root, "clientId");
 
             return new Envelope(messageType, messageId, sessionId, correlationId, payload,
                 bridgeInstanceId, playContextId, clientId);
@@ -95,5 +95,23 @@ public sealed record Envelope(
             // the same exception type for callers to catch.
             throw new FormatException($"Malformed envelope: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Extracts a required, nullable identity field, rejecting an empty non-null value -- matching
+    /// the Bridge's own parser (bridge/protocol/json_field_decoders.cpp's DecodeOptionalString).
+    /// </summary>
+    /// <param name="root">The envelope's parsed JSON object.</param>
+    /// <param name="fieldName">The field's key, already confirmed present by the caller.</param>
+    /// <returns>The field's string value, or <see langword="null"/>.</returns>
+    /// <exception cref="FormatException">Thrown when the field is present but an empty string.</exception>
+    private static string? GetNonEmptyOrNull(JsonObject root, string fieldName)
+    {
+        string? value = root[fieldName]?.GetValue<string>();
+        if (value is not null && value.Length == 0)
+        {
+            throw new FormatException($"{fieldName} must be null or a non-empty string.");
+        }
+        return value;
     }
 }

@@ -133,6 +133,56 @@ public class EnvelopeTests
         Assert.Throws<FormatException>(() => Envelope.Decode(json));
     }
 
+    /// <summary>Verifies that decoding rejects an empty-string bridgeInstanceId as a malformed envelope.</summary>
+    [Fact]
+    public void DecodeRejectsAnEmptyStringBridgeInstanceId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": "", "playContextId": null,
+             "clientId": null}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that decoding rejects an empty-string playContextId as a malformed envelope.</summary>
+    [Fact]
+    public void DecodeRejectsAnEmptyStringPlayContextId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": "",
+             "clientId": null}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that decoding rejects an empty-string clientId as a malformed envelope.</summary>
+    [Fact]
+    public void DecodeRejectsAnEmptyStringClientId()
+    {
+        const string json = """
+            {"messageType": "ping", "messageId": "m-1", "sessionId": "s-1",
+             "correlationId": null, "payload": {}, "bridgeInstanceId": null, "playContextId": null,
+             "clientId": ""}
+            """;
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(json));
+    }
+
+    /// <summary>Verifies that an envelope constructed with an empty-string identity field encodes it
+    /// faithfully but then fails to decode -- Encode has no reason to validate a value this client
+    /// itself constructed, but the wire contract still rejects it on the way back in.</summary>
+    [Fact]
+    public void EncodeThenDecodeRejectsAnEnvelopeConstructedWithAnEmptyStringIdentityField()
+    {
+        Envelope original = MakeEnvelope(bridgeInstanceId: "");
+
+        Assert.Throws<FormatException>(() => Envelope.Decode(original.Encode()));
+    }
+
     /// <summary>Verifies that decoding rejects a message missing the bridgeInstanceId key entirely.</summary>
     [Fact]
     public void DecodeRejectsMissingBridgeInstanceId()
