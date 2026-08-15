@@ -507,7 +507,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
-        version = "0.1.0"
+        version = "0.2.0"
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
         phase_zero = self._markdown_section("ROADMAP.md", "0. Documentation baseline")
@@ -525,14 +525,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             f"(https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `{version}`",
             root_readme,
         )
-        self.assertIn(f"published Phase 1\nbridge release, version `{version}`", bridge_readme)
+        self.assertIn(f"published Phase 2\nbridge release, version `{version}`", bridge_readme)
         self.assertIn(f"Bridge version `{version}` supports exactly one runtime", bridge_readme)
-        for completed_phase in (phase_zero, phase_zero_five, phase_one):
+        for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two):
             self.assertEqual(
                 re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
                 ["**Status:** Complete"],
             )
-        self.assertEqual(re.findall(r"(?m)^\*\*Status:\*\* .+$", phase_two), ["**Status:** Next"])
 
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""
@@ -575,17 +574,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(actual_headings, expected_headings)
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
-        self.assertEqual(roadmap.count("**Status:** Next"), 1)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 3)
+        self.assertEqual(roadmap.count("**Status:** Next"), 0)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 4)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
                 expected_status = "**Status:** Complete"
-            elif heading.startswith("2. "):
-                expected_status = "**Status:** Next"
             elif heading.startswith("27. "):
                 expected_status = "**Status:** Planned after read-only product validation"
             else:

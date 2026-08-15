@@ -114,7 +114,7 @@ compatibility information a client needs before trusting the rest of the exchang
 
 ```json
 {
-  "bridgeVersion": "0.1.0",
+  "bridgeVersion": "0.2.0",
   "clientIdentityKind": "unpaired"
 }
 ```

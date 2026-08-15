@@ -4,7 +4,7 @@
   "sessionId": "session-1",
   "correlationId": "message-hello-1",
   "payload": {
-    "bridgeVersion": "0.1.0",
+    "bridgeVersion": "0.2.0",
     "clientIdentityKind": "unpaired"
   },
   "bridgeInstanceId": "bridge-1",

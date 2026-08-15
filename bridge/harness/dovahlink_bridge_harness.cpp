@@ -38,7 +38,7 @@ constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CON
 // Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
 // bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
 // stand-in for the real plugin, not an independent release.
-constexpr const char* kBridgeVersion = "0.1.0";
+constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
