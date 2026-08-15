@@ -29,6 +29,7 @@ struct DispatchResult {
 /// @param rawMessage Encoded inbound WebSocket text.
 /// @param receivedMessageCount Number of completed messages read in this session; incremented before decoding.
 /// @param sessionId Authenticated session identifier.
+/// @param protocolVersion Connection's negotiated protocol version, stamped on every outbound envelope.
 /// @param connection Transport connection identifier.
 /// @param sessionManager Session registry.
 /// @param replayGuard Per-session message-ID guard.
@@ -42,7 +43,7 @@ struct DispatchResult {
 /// @return Responses and the connection-close decision.
 [[nodiscard]] DispatchResult ProcessInboundMessage(
     const std::string& rawMessage, std::size_t& receivedMessageCount, const std::string& sessionId,
-    ConnectionId connection, SessionManager& sessionManager, ReplayGuard& replayGuard,
+    std::int64_t protocolVersion, ConnectionId connection, SessionManager& sessionManager, ReplayGuard& replayGuard,
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const CharacterStateProvider& stateProvider,
     RevisionTracker& revisions, std::chrono::steady_clock::time_point steadyNow,

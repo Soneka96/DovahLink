@@ -85,6 +85,16 @@ std::string HelloMessage(const std::string& token) {
            token + R"("}}})";
 }
 
+/// Builds a hello message offering protocol v1 and v2 with a clientId, using
+/// the supplied authentication token.
+std::string HelloMessageV2(const std::string& token) {
+    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
+           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
+           R"("supportedProtocolVersions": [1, 2], "clientId": "client-1", )"
+           R"("auth": {"method": "one_time_local_token", "token": ")" +
+           token + R"("}}})";
+}
+
 }  // namespace
 
 TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscribe over a real socket",
@@ -174,6 +184,80 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     // Disconnect must invalidate the session (ai/context/protocol/security.md).
     CHECK_FALSE(sessionManager.IsValidForConnection(sessionId, /*connection=*/1));
     CHECK(clockCalls >= 4);
+}
+
+TEST_CASE("RunConnectionSession stamps the negotiated v2 version on every response, not just hello_ack",
+          "[application][connection_session]") {
+    // Proves the actual end-to-end point of threading
+    // HandshakeResult::negotiatedProtocolVersion through connection_session.cpp:
+    // a v2-negotiated connection's pong, capabilities, subscription_ack, and
+    // state_snapshot all carry protocolVersion 2, not the v1 constant every
+    // one of them used unconditionally before.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    SessionManager sessionManager;
+    FakeCharacterStateProvider stateProvider;
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, stateProvider);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessageV2(kValidHexToken));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    REQUIRE(helloAck.sessionId.has_value());
+    CHECK(helloAck.protocolVersion == 2);
+    std::string sessionId = *helloAck.sessionId;
+
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+    CHECK(capabilities.protocolVersion == 2);
+
+    ClientWriteText(clientWs, R"({"protocolVersion": 2, "messageType": "ping", "messageId": "message-ping-1", )"
+                                  R"("sessionId": ")" +
+                                  sessionId + R"(", "correlationId": null, "payload": {}})");
+    auto pong = ClientReadEnvelope(clientWs);
+    CHECK(pong.messageType == "pong");
+    CHECK(pong.protocolVersion == 2);
+
+    ClientWriteText(clientWs,
+                     R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-1", )"
+                     R"("sessionId": ")" +
+                         sessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    auto subscriptionAck = ClientReadEnvelope(clientWs);
+    CHECK(subscriptionAck.messageType == "subscription_ack");
+    CHECK(subscriptionAck.protocolVersion == 2);
+    auto snapshot = ClientReadEnvelope(clientWs);
+    CHECK(snapshot.messageType == "state_snapshot");
+    CHECK(snapshot.protocolVersion == 2);
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
 }
 
 TEST_CASE("RunConnectionSession closes without creating a session when the token is invalid",

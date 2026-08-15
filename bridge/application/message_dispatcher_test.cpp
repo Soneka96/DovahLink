@@ -1,6 +1,7 @@
 #include "application/message_dispatcher.hpp"
 
 #include "application/character_state.hpp"
+#include "application/handshake_handler.hpp"
 #include "protocol/messages.hpp"
 #include "security/limits.hpp"
 
@@ -15,6 +16,7 @@ using dovahlink::application::CharacterSnapshot;
 using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
+using dovahlink::application::kSupportedProtocolVersion;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::RevisionTracker;
@@ -64,10 +66,12 @@ struct Fixture {
     }
 
     /// Processes a raw message using the fixture's authenticated session.
-    DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {
-        return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
-                                     replayGuard, violations, rateLimiter, timeout, stateProvider, revisions,
-                                     steadyNow, std::chrono::system_clock::now());
+    /// @param protocolVersion Connection's negotiated protocol version; defaults to the fixture's usual v1.
+    DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now(),
+                           std::int64_t protocolVersion = kSupportedProtocolVersion) {
+        return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, protocolVersion, kConnection,
+                                     sessions, replayGuard, violations, rateLimiter, timeout, stateProvider,
+                                     revisions, steadyNow, std::chrono::system_clock::now());
     }
 };
 
@@ -100,6 +104,32 @@ TEST_CASE("ProcessInboundMessage answers ping with pong and resets the idle time
     // without RecordActivity) but still before the new one, so this can
     // only pass if RecordActivity actually moved the deadline.
     CHECK_FALSE(fixture.timeout.IsTimedOut(start + std::chrono::seconds(65)));
+}
+
+TEST_CASE("ProcessInboundMessage stamps a v2-negotiated connection's pong with protocolVersion 2, "
+          "not a hardcoded one",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    auto start = SteadyClock::now();
+    fixture.timeout = ConnectionTimeoutTracker(start);
+    fixture.timeout.MarkAuthenticated(start);
+
+    auto result = fixture.Process(PingMessage(), start + std::chrono::seconds(1), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "pong");
+    CHECK(result.responses[0].protocolVersion == 2);
+}
+
+TEST_CASE("ProcessInboundMessage stamps a v2-negotiated connection's dispatcher-level error with "
+          "protocolVersion 2, not a hardcoded one",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+
+    auto result = fixture.Process("not json at all {{{", SteadyClock::now(), /*protocolVersion=*/2);
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].protocolVersion == 2);
 }
 
 TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a snapshot",

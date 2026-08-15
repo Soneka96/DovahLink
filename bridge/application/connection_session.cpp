@@ -80,10 +80,11 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     auto sessionLease = std::move(handshake.sessionLease);
 
     std::string sessionId = *handshake.response.sessionId;
+    std::int64_t protocolVersion = handshake.negotiatedProtocolVersion;
 
     ws.SwitchToIdleTimeout();
 
-    auto capabilities = BuildBridgeCapabilities(sessionId);
+    auto capabilities = BuildBridgeCapabilities(sessionId, protocolVersion);
     if (capabilities.has_value()) {
         SendIfPossible(ws, *capabilities);
     }
@@ -110,9 +111,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         }
 
         auto dispatch =
-            ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager, replayGuard,
-                                  violations, rateLimiter, timeout, stateProvider, revisions, steadyNow(),
-                                  std::chrono::system_clock::now());
+            ProcessInboundMessage(*raw, receivedMessageCount, sessionId, protocolVersion, connection, sessionManager,
+                                  replayGuard, violations, rateLimiter, timeout, stateProvider, revisions,
+                                  steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

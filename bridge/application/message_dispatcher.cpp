@@ -64,17 +64,18 @@ bool IsAllowedMessageType(std::string_view messageType) {
 /// Builds a protocol error and records the rejection as a violation.
 /// @param correlationId Message ID being rejected, when available.
 /// @param sessionId Authenticated session identifier.
+/// @param protocolVersion Connection's negotiated protocol version.
 /// @param code Canonical protocol error code.
 /// @param message Safe diagnostic message.
 /// @param retryable Whether the client may retry.
 /// @param violations Violation tracker to update.
 /// @param steadyNow Current monotonic time.
-DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId, std::string code,
-                       std::string message, bool retryable, security::ViolationTracker& violations,
-                       std::chrono::steady_clock::time_point steadyNow) {
+DispatchResult Reject(std::optional<std::string> correlationId, const std::string& sessionId,
+                       std::int64_t protocolVersion, std::string code, std::string message, bool retryable,
+                       security::ViolationTracker& violations, std::chrono::steady_clock::time_point steadyNow) {
     bool limitReached = violations.RecordViolationAndCheckLimit(steadyNow);
     return DispatchResult{
-        .responses = {protocol::BuildErrorEnvelope(std::move(correlationId), kSupportedProtocolVersion, sessionId,
+        .responses = {protocol::BuildErrorEnvelope(std::move(correlationId), protocolVersion, sessionId,
                                                      std::move(code), std::move(message), retryable)},
         .closeConnection = limitReached,
     };
@@ -95,8 +96,10 @@ DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::V
 /// Builds a pong response correlated with an incoming ping.
 /// @param pingEnvelope Envelope of the ping being acknowledged.
 /// @param sessionId Authenticated session identifier.
-protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::string& sessionId) {
-    auto envelope = protocol::BuildEnvelope(kSupportedProtocolVersion, std::string(protocol::message_type::kPong),
+/// @param protocolVersion Connection's negotiated protocol version.
+protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::string& sessionId,
+                             std::int64_t protocolVersion) {
+    auto envelope = protocol::BuildEnvelope(protocolVersion, std::string(protocol::message_type::kPong),
                                              sessionId, pingEnvelope.messageId, boost::json::object{});
     if (envelope.has_value()) {
         return std::move(*envelope);
@@ -105,16 +108,16 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
     // path in this codebase shares (see messages.hpp's BuildErrorEnvelope);
     // ping/pong carries no application payload to preserve, so an
     // internal_error is the honest answer.
-    return protocol::BuildErrorEnvelope(pingEnvelope.messageId, kSupportedProtocolVersion, sessionId,
+    return protocol::BuildErrorEnvelope(pingEnvelope.messageId, protocolVersion, sessionId,
                                          "internal_error", "Unable to build response", false);
 }
 
 }
 
 DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t& receivedMessageCount,
-                                      const std::string& sessionId, ConnectionId connection,
-                                      SessionManager& sessionManager, ReplayGuard& replayGuard,
-                                      security::ViolationTracker& violations,
+                                      const std::string& sessionId, std::int64_t protocolVersion,
+                                      ConnectionId connection, SessionManager& sessionManager,
+                                      ReplayGuard& replayGuard, security::ViolationTracker& violations,
                                       security::InboundMessageRateLimiter& rateLimiter,
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const CharacterStateProvider& stateProvider, RevisionTracker& revisions,
@@ -134,18 +137,18 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         if (parsed.error() == protocol::BoundedJsonError::kFrameTooLarge) {
             return DispatchResult{.closeConnection = true};
         }
-        return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
-                       violations, steadyNow);
+        return Reject(/*correlationId=*/std::nullopt, sessionId, protocolVersion, "malformed_message",
+                       "Malformed message", false, violations, steadyNow);
     }
 
     auto envelope = protocol::DecodeEnvelope(*parsed);
     if (!envelope.has_value()) {
-        return Reject(/*correlationId=*/std::nullopt, sessionId, "malformed_message", "Malformed message", false,
-                       violations, steadyNow);
+        return Reject(/*correlationId=*/std::nullopt, sessionId, protocolVersion, "malformed_message",
+                       "Malformed message", false, violations, steadyNow);
     }
 
     if (!IsAllowedMessageType(envelope->messageType)) {
-        return Reject(envelope->messageId, sessionId, "malformed_message",
+        return Reject(envelope->messageId, sessionId, protocolVersion, "malformed_message",
                        "Unexpected message type: " + envelope->messageType, false, violations, steadyNow);
     }
 
@@ -157,28 +160,28 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     // otherwise reintroduce a silent nullopt dereference here.
     assert(envelope->sessionId.has_value());
     if (!sessionManager.IsValidForConnection(*envelope->sessionId, connection)) {
-        return Reject(envelope->messageId, sessionId, "stale_session", "Session is not valid on this connection",
-                       false, violations, steadyNow);
+        return Reject(envelope->messageId, sessionId, protocolVersion, "stale_session",
+                       "Session is not valid on this connection", false, violations, steadyNow);
     }
 
     if (replayGuard.RecordMessage(envelope->messageId) == MessageIdCheckResult::kReplayed) {
-        return Reject(envelope->messageId, sessionId, "replayed_message", "Duplicate messageId", false,
-                       violations, steadyNow);
+        return Reject(envelope->messageId, sessionId, protocolVersion, "replayed_message", "Duplicate messageId",
+                       false, violations, steadyNow);
     }
 
     if (rateLimiter.RecordMessageAndCheckLimit(steadyNow)) {
-        return Reject(envelope->messageId, sessionId, "rate_limited",
+        return Reject(envelope->messageId, sessionId, protocolVersion, "rate_limited",
                        "Inbound message rate exceeded 100 messages per second", true, violations, steadyNow);
     }
 
     timeoutTracker.RecordActivity(steadyNow);
 
     if (envelope->messageType == protocol::message_type::kPing) {
-        return DispatchResult{.responses = {BuildPong(*envelope, sessionId)}};
+        return DispatchResult{.responses = {BuildPong(*envelope, sessionId, protocolVersion)}};
     }
 
     if (envelope->messageType == protocol::message_type::kCapabilities) {
-        auto error = HandleClientCapabilities(*envelope, sessionId);
+        auto error = HandleClientCapabilities(*envelope, sessionId, protocolVersion);
         if (!error.has_value()) {
             return DispatchResult{};
         }
@@ -186,7 +189,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     }
 
     if (envelope->messageType == protocol::message_type::kSubscribe) {
-        auto result = HandleSubscribe(*envelope, sessionId, stateProvider, revisions, wallNow);
+        auto result = HandleSubscribe(*envelope, sessionId, protocolVersion, stateProvider, revisions, wallNow);
         DispatchResult dispatch = FromHandlerResponse(std::move(result.subscriptionAck), violations, steadyNow);
         for (auto& snapshot : result.snapshots) {
             dispatch.responses.push_back(std::move(snapshot));
@@ -195,7 +198,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     }
 
     // Only kSnapshotRequest remains, per kAllowedMessageTypes.
-    auto response = HandleSnapshotRequest(*envelope, sessionId, stateProvider, revisions, wallNow);
+    auto response = HandleSnapshotRequest(*envelope, sessionId, protocolVersion, stateProvider, revisions, wallNow);
     return FromHandlerResponse(std::move(response), violations, steadyNow);
 }
 
