@@ -32,7 +32,11 @@ void CommonLibGameLifecycleSink::OnMessage(const SKSE::MessagingInterface::Messa
     // not just the part behind callbackRunner_'s containment -- must not let
     // an exception reach SKSE.
     try {
-        application::LifecycleEvent event;
+        // Every reachable case below assigns event before use; this default
+        // is an inert safety net against a future case that forgets to,
+        // matching OnRevert's own teardown event rather than an arbitrary
+        // enumerator.
+        application::LifecycleEvent event = application::LifecycleEvent::kRevert;
         std::string rawDescription;
         switch (message.type) {
             case SKSE::MessagingInterface::kPreLoadGame:
