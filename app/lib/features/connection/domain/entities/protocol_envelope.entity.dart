@@ -4,16 +4,15 @@ import 'package:equatable/equatable.dart';
 class ProtocolEnvelopeEntity extends Equatable {
   /// Creates a protocol envelope contract.
   const ProtocolEnvelopeEntity({
-    required this.protocolVersion,
     required this.messageType,
     required this.messageId,
     required this.sessionId,
     required this.correlationId,
     required this.payload,
+    this.bridgeInstanceId,
+    this.playContextId,
+    this.clientId,
   });
-
-  /// The negotiated protocol version for this message.
-  final int protocolVersion;
 
   /// The canonical message type.
   final String messageType;
@@ -30,14 +29,31 @@ class ProtocolEnvelopeEntity extends Equatable {
   /// The message-specific payload.
   final Map<String, dynamic> payload;
 
+  /// The identity of the bridge instance that produced this message. `null`
+  /// on the client's own `hello` (the client does not know it yet) and on a
+  /// narrow set of early connection-hygiene rejections the bridge cannot
+  /// attach an identity to; present otherwise.
+  final String? bridgeInstanceId;
+
+  /// The identity of the currently loaded play context, when one is active.
+  /// `null` outside an active play context -- genuine semantic absence, not
+  /// a placeholder.
+  final String? playContextId;
+
+  /// The identity of the logical client, established at `hello`. `null`
+  /// before `hello` completes, the same shape [sessionId] already uses.
+  final String? clientId;
+
   /// See [Equatable.props].
   @override
   List<Object?> get props => [
-    protocolVersion,
     messageType,
     messageId,
     sessionId,
     correlationId,
     payload,
+    bridgeInstanceId,
+    playContextId,
+    clientId,
   ];
 }

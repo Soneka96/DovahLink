@@ -10,7 +10,6 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 void main() {
   const ConnectionSessionEntity session = ConnectionSessionEntity(
     sessionId: 'session-1',
-    protocolVersion: 1,
   );
 
   group('ConnectionReducer processes lifecycle actions correctly', () {
@@ -62,25 +61,142 @@ void main() {
       expect(result.error, isNull);
     });
 
-    test('ConnectionEstablishedAction replaces the previous session', () {
-      const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
-        sessionId: 'session-0',
-        protocolVersion: 1,
-      );
-      const ConnectionState state = ConnectionState(
-        phase: ConnectionPhase.recovering,
-        session: previousSession,
-        error: null,
-      );
+    test(
+      'ConnectionEstablishedAction stays connected when neither the cached nor the new session has bridge or play-context identity',
+      () {
+        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
+          sessionId: 'session-0',
+        );
+        const ConnectionState state = ConnectionState(
+          phase: ConnectionPhase.recovering,
+          session: previousSession,
+          error: null,
+        );
 
-      final ConnectionState result = connectionReducer(
-        state,
-        const ConnectionEstablishedAction(session),
-      );
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionEstablishedAction(session),
+        );
 
-      expect(result.session, session);
-      expect(result.session, isNot(previousSession));
-    });
+        expect(result.phase, ConnectionPhase.connected);
+        expect(result.session, session);
+        expect(result.session, isNot(previousSession));
+      },
+    );
+
+    test(
+      'ConnectionEstablishedAction stays connected when identity matches the cached session',
+      () {
+        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
+          sessionId: 'session-0',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-1',
+        );
+        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
+          sessionId: 'session-1',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-1',
+        );
+        const ConnectionState state = ConnectionState(
+          phase: ConnectionPhase.recovering,
+          session: previousSession,
+          error: null,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionEstablishedAction(newSession),
+        );
+
+        expect(result.phase, ConnectionPhase.connected);
+        expect(result.session, newSession);
+      },
+    );
+
+    test(
+      'ConnectionEstablishedAction becomes stale when bridgeInstanceId mismatches the cached session',
+      () {
+        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
+          sessionId: 'session-0',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-1',
+        );
+        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
+          sessionId: 'session-1',
+          bridgeInstanceId: 'bridge-2',
+          playContextId: 'context-1',
+        );
+        const ConnectionState state = ConnectionState(
+          phase: ConnectionPhase.recovering,
+          session: previousSession,
+          error: null,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionEstablishedAction(newSession),
+        );
+
+        expect(result.phase, ConnectionPhase.stale);
+        expect(result.session, newSession);
+      },
+    );
+
+    test(
+      'ConnectionEstablishedAction becomes stale when playContextId mismatches the cached session',
+      () {
+        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
+          sessionId: 'session-0',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-1',
+        );
+        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
+          sessionId: 'session-1',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-2',
+        );
+        const ConnectionState state = ConnectionState(
+          phase: ConnectionPhase.recovering,
+          session: previousSession,
+          error: null,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionEstablishedAction(newSession),
+        );
+
+        expect(result.phase, ConnectionPhase.stale);
+        expect(result.session, newSession);
+      },
+    );
+
+    test(
+      'ConnectionEstablishedAction becomes stale when the cached session had no identity and the new one does',
+      () {
+        const ConnectionSessionEntity previousSession = ConnectionSessionEntity(
+          sessionId: 'session-0',
+        );
+        const ConnectionSessionEntity newSession = ConnectionSessionEntity(
+          sessionId: 'session-1',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: 'context-1',
+        );
+        const ConnectionState state = ConnectionState(
+          phase: ConnectionPhase.recovering,
+          session: previousSession,
+          error: null,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionEstablishedAction(newSession),
+        );
+
+        expect(result.phase, ConnectionPhase.stale);
+        expect(result.session, newSession);
+      },
+    );
 
     test('ConnectionRecoveringAction preserves the active session', () {
       const ConnectionState state = ConnectionState(

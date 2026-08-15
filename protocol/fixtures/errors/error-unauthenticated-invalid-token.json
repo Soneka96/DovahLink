@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 0,
   "messageType": "error",
   "messageId": "message-error-invalid-token-1",
   "sessionId": null,
@@ -9,5 +8,8 @@
     "message": "Invalid one-time token",
     "retryable": false,
     "details": null
-  }
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
 }

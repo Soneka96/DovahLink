@@ -33,14 +33,14 @@ public class CapabilitiesScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "capabilities", "message-cap-1", sessionId, null,
+        await connection.SendAsync(new Envelope("capabilities", "message-cap-1", sessionId, null,
             new JsonObject { ["capabilities"] = new JsonArray() }));
 
         // v1's registered client-side capabilities is deliberately the
         // empty set (protocol/schema/README.md): a valid, empty list gets
         // no response at all. Proven by sending a ping right after and
         // seeing its pong arrive next, not a stray reply to capabilities.
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-1", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-1", sessionId, null, new JsonObject()));
         Envelope response = await connection.ReceiveAsync();
         Assert.Equal("pong", response.MessageType);
         Assert.Equal("message-ping-1", response.CorrelationId);
@@ -59,13 +59,13 @@ public class CapabilitiesScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "capabilities", "message-cap-valid", sessionId, null,
+        await connection.SendAsync(new Envelope("capabilities", "message-cap-valid", sessionId, null,
             new JsonObject
             {
                 ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "state.character", ["version"] = 1 }),
             }));
 
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-valid", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-valid", sessionId, null, new JsonObject()));
         Envelope response = await connection.ReceiveAsync();
         Assert.Equal("pong", response.MessageType);
 
@@ -80,7 +80,7 @@ public class CapabilitiesScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "capabilities", "message-cap-2", sessionId, null,
+        await connection.SendAsync(new Envelope("capabilities", "message-cap-2", sessionId, null,
             new JsonObject
             {
                 ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "made.up.capability", ["version"] = 1 }),
@@ -94,7 +94,7 @@ public class CapabilitiesScenarioTests
         // One protocol violation does not close the connection -- the limit
         // is 3 within 30 seconds (ai/context/protocol/security.md). Proven
         // the same way: a ping sent right after still gets a pong back.
-        await connection.SendAsync(new Envelope(1, "ping", "message-ping-2", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-ping-2", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
@@ -111,7 +111,7 @@ public class CapabilitiesScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope(1, "capabilities", "message-cap-mixed", sessionId, null,
+        await connection.SendAsync(new Envelope("capabilities", "message-cap-mixed", sessionId, null,
             new JsonObject
             {
                 ["capabilities"] = new JsonArray(
@@ -124,39 +124,5 @@ public class CapabilitiesScenarioTests
         Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
-    }
-
-    /// <summary>Verifies that negotiation fails when no protocol version overlaps.</summary>
-    [Fact]
-    public async Task HelloWithNoMutuallySupportedVersionIsRejectedAndClosesTheConnection()
-    {
-        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
-
-        await using BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
-        await connection.SendAsync(BridgeScenario.HelloEnvelope(
-            BridgeScenario.ValidHexToken, messageId: "message-hello-mismatch", supportedProtocolVersions: [2]));
-
-        Envelope error = await connection.ReceiveAsync();
-        Assert.Equal("error", error.MessageType);
-        Assert.Equal("message-hello-mismatch", error.CorrelationId);
-        Assert.Equal("unsupported_version", error.Payload["code"]!.GetValue<string>());
-        // No session was ever established on this failed hello
-        // (protocol/schema/README.md: sessionId is null for an error that
-        // rejects a connection before any session exists on that socket).
-        Assert.Null(error.SessionId);
-
-        // The bridge closes the connection on this failure path; the next
-        // receive must observe that closure, not another message.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
-
-        // Completes the closing handshake from this side: otherwise the
-        // bridge's own synchronous close blocks until its handshake-phase
-        // socket timeout lapses waiting for an acknowledgment that never
-        // comes (see BridgeConnection.CloseAsync's doc comment).
-        await connection.CloseAsync();
-
-        await harness.WriteLineAsync("quit");
-        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
 }

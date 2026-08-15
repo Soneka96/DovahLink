@@ -17,7 +17,7 @@ public class BridgeScenarioTests
             () => BridgeScenario.ConnectAndAuthenticateAsync(WrongHexToken));
 
         using var replacement = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await replacement.ReadLineAsync());
+        await replacement.WaitForReadyAsync();
         await replacement.WriteLineAsync("quit");
         Assert.True(await replacement.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
@@ -29,8 +29,8 @@ public class BridgeScenarioTests
         string sessionId = "session-test-1";
         string[] responses =
         [
-            new Envelope(1, "hello_ack", "message-ack-1", sessionId, "message-hello-1", new JsonObject()).Encode(),
-            new Envelope(1, "pong", "message-pong-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1", new JsonObject()).Encode(),
+            new Envelope("pong", "message-pong-1", sessionId, null, new JsonObject()).Encode(),
         ];
         var socket = new FakeWebSocket(responses);
         var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
@@ -42,8 +42,53 @@ public class BridgeScenarioTests
 
         Assert.True(socket.DisposeCalled);
         using var replacement = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await replacement.ReadLineAsync());
+        await replacement.WaitForReadyAsync();
         await replacement.WriteLineAsync("quit");
         Assert.True(await replacement.WaitForExitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    /// <summary>Verifies that a well-formed play-context report yields its ID.</summary>
+    [Fact]
+    public async Task ReadPlayContextReportAsyncReturnsTheReportedPlayContextId()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("PLAY_CONTEXT context-1"));
+
+        string playContextId = await BridgeScenario.ReadPlayContextReportAsync(harness);
+
+        Assert.Equal("context-1", playContextId);
+    }
+
+    /// <summary>Verifies that a report line missing its prefix fails clearly.</summary>
+    [Fact]
+    public async Task ReadPlayContextReportAsyncThrowsWhenTheLineIsMissingItsPrefix()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("NOT_THE_RIGHT_PREFIX"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BridgeScenario.ReadPlayContextReportAsync(harness));
+        Assert.Contains("did not report a play context", exception.Message);
+    }
+
+    /// <summary>Verifies that a report line carrying only whitespace after its prefix fails clearly
+    /// instead of yielding an empty play context ID.</summary>
+    [Fact]
+    public async Task ReadPlayContextReportAsyncThrowsWhenThePlayContextIdIsBlank()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("PLAY_CONTEXT    "));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BridgeScenario.ReadPlayContextReportAsync(harness));
+        Assert.Contains("reported an empty play context ID", exception.Message);
+    }
+
+    /// <summary>Verifies that reaching end-of-output before any report line fails clearly.</summary>
+    [Fact]
+    public async Task ReadPlayContextReportAsyncThrowsWhenTheOutputStreamEndsFirst()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => BridgeScenario.ReadPlayContextReportAsync(harness));
+        Assert.Contains("did not report a play context", exception.Message);
     }
 }

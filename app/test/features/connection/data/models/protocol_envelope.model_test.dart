@@ -1,96 +1,119 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dovahlink_client/features/connection/data/models/json_map.dart';
 import 'package:dovahlink_client/features/connection/data/models/protocol_envelope.model.dart';
 import 'package:dovahlink_client/features/connection/data/models/protocol_format_exception.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/protocol_envelope.entity.dart';
 
-/// Exercises protocol-envelope model decoding, encoding, and validation.
+/// Reads one canonical protocol fixture, relative to `protocol/fixtures/`.
+JsonMap _readFixture(String relativePath) {
+  final File file = File('../protocol/fixtures/$relativePath');
+  return jsonDecode(file.readAsStringSync()) as JsonMap;
+}
+
+/// Exercises [ProtocolEnvelopeModel]'s always-present identity-field mapping
+/// against the canonical shared fixtures.
 void main() {
   group('ProtocolEnvelopeModel', () {
-    test('parses and serializes a complete envelope', () {
-      final ProtocolEnvelopeModel envelope = ProtocolEnvelopeModel.fromJson({
-        'protocolVersion': 1,
-        'messageType': 'state_snapshot',
-        'messageId': 'message-1',
-        'sessionId': 'session-1',
-        'correlationId': 'subscribe-1',
-        'payload': {'stateArea': 'character'},
+    group('identity', () {
+      test('is usable as a ProtocolEnvelopeEntity', () {
+        final ProtocolEnvelopeModel model = ProtocolEnvelopeModel.fromJson(
+          _readFixture('connection/hello-ack.json'),
+        );
+
+        expect(model, isA<ProtocolEnvelopeEntity>());
+      });
+    });
+
+    group('methods', () {
+      test(
+        'fromJson/toJson round-trips a hello with no identity established yet',
+        () {
+          final JsonMap json = _readFixture('connection/hello.json');
+
+          final ProtocolEnvelopeModel model = ProtocolEnvelopeModel.fromJson(
+            json,
+          );
+
+          expect(model.bridgeInstanceId, isNull);
+          expect(model.playContextId, isNull);
+          expect(model.clientId, isNull);
+          expect(model.toJson(), json);
+        },
+      );
+
+      test(
+        'fromJson/toJson round-trips a hello_ack with no active play context',
+        () {
+          final JsonMap json = _readFixture('connection/hello-ack.json');
+
+          final ProtocolEnvelopeModel model = ProtocolEnvelopeModel.fromJson(
+            json,
+          );
+
+          expect(model.bridgeInstanceId, 'bridge-1');
+          expect(model.playContextId, isNull);
+          expect(model.clientId, 'client-1');
+          expect(model.toJson(), json);
+          expect(model.toJson().containsKey('playContextId'), isTrue);
+        },
+      );
+
+      test(
+        'fromJson/toJson round-trips a hello_ack with an active play context',
+        () {
+          final JsonMap json = _readFixture(
+            'connection/hello-ack-active-context.json',
+          );
+
+          final ProtocolEnvelopeModel model = ProtocolEnvelopeModel.fromJson(
+            json,
+          );
+
+          expect(model.bridgeInstanceId, 'bridge-1');
+          expect(model.playContextId, 'context-1');
+          expect(model.clientId, 'client-2');
+          expect(model.toJson(), json);
+        },
+      );
+
+      test('fromJson rejects a payload missing a required identity key', () {
+        final JsonMap withMissingKey = _readFixture('connection/hello-ack.json')
+          ..remove('playContextId');
+
+        expect(
+          () => ProtocolEnvelopeModel.fromJson(withMissingKey),
+          throwsA(isA<ProtocolFormatException>()),
+        );
       });
 
-      expect(envelope.protocolVersion, 1);
-      expect(envelope.messageType, 'state_snapshot');
-      expect(envelope.sessionId, 'session-1');
-      expect(envelope.correlationId, 'subscribe-1');
-      expect(envelope.toJson()['payload'], {'stateArea': 'character'});
-    });
+      test(
+        'toJson always includes the identity keys, value or null',
+        () {
+          const ProtocolEnvelopeModel model = ProtocolEnvelopeModel(
+            messageType: 'pong',
+            messageId: 'message-1',
+            sessionId: 'session-1',
+            correlationId: null,
+            payload: {},
+            bridgeInstanceId: null,
+            playContextId: null,
+            clientId: null,
+          );
 
-    test('accepts null session and correlation IDs', () {
-      final ProtocolEnvelopeModel envelope = ProtocolEnvelopeModel.fromJson({
-        'protocolVersion': 1,
-        'messageType': 'capabilities',
-        'messageId': 'message-1',
-        'sessionId': null,
-        'correlationId': null,
-        'payload': <String, dynamic>{},
-      });
+          final JsonMap json = model.toJson();
 
-      expect(envelope.sessionId, isNull);
-      expect(envelope.correlationId, isNull);
-    });
-
-    test('rejects a missing or incorrectly typed required field', () {
-      final Map<String, dynamic> json = {
-        'protocolVersion': 1,
-        'messageType': 'state_snapshot',
-        'messageId': 'message-1',
-        'sessionId': 'session-1',
-        'correlationId': null,
-        'payload': <String, dynamic>{},
-      };
-
-      expect(
-        () => ProtocolEnvelopeModel.fromJson({...json, 'messageId': 4}),
-        throwsA(isA<ProtocolFormatException>()),
+          expect(json.containsKey('bridgeInstanceId'), isTrue);
+          expect(json.containsKey('playContextId'), isTrue);
+          expect(json.containsKey('clientId'), isTrue);
+          expect(json['bridgeInstanceId'], isNull);
+          expect(json['playContextId'], isNull);
+          expect(json['clientId'], isNull);
+        },
       );
-      expect(
-        () => ProtocolEnvelopeModel.fromJson({...json}..remove('payload')),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-      expect(
-        () => ProtocolEnvelopeModel.fromJson({...json, 'protocolVersion': -1}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-      expect(
-        () => ProtocolEnvelopeModel.fromJson({...json}..remove('sessionId')),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-      expect(
-        () =>
-            ProtocolEnvelopeModel.fromJson({...json}..remove('correlationId')),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-      expect(
-        () => ProtocolEnvelopeModel.fromJson({...json}..remove('messageType')),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-      expect(
-        () => ProtocolEnvelopeModel.fromJson(
-          {...json}..remove('protocolVersion'),
-        ),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
-
-    test('round-trips the complete envelope without losing fields', () {
-      final Map<String, dynamic> json = {
-        'protocolVersion': 1,
-        'messageType': 'state_snapshot',
-        'messageId': 'message-1',
-        'sessionId': 'session-1',
-        'correlationId': null,
-        'payload': {'stateArea': 'character', 'revision': 4},
-      };
-
-      expect(ProtocolEnvelopeModel.fromJson(json).toJson(), json);
     });
   });
 }

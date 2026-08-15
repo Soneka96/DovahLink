@@ -28,8 +28,10 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
+    application/game_lifecycle_tracker.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
+    application/play_context.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
@@ -62,6 +64,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 # target is linked into the real SKSE plugin binary, added in a later step.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
+    game_state/commonlib_game_lifecycle_sink.cpp
     game_state/commonlib_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
 )
@@ -105,9 +108,11 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
+    application/game_lifecycle_tracker_test.cpp
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
+    application/play_context_test.cpp
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
@@ -118,6 +123,8 @@ add_executable(dovahlink_bridge_tests
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
+    plugin/dovahlink_bridge_plugin_logging_test.cpp
+    plugin/dovahlink_bridge_plugin_registration_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
     security/hex_test.cpp
@@ -138,6 +145,7 @@ target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch
 target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
+    DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
 )
 
 include(CTest)

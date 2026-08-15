@@ -4,7 +4,6 @@
 #include "security/csprng.hpp"
 #include "security/hex.hpp"
 
-#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -19,10 +18,10 @@
 //   This also keeps the pre-session state space small: there is no partial-
 //   session bookkeeping to build for "a socket that failed hello once but
 //   might still succeed."
-// - Checks run cheapest/most-structural first: malformed shape, then
-//   protocol version, then the token (which is scarce and one-time, so it
-//   should not be spent validating a connection that was going to be
-//   rejected anyway for a reason unrelated to authentication).
+// - Checks run cheapest/most-structural first: malformed shape, then the
+//   token (which is scarce and one-time, so it should not be spent
+//   validating a connection that was going to be rejected anyway for a
+//   reason unrelated to authentication).
 // - All three of protocol/fixtures/errors/error-unauthenticated-*.json use
 //   the same wire `code: "unauthenticated"`; only their diagnostic
 //   `message` text differs, and message text is explicitly "not for
@@ -48,15 +47,17 @@ namespace {
 
 /// Builds a failed handshake response that closes the connection.
 /// @param helloEnvelope Envelope from the failed hello request.
+/// @param bridgeInstanceId This bridge's own identity, stamped onto the response when known.
 /// @param code Canonical protocol error code.
 /// @param message Safe diagnostic message.
 /// @param retryable Whether a fresh connection may retry.
-HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, std::string message,
-                      bool retryable) {
+HandshakeResult Fail(const protocol::Envelope& helloEnvelope, const std::optional<std::string>& bridgeInstanceId,
+                      std::string code, std::string message, bool retryable) {
+    protocol::Envelope response = protocol::BuildErrorEnvelope(helloEnvelope.messageId, /*sessionId=*/std::nullopt,
+                                                                std::move(code), std::move(message), retryable);
+    response.bridgeInstanceId = bridgeInstanceId;
     return HandshakeResult{
-        .response = protocol::BuildErrorEnvelope(helloEnvelope.messageId, /*protocolVersion=*/0,
-                                                  /*sessionId=*/std::nullopt, std::move(code),
-                                                  std::move(message), retryable),
+        .response = std::move(response),
         .sessionLease = std::nullopt,
         .closeConnection = true,
     };
@@ -67,24 +68,16 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope, std::string code, 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
                              security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
                              ConnectionId connection, ConnectionTimeoutTracker& timeoutTracker,
-                             std::chrono::steady_clock::time_point now) {
-    if (helloEnvelope.protocolVersion != 0) {
-        return Fail(helloEnvelope, "malformed_message", "hello must use protocolVersion 0", false);
-    }
-
+                             std::chrono::steady_clock::time_point now,
+                             const std::optional<std::string>& bridgeInstanceId,
+                             const ActivePlayContext& activePlayContext, const std::string& bridgeVersion) {
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
-        return Fail(helloEnvelope, "malformed_message", "Malformed hello payload", false);
-    }
-
-    bool versionSupported = std::ranges::find(hello->supportedProtocolVersions, kSupportedProtocolVersion) !=
-                             hello->supportedProtocolVersions.end();
-    if (!versionSupported) {
-        return Fail(helloEnvelope, "unsupported_version", "No mutually supported protocol version", false);
+        return Fail(helloEnvelope, bridgeInstanceId, "malformed_message", "Malformed hello payload", false);
     }
 
     if (tokenThrottle.IsBlocked(now)) {
-        return Fail(helloEnvelope, "rate_limited", "Too many failed token attempts", true);
+        return Fail(helloEnvelope, bridgeInstanceId, "rate_limited", "Too many failed token attempts", true);
     }
 
     // A structurally invalid presented token (not valid hex) can never
@@ -98,28 +91,38 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                                 : std::optional<security::TokenStore::Reservation>{};
     if (!tokenReservation.has_value()) {
         tokenThrottle.RecordFailure(now);
-        return Fail(helloEnvelope, "unauthenticated", "Invalid or expired one-time token", false);
+        return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated", "Invalid or expired one-time token", false);
     }
 
     auto sessionId = security::GenerateOpaqueId();
     auto responseMessageId = security::GenerateOpaqueId();
     if (!sessionId.has_value() || !responseMessageId.has_value()) {
-        return Fail(helloEnvelope, "internal_error", "Unable to establish a secure connection", false);
+        return Fail(helloEnvelope, bridgeInstanceId, "internal_error", "Unable to establish a secure connection",
+                    false);
     }
 
+    auto context = activePlayContext.AcquireCurrent();
     protocol::Envelope response{
-        .protocolVersion = 0,
         .messageType = std::string(protocol::message_type::kHelloAck),
         .messageId = *responseMessageId,
         .sessionId = sessionId,
         .correlationId = helloEnvelope.messageId,
-        .payload = protocol::EncodeHelloAckPayload(
-            protocol::HelloAckPayload{.selectedProtocolVersion = kSupportedProtocolVersion}),
+        .payload = protocol::EncodeHelloAckPayload(protocol::HelloAckPayload{
+            .bridgeVersion = bridgeVersion,
+            .clientIdentityKind = "unpaired",
+        }),
+        // bridgeInstanceId is this bridge's own identity; playContextId
+        // reflects whatever play context is already active at connect time
+        // (e.g. a reconnect mid-game), which may be none. clientId echoes
+        // the identity the client just established in this same hello.
+        .bridgeInstanceId = bridgeInstanceId,
+        .playContextId = context ? std::optional<std::string>(context->id) : std::nullopt,
+        .clientId = hello->clientId,
     };
 
-    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId);
+    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId);
     if (!sessionLease.has_value()) {
-        return Fail(helloEnvelope, "unauthorized", "Another client is already connected", true);
+        return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
     }
 
     tokenReservation->Commit();

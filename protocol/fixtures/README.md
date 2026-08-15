@@ -18,12 +18,10 @@ fixtures/
 - Store one complete JSON message per fixture file.
 - Organize fixtures by protocol feature; use a state-area subdirectory under `state/` when one exists.
 - The directory path and filename together must identify the message type and scenario.
-- Every fixture must contain the protocol version required to decode it. Expected decoded values belong in the consuming test, not in a second fixture metadata format.
+- Expected decoded values belong in the consuming test, not in a second fixture metadata format.
 - Flutter and SKSE tests consume the same fixture files; they must not recreate equivalent examples separately.
 - Feature-local fixtures may test private implementation details, but they must not redefine protocol meaning.
 - Validation tooling and contract tests must discover fixtures recursively below this directory.
 
 Both native and Flutter contract tests recursively enumerate every `.json` fixture and decode its
-complete envelope. Focused tests remain responsible for message-specific meaning; in particular,
-`errors/error-unsupported-version.json` proves that negotiation failure uses `protocolVersion: 0`,
-has no session identity, correlates to the rejected `hello`, and is not retryable.
+complete envelope. Focused tests remain responsible for message-specific meaning.

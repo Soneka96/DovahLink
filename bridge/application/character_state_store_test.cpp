@@ -59,7 +59,6 @@ TEST_CASE("a CharacterStateStore satisfies HandleSubscribe's CharacterStateProvi
     RevisionTracker revisions;
     auto now = std::chrono::system_clock::now();
     Envelope subscribeEnvelope{
-        .protocolVersion = dovahlink::application::kSupportedProtocolVersion,
         .messageType = "subscribe",
         .messageId = "message-sub-1",
         .sessionId = std::string("session-1"),

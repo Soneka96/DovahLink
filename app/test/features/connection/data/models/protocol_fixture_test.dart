@@ -52,7 +52,6 @@ void main() {
           payload['data'] as JsonMap,
         );
 
-        expect(envelope.protocolVersion, 1);
         expect(
           envelope.messageType,
           fixturePath.endsWith('event.json') ? 'state_event' : 'state_snapshot',
@@ -80,28 +79,6 @@ void main() {
     }
   });
 
-  group('unsupported-version fixture', () {
-    test('uses pre-negotiation envelope semantics', () {
-      final JsonMap json = _readFixture(
-        File('${fixtureDirectory.path}/errors/error-unsupported-version.json'),
-      );
-      final ProtocolEnvelopeModel envelope = ProtocolEnvelopeModel.fromJson(
-        json,
-      );
-
-      expect(envelope.protocolVersion, isA<int>());
-      expect(envelope.protocolVersion, 0);
-      expect(envelope.messageType, isA<String>());
-      expect(envelope.messageType, 'error');
-      expect(envelope.sessionId, isNull);
-      expect(envelope.correlationId, isA<String>());
-      expect(envelope.correlationId, 'message-hello-1');
-      expect(envelope.payload['code'], isA<String>());
-      expect(envelope.payload['code'], 'unsupported_version');
-      expect(envelope.payload['retryable'], isA<bool>());
-      expect(envelope.payload['retryable'], isFalse);
-    });
-  });
 }
 
 /// Finds every JSON fixture below [fixtureDirectory] in deterministic order.

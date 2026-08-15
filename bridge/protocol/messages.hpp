@@ -43,26 +43,37 @@ inline constexpr std::string_view kCharacter = "character";
 /// Reports a message-payload decoding failure.
 using MessageError = DecodeError;
 
-/// Decoded client authentication and protocol-version negotiation data.
+/// Decoded client authentication and identity data.
 struct HelloPayload {
     /// Endpoint role declared by the client.
     std::string endpoint;
-    /// Protocol versions supported by the client.
-    std::vector<std::int64_t> supportedProtocolVersions;
     /// Authentication method identifier.
     std::string authMethod;
     /// Authentication token supplied by the client.
     std::string authToken;
+    /// Identifier of the logical client establishing this connection. Shape-only
+    /// here: a required non-empty string is enforced by the payload decoder;
+    /// see `messages.hpp`'s "codecs validate shape, application validates rules"
+    /// split for how the application layer validates it against an existing
+    /// session.
+    std::string clientId;
 };
 
 /// Decodes a client hello payload and validates its supported authentication form.
 std::expected<HelloPayload, MessageError> DecodeHelloPayload(
     const boost::json::object& payload);
 
-/// Encoded response to a successful protocol-version negotiation.
+/// Encoded response to a successful handshake, exposing the bridge's own
+/// compatibility identity to the client.
 struct HelloAckPayload {
-    /// Protocol version selected by the bridge.
-    std::int64_t selectedProtocolVersion = 0;
+    /// The DovahLink Bridge/mod release version (matching `bridge/vcpkg.json`'s
+    /// `version-string`), for the client to evaluate against its own declared
+    /// supported range. See `ai/context/protocol/compatibility.md`.
+    std::string bridgeVersion;
+    /// Kind of client identity established by this handshake. Always
+    /// `"unpaired"` in the current phase; a future pairing phase adds
+    /// `"paired"` without changing this shape.
+    std::string clientIdentityKind;
 };
 
 /// Decodes a hello acknowledgment payload.
@@ -214,10 +225,8 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload);
 /// Uses the `csprng-unavailable` sentinel message ID if secure ID generation
 /// fails. `correlationId` identifies the message being answered or is null when
 /// there is no correlation; `sessionId` is null before a session exists and is
-/// otherwise the active session ID. `protocolVersion` is 0 during negotiation
-/// and the selected version afterward.
+/// otherwise the active session ID.
 Envelope BuildErrorEnvelope(std::optional<std::string> correlationId,
-                            std::int64_t protocolVersion,
                             std::optional<std::string> sessionId, std::string code,
                             std::string message, bool retryable);
 

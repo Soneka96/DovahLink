@@ -13,7 +13,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     """Verify that release-facing configuration and documentation remain aligned."""
 
     def test_target_identity_and_revision_architecture_is_explicit(self) -> None:
-        """Keep target state ownership distinct from the published session-scoped v1 contract."""
+        """Keep target state ownership explicit in the current canonical contract."""
         architecture = self._read("ARCHITECTURE.md")
         schema = self._read("protocol/schema/README.md")
         normalized_architecture = self._normalize_whitespace(architecture)
@@ -41,7 +41,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "reconnecting does not create a new authoritative revision",
             "use `playContextId` and the state-area revision together to reject stale state",
             "invalidates the previous context's state and establishes fresh authoritative state",
-            "must not be implemented by silently reinterpreting existing v1 messages",
+            "must not be implemented by silently reinterpreting messages from the previously "
+            "published experimental release",
             "Transport location is not identity",
             "receives no undocumented protocol behavior or privileged access",
             "Screens, dashboard modules, orientation, widget layout",
@@ -49,11 +50,20 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(required_phrase, normalized_architecture)
 
         self.assertIn(
-            "Revisions are scoped to one state area and session",
+            "belongs to that authoritative bridge instance, play context, and state area",
             schema,
         )
         for target_identity in ("bridgeInstanceId", "playContextId", "clientId"):
-            self.assertNotIn(target_identity, schema)
+            self.assertIn(target_identity, schema)
+        # The retired protocol-generation compatibility model must not silently creep back in.
+        for retired_term in (
+            "protocolVersion",
+            "supportedProtocolVersions",
+            "selectedProtocolVersion",
+            "unsupported_version",
+        ):
+            self.assertNotIn(retired_term, schema)
+            self.assertNotIn(retired_term, architecture)
         self.assertIn(
             "The official Flutter application is one client of the canonical protocol",
             normalized_architecture,
@@ -104,9 +114,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("timeout-minutes: 30", workflow)
+        # A job-level env: cannot reference the runner context (unresolved until a runner picks up
+        # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
+        self.assertNotIn(
+            "    env:\n      VCPKG_DEFAULT_BINARY_CACHE:",
+            workflow,
+        )
+        self.assertIn("      - name: Set VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn(
-            "    env:\n"
-            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            'run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\\vcpkg-binary-cache" >> $env:GITHUB_ENV',
             workflow,
         )
         self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
@@ -119,7 +135,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("ninja --version", workflow)
-        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
+            workflow.index("Prepare vcpkg binary cache"),
+        )
         self.assertLess(
             workflow.index("Prepare vcpkg binary cache"),
             workflow.index("Restore vcpkg binary cache"),
@@ -128,7 +147,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("ninja --version"),
             workflow.index("Configure Debug"),
         )
-        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
+        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("uses: actions/cache@v5", workflow)
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
@@ -258,9 +277,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("cmake --version=4.4.2", workflow)
         self.assertIn("ninja --version=1.13.2", workflow)
+        # A job-level env: cannot reference the runner context (unresolved until a runner picks up
+        # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
+        self.assertNotIn(
+            "    env:\n      VCPKG_DEFAULT_BINARY_CACHE:",
+            workflow,
+        )
+        self.assertIn("      - name: Set VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn(
-            "    env:\n"
-            "      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\\vcpkg-binary-cache",
+            'run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\\vcpkg-binary-cache" >> $env:GITHUB_ENV',
             workflow,
         )
         self.assertIn("      - name: Prepare vcpkg binary cache", workflow)
@@ -273,7 +298,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("ninja --version", workflow)
-        self.assertNotIn("GITHUB_ENV", workflow)
+        self.assertLess(
+            workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
+            workflow.index("Prepare vcpkg binary cache"),
+        )
         self.assertLess(
             workflow.index("Prepare vcpkg binary cache"),
             workflow.index("Restore vcpkg binary cache"),
@@ -294,7 +322,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("dotnet-version: 9.0.x", workflow)
         self.assertIn("uses: ilammy/msvc-dev-cmd@v1", workflow)
         self.assertIn("uses: actions/cache@v5", workflow)
-        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE:", workflow)
+        self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("run: cmake --preset windows-x64-debug", workflow)
         self.assertIn(
             "run: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness",
@@ -433,6 +461,32 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 workflow_path.name,
             )
 
+    def test_workflow_job_level_env_never_uses_the_runner_context(self) -> None:
+        """Guard against a job-level env: value referencing the runner context.
+
+        The runner context is not resolved until a runner has picked up the job's steps, so
+        referencing it in a job-level env: (as opposed to a step-level one) makes the whole
+        workflow file invalid -- GitHub rejects the run before any job executes. This is exactly
+        the defect that silently made bridge-ci.yml and integration-ci.yml fail on every push.
+        """
+        workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
+        for workflow_path in sorted(workflow_directory.glob("*.yml")):
+            lines = workflow_path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if not line.startswith("    env:"):
+                    continue
+                end = index + 1
+                while end < len(lines) and (
+                    not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > 4
+                ):
+                    end += 1
+                block = "\n".join(lines[index:end])
+                self.assertNotIn(
+                    "${{ runner.",
+                    block,
+                    f"{workflow_path.name}: job-level env: cannot use the runner context:\n{block}",
+                )
+
     def test_local_ci_preflight_covers_all_workflow_command_payloads(self) -> None:
         """Require the local preflight to mirror every CI command surface in order."""
         script = self._read("tooling/run-local-ci.ps1")
@@ -497,7 +551,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
-        version = "0.1.0"
+        version = "0.2.0"
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
         phase_zero = self._markdown_section("ROADMAP.md", "0. Documentation baseline")
@@ -515,14 +569,75 @@ class RepositoryConsistencyTests(unittest.TestCase):
             f"(https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `{version}`",
             root_readme,
         )
-        self.assertIn(f"published Phase 1\nbridge release, version `{version}`", bridge_readme)
+        self.assertIn(f"published Phase 2\nbridge release, version `{version}`", bridge_readme)
         self.assertIn(f"Bridge version `{version}` supports exactly one runtime", bridge_readme)
-        for completed_phase in (phase_zero, phase_zero_five, phase_one):
+        for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two):
             self.assertEqual(
                 re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
                 ["**Status:** Complete"],
             )
-        self.assertEqual(re.findall(r"(?m)^\*\*Status:\*\* .+$", phase_two), ["**Status:** Next"])
+
+    def test_bridge_version_literals_match_the_published_release(self) -> None:
+        """Guard every hand-maintained bridge-version literal against drift from vcpkg.json."""
+        manifest = json.loads(self._read("bridge/vcpkg.json"))
+        version = manifest["version-string"]
+        version_components = ", ".join(version.split("."))
+
+        for source_path in (
+            "bridge/harness/dovahlink_bridge_harness.cpp",
+            "bridge/plugin/dovahlink_bridge_plugin.cpp",
+            "bridge/application/connection_session_test.cpp",
+            "bridge/application/bridge_worker_pool_test.cpp",
+        ):
+            self.assertIn(f'kBridgeVersion = "{version}"', self._read(source_path), source_path)
+
+        compatibility = self._read(
+            "integration/DovahLinkValidationClient/BridgeVersionCompatibility.cs"
+        )
+        for limit in ("MinimumSupportedVersion", "MaximumSupportedVersion"):
+            self.assertIn(f"{limit} = new({version_components});", compatibility, limit)
+
+        self.assertIn(
+            f'CHECK(helloAck->bridgeVersion == "{version}");',
+            self._read("bridge/protocol/messages_test.cpp"),
+        )
+
+    def test_changelog_matches_the_published_bridge_version(self) -> None:
+        """Keep CHANGELOG.md's newest entry synchronized with the published bridge version."""
+        manifest = json.loads(self._read("bridge/vcpkg.json"))
+        changelog = self._read("CHANGELOG.md")
+        entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
+
+        self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
+        self.assertEqual(entry_versions[0], manifest["version-string"])
+        for known_version in ("0.1.0", "0.2.0"):
+            self.assertIn(known_version, entry_versions)
+        parsed_versions = [tuple(int(part) for part in v.split(".")) for v in entry_versions]
+        self.assertEqual(
+            parsed_versions,
+            sorted(set(parsed_versions), reverse=True),
+            "CHANGELOG.md entries must be strictly descending with no duplicate versions.",
+        )
+
+    def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
+        """Guard the datasource file-count exception and one shared term for the compatibility
+        bootstrap step and its failure case, across the docs that reference them."""
+        architecture = self._read("ai/context/flutter/architecture.md")
+        self.assertIn(
+            "One primary public class or model per file. Datasource files are the documented "
+            "exception below:",
+            architecture,
+        )
+
+        testing = self._read("ai/context/integration/testing.md")
+        self.assertIn("- compatibility bootstrap\n", testing)
+        self.assertIn(
+            "- an incompatible Bridge/client version during the compatibility bootstrap\n",
+            testing,
+        )
+
+        changelog = self._read("CHANGELOG.md")
+        self.assertIn("revision continuity across a reconnect", changelog)
 
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""
@@ -565,17 +680,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(actual_headings, expected_headings)
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
-        self.assertEqual(roadmap.count("**Status:** Next"), 1)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 3)
+        self.assertEqual(roadmap.count("**Status:** Next"), 0)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 4)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
                 expected_status = "**Status:** Complete"
-            elif heading.startswith("2. "):
-                expected_status = "**Status:** Next"
             elif heading.startswith("27. "):
                 expected_status = "**Status:** Planned after read-only product validation"
             else:
@@ -705,9 +818,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_identity,
         )
         self.assertIn(
-            "Keep published v1 session-scoped until this phase's versioned migration",
+            "Do not silently reinterpret messages from the previously published experimental "
+            "release as already carrying this ownership",
             normalized_identity,
         )
+        roadmap = self._read("ROADMAP.md")
+        for retired_term in (
+            "protocol-v2 flow",
+            "versioned pairing flow",
+            "versioned contract tests",
+            "versioned pairing contract",
+        ):
+            self.assertNotIn(retired_term, roadmap)
         self.assertIn(
             "executable bridge-restart acceptance test proving cached state from the previous bridge lifetime is rejected",
             normalized_identity,

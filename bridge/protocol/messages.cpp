@@ -49,30 +49,7 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
         return std::unexpected(endpoint.error());
     }
     if (*endpoint != "client") {
-        return Fail("endpoint must be 'client' in v1");
-    }
-
-    auto supportedProtocolVersions = [&]() -> std::expected<std::vector<std::int64_t>, MessageError> {
-        const boost::json::value* value = RequireField(payload, "supportedProtocolVersions");
-        if (!value) {
-            return Fail("missing required field: supportedProtocolVersions");
-        }
-        if (!value->is_array()) {
-            return Fail("supportedProtocolVersions must be an array");
-        }
-        std::vector<std::int64_t> versions;
-        versions.reserve(value->get_array().size());
-        for (const boost::json::value& item : value->get_array()) {
-            auto version = DecodeNonNegativeInt(&item, "supportedProtocolVersions item");
-            if (!version) {
-                return std::unexpected(version.error());
-            }
-            versions.push_back(*version);
-        }
-        return versions;
-    }();
-    if (!supportedProtocolVersions) {
-        return std::unexpected(supportedProtocolVersions.error());
+        return Fail("endpoint must be 'client'");
     }
 
     const boost::json::value* authValue = RequireField(payload, "auth");
@@ -86,7 +63,7 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
         return std::unexpected(authMethod.error());
     }
     if (*authMethod != "one_time_local_token") {
-        return Fail("auth.method must be 'one_time_local_token' in v1");
+        return Fail("auth.method must be 'one_time_local_token'");
     }
 
     auto authToken = DecodeNonEmptyString(RequireField(authObj, "token"), "auth.token");
@@ -94,26 +71,38 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
         return std::unexpected(authToken.error());
     }
 
+    auto clientId = DecodeNonEmptyString(RequireField(payload, "clientId"), "clientId");
+    if (!clientId) {
+        return std::unexpected(clientId.error());
+    }
+
     return HelloPayload{
         .endpoint = std::move(*endpoint),
-        .supportedProtocolVersions = std::move(*supportedProtocolVersions),
         .authMethod = std::move(*authMethod),
         .authToken = std::move(*authToken),
+        .clientId = std::move(*clientId),
     };
 }
 
 std::expected<HelloAckPayload, MessageError> DecodeHelloAckPayload(const boost::json::object& payload) {
-    auto selectedProtocolVersion =
-        DecodeNonNegativeInt(RequireField(payload, "selectedProtocolVersion"), "selectedProtocolVersion");
-    if (!selectedProtocolVersion) {
-        return std::unexpected(selectedProtocolVersion.error());
+    auto bridgeVersion = DecodeNonEmptyString(RequireField(payload, "bridgeVersion"), "bridgeVersion");
+    if (!bridgeVersion) {
+        return std::unexpected(bridgeVersion.error());
     }
-    return HelloAckPayload{.selectedProtocolVersion = *selectedProtocolVersion};
+    auto clientIdentityKind = DecodeNonEmptyString(RequireField(payload, "clientIdentityKind"), "clientIdentityKind");
+    if (!clientIdentityKind) {
+        return std::unexpected(clientIdentityKind.error());
+    }
+    return HelloAckPayload{
+        .bridgeVersion = std::move(*bridgeVersion),
+        .clientIdentityKind = std::move(*clientIdentityKind),
+    };
 }
 
 boost::json::object EncodeHelloAckPayload(const HelloAckPayload& payload) {
     boost::json::object obj;
-    obj["selectedProtocolVersion"] = payload.selectedProtocolVersion;
+    obj["bridgeVersion"] = payload.bridgeVersion;
+    obj["clientIdentityKind"] = payload.clientIdentityKind;
     return obj;
 }
 
@@ -392,17 +381,15 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     return obj;
 }
 
-Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64_t protocolVersion,
-                             std::optional<std::string> sessionId, std::string code, std::string message,
-                             bool retryable) {
+Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::optional<std::string> sessionId,
+                             std::string code, std::string message, bool retryable) {
     boost::json::object payload = EncodeErrorPayload(ErrorPayload{
         .code = std::move(code),
         .message = std::move(message),
         .retryable = retryable,
         .details = std::nullopt,
     });
-    auto envelope =
-        BuildEnvelope(protocolVersion, std::string(message_type::kError), sessionId, correlationId, payload);
+    auto envelope = BuildEnvelope(std::string(message_type::kError), sessionId, correlationId, payload);
     if (envelope.has_value()) {
         return std::move(*envelope);
     }
@@ -412,7 +399,6 @@ Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::int64
     // random messageId" requirement, since the same broken primitive would
     // fail identically on any retry.
     return Envelope{
-        .protocolVersion = protocolVersion,
         .messageType = std::string(message_type::kError),
         .messageId = "csprng-unavailable",
         .sessionId = std::move(sessionId),

@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 1,
   "messageType": "snapshot_request",
   "messageId": "message-snapshot-request-1",
   "sessionId": "session-1",
@@ -7,5 +6,8 @@
   "payload": {
     "stateArea": "character",
     "knownRevision": 2
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

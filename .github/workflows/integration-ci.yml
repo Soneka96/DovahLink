@@ -27,8 +27,6 @@ jobs:
   build-and-test:
     runs-on: windows-2022
     timeout-minutes: 30
-    env:
-      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
     defaults:
       run:
         shell: pwsh
@@ -36,6 +34,11 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+
+      - name: Set VCPKG_DEFAULT_BINARY_CACHE
+        # A job-level env: value cannot use the runner context (it is not resolved until a runner
+        # picks up the job's steps), so this is computed in a step instead.
+        run: echo "VCPKG_DEFAULT_BINARY_CACHE=$env:RUNNER_TEMP\vcpkg-binary-cache" >> $env:GITHUB_ENV
 
       - name: Prepare vcpkg binary cache
         run: |

@@ -29,10 +29,7 @@ void main() {
       const AppState state = AppState(
         connection: ConnectionState(
           phase: ConnectionPhase.connected,
-          session: ConnectionSessionEntity(
-            sessionId: 'session-1',
-            protocolVersion: 1,
-          ),
+          session: ConnectionSessionEntity(sessionId: 'session-1'),
           error: 'Bridge unavailable',
         ),
       );

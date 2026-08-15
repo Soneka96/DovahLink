@@ -6,9 +6,11 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Domain boundary for negotiating and observing one bridge connection.
 abstract interface class IConnectionRepository {
-  /// Authenticates and negotiates a new session with [token].
+  /// Authenticates a new session with [token], establishing this
+  /// installation's logical [clientId].
   Future<Either<Failure, ConnectionSessionEntity>> connect({
     required String token,
+    required String clientId,
   });
 
   /// Subscribes to character state and returns its initial snapshot.

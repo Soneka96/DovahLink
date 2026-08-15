@@ -16,7 +16,7 @@ The first public release focuses on the foundation: a reliable local connection 
 
 ## Current release
 
-The [DovahLink Bridge is published on Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `0.1.0`.
+The [DovahLink Bridge is published on Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `0.2.0`.
 
 It currently provides:
 

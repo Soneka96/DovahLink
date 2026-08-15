@@ -22,9 +22,8 @@
 #include <string>
 #include <thread>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
-using dovahlink::application::CharacterSnapshot;
-using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::SessionManager;
@@ -38,14 +37,17 @@ using dovahlink::transport::test_support::RequireLoopbackListener;
 namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
+/// Bridge version reported by the fixture's worker pool.
+constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {
-    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
+    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
            R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("supportedProtocolVersions": [1], "auth": {"method": "one_time_local_token", )"
+           R"("clientId": "client-1", "auth": {"method": "one_time_local_token", )"
            R"("token": ")" +
-           std::string(kValidHexToken) + R"("}}})";
+           std::string(kValidHexToken) + R"("}}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 /// Provides the same catch-all semantics as the coordinator for isolated pool
@@ -60,13 +62,6 @@ ContainedWorkRunner MakeContainedWorkRunner() {
         }
     };
 }
-
-/// Supplies a deterministic character snapshot to the real worker-pool session.
-class FakeCharacterStateProvider : public CharacterStateProvider {
-public:
-    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
-    [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return CharacterSnapshot{.level = 1}; }
-};
 
 /// Owns the real transport and application dependencies shared by worker-pool
 /// tests.
@@ -85,10 +80,11 @@ struct Fixture {
     FailedTokenThrottle tokenThrottle;
     /// Tracks the authenticated test session.
     SessionManager sessionManager;
-    /// Provides the deterministic character snapshot.
-    FakeCharacterStateProvider stateProvider;
+    /// Source of the acquired play context; empty (kNoContext) for these tests.
+    ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4, listenerV6, slot, tokenStore, tokenThrottle, sessionManager, stateProvider};
+    BridgeWorkerPool pool{listenerV4,        listenerV6,   slot,      tokenStore, tokenThrottle, sessionManager,
+                         activePlayContext, /*bridgeInstanceId=*/std::nullopt, /*bridgeVersion=*/kBridgeVersion};
 };
 
 }  // namespace

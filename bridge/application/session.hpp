@@ -59,15 +59,24 @@ public:
     /// Attempts to create a session for a connection.
     /// @param connection Connection owning the proposed session.
     /// @param sessionId Fresh server-issued session identifier.
+    /// @param clientId The authenticated client's identity, presented at `hello` and now owned by
+    ///     this session for its lifetime.
     /// @return An ownership lease when no active session existed.
-    [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection,
-                                                        const std::string& sessionId);
+    [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection, const std::string& sessionId,
+                                                        std::string clientId);
 
     /// Checks whether a session belongs to a connection.
     /// @param sessionId Session identifier presented by the client.
     /// @param connection Connection presenting the identifier.
     /// @return `true` only for the active session and its owning connection.
     [[nodiscard]] bool IsValidForConnection(const std::string& sessionId, ConnectionId connection) const;
+
+    /// Returns the authenticated client identity bound to a connection's active session. The
+    /// single place the Bridge derives "which client is this" from -- callers must not accept a
+    /// competing value from elsewhere (e.g. a repeated envelope field) once a session exists.
+    /// @param connection Connection to query.
+    /// @return The client identity, or no value when `connection` holds no active session.
+    [[nodiscard]] std::optional<std::string> ClientIdForConnection(ConnectionId connection) const;
 
     /// Invalidates the active session regardless of its connection.
     void InvalidateAll();
@@ -84,6 +93,9 @@ private:
 
     /// Identifier of the active session.
     std::optional<std::string> activeSessionId_;
+
+    /// Authenticated client identity owned by the active session.
+    std::optional<std::string> activeClientId_;
 };
 
 }  // namespace dovahlink::application

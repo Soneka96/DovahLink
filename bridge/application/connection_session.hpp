@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "security/throttle.hpp"
@@ -21,11 +22,17 @@ using SteadyNowProvider = std::function<std::chrono::steady_clock::time_point()>
 /// @param tokenThrottle Plugin-lifetime failed-token throttle.
 /// @param sessionManager Session registry for the connection.
 /// @param connection Transport connection identifier.
-/// @param stateProvider Source of current character state.
+/// @param activePlayContext Source of the acquired play context this connection's state and
+///     revisions belong to.
+/// @param bridgeInstanceId This bridge process's identity, stamped onto every response envelope;
+///     no value if generation failed at startup.
+/// @param bridgeVersion The DovahLink Bridge/mod release version exposed to the client in
+///     `hello_ack.bridgeVersion` (`ai/context/protocol/compatibility.md`).
 /// @param steadyNow Supplies current monotonic time; injectable for deterministic timeout tests.
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
                            security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                           ConnectionId connection, const CharacterStateProvider& stateProvider,
+                           ConnectionId connection, const ActivePlayContext& activePlayContext,
+                           const std::optional<std::string>& bridgeInstanceId, const std::string& bridgeVersion,
                            SteadyNowProvider steadyNow = [] { return std::chrono::steady_clock::now(); });
 
 }  // namespace dovahlink::application

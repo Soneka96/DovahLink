@@ -13,39 +13,33 @@ part 'protocol_envelope.model.g.dart';
 class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   /// Creates a decoded protocol envelope.
   const ProtocolEnvelopeModel({
-    required this.protocolVersion,
     required this.messageType,
     required this.messageId,
     required this.sessionId,
     required this.correlationId,
     required this.payload,
+    required this.bridgeInstanceId,
+    required this.playContextId,
+    required this.clientId,
   }) : super(
-         protocolVersion: protocolVersion,
          messageType: messageType,
          messageId: messageId,
          sessionId: sessionId,
          correlationId: correlationId,
          payload: payload,
+         bridgeInstanceId: bridgeInstanceId,
+         playContextId: playContextId,
+         clientId: clientId,
        );
 
   /// Decodes and validates one protocol envelope.
   factory ProtocolEnvelopeModel.fromJson(JsonMap json) {
-    final ProtocolEnvelopeModel model;
     try {
-      model = _$ProtocolEnvelopeModelFromJson(json);
+      return _$ProtocolEnvelopeModelFromJson(json);
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid protocol envelope: $error');
     }
-    if (model.protocolVersion < 0) {
-      throw ProtocolFormatException('protocolVersion must be non-negative');
-    }
-    return model;
   }
-
-  /// The negotiated protocol version for this message.
-  @JsonKey(required: true, fromJson: _readInteger)
-  @override
-  final int protocolVersion;
 
   /// The canonical message type.
   @JsonKey(required: true)
@@ -72,12 +66,25 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   @override
   final JsonMap payload;
 
+  /// The identity of the bridge instance that produced this message.
+  /// Required key, nullable value: absent (not merely null) is rejected,
+  /// matching protocol/schema/README.md's envelope table.
+  @JsonKey(required: true)
+  @override
+  final String? bridgeInstanceId;
+
+  /// The identity of the currently loaded play context, when one is active.
+  /// See [bridgeInstanceId] for the same required-key, nullable-value shape.
+  @JsonKey(required: true)
+  @override
+  final String? playContextId;
+
+  /// The identity of the logical client, established at `hello`. See
+  /// [bridgeInstanceId] for the same required-key, nullable-value shape.
+  @JsonKey(required: true)
+  @override
+  final String? clientId;
+
   /// Encodes this envelope as a JSON object.
   JsonMap toJson() => _$ProtocolEnvelopeModelToJson(this);
-}
-
-/// Reads an integer while rejecting numeric values with a fractional part.
-int _readInteger(Object? value) {
-  if (value is int) return value;
-  throw const FormatException('value must be an integer');
 }

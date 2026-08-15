@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 0,
   "messageType": "error",
   "messageId": "message-error-expired-token-1",
   "sessionId": null,
@@ -9,5 +8,8 @@
     "message": "Token expired",
     "retryable": false,
     "details": null
-  }
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
 }

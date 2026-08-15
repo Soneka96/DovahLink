@@ -1,10 +1,12 @@
 {
-  "protocolVersion": 1,
   "messageType": "subscribe",
   "messageId": "message-subscribe-1",
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
     "stateAreas": ["character"]
-  }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
 }

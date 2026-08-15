@@ -23,6 +23,7 @@ Cover:
 - latest-state coalescing and forced fresh-snapshot recovery after queue loss
 - next-game-callback recovery capture after queue loss without worker-side runtime reads
 - registration and unregistration ordering
+- each SKSE runtime interface with a call-once registration contract (for example `SKSE::MessagingInterface::RegisterListener`, which SKSE allows exactly one call to per plugin and which fails both registrations silently on a second call) has exactly one call site; verify this structurally, since the failure only surfaces inside a running SKSE process
 - callbacks that enter during shutdown and callbacks already in flight at unregister time
 - worker shutdown while work is pending
 - worker, callback, and transport-completion exceptions are contained
@@ -50,3 +51,5 @@ Cover:
 ## Manual verification
 
 When a change touches runtime integration, record the Skyrim runtime, SKSE version, load order conditions, reproduction steps, expected result, and observed result. A manual check does not replace automated tests for the code that can be tested without Skyrim.
+
+If a manual verification pass turns up a genuine SKSE or engine quirk rather than a project-specific bug, also record it in `runtime-quirks.md`.

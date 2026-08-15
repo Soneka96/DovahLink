@@ -1,5 +1,4 @@
 {
-  "protocolVersion": 0,
   "messageType": "error",
   "messageId": "message-error-frame-too-large-1",
   "sessionId": null,
@@ -9,5 +8,8 @@
     "message": "Inbound frame exceeds the 1 MiB limit",
     "retryable": false,
     "details": null
-  }
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
 }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 
 namespace DovahLinkValidationClient.Tests;
@@ -62,6 +63,42 @@ public sealed class HarnessProcess : IDisposable
                 return _stderr.ToString();
             }
         }
+    }
+
+    /// <summary>The bridge instance identifier reported by the harness during <see cref="WaitForReadyAsync"/>, or <c>null</c> before that completes.</summary>
+    public string? BridgeInstanceId { get; private set; }
+
+    /// <summary>
+    /// Reads and validates the harness startup handshake: the <c>READY</c> line followed by its <c>BRIDGE_INSTANCE &lt;id&gt;</c> line.
+    /// </summary>
+    /// <param name="timeout">The maximum time to wait for each line, or the default read timeout when omitted.</param>
+    /// <returns>The bridge instance ID reported by the harness, which is also stored in <see cref="BridgeInstanceId"/>.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the harness does not report READY followed by its bridge instance ID.</exception>
+    public async Task<string> WaitForReadyAsync(TimeSpan? timeout = null)
+    {
+        string? ready = await ReadLineAsync(timeout);
+        if (ready != "READY")
+        {
+            throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {StandardError}");
+        }
+
+        const string prefix = "BRIDGE_INSTANCE ";
+        string? instanceLine = await ReadLineAsync(timeout);
+        if (instanceLine is null || !instanceLine.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Harness did not report its bridge instance ID: {instanceLine}. Stderr: {StandardError}");
+        }
+
+        string instanceId = instanceLine[prefix.Length..];
+        if (string.IsNullOrWhiteSpace(instanceId))
+        {
+            throw new InvalidOperationException(
+                $"Harness reported an empty bridge instance ID: {instanceLine}. Stderr: {StandardError}");
+        }
+
+        BridgeInstanceId = instanceId;
+        return BridgeInstanceId;
     }
 
     /// <summary>Appends one diagnostic line while excluding concurrent readers.</summary>
@@ -180,6 +217,25 @@ public sealed class HarnessProcess : IDisposable
                 startInfo.EnvironmentVariables[key] = value;
             }
         }
+        return startInfo;
+    }
+
+    /// <summary>Builds a redirected <c>cmd.exe</c> specification that echoes each argument as its own
+    /// stdout line, for deterministic tests that exercise <see cref="HarnessProcess"/>'s own output
+    /// parsing without a real bridge harness.</summary>
+    /// <param name="lines">The lines to echo in order.</param>
+    internal static ProcessStartInfo CreateEchoingStartInfo(params string[] lines)
+    {
+        var startInfo = new ProcessStartInfo("cmd.exe")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add(string.Join("&", lines.Select(line => $"echo {line}")));
         return startInfo;
     }
 

@@ -99,10 +99,13 @@ still prevents a client from accepting messages from an old or foreign socket. W
 changes, the bridge invalidates the previous context's state and establishes fresh authoritative
 state before publication resumes.
 
-The published protocol v1 currently scopes revisions to a connection session. That remains the
-current wire contract until the Bridge Identity and Authoritative State Foundation phase explicitly
-updates and versions the schema, fixtures, bridge, validation client, and Flutter consumer. The
-target ownership above must not be implemented by silently reinterpreting existing v1 messages.
+`protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
+`ROADMAP.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
+the bridge and its clients. This ownership must not be implemented by silently reinterpreting
+messages from the previously published experimental release, which is archived rather than a
+supported compatibility target. The current contract has no independent runtime protocol-generation
+number of its own; compatibility with it is identified by the DovahLink Bridge/mod release version,
+per `ai/context/protocol/compatibility.md`.
 
 ## Live delivery and performance model
 
@@ -124,7 +127,7 @@ target ownership above must not be implemented by silently reinterpreting existi
 
 - Treat the game as an unreliable producer: values may be unavailable or delayed.
 - Make connection state visible to the player.
-- Reject incompatible protocol versions clearly.
+- Reject an incompatible Bridge/client combination clearly.
 - Avoid allowing a stale value to look current.
 - Keep the first client read-only.
 

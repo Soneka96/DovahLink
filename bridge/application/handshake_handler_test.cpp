@@ -5,14 +5,17 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <boost/json/array.hpp>
 #include <boost/json/object.hpp>
 #include <boost/json/parse.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
+using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
 using dovahlink::application::SessionManager;
@@ -33,16 +36,22 @@ constexpr const char* kWrongHexToken =
 /// Decodes the canonical valid test token into the production byte format.
 std::vector<std::uint8_t> ValidTokenBytes() { return *DecodeHex(kValidHexToken); }
 
-/// Builds a hello envelope with controllable token, message ID, and version fields.
+/// Builds a hello envelope with a controllable token, message ID, and
+/// clientId. `clientId` omits the payload key entirely when `std::nullopt`,
+/// so callers can exercise the "clientId missing" rejection path.
 Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "message-hello-1",
-                             std::int64_t protocolVersion = 0) {
-    boost::json::object payload =
-        boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [1],
-            "auth": {"method": "one_time_local_token", "token": ")" +
-                            token + R"("}})")
-            .get_object();
+                             std::optional<std::string> clientId = std::string("client-1")) {
+    boost::json::object payload;
+    payload["endpoint"] = "client";
+    if (clientId.has_value()) {
+        payload["clientId"] = *clientId;
+    }
+    boost::json::object auth;
+    auth["method"] = "one_time_local_token";
+    auth["token"] = token;
+    payload["auth"] = auth;
+
     return Envelope{
-        .protocolVersion = protocolVersion,
         .messageType = "hello",
         .messageId = std::move(messageId),
         .sessionId = std::nullopt,
@@ -53,7 +62,7 @@ Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "m
 
 }  // namespace
 
-TEST_CASE("HandleHello accepts a valid token and supported version", "[application][handshake_handler]") {
+TEST_CASE("HandleHello accepts a valid token and hello", "[application][handshake_handler]") {
     TokenStore tokenStore(ValidTokenBytes());
     FailedTokenThrottle throttle;
     SessionManager sessions;
@@ -72,10 +81,23 @@ TEST_CASE("HandleHello accepts a valid token and supported version", "[applicati
     CHECK(*result.response.correlationId == "message-hello-1");
     CHECK_FALSE(result.response.messageId.empty());
     CHECK(sessions.IsValidForConnection(*result.response.sessionId, /*connection=*/1));
+    // The authenticated client identity is now session-owned state, derived
+    // from SessionManager rather than a repeated envelope field.
+    auto sessionClientId = sessions.ClientIdForConnection(/*connection=*/1);
+    REQUIRE(sessionClientId.has_value());
+    CHECK(*sessionClientId == "client-1");
 
     auto ack = dovahlink::protocol::DecodeHelloAckPayload(result.response.payload);
     REQUIRE(ack.has_value());
-    CHECK(ack->selectedProtocolVersion == 1);
+    CHECK(ack->bridgeVersion == "0.0.0");  // HandleHello's default bridgeVersion for callers that omit it.
+    CHECK(ack->clientIdentityKind == "unpaired");
+
+    // Identity fields are always echoed now: clientId from the hello,
+    // bridgeInstanceId only when the caller supplied one (not here).
+    REQUIRE(result.response.clientId.has_value());
+    CHECK(*result.response.clientId == "client-1");
+    CHECK_FALSE(result.response.bridgeInstanceId.has_value());
+    CHECK_FALSE(result.response.playContextId.has_value());
 
     // Proves MarkAuthenticated actually ran: the handshake deadline was
     // start+5s (security::kHandshakeTimeout), so without MarkAuthenticated
@@ -84,22 +106,83 @@ TEST_CASE("HandleHello accepts a valid token and supported version", "[applicati
     CHECK_FALSE(timeout.IsTimedOut(start + std::chrono::seconds(6)));
 }
 
-TEST_CASE("HandleHello rejects a non-zero protocolVersion as malformed", "[application][handshake_handler]") {
+TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto the response",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
+    // No context has been begun, so playContextId stays null even though
+    // bridgeInstanceId is present.
+    CHECK_FALSE(result.response.playContextId.has_value());
+}
+
+TEST_CASE("HandleHello stamps the play context already active at connect time onto the response",
+          "[application][handshake_handler]") {
+    // Proves a reconnect mid-game (or any connection made while a play
+    // context is already loaded) reports it immediately in hello_ack,
+    // matching protocol/fixtures/connection/hello-ack-active-context.json.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+    activePlayContext.Begin("context-1");
+
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    REQUIRE(result.response.playContextId.has_value());
+    CHECK(*result.response.playContextId == "context-1");
+}
+
+TEST_CASE("HandleHello uses the supplied bridgeVersion in hello_ack", "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::nullopt, activePlayContext,
+                              /*bridgeVersion=*/"0.1.0");
+
+    auto ack = dovahlink::protocol::DecodeHelloAckPayload(result.response.payload);
+    REQUIRE(ack.has_value());
+    CHECK(ack->bridgeVersion == "0.1.0");
+}
+
+TEST_CASE("HandleHello rejects a hello that omits clientId", "[application][handshake_handler]") {
     TokenStore tokenStore(ValidTokenBytes());
     FailedTokenThrottle throttle;
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
 
-    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*protocolVersion=*/1);
-    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", /*clientId=*/std::nullopt);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now);
 
     CHECK(result.closeConnection);
-    CHECK(result.response.messageType == "error");
-    CHECK_FALSE(result.response.sessionId.has_value());
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "malformed_message");
+    // The token must not have been spent, and the failed-token throttle must
+    // not have counted this rejection: it happens before either check runs.
+    CHECK(tokenStore.IsAvailable());
+    CHECK_FALSE(throttle.IsBlocked(now));
 }
 
 TEST_CASE("HandleHello rejects a structurally malformed payload", "[application][handshake_handler]") {
@@ -108,49 +191,27 @@ TEST_CASE("HandleHello rejects a structurally malformed payload", "[application]
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
 
     Envelope hello{
-        .protocolVersion = 0,
         .messageType = "hello",
         .messageId = "message-hello-1",
         .sessionId = std::nullopt,
         .correlationId = std::nullopt,
         .payload = boost::json::parse(R"({"endpoint": "client"})").get_object(),  // missing required fields
     };
-    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
+    // This is the earliest Fail() call site in HandleHello -- runs before
+    // the token or session checks below -- so it exercises the
+    // bridgeInstanceId stamping at the structurally-first possible point.
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
 
     CHECK(result.closeConnection);
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "malformed_message");
-}
-
-TEST_CASE("HandleHello rejects a hello that does not include the supported version",
-          "[application][handshake_handler]") {
-    TokenStore tokenStore(ValidTokenBytes());
-    FailedTokenThrottle throttle;
-    SessionManager sessions;
-    auto now = std::chrono::steady_clock::now();
-    ConnectionTimeoutTracker timeout(now);
-
-    Envelope hello{
-        .protocolVersion = 0,
-        .messageType = "hello",
-        .messageId = "message-hello-1",
-        .sessionId = std::nullopt,
-        .correlationId = std::nullopt,
-        .payload = boost::json::parse(R"({"endpoint": "client", "supportedProtocolVersions": [2],
-            "auth": {"method": "one_time_local_token", "token": "abcd"}})")
-                       .get_object(),
-    };
-    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
-
-    CHECK(result.closeConnection);
-    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
-    REQUIRE(error.has_value());
-    CHECK(error->code == "unsupported_version");
-    // The token must not have been spent checking a version-incompatible client.
-    CHECK(tokenStore.IsAvailable());
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("HandleHello rejects a wrong token without consuming the real one",
@@ -169,6 +230,31 @@ TEST_CASE("HandleHello rejects a wrong token without consuming the real one",
     REQUIRE(error.has_value());
     CHECK(error->code == "unauthenticated");
     CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("HandleHello stamps a supplied bridgeInstanceId onto a rejected-token failure response",
+          "[application][handshake_handler]") {
+    // The bridge's own identity is known before any hello arrives (it is
+    // generated once at startup), so a rejection during the handshake itself
+    // -- unlike the narrow set of failures where identity generation itself
+    // failed -- should still carry it.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    ActivePlayContext activePlayContext;
+
+    auto hello = BuildHelloEnvelope(kWrongHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, /*connection=*/1, timeout, now,
+                              /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+    REQUIRE(result.response.bridgeInstanceId.has_value());
+    CHECK(*result.response.bridgeInstanceId == "bridge-1");
 }
 
 TEST_CASE("HandleHello rejects a non-hex presented token the same way as a wrong one",
@@ -255,7 +341,7 @@ TEST_CASE("rate-limited handshakes do not extend the failed-attempt window",
 TEST_CASE("HandleHello rejects a second connection while a session is already active",
           "[application][handshake_handler]") {
     SessionManager sessions;
-    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session");
+    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session", "existing-client");
     REQUIRE(existingLease.has_value());
 
     TokenStore tokenStore(ValidTokenBytes());

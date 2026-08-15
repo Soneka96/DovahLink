@@ -13,26 +13,25 @@ public static class BridgeScenario
     public static readonly Uri BridgeUri = new("ws://127.0.0.1:58231/");
 
     /// <summary>
-    /// Builds a version-0 hello envelope for client authentication.
+    /// Builds a hello envelope for client authentication.
     /// </summary>
     /// <param name="token">The one-time local authentication token.</param>
     /// <param name="messageId">The message identifier for the envelope.</param>
-    /// <param name="supportedProtocolVersions">The protocol versions supported by the client; defaults to version 1.</param>
-    /// <returns>A hello envelope containing the client endpoint, supported protocol versions, and authentication details.</returns>
-    public static Envelope HelloEnvelope(
-        string token, string messageId = "message-hello-1", int[]? supportedProtocolVersions = null)
+    /// <param name="clientId">The logical client identity to offer, required by the bridge in every hello.</param>
+    /// <returns>A hello envelope containing the client endpoint and authentication details.</returns>
+    public static Envelope HelloEnvelope(string token, string messageId = "message-hello-1", string clientId = "client-1")
     {
         var payload = new JsonObject
         {
             ["endpoint"] = "client",
-            ["supportedProtocolVersions"] = new JsonArray((supportedProtocolVersions ?? [1]).Select(v => (JsonNode)v).ToArray()),
+            ["clientId"] = clientId,
             ["auth"] = new JsonObject
             {
                 ["method"] = "one_time_local_token",
                 ["token"] = token,
             },
         };
-        return new Envelope(0, "hello", messageId, null, null, payload);
+        return new Envelope("hello", messageId, null, null, payload);
     }
 
     /// <summary>
@@ -61,11 +60,15 @@ public static class BridgeScenario
         BridgeConnection? connection = null;
         try
         {
-            string? ready = await harness.ReadLineAsync();
-            if (ready != "READY")
-            {
-                throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {harness.StandardError}");
-            }
+            await harness.WaitForReadyAsync();
+            // A capture has nowhere to be attributed to before a play context
+            // exists (ActivePlayContextLevelSink drops it, matching real
+            // play: main menu has no play context). Begin one here so every
+            // scenario using this shared setup sees a real, non-"unavailable"
+            // character state, not because of anything specific to
+            // authentication or capabilities.
+            await harness.WriteLineAsync("new_game");
+            await ReadPlayContextReportAsync(harness);
 
             connection = connectionFactory is null
                 ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)
@@ -101,6 +104,34 @@ public static class BridgeScenario
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Reads and validates the harness's <c>new_game</c> play-context report line.
+    /// </summary>
+    /// <param name="harness">The harness process to read the report from.</param>
+    /// <returns>The reported play context ID.</returns>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the harness does not report a well-formed, non-empty play context ID.
+    /// </exception>
+    public static async Task<string> ReadPlayContextReportAsync(HarnessProcess harness)
+    {
+        const string playContextPrefix = "PLAY_CONTEXT ";
+        string? playContextLine = await harness.ReadLineAsync();
+        if (playContextLine is null || !playContextLine.StartsWith(playContextPrefix, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Harness did not report a play context for 'new_game': {playContextLine}. Stderr: {harness.StandardError}");
+        }
+
+        string playContextId = playContextLine[playContextPrefix.Length..];
+        if (string.IsNullOrWhiteSpace(playContextId))
+        {
+            throw new InvalidOperationException(
+                $"Harness reported an empty play context ID for 'new_game': {playContextLine}. Stderr: {harness.StandardError}");
+        }
+
+        return playContextId;
     }
 
     /// <summary>

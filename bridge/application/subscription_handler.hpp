@@ -32,9 +32,8 @@ public:
 /// @return Completed envelope, or no value if secure message-ID generation fails.
 /// Formatting, encoding, and allocation exceptions propagate to the caller.
 [[nodiscard]] std::optional<protocol::Envelope> BuildCharacterSnapshotEnvelope(
-    const std::string& sessionId, std::optional<std::string> correlationId,
-    const CharacterSnapshot& snapshot, std::int64_t revision,
-    std::chrono::system_clock::time_point now);
+    const std::string& sessionId, std::optional<std::string> correlationId, const CharacterSnapshot& snapshot,
+    std::int64_t revision, std::chrono::system_clock::time_point now);
 
 /// Function used to prepare a snapshot envelope before its revision is committed.
 using SnapshotEnvelopeBuilder = decltype(BuildCharacterSnapshotEnvelope);
@@ -58,6 +57,12 @@ struct SubscribeResult {
 
     /// Snapshots for accepted state areas, in request order.
     std::vector<protocol::Envelope> snapshots;
+
+    /// State areas accepted by this request, exposed structurally (beyond
+    /// `subscriptionAck`'s encoded payload) for the dispatcher's own
+    /// per-connection subscription bookkeeping. Empty when the request
+    /// itself failed before areas could be evaluated.
+    std::vector<std::string> acceptedStateAreas;
 };
 
 /// Handles a subscription request and builds initial snapshots before any events.
@@ -66,7 +71,7 @@ struct SubscribeResult {
 /// @param subscribeEnvelope Decoded client subscription request.
 /// @param sessionId Authenticated session identifier.
 /// @param stateProvider Source of current character state.
-/// @param revisions Session revision tracker.
+/// @param revisions Revision tracker for the play context this connection currently reads.
 /// @param now Timestamp assigned to generated snapshots.
 /// @param snapshotBuilder Builds a complete snapshot before revision state changes.
 /// @return Subscription acknowledgement and any accepted-area snapshots.
@@ -83,7 +88,7 @@ struct SubscribeResult {
 /// @param snapshotRequestEnvelope Decoded client snapshot request.
 /// @param sessionId Authenticated session identifier.
 /// @param stateProvider Source of current character state.
-/// @param revisions Session revision tracker.
+/// @param revisions Revision tracker for the play context this connection currently reads.
 /// @param now Timestamp assigned to the generated snapshot.
 /// @param snapshotBuilder Builds a complete snapshot before revision state changes.
 /// @return Snapshot envelope or a protocol error envelope.

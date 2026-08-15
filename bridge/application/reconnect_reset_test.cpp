@@ -26,19 +26,22 @@ namespace {
 constexpr ConnectionId kConnectionA = 1;
 constexpr ConnectionId kConnectionB = 2;
 const std::string kCharacter = "character";
+// These tests exercise instance/session boundaries, not content-change
+// detection, so every call reuses the same fingerprint value.
+const std::string kFingerprint = "fingerprint-1";
 }  // namespace
 
 TEST_CASE("a reconnect after disconnect frees the one-connected-client slot for a new session",
           "[application][reconnect_reset]") {
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
 
     // Connection A disconnects (timeout, protocol violation, or a clean close).
     sessionA.reset();
 
     // Connection B's reconnect claims a brand new session, not a resumption of A's.
-    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2");
+    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2", "client-2");
     REQUIRE(sessionB.has_value());
     CHECK(sessions.IsValidForConnection("session-2", kConnectionB));
     CHECK_FALSE(sessions.IsValidForConnection("session-1", kConnectionA));
@@ -47,7 +50,7 @@ TEST_CASE("a reconnect after disconnect frees the one-connected-client slot for 
 TEST_CASE("a new session's RevisionTracker starts a fresh baseline, not a continuation",
           "[application][reconnect_reset]") {
     RevisionTracker sessionA;
-    sessionA.StartSnapshot(kCharacter);
+    sessionA.StartSnapshot(kCharacter, kFingerprint);
     sessionA.NextEvent(kCharacter);
     sessionA.NextEvent(kCharacter);
     REQUIRE(sessionA.CurrentRevision(kCharacter) == 3);
@@ -56,7 +59,7 @@ TEST_CASE("a new session's RevisionTracker starts a fresh baseline, not a contin
     // means here: there is no shared state for a new session to inherit from.
     RevisionTracker sessionB;
     CHECK_FALSE(sessionB.CurrentRevision(kCharacter).has_value());
-    CHECK(sessionB.StartSnapshot(kCharacter) == 1);
+    CHECK(sessionB.StartSnapshot(kCharacter, kFingerprint) == 1);
 }
 
 TEST_CASE("a new session's ReplayGuard has no memory of the previous session's messageIds",
@@ -77,33 +80,39 @@ TEST_CASE("the same connection reconnecting after invalidation still gets an ent
     // socket handle); this proves reuse of the identifier itself never resumes
     // the old session or its per-session state.
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
     RevisionTracker revisionsA;
-    revisionsA.StartSnapshot(kCharacter);
+    revisionsA.StartSnapshot(kCharacter, kFingerprint);
     revisionsA.NextEvent(kCharacter);
     REQUIRE(revisionsA.CurrentRevision(kCharacter) == 2);
 
     sessionA.reset();
 
     // kConnectionA itself reconnects, not a different connection.
-    auto reconnectedSession = sessions.TryCreateSession(kConnectionA, "session-2");
+    auto reconnectedSession = sessions.TryCreateSession(kConnectionA, "session-2", "client-2");
     REQUIRE(reconnectedSession.has_value());
     CHECK(sessions.IsValidForConnection("session-2", kConnectionA));
     CHECK_FALSE(sessions.IsValidForConnection("session-1", kConnectionA));
+    // The reused connection's client identity is the reconnect's own, not a
+    // holdover from the session it replaced -- the same "no shared state
+    // across sessions" property this file proves for revisions and replay.
+    auto clientId = sessions.ClientIdForConnection(kConnectionA);
+    REQUIRE(clientId.has_value());
+    CHECK(*clientId == "client-2");
 
     RevisionTracker revisionsReconnected;
-    CHECK(revisionsReconnected.StartSnapshot(kCharacter) == 1);
+    CHECK(revisionsReconnected.StartSnapshot(kCharacter, kFingerprint) == 1);
 }
 
 TEST_CASE("the full reconnect flow establishes an independent session end to end",
           "[application][reconnect_reset]") {
     SessionManager sessions;
-    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1");
+    auto sessionA = sessions.TryCreateSession(kConnectionA, "session-1", "client-1");
     REQUIRE(sessionA.has_value());
     RevisionTracker revisionsA;
     ReplayGuard replayA;
-    revisionsA.StartSnapshot(kCharacter);
+    revisionsA.StartSnapshot(kCharacter, kFingerprint);
     revisionsA.NextEvent(kCharacter);
     replayA.RecordMessage("message-1");
 
@@ -112,12 +121,12 @@ TEST_CASE("the full reconnect flow establishes an independent session end to end
     sessionA.reset();
 
     // Connection B reconnects with entirely fresh per-session state.
-    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2");
+    auto sessionB = sessions.TryCreateSession(kConnectionB, "session-2", "client-2");
     REQUIRE(sessionB.has_value());
     RevisionTracker revisionsB;
     ReplayGuard replayB;
 
-    CHECK(revisionsB.StartSnapshot(kCharacter) == 1);
+    CHECK(revisionsB.StartSnapshot(kCharacter, kFingerprint) == 1);
     CHECK(replayB.RecordMessage("message-1") == MessageIdCheckResult::kAccepted);
     CHECK_FALSE(sessions.IsValidForConnection("session-1", kConnectionA));
 }

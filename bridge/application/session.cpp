@@ -36,7 +36,7 @@ void SessionManager::Lease::Reset() noexcept {
 }
 
 std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
-    ConnectionId connection, const std::string& sessionId) {
+    ConnectionId connection, const std::string& sessionId, std::string clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value()) {
         return std::nullopt;
@@ -47,6 +47,7 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
     std::string activeSessionId = sessionId;
     std::string leaseSessionId = sessionId;
     activeSessionId_.emplace(std::move(activeSessionId));
+    activeClientId_.emplace(std::move(clientId));
     activeConnection_ = connection;
     return Lease(*this, connection, std::move(leaseSessionId));
 }
@@ -59,12 +60,21 @@ bool SessionManager::IsValidForConnection(const std::string& sessionId, Connecti
     return *activeConnection_ == connection && *activeSessionId_ == sessionId;
 }
 
+std::optional<std::string> SessionManager::ClientIdForConnection(ConnectionId connection) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
+        return std::nullopt;
+    }
+    return activeClientId_;
+}
+
 void SessionManager::InvalidateSession(ConnectionId connection, const std::string& sessionId) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value() && activeSessionId_.has_value() &&
         *activeConnection_ == connection && *activeSessionId_ == sessionId) {
         activeConnection_.reset();
         activeSessionId_.reset();
+        activeClientId_.reset();
     }
 }
 
@@ -72,6 +82,7 @@ void SessionManager::InvalidateAll() {
     std::lock_guard<std::mutex> lock(mutex_);
     activeConnection_.reset();
     activeSessionId_.reset();
+    activeClientId_.reset();
 }
 
 }  // namespace dovahlink::application

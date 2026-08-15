@@ -197,24 +197,25 @@ void ClientWriteText(boost::beast::websocket::stream<boost::asio::ip::tcp::socke
 
 /// Builds the harness hello message using the representative test token.
 std::string HelloMessage() {
-    return R"({"protocolVersion": 0, "messageType": "hello", "messageId": "message-hello-1", )"
+    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
            R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("supportedProtocolVersions": [1], "auth": {"method": "one_time_local_token", "token": ")" +
-           std::string(kValidHexToken) + R"("}}})";
+           R"("clientId": "client-1", "auth": {"method": "one_time_local_token", "token": ")" +
+           std::string(kValidHexToken) + R"("}}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 /// Builds a subscription request for one authenticated session.
 std::string SubscribeMessage(const std::string& sessionId, const std::string& messageId) {
-    return R"({"protocolVersion": 1, "messageType": "subscribe", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + sessionId + R"(", "correlationId": null, "payload": {"stateAreas": )"
-           R"(["character"]}})";
+    return R"({"messageType": "subscribe", "messageId": ")" + messageId + R"(", "sessionId": ")" + sessionId +
+           R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 /// Builds a character snapshot request for one authenticated session.
 std::string SnapshotRequestMessage(const std::string& sessionId, const std::string& messageId) {
-    return R"({"protocolVersion": 1, "messageType": "snapshot_request", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + sessionId + R"(", "correlationId": null, "payload": {"stateArea": )"
-           R"("character"}})";
+    return R"({"messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" + sessionId +
+           R"(", "correlationId": null, "payload": {"stateArea": "character"}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 /// Decodes and returns the character level from a state snapshot envelope.
@@ -227,12 +228,49 @@ std::int64_t SnapshotLevel(const dovahlink::protocol::Envelope& snapshot) {
     return *characterState->level;
 }
 
+/// Asserts that a state snapshot envelope reports the character level as unavailable.
+void CheckSnapshotLevelUnavailable(const dovahlink::protocol::Envelope& snapshot) {
+    auto decoded = dovahlink::protocol::DecodeStateSnapshotPayload(snapshot.payload);
+    REQUIRE(decoded.has_value());
+    auto characterState = dovahlink::protocol::DecodeCharacterState(decoded->data);
+    REQUIRE(characterState.has_value());
+    CHECK_FALSE(characterState->level.has_value());
+}
+
+/// Reads and validates the harness's `BRIDGE_INSTANCE <id>` startup line,
+/// returning the identifier text after the prefix.
+std::string ReadBridgeInstanceId(HarnessProcess& harness) {
+    constexpr std::string_view kPrefix = "BRIDGE_INSTANCE ";
+    std::string line = harness.ReadLine();
+    REQUIRE(line.starts_with(kPrefix));
+    return line.substr(kPrefix.size());
+}
+
+/// Reads and validates one `PLAY_CONTEXT <id-or-(none)>` acknowledgment line,
+/// returning the text after the prefix.
+std::string ReadPlayContext(HarnessProcess& harness) {
+    constexpr std::string_view kPrefix = "PLAY_CONTEXT ";
+    std::string line = harness.ReadLine();
+    REQUIRE(line.starts_with(kPrefix));
+    return line.substr(kPrefix.size());
+}
+
 }  // namespace
 
 TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket and shuts down cleanly",
           "[harness]") {
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
     REQUIRE(harness.ReadLine() == "READY");
+    std::string bridgeInstanceId = ReadBridgeInstanceId(harness);
+    CHECK_FALSE(bridgeInstanceId.empty());
+    CHECK(bridgeInstanceId != "(unavailable)");
+
+    // A capture has nowhere to be attributed to before a play context exists
+    // (ActivePlayContextLevelSink drops it, matching real play: main menu
+    // has no play context). Begin one before subscribing, the same way a
+    // real client would only see character state once a game is loaded.
+    harness.WriteLine("new_game");
+    CHECK_FALSE(ReadPlayContext(harness) == "(none)");
 
     boost::asio::io_context ioc;
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -271,7 +309,9 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     CHECK(subscriptionAck.messageType == "subscription_ack");
     auto initialSnapshot = ClientReadEnvelope(clientWs);
     CHECK(initialSnapshot.messageType == "state_snapshot");
-    CHECK(SnapshotLevel(initialSnapshot) == 5);
+    // Nothing has captured a level into this context yet: an unavailable
+    // value, not a plausible default (protocol/schema/README.md).
+    CheckSnapshotLevelUnavailable(initialSnapshot);
 
     harness.WriteLine("increase_level");
     CHECK(harness.ReadLine() == "LEVEL 6");
@@ -289,6 +329,88 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
 
     boost::system::error_code closeEc;
     clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID across a relaunch",
+          "[harness]") {
+    // Proves the harness's own documented purpose for this ID (see its
+    // startup comment): a fresh identity per process launch. The .NET
+    // RestartScenarioTests.cs proves the same property at the process
+    // boundary the real acceptance test cares about; this case only proves
+    // the harness-side generation itself varies, without needing a socket.
+    std::string firstId;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        REQUIRE(harness.ReadLine() == "READY");
+        firstId = ReadBridgeInstanceId(harness);
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    }
+
+    std::string secondId;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        REQUIRE(harness.ReadLine() == "READY");
+        secondId = ReadBridgeInstanceId(harness);
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    }
+
+    CHECK(firstId != secondId);
+}
+
+TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
+          "lifecycle",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    // No context before any load, matching GameLifecycleTracker's fresh
+    // kNoContext state; revert is idempotent there.
+    harness.WriteLine("revert");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    harness.WriteLine("new_game");
+    std::string newGameContext = ReadPlayContext(harness);
+    CHECK_FALSE(newGameContext.empty());
+    CHECK(newGameContext != "(none)");
+
+    // A second new_game with no intervening revert still invalidates the
+    // first context and mints a distinct one (GameLifecycleTracker's own
+    // "invalidate-if-active" rule for kNewGame).
+    harness.WriteLine("new_game");
+    std::string secondNewGameContext = ReadPlayContext(harness);
+    CHECK(secondNewGameContext != newGameContext);
+
+    // Loading (even conceptually "the same save" -- this harness has no save
+    // identity at all) mints a distinct context from the one just replaced,
+    // the single most important assertion this design makes
+    // (task.md's manual verification results).
+    harness.WriteLine("load_game");
+    std::string firstLoadContext = ReadPlayContext(harness);
+    CHECK_FALSE(firstLoadContext.empty());
+    CHECK(firstLoadContext != secondNewGameContext);
+
+    harness.WriteLine("load_game");
+    std::string secondLoadContext = ReadPlayContext(harness);
+    CHECK(secondLoadContext != firstLoadContext);
+
+    // A failed load still invalidates the current context (kPreLoadGame) but
+    // settles into kNoContext rather than reviving or replacing it.
+    harness.WriteLine("load_game_fail");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    harness.WriteLine("revert");
+    CHECK(ReadPlayContext(harness) == "(none)");
+
+    // A fresh context after revert must not resurrect the reverted one.
+    harness.WriteLine("new_game");
+    CHECK(ReadPlayContext(harness) != secondLoadContext);
 
     harness.WriteLine("quit");
     REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));

@@ -20,7 +20,6 @@ using dovahlink::application::CharacterStateProvider;
 using dovahlink::application::HandleClientCapabilities;
 using dovahlink::application::HandleSnapshotRequest;
 using dovahlink::application::HandleSubscribe;
-using dovahlink::application::kSupportedProtocolVersion;
 using dovahlink::application::RevisionTracker;
 using dovahlink::protocol::Envelope;
 
@@ -52,7 +51,6 @@ public:
 Envelope BuildEnvelopeWithPayload(std::string messageType, const std::string& jsonPayload,
                                    std::string messageId = "message-1") {
     return Envelope{
-        .protocolVersion = kSupportedProtocolVersion,
         .messageType = std::move(messageType),
         .messageId = std::move(messageId),
         .sessionId = std::string(kSessionId),
@@ -269,7 +267,7 @@ TEST_CASE("HandleSubscribe rejects a malformed payload as an error with no snaps
     CHECK(result.snapshots.empty());
 }
 
-TEST_CASE("HandleSnapshotRequest returns a fresh snapshot continuing the revision sequence",
+TEST_CASE("HandleSnapshotRequest reuses the subscribe snapshot's revision when state is unchanged",
           "[application][subscription_handler]") {
     FakeCharacterStateProvider provider(CharacterSnapshot{.level = 20});
     RevisionTracker revisions;
@@ -283,14 +281,34 @@ TEST_CASE("HandleSnapshotRequest returns a fresh snapshot continuing the revisio
                                                      "message-snapshot-request-1");
     auto response = HandleSnapshotRequest(requestEnvelope, kSessionId, provider, revisions, now);
 
-    CHECK(response.messageType == "state_snapshot");
-    REQUIRE(response.correlationId.has_value());
-    CHECK(*response.correlationId == "message-snapshot-request-1");
+    auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(response.payload);
+    REQUIRE(snapshot.has_value());
+    // The captured state's fingerprint is compared against the subscribe
+    // snapshot's basis; an unchanged level reuses revision 1 rather than
+    // manufacturing a new one.
+    CHECK(snapshot->revision == 1);
+    CHECK(revisions.CurrentRevision("character") == 1);
+}
+
+TEST_CASE("HandleSnapshotRequest advances the revision when state changed since subscribe",
+          "[application][subscription_handler]") {
+    FakeCharacterStateProvider subscribeProvider(CharacterSnapshot{.level = 20});
+    RevisionTracker revisions;
+    auto now = std::chrono::system_clock::now();
+
+    auto subscribeEnvelope = BuildEnvelopeWithPayload("subscribe", R"({"stateAreas": ["character"]})");
+    auto subscribeResult = HandleSubscribe(subscribeEnvelope, kSessionId, subscribeProvider, revisions, now);
+    REQUIRE(subscribeResult.snapshots.size() == 1);
+
+    // A genuinely different captured level between the subscribe snapshot
+    // and this pull is what legitimately advances the revision.
+    FakeCharacterStateProvider changedProvider(CharacterSnapshot{.level = 21});
+    auto requestEnvelope = BuildEnvelopeWithPayload("snapshot_request", R"({"stateArea": "character"})",
+                                                     "message-snapshot-request-1");
+    auto response = HandleSnapshotRequest(requestEnvelope, kSessionId, changedProvider, revisions, now);
 
     auto snapshot = dovahlink::protocol::DecodeStateSnapshotPayload(response.payload);
     REQUIRE(snapshot.has_value());
-    // Revision continues the sequence from the earlier subscribe snapshot
-    // (which was 1), rather than restarting at 1 again.
     CHECK(snapshot->revision == 2);
     CHECK(revisions.CurrentRevision("character") == 2);
 }
@@ -313,11 +331,14 @@ TEST_CASE("HandleSnapshotRequest does not commit a revision when snapshot serial
         std::bad_alloc);
     CHECK(revisions.CurrentRevision("character") == 1);
 
+    // Queue loss triggers a recovery snapshot; an unchanged pull still
+    // reuses the current revision rather than restarting or manufacturing
+    // a new one for identical state.
     auto recovery = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
     auto recoverySnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(recovery.payload);
     REQUIRE(recoverySnapshot.has_value());
-    CHECK(recoverySnapshot->revision == 2);
-    CHECK(revisions.CurrentRevision("character") == 2);
+    CHECK(recoverySnapshot->revision == 1);
+    CHECK(revisions.CurrentRevision("character") == 1);
 }
 
 TEST_CASE("HandleSnapshotRequest does not commit a recovery revision when message-ID generation fails",
@@ -333,8 +354,7 @@ TEST_CASE("HandleSnapshotRequest does not commit a recovery revision when messag
     REQUIRE(firstSnapshot.has_value());
     CHECK(firstSnapshot->revision == 1);
 
-    auto failed = HandleSnapshotRequest(request, kSessionId, provider, revisions, now,
-                                        FailSnapshotIdGeneration);
+    auto failed = HandleSnapshotRequest(request, kSessionId, provider, revisions, now, FailSnapshotIdGeneration);
     auto error = dovahlink::protocol::DecodeErrorPayload(failed.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "internal_error");
@@ -343,8 +363,9 @@ TEST_CASE("HandleSnapshotRequest does not commit a recovery revision when messag
     auto recovery = HandleSnapshotRequest(request, kSessionId, provider, revisions, now);
     auto recoverySnapshot = dovahlink::protocol::DecodeStateSnapshotPayload(recovery.payload);
     REQUIRE(recoverySnapshot.has_value());
-    CHECK(recoverySnapshot->revision == 2);
-    CHECK(revisions.CurrentRevision("character") == 2);
+    // Unchanged state since the first successful pull reuses that revision.
+    CHECK(recoverySnapshot->revision == 1);
+    CHECK(revisions.CurrentRevision("character") == 1);
 }
 
 TEST_CASE("state-capture exceptions leave fresh and existing snapshot revisions unchanged",
@@ -359,7 +380,7 @@ TEST_CASE("state-capture exceptions leave fresh and existing snapshot revisions 
     CHECK_FALSE(freshRevisions.CurrentRevision("character").has_value());
 
     RevisionTracker existingRevisions;
-    REQUIRE(existingRevisions.StartSnapshot("character") == 1);
+    REQUIRE(existingRevisions.StartSnapshot("character", "{\"level\":1}") == 1);
     CHECK_THROWS_AS(HandleSnapshotRequest(request, kSessionId, provider, existingRevisions, now), std::bad_alloc);
     CHECK(existingRevisions.CurrentRevision("character") == 1);
 }

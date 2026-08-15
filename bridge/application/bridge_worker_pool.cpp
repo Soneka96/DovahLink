@@ -10,9 +10,11 @@ namespace dovahlink::application {
 BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
                                    transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                                    security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                                   const CharacterStateProvider& stateProvider)
+                                   const ActivePlayContext& activePlayContext,
+                                   std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot), tokenStore_(tokenStore),
-      tokenThrottle_(tokenThrottle), sessionManager_(sessionManager), stateProvider_(stateProvider) {}
+      tokenThrottle_(tokenThrottle), sessionManager_(sessionManager), activePlayContext_(activePlayContext),
+      bridgeInstanceId_(std::move(bridgeInstanceId)), bridgeVersion_(std::move(bridgeVersion)) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
@@ -58,7 +60,8 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
             }
 
             transport::WebSocketSession session(std::move(socketHandle));
-            RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection, stateProvider_);
+            RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection,
+                                 activePlayContext_, bridgeInstanceId_, bridgeVersion_);
         });
     }
 }

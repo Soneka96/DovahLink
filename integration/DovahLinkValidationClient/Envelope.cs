@@ -5,19 +5,27 @@ namespace DovahLinkValidationClient;
 /// <summary>
 /// An independent encoder and decoder for one DovahLink protocol envelope.
 /// </summary>
-/// <param name="ProtocolVersion">The protocol version carried by the message.</param>
 /// <param name="MessageType">The canonical message type.</param>
 /// <param name="MessageId">The unique message identifier.</param>
 /// <param name="SessionId">The session identifier, when one exists.</param>
 /// <param name="CorrelationId">The correlated request identifier, when one exists.</param>
 /// <param name="Payload">The message-specific JSON object.</param>
+/// <param name="BridgeInstanceId">The identity of the bridge instance that produced this message.
+/// `null` on the client's own <c>hello</c> (the client does not know it yet) and on a narrow set of
+/// early connection-hygiene rejections the bridge cannot attach an identity to; present otherwise.</param>
+/// <param name="PlayContextId">The identity of the currently loaded play context, when one is
+/// active. `null` outside an active play context -- genuine semantic absence, not a placeholder.</param>
+/// <param name="ClientId">The identity of the logical client, established at <c>hello</c>. `null`
+/// before <c>hello</c> completes, the same shape <paramref name="SessionId"/> already uses.</param>
 public sealed record Envelope(
-    int ProtocolVersion,
     string MessageType,
     string MessageId,
     string? SessionId,
     string? CorrelationId,
-    JsonObject Payload)
+    JsonObject Payload,
+    string? BridgeInstanceId = null,
+    string? PlayContextId = null,
+    string? ClientId = null)
 {
     /// <summary>
     /// Encodes the envelope as a JSON string.
@@ -27,12 +35,14 @@ public sealed record Envelope(
     {
         var root = new JsonObject
         {
-            ["protocolVersion"] = ProtocolVersion,
             ["messageType"] = MessageType,
             ["messageId"] = MessageId,
             ["sessionId"] = SessionId,
             ["correlationId"] = CorrelationId,
             ["payload"] = Payload.DeepClone(),
+            ["bridgeInstanceId"] = BridgeInstanceId,
+            ["playContextId"] = PlayContextId,
+            ["clientId"] = ClientId,
         };
         return root.ToJsonString();
     }
@@ -50,14 +60,31 @@ public sealed record Envelope(
         {
             root = JsonNode.Parse(json)?.AsObject() ?? throw new FormatException("Envelope is not a JSON object.");
 
-            int protocolVersion = root["protocolVersion"]?.GetValue<int>() ?? throw new FormatException("Missing protocolVersion.");
             string messageType = root["messageType"]?.GetValue<string>() ?? throw new FormatException("Missing messageType.");
             string messageId = root["messageId"]?.GetValue<string>() ?? throw new FormatException("Missing messageId.");
             string? sessionId = root["sessionId"]?.GetValue<string>();
             string? correlationId = root["correlationId"]?.GetValue<string>();
             JsonObject payload = root["payload"]?.AsObject() ?? throw new FormatException("Missing payload.");
+            // Required keys, nullable values: absent (not merely null) is
+            // rejected, matching protocol/schema/README.md's envelope table.
+            if (!root.ContainsKey("bridgeInstanceId"))
+            {
+                throw new FormatException("Missing bridgeInstanceId.");
+            }
+            if (!root.ContainsKey("playContextId"))
+            {
+                throw new FormatException("Missing playContextId.");
+            }
+            if (!root.ContainsKey("clientId"))
+            {
+                throw new FormatException("Missing clientId.");
+            }
+            string? bridgeInstanceId = GetNonEmptyOrNull(root, "bridgeInstanceId");
+            string? playContextId = GetNonEmptyOrNull(root, "playContextId");
+            string? clientId = GetNonEmptyOrNull(root, "clientId");
 
-            return new Envelope(protocolVersion, messageType, messageId, sessionId, correlationId, payload);
+            return new Envelope(messageType, messageId, sessionId, correlationId, payload,
+                bridgeInstanceId, playContextId, clientId);
         }
         catch (InvalidOperationException ex)
         {
@@ -68,5 +95,23 @@ public sealed record Envelope(
             // the same exception type for callers to catch.
             throw new FormatException($"Malformed envelope: {ex.Message}", ex);
         }
+    }
+
+    /// <summary>
+    /// Extracts a required, nullable identity field, rejecting an empty non-null value -- matching
+    /// the Bridge's own parser (bridge/protocol/json_field_decoders.cpp's DecodeOptionalString).
+    /// </summary>
+    /// <param name="root">The envelope's parsed JSON object.</param>
+    /// <param name="fieldName">The field's key, already confirmed present by the caller.</param>
+    /// <returns>The field's string value, or <see langword="null"/>.</returns>
+    /// <exception cref="FormatException">Thrown when the field is present but an empty string.</exception>
+    private static string? GetNonEmptyOrNull(JsonObject root, string fieldName)
+    {
+        string? value = root[fieldName]?.GetValue<string>();
+        if (value is not null && value.Length == 0)
+        {
+            throw new FormatException($"{fieldName} must be null or a non-empty string.");
+        }
+        return value;
     }
 }

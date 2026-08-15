@@ -33,7 +33,7 @@ public class ReconnectScenarioTests
         // that as WebSocketException, not the InvalidOperationException a
         // graceful bridge-initiated close produces elsewhere in this suite.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
         {
@@ -66,7 +66,7 @@ public class ReconnectScenarioTests
         await using var disposeConnection = connection;
 
         string foreignSessionId = sessionId + "-not-real";
-        await connection.SendAsync(new Envelope(1, "ping", "message-stale-1", foreignSessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-stale-1", foreignSessionId, null, new JsonObject()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
@@ -80,7 +80,7 @@ public class ReconnectScenarioTests
         // A message carrying this connection's own real sessionId right
         // after still works normally -- the rejection is specific to the
         // mismatched ID, not a side effect that broke the connection.
-        await connection.SendAsync(new Envelope(1, "ping", "message-after-stale", sessionId, null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-after-stale", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
         Assert.Equal("pong", pong.MessageType);
 
@@ -92,7 +92,7 @@ public class ReconnectScenarioTests
     public async Task AbruptDisconnectMidRequestLeavesTheBridgeHealthyForTheNextConnectionAttempt()
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
         {
@@ -104,7 +104,7 @@ public class ReconnectScenarioTests
             // Sent but deliberately never read: simulates a real network
             // drop or crash while a request is outstanding, not a graceful
             // close.
-            await connection.SendAsync(new Envelope(1, "snapshot_request", "message-snap-abort", sessionId, null,
+            await connection.SendAsync(new Envelope("snapshot_request", "message-snap-abort", sessionId, null,
                 new JsonObject { ["stateArea"] = "character" }));
             connection.Abort();
         }

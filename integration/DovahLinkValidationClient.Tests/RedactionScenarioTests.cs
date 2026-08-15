@@ -36,7 +36,7 @@ public class RedactionScenarioTests
         var collectedText = new List<string>();
 
         using var harness = new HarnessProcess(SecretToken);
-        Assert.Equal("READY", await harness.ReadLineAsync());
+        await harness.WaitForReadyAsync();
 
         // 1. A failed hello with a distinctive wrong token.
         await using (BridgeConnection failedHello = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
@@ -68,7 +68,7 @@ public class RedactionScenarioTests
         await connection.SendRawTextAsync("not json {{{");
         collectedText.Add(EnvelopeText(await connection.ReceiveAsync()));
 
-        await connection.SendAsync(new Envelope(1, "ping", "message-redact-3", sessionId + "-foreign", null, new JsonObject()));
+        await connection.SendAsync(new Envelope("ping", "message-redact-3", sessionId + "-foreign", null, new JsonObject()));
         collectedText.Add(EnvelopeText(await connection.ReceiveAsync()));
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);

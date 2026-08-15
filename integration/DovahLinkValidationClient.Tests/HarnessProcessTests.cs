@@ -69,4 +69,48 @@ public class HarnessProcessTests
         Assert.Equal("diagnostic-1", lines[0].TrimEnd());
         Assert.Equal("diagnostic-2000", lines[^1].TrimEnd());
     }
+
+    /// <summary>Verifies that a valid startup handshake yields the reported bridge instance ID.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncReturnsTheBridgeInstanceIdAfterReady()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123"));
+
+        string bridgeInstanceId = await harness.WaitForReadyAsync();
+
+        Assert.Equal("abc123", bridgeInstanceId);
+        Assert.Equal("abc123", harness.BridgeInstanceId);
+    }
+
+    /// <summary>Verifies that a non-READY first line fails the handshake clearly.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheFirstLineIsNotReady()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("NOT_READY"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report READY", exception.Message);
+    }
+
+    /// <summary>Verifies that a bridge instance line missing its prefix fails the handshake clearly.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheBridgeInstanceLineIsMissingItsPrefix()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "NOT_THE_RIGHT_PREFIX"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report its bridge instance ID", exception.Message);
+    }
+
+    /// <summary>Verifies that a bridge instance line carrying only whitespace after its prefix fails the
+    /// handshake clearly instead of yielding an empty identifier.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenTheBridgeInstanceIdIsBlank()
+    {
+        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE    "));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("reported an empty bridge instance ID", exception.Message);
+        Assert.Null(harness.BridgeInstanceId);
+    }
 }

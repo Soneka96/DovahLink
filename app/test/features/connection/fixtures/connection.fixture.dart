@@ -6,7 +6,6 @@ import 'package:dovahlink_client/features/connection/domain/entities/resource_va
 /// A reusable negotiated session for connection tests.
 const ConnectionSessionEntity testSession = ConnectionSessionEntity(
   sessionId: 'session-1',
-  protocolVersion: 1,
 );
 
 /// A reusable character snapshot for connection tests.

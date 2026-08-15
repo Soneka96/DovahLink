@@ -9,17 +9,22 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
+#include "application/game_lifecycle_tracker.hpp"
+#include "application/play_context.hpp"
 #include "application/session.hpp"
+#include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
+#include "security/csprng.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
+#include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <boost/asio/io_context.hpp>
@@ -34,14 +39,30 @@ using dovahlink::application::kTokenEnvVar;
 
 // Minimal file logging to the SKSE log directory.
 /// Configures the default logger when the SKSE log directory is available.
+///
+/// Uses spdlog's non-blocking async factory rather than a synchronous
+/// logger: every SKSE::log:: call in this plugin can run from inside a raw
+/// SKSE callback (the messaging listener, the serialization revert
+/// callback), and ai/context/skse/architecture.md forbids blocking
+/// filesystem work there, independent of whether a specific call site has
+/// been observed to crash. (A crash initially suspected to be caused by
+/// synchronous logging inside the revert callback was later found to have
+/// a different, unrelated cause -- an incorrect pointer dereference in
+/// commonlib_game_lifecycle_sink.cpp's kPostLoadGame handling, fixed
+/// separately. This change is kept for compliance with the documented
+/// rule, not as a proven fix for that incident.) async_factory_nonblock
+/// hands each message to a background thread and never blocks the caller;
+/// under sustained pressure it drops the oldest queued line rather than
+/// stalling (acceptable for diagnostic logging, unlike protocol or
+/// transport data).
 void SetupLogging() {
     auto path = SKSE::log::log_directory();
     if (!path.has_value()) {
         return;
     }
     *path /= "DovahLinkBridge.log";
-    auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
-    auto logger = std::make_shared<spdlog::logger>("global", std::move(sink));
+    auto logger = spdlog::async_factory_nonblock::create<spdlog::sinks::basic_file_sink_mt>(
+        "global", path->string(), /*truncate=*/true);
     logger->set_level(spdlog::level::info);
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
@@ -65,12 +86,18 @@ private:
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
 };
 
+// The DovahLink Bridge/mod release version exposed to clients in
+// hello_ack.bridgeVersion (ai/context/protocol/compatibility.md), matching
+// bridge/vcpkg.json's version-string. Kept in sync with the plugin metadata
+// version below by convention; both describe the same release.
+constexpr const char* kBridgeVersion = "0.2.0";
+
 }  // namespace
 
 // Hand-written plugin metadata and address-library compatibility declaration.
 using namespace std::literals;
 SKSEPluginInfo(
-    .Version = REL::Version{0, 1, 0, 0},
+    .Version = REL::Version{0, 2, 0, 0},
     .Name = "DovahLink Bridge"sv,
     .Author = "Goncalo"sv,
     .SupportEmail = ""sv,
@@ -81,6 +108,16 @@ SKSEPluginInfo(
 /// Initializes the bridge plugin and schedules startup after game data loads.
 SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     SetupLogging();
+
+    // SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#skseinit-must-run-before-any-interface-registration
+    // Records this plugin's identity (its SKSE-assigned handle) with the
+    // CommonLibSSE-NG API layer. Every call that needs a plugin handle --
+    // MessagingInterface::RegisterListener, SerializationInterface's
+    // callbacks, and any future use of SKSE::Get*Interface() -- silently
+    // fails without this: confirmed empirically (SKSE logged "Failed to
+    // register messaging listener" and the plugin was disabled) before this
+    // call existed. Must run before any such call below.
+    SKSE::Init(skse);
 
     // Reject unsupported runtime combinations before constructing bridge state.
     REL::Version skyrimVersionRel = skse->RuntimeVersion();
@@ -134,6 +171,15 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::transport::LoopbackListener listenerV4 = std::move(*listenerV4Result);
     static dovahlink::transport::LoopbackListener listenerV6 = std::move(*listenerV6Result);
 
+    // This bridge instance's identity, per ARCHITECTURE.md's runtime/identity
+    // model: one value for this plugin's whole running lifetime, independent
+    // of any play context. Stamped onto every response envelope via
+    // BridgeWorkerPool below. A generation failure is not fatal -- it is
+    // logged, and every response simply carries no bridgeInstanceId value,
+    // the same "unavailable" shape a `null` would already encode.
+    static std::optional<std::string> bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
+    SKSE::log::info("Bridge instance ID: {}", bridgeInstanceId.value_or("(unavailable)"));
+
     // Plugin-lifetime application and security state. Declared as function-
     // local statics, in the exact order they depend on each other: a
     // function-local static is guaranteed initialized the first (and only,
@@ -144,16 +190,28 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
     static dovahlink::application::SessionManager sessionManager;
-    static dovahlink::application::CharacterStateStore characterStateStore;
 
+    // The authoritative, play-context-owned identity and state per
+    // ARCHITECTURE.md's runtime/identity model. `activePlayContext` is
+    // lifecycle-driven -- GameLifecycleTracker transitions create and
+    // invalidate its play contexts -- and is the sole state message_dispatcher
+    // and subscription_handler read from. Declared before
+    // `levelIncreaseHandler` below, which routes its captures into whichever
+    // context is active through `ActivePlayContextLevelSink`.
+    static dovahlink::application::GameLifecycleTracker lifecycleTracker;
+    static dovahlink::application::ActivePlayContext activePlayContext;
+    static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(lifecycleTracker, activePlayContext);
+
+    static dovahlink::application::ActivePlayContextLevelSink levelSink(activePlayContext);
     static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
-    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(levelAccessor, characterStateStore);
+    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(levelAccessor, levelSink);
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(levelIncreaseHandler);
     static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, characterStateStore);
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, activePlayContext,
+        bridgeInstanceId, kBridgeVersion);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
@@ -166,16 +224,37 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         SKSE::log::error("Unable to obtain SKSE's messaging interface; cannot defer startup to kDataLoaded.");
         return false;
     }
+    // SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
+    // SKSE allows exactly one MessagingInterface::RegisterListener call per
+    // plugin; a second, separate call fails both registrations (confirmed
+    // empirically: SKSE logs "Failed to register messaging listener for
+    // SKSE" for each). kDataLoaded-gated startup and lifecycle-event
+    // logging must therefore share this single listener rather than each
+    // registering their own. dovahlink_bridge_plugin_registration_test.cpp
+    // enforces this structurally (see ai/context/skse/testing.md); it fails
+    // if a second RegisterListener call is ever added to this file.
+    lifecycleSink.Register(
+        [](dovahlink::application::ContainedWork work) { return coordinator.RunCallbackContained(std::move(work)); });
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
-        if (message->type != SKSE::MessagingInterface::kDataLoaded) {
+        if (message->type == SKSE::MessagingInterface::kDataLoaded) {
+            (void)coordinator.RunCallbackContained([] {
+                levelIncreaseHandler.HandleLevelIncrease();
+                coordinator.Start();
+                SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
+            });
             return;
         }
-        (void)coordinator.RunCallbackContained([] {
-            levelIncreaseHandler.HandleLevelIncrease();
-            coordinator.Start();
-            SKSE::log::info("DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).", kBridgePort);
-        });
+        lifecycleSink.OnMessage(*message);
     });
+
+    auto* serialization =
+        static_cast<SKSE::SerializationInterface*>(skse->QueryInterface(SKSE::LoadInterface::kSerialization));
+    if (!serialization) {
+        SKSE::log::error(
+            "Unable to obtain SKSE's serialization interface; play-context revert events will not be logged.");
+    } else {
+        serialization->SetRevertCallback([](SKSE::SerializationInterface*) { lifecycleSink.OnRevert(); });
+    }
 
     return true;
 }
