@@ -294,6 +294,146 @@ public class BridgeVersionScenarioTests
         Assert.Contains("Bridge connection failed", output.ToString());
     }
 
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
+    /// Bridge sends an unexpected message instead of capabilities.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenCapabilitiesMessageTypeIsUnexpected()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
+            new Envelope("error", "message-error-1", sessionId, null,
+                new JsonObject { ["code"] = "rate_limited", ["message"] = "Too many requests", ["retryable"] = true })
+                .Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("instead of capabilities", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
+    /// Bridge sends an unexpected message instead of subscription_ack.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenSubscriptionAckMessageTypeIsUnexpected()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("error", "message-error-1", sessionId, null,
+                new JsonObject { ["code"] = "rate_limited", ["message"] = "Too many requests", ["retryable"] = true })
+                .Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("instead of subscription_ack", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
+    /// Bridge rejects the character state subscription.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenCharacterSubscriptionIsRejected()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
+                new JsonObject { ["acceptedStateAreas"] = new JsonArray(), ["rejectedStateAreas"] = new JsonArray("character") })
+                .Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("did not accept the character state subscription", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when
+    /// subscription_ack omits acceptedStateAreas entirely.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenAcceptedStateAreasIsMissing()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null, new JsonObject()).Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("did not accept the character state subscription", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
+    /// Bridge sends an unexpected message instead of state_snapshot.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenStateSnapshotMessageTypeIsUnexpected()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
+                ClientId: ClientIdentity.Current.ToString()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
+                new JsonObject { ["acceptedStateAreas"] = new JsonArray("character"), ["rejectedStateAreas"] = new JsonArray() })
+                .Encode(),
+            new Envelope("error", "message-error-1", sessionId, null,
+                new JsonObject { ["code"] = "rate_limited", ["message"] = "Too many requests", ["retryable"] = true })
+                .Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("instead of state_snapshot", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Verifies that ValidationRun completes the full exchange when the Bridge reports a
     /// supported version.</summary>
     [Fact]

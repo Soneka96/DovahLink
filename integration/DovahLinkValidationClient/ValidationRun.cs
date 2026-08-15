@@ -18,8 +18,9 @@ public static class ValidationRun
     /// <param name="token">The one-time bridge authentication token.</param>
     /// <param name="output">Destination for progress and diagnostic messages.</param>
     /// <returns>0 when an initial state snapshot was received; 1 on any failure, including a
-    /// rejected hello, an unaccepted client identity, an incompatible Bridge version, or a
-    /// connection or protocol failure.</returns>
+    /// rejected hello, an unaccepted client identity, an incompatible Bridge version, an
+    /// unexpected post-handshake message, a rejected character subscription, or a connection or
+    /// protocol failure.</returns>
     public static async Task<int> ExecuteAsync(BridgeConnection connection, string token, TextWriter output)
     {
         string clientId = ClientIdentity.Current.ToString();
@@ -71,15 +72,46 @@ public static class ValidationRun
             output.WriteLine($"hello_ack: sessionId={sessionId} bridgeVersion={bridgeVersion}");
 
             Envelope capabilities = await connection.ReceiveAsync();
+            if (capabilities.MessageType != "capabilities")
+            {
+                output.WriteLine(
+                    $"Bridge sent an unexpected message instead of capabilities: {capabilities.MessageType} " +
+                    $"{capabilities.Payload}");
+                await connection.CloseAsync();
+                return 1;
+            }
             output.WriteLine($"capabilities: {capabilities.Payload}");
 
             var subscribePayload = new JsonObject { ["stateAreas"] = new JsonArray("character") };
             await connection.SendAsync(new Envelope("subscribe", Guid.NewGuid().ToString(), sessionId, null, subscribePayload));
 
             Envelope subscriptionAck = await connection.ReceiveAsync();
+            if (subscriptionAck.MessageType != "subscription_ack")
+            {
+                output.WriteLine(
+                    $"Bridge sent an unexpected message instead of subscription_ack: " +
+                    $"{subscriptionAck.MessageType} {subscriptionAck.Payload}");
+                await connection.CloseAsync();
+                return 1;
+            }
+            JsonArray? acceptedStateAreas = subscriptionAck.Payload["acceptedStateAreas"]?.AsArray();
+            if (acceptedStateAreas is null || !acceptedStateAreas.Any(area => area?.GetValue<string>() == "character"))
+            {
+                output.WriteLine($"Bridge did not accept the character state subscription: {subscriptionAck.Payload}");
+                await connection.CloseAsync();
+                return 1;
+            }
             output.WriteLine($"subscription_ack: {subscriptionAck.Payload}");
 
             Envelope snapshot = await connection.ReceiveAsync();
+            if (snapshot.MessageType != "state_snapshot")
+            {
+                output.WriteLine(
+                    $"Bridge sent an unexpected message instead of state_snapshot: {snapshot.MessageType} " +
+                    $"{snapshot.Payload}");
+                await connection.CloseAsync();
+                return 1;
+            }
             output.WriteLine($"state_snapshot: {snapshot.Payload}");
 
             return 0;
