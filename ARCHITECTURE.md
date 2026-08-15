@@ -83,6 +83,16 @@ Each identifier must be created, validated, and invalidated at its own lifecycle
 reconnect creates a new `sessionId` without silently changing its `clientId`; loading another save
 creates a new `playContextId` without pretending that the bridge process restarted.
 
+Persistent device trust is a separate concept layered on top of these four lifetimes, not a fifth
+lifetime that replaces or reinterprets them. A paired client's local trust — the credential a client
+presents to reconnect without repeating pairing — belongs to the Windows user profile running the
+client and the Bridge, and survives Bridge, Skyrim, and Windows restarts. It does not change
+`bridgeInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
+per-socket identity: a trusted client still authenticates into a fresh `sessionId` on every reconnect,
+and a bridge restart still creates a new `bridgeInstanceId`. `ai/context/protocol/security.md` and
+`ROADMAP.md`'s Phase 3 own the pairing, storage, and revocation design; this section only fixes where
+persistent trust sits relative to the four identifiers above.
+
 ## Authoritative state and revisions
 
 Skyrim is the authoritative producer of live playthrough state. For each state area, the bridge owns

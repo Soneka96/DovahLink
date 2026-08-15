@@ -792,6 +792,29 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn(retired_phrase, normalized_pairing)
 
+        identity_model = self._markdown_section("ARCHITECTURE.md", "Runtime and identity model")
+        normalized_identity_model = self._normalize_whitespace(identity_model)
+        self.assertIn(
+            "Persistent device trust is a separate concept layered on top of these four "
+            "lifetimes, not a fifth lifetime that replaces or reinterprets them",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "a trusted client still authenticates into a fresh `sessionId` on every reconnect, "
+            "and a bridge restart still creates a new `bridgeInstanceId`",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "belongs to the Windows user profile running the client and the Bridge, and survives "
+            "Bridge, Skyrim, and Windows restarts",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "`ai/context/protocol/security.md` and `ROADMAP.md`'s Phase 3 own the pairing, "
+            "storage, and revocation design",
+            normalized_identity_model,
+        )
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
