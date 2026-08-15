@@ -34,6 +34,7 @@ using dovahlink::application::kBridgePort;
 using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
+constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
@@ -75,6 +76,20 @@ std::optional<std::chrono::steady_clock::duration> ReadTokenTtlOverride(
     }
 }
 
+/// Reads a harness-only forced play-context ID from the environment, so a
+/// process-boundary test can force a coincidental ID collision across a
+/// kill-and-relaunch cycle and prove bridgeInstanceId -- not playContextId
+/// alone -- is what the wire comparison actually depends on. Absent in real
+/// play; every minted ID is otherwise CSPRNG-backed
+/// (security::GenerateOpaqueId).
+std::optional<std::string> ReadPlayContextIdOverride(const dovahlink::security::EnvironmentReader& env) {
+    auto raw = env.Read(kPlayContextIdOverrideEnvVar);
+    if (!raw.has_value() || raw->empty()) {
+        return std::nullopt;
+    }
+    return raw;
+}
+
 }  // namespace
 /// Runs the standalone bridge integration harness.
 int main() {
@@ -108,7 +123,14 @@ int main() {
     dovahlink::security::FailedTokenThrottle tokenThrottle;
     dovahlink::application::SessionManager sessionManager;
     dovahlink::application::CharacterStateStore characterStateStore;
-    dovahlink::application::GameLifecycleTracker lifecycleTracker;
+    auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
+    dovahlink::application::GameLifecycleTracker lifecycleTracker(
+        [playContextIdOverride]() -> std::optional<std::string> {
+            if (playContextIdOverride.has_value()) {
+                return playContextIdOverride;
+            }
+            return dovahlink::security::GenerateOpaqueId();
+        });
     dovahlink::application::ActivePlayContext activePlayContext;
 
     // Skyrim-independent stand-in for the real plugin's bridgeInstanceId
