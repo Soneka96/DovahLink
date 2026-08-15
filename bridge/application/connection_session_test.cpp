@@ -336,6 +336,164 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
     REQUIRE_FALSE(serverAcceptEc);
 }
 
+TEST_CASE("RunConnectionSession's v2 revision survives a reconnect that reuses the same play context",
+          "[application][connection_session]") {
+    // The mirror of reconnect_reset_test.cpp's v1 "reconnect == fresh
+    // everything" coverage: for v2, ActivePlayContext (and the RevisionTracker
+    // it owns) is pool-lifetime, not per-connection, so a reconnect to the
+    // same still-active play context must NOT reset the revision sequence.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    // Each connection gets its own TokenStore/throttle: the one-time-token
+    // model has no mechanism yet to reissue a token for a same-instance
+    // reconnect (that is Phase 3's "Local Device Pairing and Reconnection"
+    // scope, per ROADMAP.md's Phase 1 acceptance note on this exact
+    // limitation). This test isolates the concern actually in scope here --
+    // does the revision survive a reconnect -- from how a reconnect
+    // authenticates, which is unbuilt and irrelevant to that question.
+    TokenStore firstTokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle firstTokenThrottle;
+    // SessionManager and ActivePlayContext are shared across both
+    // connections below, matching how BridgeWorkerPool actually owns them at
+    // pool lifetime rather than per-connection.
+    SessionManager sessionManager;
+    FakeCharacterStateProvider stateProvider;
+    ActivePlayContext activePlayContext;
+    auto context = activePlayContext.Begin("context-1");
+    context->characterState.OnLevelCaptured(5);
+    std::optional<std::string> bridgeInstanceId = "bridge-1";
+
+    // --- First connection: establish a non-trivial revision via a real change. ---
+    boost::system::error_code firstAcceptEc;
+    std::thread firstServerThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(firstAcceptEc);
+        if (firstAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, firstTokenStore, firstTokenThrottle, sessionManager, /*connection=*/1,
+                             stateProvider, activePlayContext, bridgeInstanceId);
+    });
+
+    boost::asio::ip::tcp::socket firstClientSocket(ioc);
+    boost::system::error_code firstConnectEc;
+    firstClientSocket.connect(endpoint, firstConnectEc);
+    REQUIRE_FALSE(firstConnectEc);
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> firstClientWs(std::move(firstClientSocket));
+    boost::system::error_code firstHandshakeEc;
+    firstClientWs.handshake("127.0.0.1", "/", firstHandshakeEc);
+    REQUIRE_FALSE(firstHandshakeEc);
+
+    ClientWriteText(firstClientWs, HelloMessageV2(kValidHexToken));
+    auto firstHelloAck = ClientReadEnvelope(firstClientWs);
+    REQUIRE(firstHelloAck.messageType == "hello_ack");
+    REQUIRE(firstHelloAck.sessionId.has_value());
+    REQUIRE(firstHelloAck.playContextId.has_value());
+    CHECK(*firstHelloAck.playContextId == "context-1");
+    REQUIRE(firstHelloAck.bridgeInstanceId.has_value());
+    CHECK(*firstHelloAck.bridgeInstanceId == "bridge-1");
+    std::string firstSessionId = *firstHelloAck.sessionId;
+    auto firstCapabilities = ClientReadEnvelope(firstClientWs);
+    CHECK(firstCapabilities.messageType == "capabilities");
+
+    ClientWriteText(
+        firstClientWs,
+        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-1", "sessionId": ")" +
+            firstSessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    auto firstAck = ClientReadEnvelope(firstClientWs);
+    CHECK(firstAck.messageType == "subscription_ack");
+    auto firstSnapshot = ClientReadEnvelope(firstClientWs);
+    auto firstDecoded = dovahlink::protocol::DecodeStateSnapshotPayload(firstSnapshot.payload);
+    REQUIRE(firstDecoded.has_value());
+    CHECK(firstDecoded->revision == 1);
+
+    // A real change before the next pull, still on this same connection.
+    context->characterState.OnLevelCaptured(6);
+    ClientWriteText(firstClientWs,
+                     R"({"protocolVersion": 2, "messageType": "snapshot_request", "messageId": )"
+                     R"("message-snap-1", "sessionId": ")" +
+                         firstSessionId + R"(", "correlationId": null, "payload": {"stateArea": "character"}})");
+    auto secondSnapshot = ClientReadEnvelope(firstClientWs);
+    auto secondDecoded = dovahlink::protocol::DecodeStateSnapshotPayload(secondSnapshot.payload);
+    REQUIRE(secondDecoded.has_value());
+    CHECK(secondDecoded->revision == 2);
+
+    boost::system::error_code firstCloseEc;
+    firstClientWs.close(boost::beast::websocket::close_code::normal, firstCloseEc);
+    firstServerThread.join();
+    REQUIRE_FALSE(firstAcceptEc);
+
+    // --- Second connection ("reconnect"): same ActivePlayContext, no further change. ---
+    // A fresh TokenStore/throttle stands in for however the reconnect
+    // re-authenticated (see the comment above); sessionManager and
+    // activePlayContext stay the same shared instances.
+    TokenStore secondTokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle secondTokenThrottle;
+    boost::system::error_code secondAcceptEc;
+    std::thread secondServerThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(secondAcceptEc);
+        if (secondAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, secondTokenStore, secondTokenThrottle, sessionManager, /*connection=*/2,
+                             stateProvider, activePlayContext, bridgeInstanceId);
+    });
+
+    boost::asio::ip::tcp::socket secondClientSocket(ioc);
+    boost::system::error_code secondConnectEc;
+    secondClientSocket.connect(endpoint, secondConnectEc);
+    REQUIRE_FALSE(secondConnectEc);
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> secondClientWs(std::move(secondClientSocket));
+    boost::system::error_code secondHandshakeEc;
+    secondClientWs.handshake("127.0.0.1", "/", secondHandshakeEc);
+    REQUIRE_FALSE(secondHandshakeEc);
+
+    ClientWriteText(secondClientWs, HelloMessageV2(kValidHexToken));
+    auto secondHelloAck = ClientReadEnvelope(secondClientWs);
+    REQUIRE(secondHelloAck.messageType == "hello_ack");
+    REQUIRE(secondHelloAck.sessionId.has_value());
+    // A genuinely new session, not a resumption of the first connection's.
+    CHECK(*secondHelloAck.sessionId != firstSessionId);
+    REQUIRE(secondHelloAck.playContextId.has_value());
+    CHECK(*secondHelloAck.playContextId == "context-1");
+    // Still the same running bridge instance -- this is a reconnect, not a
+    // restart -- so bridgeInstanceId matches the first connection's.
+    REQUIRE(secondHelloAck.bridgeInstanceId.has_value());
+    CHECK(*secondHelloAck.bridgeInstanceId == *firstHelloAck.bridgeInstanceId);
+    std::string secondSessionId = *secondHelloAck.sessionId;
+    auto secondCapabilities = ClientReadEnvelope(secondClientWs);
+    CHECK(secondCapabilities.messageType == "capabilities");
+
+    // No change since the first connection's last pull (level is still 6):
+    // the reconnect's own subscribe snapshot must reuse revision 2, neither
+    // resetting to 1 (proving the revision survives the reconnect) nor
+    // advancing past 2 (proving the reused RevisionTracker still correctly
+    // sees this as unchanged).
+    ClientWriteText(
+        secondClientWs,
+        R"({"protocolVersion": 2, "messageType": "subscribe", "messageId": "message-sub-2", "sessionId": ")" +
+            secondSessionId + R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}})");
+    auto reconnectAck = ClientReadEnvelope(secondClientWs);
+    CHECK(reconnectAck.messageType == "subscription_ack");
+    auto reconnectSnapshot = ClientReadEnvelope(secondClientWs);
+    auto reconnectDecoded = dovahlink::protocol::DecodeStateSnapshotPayload(reconnectSnapshot.payload);
+    REQUIRE(reconnectDecoded.has_value());
+    CHECK(reconnectDecoded->revision == 2);
+    auto reconnectState = dovahlink::protocol::DecodeCharacterState(reconnectDecoded->data);
+    REQUIRE(reconnectState.has_value());
+    REQUIRE(reconnectState->level.has_value());
+    CHECK(*reconnectState->level == 6);
+
+    boost::system::error_code secondCloseEc;
+    secondClientWs.close(boost::beast::websocket::close_code::normal, secondCloseEc);
+    secondServerThread.join();
+    REQUIRE_FALSE(secondAcceptEc);
+}
+
 TEST_CASE("RunConnectionSession closes without creating a session when the token is invalid",
           "[application][connection_session]") {
     boost::asio::io_context ioc;
