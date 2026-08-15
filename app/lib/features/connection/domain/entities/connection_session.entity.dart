@@ -6,6 +6,8 @@ class ConnectionSessionEntity extends Equatable {
   const ConnectionSessionEntity({
     required this.sessionId,
     required this.protocolVersion,
+    this.bridgeInstanceId,
+    this.playContextId,
   });
 
   /// The opaque identifier that binds messages to this session.
@@ -14,7 +16,20 @@ class ConnectionSessionEntity extends Equatable {
   /// The protocol version selected during negotiation.
   final int protocolVersion;
 
+  /// The identity of the bridge instance that negotiated this session.
+  /// Present only once [protocolVersion] is 2 or higher.
+  final String? bridgeInstanceId;
+
+  /// The identity of the play context active at negotiation time, when one
+  /// was. Present only once [protocolVersion] is 2 or higher.
+  final String? playContextId;
+
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [sessionId, protocolVersion];
+  List<Object?> get props => [
+    sessionId,
+    protocolVersion,
+    bridgeInstanceId,
+    playContextId,
+  ];
 }

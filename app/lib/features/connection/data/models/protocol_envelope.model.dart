@@ -19,6 +19,9 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
     required this.sessionId,
     required this.correlationId,
     required this.payload,
+    this.bridgeInstanceId,
+    this.playContextId,
+    this.clientId,
   }) : super(
          protocolVersion: protocolVersion,
          messageType: messageType,
@@ -26,6 +29,9 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
          sessionId: sessionId,
          correlationId: correlationId,
          payload: payload,
+         bridgeInstanceId: bridgeInstanceId,
+         playContextId: playContextId,
+         clientId: clientId,
        );
 
   /// Decodes and validates one protocol envelope.
@@ -72,8 +78,43 @@ class ProtocolEnvelopeModel extends ProtocolEnvelopeEntity {
   @override
   final JsonMap payload;
 
+  /// The identity of the bridge instance that produced this message.
+  /// Decoded tolerantly regardless of [protocolVersion]: an absent key and
+  /// an explicit JSON `null` both decode to `null` here. Only [toJson]
+  /// enforces which version may write this key.
+  @JsonKey()
+  @override
+  final String? bridgeInstanceId;
+
+  /// The identity of the currently loaded play context, when one is active.
+  /// See [bridgeInstanceId] for the same absent-vs-null decode tolerance.
+  @JsonKey()
+  @override
+  final String? playContextId;
+
+  /// The identity of the logical client, established at `hello`. See
+  /// [bridgeInstanceId] for the same absent-vs-null decode tolerance.
+  @JsonKey()
+  @override
+  final String? clientId;
+
   /// Encodes this envelope as a JSON object.
-  JsonMap toJson() => _$ProtocolEnvelopeModelToJson(this);
+  ///
+  /// Version-gated per `protocol/schema/README.md`'s v2 encoding rule: below
+  /// protocol version 2, [bridgeInstanceId], [playContextId], and [clientId]
+  /// are omitted entirely rather than encoded as `null`, since
+  /// `json_serializable`'s generated output cannot conditionally omit a key
+  /// based on a sibling field.
+  JsonMap toJson() {
+    final JsonMap json = _$ProtocolEnvelopeModelToJson(this);
+    if (protocolVersion < 2) {
+      json
+        ..remove('bridgeInstanceId')
+        ..remove('playContextId')
+        ..remove('clientId');
+    }
+    return json;
+  }
 }
 
 /// Reads an integer while rejecting numeric values with a fractional part.

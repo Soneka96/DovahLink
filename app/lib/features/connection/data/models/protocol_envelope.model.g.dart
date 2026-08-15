@@ -27,6 +27,9 @@ ProtocolEnvelopeModel _$ProtocolEnvelopeModelFromJson(
     sessionId: $checkedConvert('sessionId', (v) => v as String?),
     correlationId: $checkedConvert('correlationId', (v) => v as String?),
     payload: $checkedConvert('payload', (v) => v as Map<String, dynamic>),
+    bridgeInstanceId: $checkedConvert('bridgeInstanceId', (v) => v as String?),
+    playContextId: $checkedConvert('playContextId', (v) => v as String?),
+    clientId: $checkedConvert('clientId', (v) => v as String?),
   );
   return val;
 });
@@ -40,4 +43,7 @@ Map<String, dynamic> _$ProtocolEnvelopeModelToJson(
   'sessionId': instance.sessionId,
   'correlationId': instance.correlationId,
   'payload': instance.payload,
+  'bridgeInstanceId': instance.bridgeInstanceId,
+  'playContextId': instance.playContextId,
+  'clientId': instance.clientId,
 };
