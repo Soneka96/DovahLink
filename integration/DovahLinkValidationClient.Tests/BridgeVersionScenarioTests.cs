@@ -73,4 +73,90 @@ public class BridgeVersionScenarioTests
         await harness.WriteLineAsync("quit");
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
     }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when the
+    /// Bridge reports a version outside this client's supported range.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenTheBridgeVersionIsUnsupported()
+    {
+        string helloAckWithUnsupportedVersion = new Envelope(
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1",
+            new JsonObject { ["bridgeVersion"] = "99.0.0", ["clientIdentityKind"] = "unpaired" }).Encode();
+        // Only the hello_ack is queued: if ValidationRun incorrectly continued past the
+        // compatibility check, its next ReceiveAsync (for capabilities) would dequeue from an
+        // empty queue and throw, failing this test.
+        var socket = new FakeWebSocket([helloAckWithUnsupportedVersion]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("incompatible", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun disconnects without continuing the exchange when
+    /// hello_ack is missing its bridgeVersion field entirely.</summary>
+    [Fact]
+    public async Task ExecuteAsyncDisconnectsWithoutContinuingWhenTheBridgeVersionIsMissing()
+    {
+        string helloAckWithoutVersion = new Envelope(
+            "hello_ack", "message-ack-1", "session-1", "message-hello-1", new JsonObject()).Encode();
+        var socket = new FakeWebSocket([helloAckWithoutVersion]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.True(socket.CloseCalled);
+        Assert.Contains("incompatible", output.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Verifies that ValidationRun reports failure without a compatibility check when the
+    /// Bridge rejects the hello itself.</summary>
+    [Fact]
+    public async Task ExecuteAsyncFailsWithoutCheckingCompatibilityWhenTheBridgeRejectsHello()
+    {
+        string errorEnvelope = new Envelope(
+            "error", "message-error-1", null, "message-hello-1",
+            new JsonObject { ["code"] = "unauthenticated", ["message"] = "Invalid token", ["retryable"] = false })
+            .Encode();
+        var socket = new FakeWebSocket([errorEnvelope]);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Bridge rejected hello", output.ToString());
+    }
+
+    /// <summary>Verifies that ValidationRun completes the full exchange when the Bridge reports a
+    /// supported version.</summary>
+    [Fact]
+    public async Task ExecuteAsyncCompletesTheExchangeWhenTheBridgeVersionIsSupported()
+    {
+        const string sessionId = "session-1";
+        string supportedVersion = BridgeVersionCompatibility.MinimumSupportedVersion.ToString();
+        string[] responses =
+        [
+            new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
+                new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" }).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
+                new JsonObject { ["acceptedStateAreas"] = new JsonArray("character"), ["rejectedStateAreas"] = new JsonArray() })
+                .Encode(),
+            new Envelope("state_snapshot", "message-snap-1", sessionId, null, new JsonObject { ["revision"] = 1 }).Encode(),
+        ];
+        var socket = new FakeWebSocket(responses);
+        var connection = new BridgeConnection(socket, TimeSpan.FromMilliseconds(50));
+        var output = new StringWriter();
+
+        int exitCode = await ValidationRun.ExecuteAsync(connection, ValidHexToken, output);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("state_snapshot", output.ToString());
+    }
 }
