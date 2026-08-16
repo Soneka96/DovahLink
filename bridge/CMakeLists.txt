@@ -44,6 +44,7 @@ add_library(dovahlink_bridge_core STATIC
     protocol/json_field_decoders.cpp
     protocol/messages.cpp
     security/csprng.cpp
+    security/dpapi.cpp
     security/hex.cpp
     security/throttle.cpp
     security/token_provider.cpp
@@ -55,7 +56,7 @@ add_library(dovahlink_bridge_core STATIC
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
-target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt)
+target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt crypt32)
 
 # CommonLib-dependent game-state adapters. Kept in a separate target from
 # dovahlink_bridge_core so dovahlink_bridge_tests never needs to link
@@ -128,6 +129,7 @@ add_executable(dovahlink_bridge_tests
     plugin/dovahlink_bridge_plugin_registration_test.cpp
     security/limits_test.cpp
     security/csprng_test.cpp
+    security/dpapi_test.cpp
     security/hex_test.cpp
     security/throttle_test.cpp
     security/token_provider_test.cpp

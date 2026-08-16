@@ -190,7 +190,10 @@ TEST_CASE("Persist rejects a displayName containing a control character",
 TEST_CASE("Persist surfaces a Save failure without corrupting in-memory state",
           "[security][trust_store]") {
     FakePersistence persistence;
-    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    // Three candidates: client-1's successful Persist, client-2's failed attempt (the shortId
+    // generator is consulted -- and its candidate consumed -- before Save runs, so the failed
+    // attempt still burns one), and client-2's successful retry.
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222", "33333"}));
     REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
 
     persistence.FailNextSave();

@@ -53,6 +53,22 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
   secure-storage mechanism for the platform. Do not invent cryptography. Loopback TCP itself does not
   establish this scoping; see "Local-OS-user threat boundary" below.
+- The Bridge's approved per-user secure-storage mechanism for the current (Windows) platform is
+  DPAPI (`CryptProtectData`/`CryptUnprotectData`) in its default per-user scope —
+  `CRYPTPROTECT_LOCAL_MACHINE` is never set — so the OS itself ties the encrypted material to the
+  logged-in Windows user, matching the user-profile scoping above; DPAPI is Windows' standard
+  per-user secret-protection primitive, not invented cryptography. The trust snapshot is serialized
+  as JSON, reusing the project's existing `boost::json` dependency rather than a second
+  serialization format, before encryption, and stored as one file under the current user's local
+  application-data directory. Any DPAPI failure, missing/malformed file structure, or JSON-shape
+  mismatch on load is corruption per the trust-store's fail-closed contract, never a silent partial
+  trust; a missing file is a valid empty store, not corruption. Saves write to a temporary file and
+  atomically replace the previous one, so a crash mid-write cannot leave a partially written trust
+  file. This decision binds only the Windows persistence adapter; the `TrustStore` domain object
+  stays platform-independent, and a future non-Windows platform implements the same
+  `ITrustStorePersistence` port against its own per-user secure-storage primitive (for example
+  Linux Secret Service/keyring, or macOS Keychain) without this document's trust semantics
+  changing.
 - Scope `clientId` to the client installation and the Windows user profile running it; the official
   client must not share one `clientId`/credential between different Windows user profiles merely
   because the executable is installed system-wide. No Windows username, SID, hostname, or other
