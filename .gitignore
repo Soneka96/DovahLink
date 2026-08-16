@@ -4,3 +4,10 @@ __pycache__/
 **/bin/
 **/obj/
 tooling/out/
+
+# Generated Dart files
+*.g.dart
+*.config.dart
+*.freezed.dart
+*.mocks.dart
+*.pb.dart
