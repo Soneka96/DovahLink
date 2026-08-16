@@ -37,7 +37,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
     ConnectionTimeoutTracker timeout(steadyNow());
 
-    auto rawHello = ws.ReadMessage();
+    auto rawHello = ws.ReadMessage(timeout.Deadline());
     if (!rawHello.has_value()) {
         ws.Close();
         return;
@@ -110,7 +110,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     std::size_t receivedMessageCount = 0;
 
     while (true) {
-        auto raw = ws.ReadMessage();
+        auto raw = ws.ReadMessage(timeout.Deadline());
         if (!raw.has_value()) {
             break;
         }

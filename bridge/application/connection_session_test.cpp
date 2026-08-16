@@ -618,6 +618,151 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     CHECK(tokenThrottle.IsBlocked(start + std::chrono::seconds(63)));
 }
 
+TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
+          "ConnectionTimeoutTracker's deadline has already elapsed, without waiting out any "
+          "WebSocket-level timeout",
+          "[application][connection_session]") {
+    // Proves the wiring added in this step: timeout.Deadline() actually reaches
+    // WebSocketSession::ReadMessage's own idleDeadline watchdog inside the message loop, not just
+    // the initial hello read. A client that kept answering WebSocket-level pings (now enabled via
+    // keep_alive_pings) would otherwise let Beast's own per-operation timeout run indefinitely;
+    // that mechanism itself is proven directly at transport/websocket_session_test.cpp's level.
+    // Here, an artificially already-elapsed idle deadline (manufactured via steadyNow, not a real
+    // 60-second wait) proves the connection still closes through this real session loop.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+    auto start = std::chrono::steady_clock::now();
+    int clockCalls = 0;
+    // The hello read itself must not be rejected as late (postReadNow must stay before the
+    // handshake deadline, start+5s), but authenticating at start-100s leaves the resulting idle
+    // deadline (postReadNow+60s = start-40s) already 40s in the past relative to real time by the
+    // time the loop's read arms its watchdog moments later.
+    auto steadyNow = [&] {
+        ++clockCalls;
+        return clockCalls == 1 ? start : start - std::chrono::seconds(100);
+    };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    REQUIRE(helloAck.sessionId.has_value());
+    std::string sessionId = *helloAck.sessionId;
+
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    // The client deliberately sends nothing else and does not close -- only the watchdog, racing
+    // the already-elapsed deadline, should end this connection.
+    auto readStart = std::chrono::steady_clock::now();
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    auto readDuration = std::chrono::steady_clock::now() - readStart;
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(readEc);
+    // Well under the real 60s idle timeout the watchdog exists to bound, proving the already-past
+    // deadline -- not eventually waiting out Beast's own longer timer -- is what closed this.
+    CHECK(readDuration < std::chrono::seconds(10));
+    CHECK_FALSE(sessionManager.IsValidForConnection(sessionId, /*connection=*/1));
+}
+
+TEST_CASE("RunConnectionSession's initial hello read closes the connection once "
+          "ConnectionTimeoutTracker's handshake deadline has already elapsed, without waiting out "
+          "any WebSocket-level timeout",
+          "[application][connection_session]") {
+    // Symmetric with the idle-loop watchdog test above, but for the *other* ws.ReadMessage() call
+    // site this step changed: the very first hello read, before any session exists.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+    // The handshake deadline (constructor time + 5s) is already 5s in the past the moment the
+    // tracker is built, so the very first ReadMessage's watchdog has nothing to wait out.
+    auto steadyNow = [] { return std::chrono::steady_clock::now() - std::chrono::seconds(10); };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately never sends hello -- only the watchdog, racing the already-elapsed
+    // handshake deadline, should end this connection.
+
+    auto readStart = std::chrono::steady_clock::now();
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    auto readDuration = std::chrono::steady_clock::now() - readStart;
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(readEc);
+    // Well under the real 5s handshake timeout the watchdog exists to bound.
+    CHECK(readDuration < std::chrono::seconds(3));
+}
+
 TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives after the handshake "
           "deadline, even though no single socket read ever timed out",
           "[application][connection_session]") {
