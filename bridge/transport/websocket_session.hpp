@@ -9,6 +9,7 @@
 #include <chrono>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace dovahlink::transport {
@@ -79,7 +80,14 @@ public:
     void SwitchToIdleTimeout();
 
     /// Reads one text message, rejecting binary frames and oversized frames.
-    [[nodiscard]] std::expected<std::string, SessionError> ReadMessage();
+    /// @param idleDeadline When supplied, arms a watchdog that closes the connection if this read
+    ///     does not complete by this absolute time, independent of Beast's own per-operation
+    ///     timeout -- needed because WebSocket-level keep-alive pings can otherwise keep that
+    ///     timeout from ever firing against a peer that answers pings but sends no application
+    ///     message. Canceled the instant this read completes, successfully or not. Omitted, this
+    ///     behaves exactly as before.
+    [[nodiscard]] std::expected<std::string, SessionError> ReadMessage(
+        std::optional<std::chrono::steady_clock::time_point> idleDeadline = std::nullopt);
 
     /// Writes one UTF-8 text message.
     [[nodiscard]] std::expected<void, SessionError> WriteMessage(const std::string& text);

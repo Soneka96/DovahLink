@@ -566,6 +566,168 @@ TEST_CASE("ReadMessage fails within the handshake timeout when the client "
     CHECK(serverReadDuration < std::chrono::seconds(20));
 }
 
+TEST_CASE("ReadMessage's idle watchdog closes the connection at a shorter deadline than the "
+          "session's own configured idle timeout",
+          "[transport][websocket_session]") {
+    // Proves the watchdog -- not Beast's own much-longer 60s idle_timeout -- is what closed this
+    // connection: a silent client here would otherwise survive well past this test's bound.
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::chrono::steady_clock::duration serverReadDuration{};
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        session.SwitchToIdleTimeout();
+        auto start = std::chrono::steady_clock::now();
+        serverReadResult = session.ReadMessage(start + std::chrono::seconds(1));
+        serverReadDuration = std::chrono::steady_clock::now() - start;
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately sends nothing and does not close.
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    REQUIRE_FALSE(serverReadResult.has_value());
+    // Same observable failure as every other bounded-read scenario in this file (Beast's own
+    // native timeout, an oversized frame, an abrupt close): callers cannot and do not need to
+    // distinguish "the watchdog fired" from any other read failure.
+    CHECK(serverReadResult.error() == SessionError::kReadFailed);
+    CHECK(serverReadDuration < std::chrono::seconds(10));
+}
+
+TEST_CASE("ReadMessage's idle watchdog fires promptly when the deadline is already in the past",
+          "[transport][websocket_session]") {
+    // The intended real caller (application/connection_session.cpp) can pass an
+    // already-elapsed ConnectionTimeoutTracker::Deadline() -- for example a connection that was
+    // already timed out by the time it re-enters the read loop. This must not require waiting out
+    // any part of Beast's own configured timeout to be enforced.
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::chrono::steady_clock::duration serverReadDuration{};
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        session.SwitchToIdleTimeout();
+        auto start = std::chrono::steady_clock::now();
+        serverReadResult = session.ReadMessage(start - std::chrono::seconds(1));
+        serverReadDuration = std::chrono::steady_clock::now() - start;
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately sends nothing and does not close.
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+    CHECK(serverReadDuration < std::chrono::seconds(5));
+}
+
+TEST_CASE("a session closed by the idle watchdog reports shutdown requested for a subsequent Close",
+          "[transport][websocket_session]") {
+    // Proves the full observable lifecycle after a watchdog-triggered closure matches an
+    // externally-triggered one (Socket::Shutdown is the same function either way): the real caller
+    // (RunConnectionSession) always calls Close() during teardown regardless of why the read loop
+    // ended, and that must stay a safe no-op here, not a second, redundant close attempt.
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::chrono::steady_clock::duration serverCloseDuration{};
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        session.SwitchToIdleTimeout();
+        serverReadResult = session.ReadMessage(std::chrono::steady_clock::now() - std::chrono::seconds(1));
+        // The real caller's teardown path: always attempt Close() after the read loop ends.
+        // Must return promptly rather than attempting another bounded close handshake.
+        auto closeStart = std::chrono::steady_clock::now();
+        session.Close();
+        serverCloseDuration = std::chrono::steady_clock::now() - closeStart;
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately sends nothing and does not close.
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+    CHECK(serverCloseDuration < std::chrono::seconds(1));
+}
+
+TEST_CASE("ReadMessage's idle watchdog does not disrupt a read that completes before the deadline",
+          "[transport][websocket_session]") {
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::unexpected(SessionError::kReadFailed);
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        session.SwitchToIdleTimeout();
+        // Far enough out that only a genuine bug in watchdog cancellation would let it fire before
+        // this read below completes.
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        serverReadResult = session.ReadMessage(deadline);
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(std::string("before deadline")), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    REQUIRE(serverReadResult.has_value());
+    CHECK(*serverReadResult == "before deadline");
+}
+
 TEST_CASE("a client that sends an oversized frame and never closes still gets "
           "a bounded failure",
           "[transport][websocket_session]") {
