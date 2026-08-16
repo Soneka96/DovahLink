@@ -1,0 +1,79 @@
+#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
+
+#include "RE/Skyrim.h"
+#include "SKSE/SKSE.h"
+
+#include <string_view>
+
+namespace dovahlink::game_state {
+
+namespace {
+
+/// Non-owning pointer to the service every native function below forwards to, set once by
+/// `InstallTrustAdminPapyrusAdapter` before the Papyrus VM can call any of them. Papyrus native
+/// functions must be plain function pointers, not captures, so this file-local pointer is the
+/// standard SKSE-ecosystem idiom for reaching plugin-lifetime state from them.
+application::TrustAdminService* g_trustAdminService = nullptr;
+
+/// Result returned when a native function runs before `InstallTrustAdminPapyrusAdapter` set
+/// `g_trustAdminService` -- unreachable once the plugin has finished loading, kept only so a
+/// caller never gets a null-dereference instead of a message.
+constexpr const char* kUnavailableMessage = "DovahLink trust admin is unavailable.";
+
+/// Result returned when `TrustAdminService` throws. `ai/context/skse/cpp-style.md`: "never allow
+/// an exception to escape a callback" -- a native Papyrus function is called directly by the game's
+/// Papyrus VM, not through this codebase's own containment, so it is exactly such a boundary.
+constexpr const char* kInternalErrorMessage = "DovahLink trust admin failed unexpectedly.";
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.List()` function.
+RE::BSFixedString List(RE::StaticFunctionTag*) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ListTrusted());
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.Revoke(String)` function.
+RE::BSFixedString Revoke(RE::StaticFunctionTag*, RE::BSFixedString akId) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->RevokeByShortId(std::string_view(akId)));
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.Reset()` function.
+RE::BSFixedString Reset(RE::StaticFunctionTag*) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->Reset());
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Binds the three native functions above to their Papyrus declarations.
+bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
+    vm->RegisterFunction("List", "DovahLinkAdmin", List);
+    vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
+    vm->RegisterFunction("Reset", "DovahLinkAdmin", Reset);
+    return true;
+}
+
+}  // namespace
+
+void InstallTrustAdminPapyrusAdapter(application::TrustAdminService& service) {
+    g_trustAdminService = &service;
+    SKSE::GetPapyrusInterface()->Register(RegisterFunctions);
+}
+
+}  // namespace dovahlink::game_state

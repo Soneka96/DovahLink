@@ -74,6 +74,7 @@ add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
     game_state/commonlib_pairing_notification_sink.cpp
+    game_state/commonlib_trust_admin_papyrus_adapter.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
