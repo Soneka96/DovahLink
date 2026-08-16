@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -15,6 +16,15 @@ void main() {
       expect(state.connection.phase, ConnectionPhase.disconnected);
       expect(state.connection.session, isNull);
       expect(state.connection.error, isNull);
+    });
+
+    test('initial creates the pairing state', () {
+      final AppState state = AppState.initial();
+
+      expect(state.pairing, isA<PairingState>());
+      expect(state.pairing.phase, PairingPhase.none);
+      expect(state.pairing.bridgeVersion, isNull);
+      expect(state.pairing.error, isNull);
     });
   });
 }
