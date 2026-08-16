@@ -10,6 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   async: ^2.13.1
+  dovahlink_client_sdk:
+    path: ../sdk/dart/dovahlink_client
   equatable: ^2.0.5
   fpdart: ^1.2.0
   flutter_redux: ^0.10.0
