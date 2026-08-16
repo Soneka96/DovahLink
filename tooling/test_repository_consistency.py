@@ -1084,6 +1084,68 @@ class RepositoryConsistencyTests(unittest.TestCase):
             flutter_dart_style,
         )
 
+    def test_sdk_conventions_cover_architecture_api_persistence_and_testing(self) -> None:
+        """Guard the four ai/context/sdk/ convention files and their non-duplication of security/compatibility."""
+        sdk_architecture = self._read("ai/context/sdk/architecture.md")
+        sdk_api_design = self._read("ai/context/sdk/api-design.md")
+        sdk_persistence = self._read("ai/context/sdk/persistence.md")
+        sdk_testing = self._read("ai/context/sdk/testing.md")
+
+        for required_phrase in (
+            "`protocol/` remains the sole canonical language-neutral Bridge/client contract.",
+            "The Bridge remains authoritative for live Skyrim game state, authoritative "
+            "revisions, the current\n`playContextId`, server-side trusted-client records, "
+            "revocation, trust administration, Bridge\ncapabilities, and server-side security "
+            "decisions.",
+            "The SDK has one underlying client engine/state machine.",
+            "The reusable client core must not depend on Flutter widgets, Redux, `GetIt`, "
+            "navigation",
+            "it must never become\nauthoritative over Skyrim or server-side trust.",
+            "It must not construct a new parallel raw WebSocket implementation,\nBridge "
+            "compatibility implementation, protocol decoder, authentication implementation, "
+            "pairing\nimplementation, reconnect state machine, revision tracker, or subscription "
+            "engine.",
+        ):
+            self.assertIn(required_phrase, sdk_architecture)
+
+        for required_phrase in (
+            "The long-term simple\nexperience trends toward: find/select a Bridge, pair if "
+            "necessary, listen to typed state.",
+            '"Advanced" must not mean\n"bypass invariants"',
+            "Do not duplicate `ai/context/protocol/security.md` here; obey it.",
+            "The SDK owns typed meaning; the app owns user-facing wording and presentation.",
+            "never persists secrets insecurely, never turns a security-sensitive failure into\n"
+            "plausible success or default state",
+        ):
+            self.assertIn(required_phrase, sdk_api_design)
+
+        for required_phrase in (
+            "If persisted data is required for correct reusable DovahLink client behavior, the "
+            "SDK owns it.",
+            "the app must not persist a competing authoritative copy of SDK-owned protocol\nor "
+            "client state",
+            "The SDK is not merely a WebSocket wrapper",
+            "The SDK must not assume a cached resource is valid merely because a file exists",
+        ):
+            self.assertIn(required_phrase, sdk_persistence)
+
+        for required_phrase in (
+            "Do not maintain the same Dart client correctness test suite independently inside "
+            "both `app/` and\n`sdk/`.",
+            "It must not consume, wrap, generate from, or\notherwise reuse the Dart SDK",
+        ):
+            self.assertIn(required_phrase, sdk_testing)
+
+        # These conventions must point to the compatibility/security authorities, not restate
+        # their content — this is the same rule common.md applies to every shared contract.
+        retired_duplication_phrase = (
+            "Compatibility is identified by the DovahLink Bridge/mod release version against the "
+            "supported Bridge-version range a client or SDK explicitly declares"
+        )
+        for sdk_doc in (sdk_architecture, sdk_api_design, sdk_persistence, sdk_testing):
+            self.assertNotIn(retired_duplication_phrase, sdk_doc)
+            self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
