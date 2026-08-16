@@ -94,6 +94,12 @@ public:
     /// Reports whether `clientId` was explicitly revoked and has not been re-paired since.
     [[nodiscard]] bool IsRevoked(const std::string& clientId);
 
+    /// Reports whether `presentedCredential` matches the credential currently trusted for
+    /// `clientId`, using a constant-time comparison. `false` for an unknown or revoked `clientId`,
+    /// or an empty `presentedCredential`.
+    [[nodiscard]] bool Authenticate(const std::string& clientId,
+                                     const std::vector<std::uint8_t>& presentedCredential);
+
     /// Binds `credential` to `clientId`, assigning a unique `shortId` and clearing any revocation
     /// tombstone for `clientId`. Rejects an empty `clientId` or `credential`, and rejects a
     /// `displayName` that exceeds the configured length bound or contains a control character.

@@ -20,6 +20,19 @@ void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
     buffer.clear();
 }
 
+/// Compares equal-length byte sequences without early exit on content, avoiding a timing
+/// side-channel on which byte first differs.
+bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    std::uint8_t diff = 0;
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        diff |= static_cast<std::uint8_t>(a[i] ^ b[i]);
+    }
+    return diff == 0;
+}
+
 }  // namespace
 
 TrustStore::TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator shortIdGenerator,
@@ -76,6 +89,19 @@ std::vector<TrustedClientRecord> TrustStore::ListTrusted() {
 bool TrustStore::IsRevoked(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
     return tombstones_.contains(clientId);
+}
+
+bool TrustStore::Authenticate(const std::string& clientId,
+                               const std::vector<std::uint8_t>& presentedCredential) {
+    if (presentedCredential.empty()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = records_.find(clientId);
+    if (it == records_.end()) {
+        return false;
+    }
+    return ConstantTimeEquals(it->second.credential, presentedCredential);
 }
 
 bool TrustStore::IsValidDisplayName(const std::string& displayName) {

@@ -267,6 +267,70 @@ TEST_CASE("IsRevoked distinguishes never-paired, currently trusted, and revoked 
     CHECK(store.IsRevoked("revoked-client"));
 }
 
+TEST_CASE("Authenticate succeeds for the matching credential of a trusted client",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK(store.Authenticate("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("Authenticate fails for the wrong credential of a real trusted client",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(9)));
+}
+
+TEST_CASE("Authenticate fails for an unknown clientId", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK_FALSE(store.Authenticate("never-paired", MakeCredential(1)));
+}
+
+TEST_CASE("Authenticate fails for a revoked client even with its former credential",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("Authenticate fails for an empty presented credential", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK_FALSE(store.Authenticate("client-1", std::vector<std::uint8_t>{}));
+}
+
+TEST_CASE("Authenticate fails for a non-empty credential of the wrong length",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK_FALSE(store.Authenticate("client-1", std::vector<std::uint8_t>{1, 2, 1}));
+}
+
+TEST_CASE("Authenticate succeeds with the new credential after re-pairing a revoked client",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    REQUIRE(store.Persist("client-1", MakeCredential(3), std::nullopt).has_value());
+
+    CHECK(store.Authenticate("client-1", MakeCredential(3)));
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
+}
+
 TEST_CASE("Persist rejects an empty clientId or an empty credential",
           "[security][trust_store]") {
     FakePersistence persistence;
