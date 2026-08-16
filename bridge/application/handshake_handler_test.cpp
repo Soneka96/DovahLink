@@ -563,6 +563,65 @@ TEST_CASE("credential-throttle rate-limited handshakes do not extend the failed-
     CHECK(retry.sessionLease.has_value());
 }
 
+TEST_CASE("HandleHello's one_time_local_token path never enrolls the client into TrustStore",
+          "[application][handshake_handler]") {
+    // ai/context/protocol/security.md's "Developer authentication": developer-token authentication
+    // "must not silently enroll the authenticating client into the persistent trusted-device
+    // store." HandleHello's one_time_local_token branch never calls TrustStore::Persist (its only
+    // caller in the whole codebase is pairing_handler.cpp's HandlePairingAck, unreachable for a
+    // kFull session per message_dispatcher.cpp's trust-tier allowlist) -- this proves that
+    // structural guarantee directly, for a clientId with no prior record, rather than relying on
+    // that reasoning holding across files.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", std::string("never-enrolled-client"));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
+                              /*connection=*/1, timeout, now);
+
+    REQUIRE_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
+    CHECK(sessions.IsFullyTrusted(/*connection=*/1));
+    CHECK_FALSE(trustStore.Query("never-enrolled-client").has_value());
+}
+
+TEST_CASE("HandleHello's one_time_local_token path leaves an already-paired clientId's TrustStore "
+          "record untouched",
+          "[application][handshake_handler]") {
+    // Distinct from the no-prior-record test above: proves developer-token auth for a clientId
+    // that happens to already be a genuinely paired device neither overwrites nor otherwise
+    // mutates that existing record, not just that it doesn't create a new one.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    std::vector<std::uint8_t> credentialBytes{9, 8, 7, 6};
+    auto originalRecord = trustStore.Persist("already-paired-client", credentialBytes, std::string("My PC"));
+    REQUIRE(originalRecord.has_value());
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", std::string("already-paired-client"));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
+                              /*connection=*/1, timeout, now);
+
+    REQUIRE_FALSE(result.closeConnection);
+    CHECK(sessions.IsFullyTrusted(/*connection=*/1));
+    auto recordAfter = trustStore.Query("already-paired-client");
+    REQUIRE(recordAfter.has_value());
+    CHECK(recordAfter->credential == originalRecord->credential);
+    CHECK(recordAfter->shortId == originalRecord->shortId);
+    CHECK(recordAfter->displayName == originalRecord->displayName);
+}
+
 TEST_CASE("the same clientId across unpaired, one_time_local_token, and trusted_device_credential "
           "hellos leaves no cross-method state leakage",
           "[application][handshake_handler]") {
