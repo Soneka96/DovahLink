@@ -6,7 +6,6 @@
 #include <windows.h>
 
 #include <cctype>
-#include <format>
 #include <utility>
 
 namespace dovahlink::security {
@@ -49,16 +48,8 @@ TrustStore TrustStore::Load(ITrustStorePersistence& persistence,
 }
 
 std::optional<std::string> TrustStore::DefaultShortIdGenerator() {
-    constexpr std::uint32_t kShortIdRange = 100'000;
-    auto bytes = GenerateRandomBytes(sizeof(std::uint32_t));
-    if (!bytes.has_value()) {
-        return std::nullopt;
-    }
-    std::uint32_t value = 0;
-    for (auto byte : *bytes) {
-        value = (value << 8) | byte;
-    }
-    return std::format("{:05d}", value % kShortIdRange);
+    constexpr std::size_t kShortIdDigits = 5;
+    return GenerateNumericCode(kShortIdDigits);
 }
 
 bool TrustStore::WasCorruptOnLoad() const noexcept { return wasCorruptOnLoad_; }

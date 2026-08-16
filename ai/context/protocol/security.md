@@ -48,6 +48,24 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
   credential and returns to unpaired.
+- This state machine maps to five canonical messages, all Connection-category per
+  `ai/context/protocol/conventions.md`: `pairing_request` (client, on an `unpaired`-tier session per
+  "Hello authentication and session trust tiers" below — starts or queries a challenge, no payload),
+  `pairing_status` (bridge reply to `pairing_request`: `unavailable`/`available`/`in_progress`, never
+  the code itself), `pairing_confirm` (client, carries the user-entered code plus an optional
+  `displayName` — `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`: on a valid code the bridge generates the
+  credential, holds it in memory only, and returns it), `pairing_ack` (client, echoes back the
+  credential it just durably saved -- this is the wire form of "final confirmation";
+  `PENDING_CREDENTIAL -> TRUSTED` via `TrustStore::Persist`, only once this arrives), and
+  `pairing_outcome` (bridge reply to both `pairing_confirm` and `pairing_ack`, one shared message
+  type distinguished by its `outcome` field: `credential_issued` carries the pending credential;
+  `trusted` carries the committed credential's `shortId`; `already_trusted` is `pairing_ack`'s
+  idempotent-retry success case; `expired`/`invalid`/`rate_limited` carry no credential;
+  `pending_not_found` is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory
+  pending credential, per "the pending credential as no longer known/valid" above). The in-memory
+  pending-credential record is keyed to the single active connection (this phase's single-connected-
+  client limit makes a second concurrent claimant structurally impossible) and never persists past a
+  Bridge restart, matching "Incomplete pending pairing does not need to survive a bridge restart."
 - Persist completed trust outside the Skyrim/modpack files, scoped to the Windows user profile
   running the client and the Bridge — not to the modpack, the Skyrim installation, a particular
   Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
@@ -111,6 +129,42 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - A developer-authenticated connection still obeys every applicable rule in this document: loopback
   restriction, input limits, protocol validation, a fresh `sessionId`, and the single-connected-client
   limit. Developer authentication is not a switch that disables security.
+
+## Hello authentication and session trust tiers
+
+`protocol/schema/README.md` intentionally left `hello`'s `auth.method` set and `hello_ack`'s
+`clientIdentityKind` values open for "a future pairing phase" to fill in without changing the
+message shape. This phase is that phase; this section is the filled-in decision.
+
+- `hello.auth.method` accepts three values once pairing exists: `one_time_local_token` (developer
+  authentication, unchanged from "Developer authentication" above), `unpaired` (bootstrap — no
+  token; the client has no persisted credential yet and wants a session solely to run the pairing
+  flow), and `trusted_device_credential` (the persisted credential a completed pairing issued,
+  presented the same way `one_time_local_token` presents its token: hex text in `auth.token`).
+  `unpaired` carries no `auth.token` field at all — there is nothing to present yet.
+- A session admitted via `unpaired` is a real, fully authenticated `sessionId` (it still obeys
+  loopback, input-limit, protocol-validation, and single-connected-client rules), but it is
+  trust-restricted: until pairing succeeds on that connection, the message dispatcher accepts only
+  `ping`, `capabilities`, `pairing_request`, and `pairing_confirm` from it — `subscribe` and
+  `snapshot_request` are rejected the same way any other message outside the allowlist is,
+  `malformed_message`, not a distinct error code. This mirrors `IsAllowedMessageType`'s existing
+  allowlist mechanism in `bridge/application/message_dispatcher.cpp`; a session's trust tier is a
+  second, narrower allowlist selector alongside "authenticated at all", not a parallel dispatch
+  path.
+- `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
+  bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
+  simply never trust-restricted, since developer authentication already implies full access per
+  "Developer authentication" above) and becomes `"paired"` once a session is trusted — either
+  immediately, in place, on that same connection, the moment its `pairing_confirm` resolves to a
+  `trusted` or `already_trusted` outcome, or from the first message onward for a session admitted
+  via `trusted_device_credential`. A client does not need to reconnect after pairing succeeds to
+  start using the connection normally; reconnecting later without a code (`trusted_device_credential`)
+  is a separate, subsequent event, per "Persistent local trust" above.
+- Trust-tier upgrade happens exactly once, on the pairing state machine's own success, is never
+  triggered by any other message, and is never downgraded except by the "Connection liveness"
+  teardown path invalidating the session entirely (revocation of a *different* session's trust does
+  not touch this one). There is no partially-trusted state beyond "restricted" and "full": a session
+  is never allowed a third, intermediate message-type set.
 
 ## Connection liveness
 

@@ -3,8 +3,11 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <string>
 
+using dovahlink::security::GenerateNumericCode;
 using dovahlink::security::GenerateOpaqueId;
 using dovahlink::security::GenerateRandomBytes;
 
@@ -62,4 +65,40 @@ TEST_CASE("GenerateOpaqueId produces different IDs across calls", "[security][cs
     REQUIRE(first.has_value());
     REQUIRE(second.has_value());
     CHECK(*first != *second);
+}
+
+TEST_CASE("GenerateNumericCode produces exactly the requested number of decimal digits",
+          "[security][csprng]") {
+    for (std::size_t digits : {1, 5, 6, 9}) {
+        auto code = GenerateNumericCode(digits);
+        REQUIRE(code.has_value());
+        CHECK(code->size() == digits);
+        bool allDigits =
+            std::all_of(code->begin(), code->end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); });
+        CHECK(allDigits);
+    }
+}
+
+TEST_CASE("GenerateNumericCode produces different codes across calls", "[security][csprng]") {
+    auto first = GenerateNumericCode(6);
+    auto second = GenerateNumericCode(6);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(*first != *second);
+}
+
+TEST_CASE("GenerateNumericCode preserves a leading zero rather than shortening the code",
+          "[security][csprng]") {
+    // Not a statistical randomness test: a 2-digit code has roughly even odds of starting with
+    // '0' on any single call, so across 200 calls the chance of never observing one is
+    // astronomically small (matching this file's existing "GenerateRandomBytes output is not all
+    // zero bytes" cheap-sanity-check style).
+    bool sawLeadingZero = false;
+    for (int i = 0; i < 200 && !sawLeadingZero; ++i) {
+        auto code = GenerateNumericCode(2);
+        REQUIRE(code.has_value());
+        REQUIRE(code->size() == 2);
+        sawLeadingZero = (*code)[0] == '0';
+    }
+    CHECK(sawLeadingZero);
 }
