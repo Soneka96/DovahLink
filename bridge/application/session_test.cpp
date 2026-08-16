@@ -12,6 +12,7 @@
 
 using dovahlink::application::ConnectionId;
 using dovahlink::application::SessionManager;
+using dovahlink::application::SessionTrustTier;
 
 static_assert(!std::is_copy_constructible_v<SessionManager::Lease>);
 static_assert(!std::is_copy_assignable_v<SessionManager::Lease>);
@@ -253,6 +254,141 @@ TEST_CASE("ClientIdForConnection reports the new session's client after a reconn
     REQUIRE(clientId.has_value());
     CHECK(*clientId == kClientTwo);
     CHECK_FALSE(sessions.ClientIdForConnection(kConnectionA).has_value());
+}
+
+TEST_CASE("TryCreateSession defaults to kFull trust for callers that predate trust tiers",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    REQUIRE(lease.has_value());
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("TryCreateSession honors an explicit kRestricted trust tier", "[application][session]") {
+    SessionManager sessions;
+    auto lease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(lease.has_value());
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust flips the active session's owning connection to kFull",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust is a no-op for a connection that does not own the active session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionB, kSessionOne);
+
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust is a no-op for the right connection presenting the wrong sessionId",
+          "[application][session]") {
+    // Distinct from the wrong-connection case: this is the same guard InvalidateSession already
+    // has, proven here because UpgradeToFullTrust must check both, not just connection.
+    SessionManager sessions;
+    auto lease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionTwo);
+
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust is a no-op when no session is active at all",
+          "[application][session]") {
+    SessionManager sessions;
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on the same connection",
+          "[application][session]") {
+    // The exact scenario the sessionId check exists to prevent: a delayed upgrade call for the
+    // original (now-invalidated) session arrives after the same connection already holds an
+    // unrelated replacement session.
+    SessionManager sessions;
+    auto staleLease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(staleLease.has_value());
+    staleLease.reset();
+
+    auto replacementLease =
+        sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted);
+    REQUIRE(replacementLease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust on an already-kFull session leaves it kFull", "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust does not change the session's identifier or client identity",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    auto clientId = sessions.ClientIdForConnection(kConnectionA);
+    REQUIRE(clientId.has_value());
+    CHECK(*clientId == kClientOne);
+}
+
+TEST_CASE("IsFullyTrusted is false when no session is active", "[application][session]") {
+    SessionManager sessions;
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+}
+
+TEST_CASE("IsFullyTrusted is false for a connection that does not own the active kFull session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    REQUIRE(lease.has_value());
+
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionB));
+}
+
+TEST_CASE("a session created after a restricted one is invalidated starts kFull by default",
+          "[application][session]") {
+    SessionManager sessions;
+    auto firstLease =
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+    REQUIRE(firstLease.has_value());
+    firstLease.reset();
+
+    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    REQUIRE(secondLease.has_value());
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
 }
 
 TEST_CASE("exactly one concurrent TryCreateSession attempt succeeds", "[application][session]") {

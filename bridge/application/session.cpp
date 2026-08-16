@@ -36,7 +36,7 @@ void SessionManager::Lease::Reset() noexcept {
 }
 
 std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
-    ConnectionId connection, const std::string& sessionId, std::string clientId) {
+    ConnectionId connection, const std::string& sessionId, std::string clientId, SessionTrustTier trustTier) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value()) {
         return std::nullopt;
@@ -48,6 +48,7 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
     std::string leaseSessionId = sessionId;
     activeSessionId_.emplace(std::move(activeSessionId));
     activeClientId_.emplace(std::move(clientId));
+    activeTrustTier_ = trustTier;
     activeConnection_ = connection;
     return Lease(*this, connection, std::move(leaseSessionId));
 }
@@ -68,6 +69,22 @@ std::optional<std::string> SessionManager::ClientIdForConnection(ConnectionId co
     return activeClientId_;
 }
 
+bool SessionManager::IsFullyTrusted(ConnectionId connection) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
+        return false;
+    }
+    return activeTrustTier_ == SessionTrustTier::kFull;
+}
+
+void SessionManager::UpgradeToFullTrust(ConnectionId connection, const std::string& sessionId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (activeConnection_.has_value() && activeSessionId_.has_value() && *activeConnection_ == connection &&
+        *activeSessionId_ == sessionId) {
+        activeTrustTier_ = SessionTrustTier::kFull;
+    }
+}
+
 void SessionManager::InvalidateSession(ConnectionId connection, const std::string& sessionId) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value() && activeSessionId_.has_value() &&
@@ -75,6 +92,7 @@ void SessionManager::InvalidateSession(ConnectionId connection, const std::strin
         activeConnection_.reset();
         activeSessionId_.reset();
         activeClientId_.reset();
+        activeTrustTier_.reset();
     }
 }
 
@@ -83,6 +101,7 @@ void SessionManager::InvalidateAll() {
     activeConnection_.reset();
     activeSessionId_.reset();
     activeClientId_.reset();
+    activeTrustTier_.reset();
 }
 
 }  // namespace dovahlink::application
