@@ -1,0 +1,21 @@
+name: dovahlink_client_sdk
+description: >
+  Reusable, repository-internal Dart Client SDK for DovahLink: transport, Bridge-version
+  compatibility, authentication, pairing recovery, reconnect, session and authoritative-state
+  identity, revisions, subscriptions, snapshots, recovery, and client persistence.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  async: ^2.13.1
+  json_annotation: ^4.12.0
+  meta: ^1.18.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^5.0.0
+  build_runner: ^2.4.13
+  json_serializable: ^6.9.5
