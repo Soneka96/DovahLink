@@ -1,7 +1,14 @@
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connection_status_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
@@ -41,5 +48,34 @@ void main() {
         expect(sl.isRegistered<NavigatorService>(), isTrue);
       },
     );
+  });
+
+  group('injection_container — pairing registrations', () {
+    test('initDependencies registers the SDK client', () {
+      initDependencies();
+
+      expect(sl.isRegistered<DovahLinkClient>(), isTrue);
+    });
+
+    test('initDependencies registers the pairing remote data source', () {
+      initDependencies();
+
+      expect(sl.isRegistered<PairingRemoteDataSource>(), isTrue);
+    });
+
+    test('initDependencies registers the pairing repository', () {
+      initDependencies();
+
+      expect(sl.isRegistered<IPairingRepository>(), isTrue);
+    });
+
+    test('initDependencies registers the pairing use cases', () {
+      initDependencies();
+
+      expect(sl.isRegistered<AuthenticateUseCase>(), isTrue);
+      expect(sl.isRegistered<RequestPairingUseCase>(), isTrue);
+      expect(sl.isRegistered<ConfirmPairingCodeUseCase>(), isTrue);
+      expect(sl.isRegistered<DisconnectUseCase>(), isTrue);
+    });
   });
 }

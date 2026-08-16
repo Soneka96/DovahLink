@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connection_status_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/pairing.injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
@@ -19,4 +20,5 @@ void initDependencies() {
     () => NavigatorService(sl<GoRouter>()),
   );
   initConnectionDependencies();
+  initPairingDependencies();
 }

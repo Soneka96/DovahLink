@@ -118,9 +118,23 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - The store is built exactly once through `CreateStore`; every `StoreConnector` uses
   `distinct: true`.
 - Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.
-- Middleware calls `next(action)` before dispatching handler results so handlers see reduced state.
-- Middleware handlers accept only `Store<AppState>` and the typed Action; raw values and
-  `BuildContext` are not handler parameters.
+- One `<Feature>Middleware extends MiddlewareClass<AppState>` class per feature owns that feature's
+  middleware; it is added to `CreateStore`'s `middleware:` list as `<Feature>Middleware().call`, one
+  entry per feature, growing as each feature adds middleware.
+- Its `call(Store<AppState> store, dynamic action, NextDispatcher next)` calls `next(action)` exactly
+  once, before handling the action, so handlers see reduced state -- then dispatches to a private
+  handler through a `switch (action)` with one `case <Action> _:` per handled action type. Unhandled
+  action types fall through with no default case.
+- Each `case` calls exactly one private handler, named after its action with the trailing `Action`
+  removed and the result lowerCamelCased (`PairingDisposedAction` -> `_pairingDisposed`). Do not name
+  the handler after what it does instead; the action name is the contract.
+- Handler methods are private, take `Store<AppState>` and the specific typed Action -- even when the
+  action carries no fields or the handler does not read `store`, for a uniform, self-documenting
+  signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
+  injected constructor/parameter dependencies; raw values and `BuildContext` are not handler
+  parameters.
+- Fold a use case's `Either<Failure, T>` result with `.fold((Failure failure) => ..., (T value) =>
+  ...)`, dispatching a result or failure action from each branch.
 - To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.
 
 ## Feature call chain
