@@ -82,6 +82,59 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, reconnect);
     }
 
+    /// <summary>
+    /// Verifies the reconnect-semantics policy in security.md's "Connection liveness" (bounded
+    /// short retry/backoff over same-client takeover) for a real crash, not just a graceful close:
+    /// after pairing, an abrupt disconnect immediately followed by a rapid reconnect using the
+    /// issued credential must eventually succeed once the crashed connection's teardown finishes
+    /// releasing the connection slot, rather than being rejected outright or handed a stale/reused
+    /// session.
+    /// </summary>
+    [Fact]
+    public async Task AbruptDisconnectAfterPairingRecoversViaBoundedRetryWithAFreshSession()
+    {
+        string trustStorePath = CreateIsolatedTrustStorePath();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // A crash, not a graceful close: no close frame, just an immediate abrupt teardown --
+        // the previous connection's slot release races the very next accept below.
+        connection.Abort();
+
+        // Rapid restart: reconnect immediately, relying on ConnectWithRetryAsync's bounded
+        // short retry/backoff to ride out the window where the slot is still busy completing
+        // the crashed connection's teardown, rather than the bridge ever taking over the slot
+        // for a same-client reconnect.
+        await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
+        Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
+        Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
+        Assert.Equal("paired", reconnectHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.NotNull(reconnectHelloAck.SessionId);
+        Assert.NotEqual(sessionId, reconnectHelloAck.SessionId);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, reconnect);
+    }
+
     /// <summary>Verifies that an incorrect code is reported as invalid, not silently accepted.</summary>
     [Fact]
     public async Task WrongCodeYieldsAnInvalidOutcome()
