@@ -23,10 +23,20 @@ secure-storage calls throughout its state machines. Platform-specific storage fa
 credential storage, cache/filesystem location) stay behind the platform ports defined in
 `ai/context/sdk/architecture.md`.
 
+The `ClientStorage` interface implements this boundary for `clientId`, credential, and pairing
+recovery state (`sdk/dart/dovahlink_client/lib/src/persistence/client_storage.dart`); its Windows
+implementation, `DpapiClientStorage`, is the platform port this section describes, using DPAPI in
+the per-user scope `ai/context/protocol/security.md` requires and failing closed on corrupt or
+undecryptable state rather than substituting a plausible default.
+
 ## Versioning and migration
 
 Persisted SDK formats are versioned. The SDK that owns a persistent format owns its migrations; the
 official application must never need to understand or migrate the SDK's private persistence schema.
+
+`PersistedClientState.currentFormatVersion` is the concrete version field this section describes for
+`clientId`/credential/recovery state; `DpapiClientStorage` throws `DovahLinkStorageException` on an
+unrecognized version rather than guessing a migration, since no migration exists yet.
 
 ## Cache ownership
 

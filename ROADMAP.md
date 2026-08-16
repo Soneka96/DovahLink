@@ -192,7 +192,12 @@ seeing another pairing code unless trust was actually removed.
   not yet consider trusted must not authenticate an ordinary session. An incomplete pending pairing
   does not need to survive a bridge restart; when the client retries confirmation against a bridge
   that no longer recognizes the pending credential, it discards the incomplete local credential and
-  returns to unpaired.
+  returns to unpaired. The client-side half of this requirement -- durable `clientId`/credential
+  persistence, `confirming` recovery state, and relaunch recovery -- is implemented ahead of
+  schedule in the pulled-forward `sdk/dart/dovahlink_client/` package described by Phase 5 below;
+  see `ai/context/sdk/persistence.md`. This does not close Phase 3, whose remaining scope (the
+  six-digit code, Skyrim notification, trust store, revocation, and administration surface) is
+  Bridge-side work this pull-forward does not touch.
 - After successful confirmation, bind a strong, device-scoped credential to the approved `clientId`
   and issue it to the pairing client; that credential is the only credential used for that client's
   later reconnects, and each reconnect still creates a fresh authenticated `sessionId`.
@@ -387,7 +392,12 @@ without stalling Skyrim.
 
 ## 5. Dart Client SDK Foundation
 
-**Status:** Planned
+**Status:** Planned. The package scaffold, protocol/transport layer, and persistence boundary
+(`clientId`, credential, `CONFIRMING` pairing-recovery state, behind a Windows DPAPI-backed
+`ClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
+`ai/context/sdk/persistence.md`. Bridge-version compatibility detection, reconnect, revisions,
+subscriptions, snapshots, and retiring the app's separate `features/connection/` Redux protocol
+code remain undone, so this phase is not complete.
 
 ### Outcome
 
