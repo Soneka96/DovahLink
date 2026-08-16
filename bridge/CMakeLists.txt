@@ -46,6 +46,7 @@ add_library(dovahlink_bridge_core STATIC
     security/csprng.cpp
     security/dpapi.cpp
     security/hex.cpp
+    security/pairing_session.cpp
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
@@ -132,6 +133,7 @@ add_executable(dovahlink_bridge_tests
     security/csprng_test.cpp
     security/dpapi_test.cpp
     security/hex_test.cpp
+    security/pairing_session_test.cpp
     security/throttle_test.cpp
     security/token_provider_test.cpp
     security/token_store_test.cpp
