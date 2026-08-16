@@ -3,6 +3,7 @@
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "security/hex.hpp"
+#include "security/trust_store.hpp"
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -29,7 +30,10 @@ using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::SessionManager;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
+using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::TokenStore;
+using dovahlink::security::TrustStore;
+using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::transport::ConnectionSlot;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
@@ -49,6 +53,17 @@ std::string ValidHello() {
            std::string(kValidHexToken) + R"("}}, )"
            R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
+
+/// `ITrustStorePersistence` double that always loads an empty snapshot -- these tests only
+/// exercise the one_time_local_token auth path and never touch the trust store.
+class EmptyPersistence : public ITrustStorePersistence {
+public:
+    /// Always reports a valid, empty snapshot.
+    std::optional<TrustStoreSnapshot> Load() override { return TrustStoreSnapshot{}; }
+
+    /// Always succeeds without recording anything.
+    bool Save(const TrustStoreSnapshot&) override { return true; }
+};
 
 /// Provides the same catch-all semantics as the coordinator for isolated pool
 /// tests.
@@ -78,13 +93,21 @@ struct Fixture {
     TokenStore tokenStore{*DecodeHex(kValidHexToken)};
     /// Tracks failed token attempts for the test session.
     FailedTokenThrottle tokenThrottle;
+    /// Backing store for `trustStore`, empty for these tests.
+    EmptyPersistence persistence;
+    /// Persistent trust store; unused by the one_time_local_token path these tests exercise.
+    TrustStore trustStore = TrustStore::Load(persistence);
+    /// Tracks failed device-credential attempts; unused by these tests.
+    FailedTokenThrottle credentialThrottle;
     /// Tracks the authenticated test session.
     SessionManager sessionManager;
     /// Source of the acquired play context; empty (kNoContext) for these tests.
     ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4,        listenerV6,   slot,      tokenStore, tokenThrottle, sessionManager,
-                         activePlayContext, /*bridgeInstanceId=*/std::nullopt, /*bridgeVersion=*/kBridgeVersion};
+    BridgeWorkerPool pool{listenerV4,     listenerV6,        slot,          tokenStore,
+                         tokenThrottle,  trustStore,        credentialThrottle,
+                         sessionManager, activePlayContext, /*bridgeInstanceId=*/std::nullopt,
+                         /*bridgeVersion=*/kBridgeVersion};
 };
 
 }  // namespace

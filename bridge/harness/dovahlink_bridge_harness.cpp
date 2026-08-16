@@ -15,6 +15,8 @@
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
+#include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -22,6 +24,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -34,6 +37,7 @@ using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
+constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
 
 // Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
 // bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
@@ -94,6 +98,17 @@ std::optional<std::string> ReadPlayContextIdOverride(const dovahlink::security::
     return raw;
 }
 
+/// Reads a harness-only trust-store path override from the environment, so each test run can
+/// isolate its trust store instead of every invocation sharing the real per-user production file
+/// (`security::ResolveDefaultTrustStorePath`) across runs.
+std::optional<std::filesystem::path> ReadTrustStorePathOverride(const dovahlink::security::EnvironmentReader& env) {
+    auto raw = env.Read(kTrustStorePathOverrideEnvVar);
+    if (!raw.has_value() || raw->empty()) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(*raw);
+}
+
 }  // namespace
 /// Runs the standalone bridge integration harness.
 int main() {
@@ -125,6 +140,20 @@ int main() {
     auto tokenTtl = ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
     dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes), tokenTtl);
     dovahlink::security::FailedTokenThrottle tokenThrottle;
+
+    auto trustStorePath = ReadTrustStorePathOverride(environmentReader);
+    if (!trustStorePath.has_value()) {
+        trustStorePath = dovahlink::security::ResolveDefaultTrustStorePath();
+    }
+    if (!trustStorePath.has_value()) {
+        std::cerr << "Could not resolve a trust-store path (LOCALAPPDATA unset and no "
+                     "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE given).\n";
+        return 1;
+    }
+    dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
+    auto trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
+    dovahlink::security::FailedTokenThrottle credentialThrottle;
+
     dovahlink::application::SessionManager sessionManager;
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
     dovahlink::application::GameLifecycleTracker lifecycleTracker(
@@ -152,8 +181,9 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
-                                                              tokenThrottle, sessionManager, activePlayContext,
-                                                              bridgeInstanceId, kBridgeVersion);
+                                                              tokenThrottle, trustStore, credentialThrottle,
+                                                              sessionManager, activePlayContext, bridgeInstanceId,
+                                                              kBridgeVersion);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();

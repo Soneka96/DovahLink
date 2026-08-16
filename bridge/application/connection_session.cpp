@@ -25,7 +25,8 @@ void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& e
 }  // namespace
 
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
-                          security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                          security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
+                          security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
                           ConnectionId connection, const ActivePlayContext& activePlayContext,
                           const std::optional<std::string>& bridgeInstanceId, const std::string& bridgeVersion,
                           SteadyNowProvider steadyNow) {
@@ -62,8 +63,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         return;
     }
 
-    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout,
-                                 postReadNow, bridgeInstanceId, activePlayContext, bridgeVersion);
+    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+                                 sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
+                                 activePlayContext, bridgeVersion);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();

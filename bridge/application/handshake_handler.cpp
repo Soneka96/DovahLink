@@ -69,7 +69,8 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope, const std::optiona
 }
 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
-                             security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                             security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
+                             security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
                              ConnectionId connection, ConnectionTimeoutTracker& timeoutTracker,
                              std::chrono::steady_clock::time_point now,
                              const std::optional<std::string>& bridgeInstanceId,
@@ -79,27 +80,50 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, bridgeInstanceId, "malformed_message", "Malformed hello payload", false);
     }
 
-    if (tokenThrottle.IsBlocked(now)) {
-        return Fail(helloEnvelope, bridgeInstanceId, "rate_limited", "Too many failed token attempts", true);
-    }
+    // A structurally invalid presented credential (not valid hex) can never match a stored one;
+    // treat it as an immediate failed attempt without a store lookup, matching this codebase's
+    // existing accepted precedent for Phase 1's timing-side-channel posture (see
+    // token_store.cpp's "ponytail:" comment on TryReserve). Shared by both credentialed methods
+    // below; "unpaired" has no credential to decode at all.
+    auto presentedBytes = [&hello]() -> std::optional<std::vector<std::uint8_t>> {
+        return hello->authToken.has_value() ? security::DecodeHex(*hello->authToken)
+                                             : std::optional<std::vector<std::uint8_t>>{};
+    };
 
-    // A structurally invalid presented token (not valid hex) can never
-    // match the stored token; treat it as an immediate failed attempt
-    // without a TryReserve call, matching this codebase's existing
-    // accepted precedent for Phase 1's timing-side-channel posture (see
-    // token_store.cpp's "ponytail:" comment on TryReserve). `authToken` is
-    // absent for auth.method "unpaired" (DecodeHelloPayload now accepts it),
-    // which this function does not yet admit -- treated the same as an
-    // invalid token for now; dedicated unpaired/trusted_device_credential
-    // branches are a later step.
-    auto presentedBytes =
-        hello->authToken.has_value() ? security::DecodeHex(*hello->authToken) : std::optional<std::vector<std::uint8_t>>{};
-    auto tokenReservation = presentedBytes.has_value()
-                                ? tokenStore.TryReserve(*presentedBytes)
-                                : std::optional<security::TokenStore::Reservation>{};
-    if (!tokenReservation.has_value()) {
-        tokenThrottle.RecordFailure(now);
-        return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated", "Invalid or expired one-time token", false);
+    SessionTrustTier trustTier;
+    std::optional<security::TokenStore::Reservation> tokenReservation;
+
+    if (hello->authMethod == "one_time_local_token") {
+        if (tokenThrottle.IsBlocked(now)) {
+            return Fail(helloEnvelope, bridgeInstanceId, "rate_limited", "Too many failed token attempts", true);
+        }
+        auto bytes = presentedBytes();
+        tokenReservation =
+            bytes.has_value() ? tokenStore.TryReserve(*bytes) : std::optional<security::TokenStore::Reservation>{};
+        if (!tokenReservation.has_value()) {
+            tokenThrottle.RecordFailure(now);
+            return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated", "Invalid or expired one-time token",
+                        false);
+        }
+        trustTier = SessionTrustTier::kFull;
+    } else if (hello->authMethod == "unpaired") {
+        // No credential to present or check yet; the session is admitted restricted, per
+        // security.md's "Hello authentication and session trust tiers".
+        trustTier = SessionTrustTier::kRestricted;
+    } else {
+        // Only "trusted_device_credential" remains, per DecodeHelloPayload's validated set.
+        if (credentialThrottle.IsBlocked(now)) {
+            return Fail(helloEnvelope, bridgeInstanceId, "rate_limited", "Too many failed credential attempts",
+                        true);
+        }
+        auto bytes = presentedBytes();
+        bool authenticated = bytes.has_value() && trustStore.Authenticate(hello->clientId, *bytes);
+        if (!authenticated) {
+            credentialThrottle.RecordFailure(now);
+            return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated",
+                        "Invalid or unrecognized device credential", false);
+        }
+        trustTier = SessionTrustTier::kFull;
     }
 
     auto sessionId = security::GenerateOpaqueId();
@@ -109,6 +133,11 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                     false);
     }
 
+    // "paired" only for a session admitted with an already-persisted trust credential; a
+    // developer-authenticated or still-unpaired session reports "unpaired" regardless of trust
+    // tier (security.md: developer authentication is never wire-visible as "paired").
+    std::string clientIdentityKind = hello->authMethod == "trusted_device_credential" ? "paired" : "unpaired";
+
     auto context = activePlayContext.AcquireCurrent();
     protocol::Envelope response{
         .messageType = std::string(protocol::message_type::kHelloAck),
@@ -117,7 +146,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .correlationId = helloEnvelope.messageId,
         .payload = protocol::EncodeHelloAckPayload(protocol::HelloAckPayload{
             .bridgeVersion = bridgeVersion,
-            .clientIdentityKind = "unpaired",
+            .clientIdentityKind = std::move(clientIdentityKind),
         }),
         // bridgeInstanceId is this bridge's own identity; playContextId
         // reflects whatever play context is already active at connect time
@@ -128,12 +157,14 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .clientId = hello->clientId,
     };
 
-    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId);
+    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId, trustTier);
     if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
     }
 
-    tokenReservation->Commit();
+    if (tokenReservation.has_value()) {
+        tokenReservation->Commit();
+    }
     timeoutTracker.MarkAuthenticated(now);
 
     return HandshakeResult{

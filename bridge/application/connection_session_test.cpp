@@ -28,7 +28,10 @@ using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
+using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::TokenStore;
+using dovahlink::security::TrustStore;
+using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::WebSocketSession;
 
@@ -45,6 +48,17 @@ namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 constexpr const char* kBridgeVersion = "0.2.0";
+
+/// `ITrustStorePersistence` double that always loads an empty snapshot -- these tests only
+/// exercise the one_time_local_token auth path and never touch the trust store.
+class EmptyPersistence : public ITrustStorePersistence {
+public:
+    /// Always reports a valid, empty snapshot.
+    std::optional<TrustStoreSnapshot> Load() override { return TrustStoreSnapshot{}; }
+
+    /// Always succeeds without recording anything.
+    bool Save(const TrustStoreSnapshot&) override { return true; }
+};
 
 /// Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {
@@ -109,6 +123,9 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
@@ -136,7 +153,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
@@ -195,6 +212,9 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
@@ -206,7 +226,7 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
                              bridgeInstanceId, kBridgeVersion);
     });
 
@@ -298,6 +318,9 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     activePlayContext.Begin("context-1");
@@ -310,7 +333,7 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
                              bridgeInstanceId, kBridgeVersion);
     });
 
@@ -362,6 +385,9 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // authenticates, which is unbuilt and irrelevant to that question.
     TokenStore firstTokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle firstTokenThrottle;
+    EmptyPersistence firstPersistence;
+    auto firstTrustStore = TrustStore::Load(firstPersistence);
+    FailedTokenThrottle firstCredentialThrottle;
     // SessionManager and ActivePlayContext are shared across both
     // connections below, matching how BridgeWorkerPool actually owns them at
     // pool lifetime rather than per-connection.
@@ -379,7 +405,7 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, firstTokenStore, firstTokenThrottle, sessionManager, /*connection=*/1,
+        RunConnectionSession(session, firstTokenStore, firstTokenThrottle, firstTrustStore, firstCredentialThrottle, sessionManager, /*connection=*/1,
                              activePlayContext, bridgeInstanceId, kBridgeVersion);
     });
 
@@ -431,6 +457,9 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // activePlayContext stay the same shared instances.
     TokenStore secondTokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle secondTokenThrottle;
+    EmptyPersistence secondPersistence;
+    auto secondTrustStore = TrustStore::Load(secondPersistence);
+    FailedTokenThrottle secondCredentialThrottle;
     boost::system::error_code secondAcceptEc;
     std::thread secondServerThread([&] {
         boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(secondAcceptEc);
@@ -438,7 +467,7 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, secondTokenStore, secondTokenThrottle, sessionManager, /*connection=*/2,
+        RunConnectionSession(session, secondTokenStore, secondTokenThrottle, secondTrustStore, secondCredentialThrottle, sessionManager, /*connection=*/2,
                              activePlayContext, bridgeInstanceId, kBridgeVersion);
     });
 
@@ -499,6 +528,9 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -518,7 +550,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
@@ -568,6 +600,9 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
 
@@ -578,7 +613,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
                              /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 

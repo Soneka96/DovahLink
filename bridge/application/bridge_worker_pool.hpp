@@ -6,6 +6,7 @@
 #include "application/subscription_handler.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -27,6 +28,8 @@ public:
     /// @param slot Admission gate enforcing the connected-client limit.
     /// @param tokenStore One-time token store shared by connections.
     /// @param tokenThrottle Failed-token throttle shared by connections.
+    /// @param trustStore Persistent trust store shared by connections.
+    /// @param credentialThrottle Failed device-credential attempt throttle shared by connections.
     /// @param sessionManager Session ownership manager.
     /// @param activePlayContext Source of the acquired play context each connection's state and
     ///     revisions belong to.
@@ -36,7 +39,8 @@ public:
     ///     `hello_ack.bridgeVersion` (`ai/context/protocol/compatibility.md`).
     BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
                      transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
-                     security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                     security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
+                     security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
                      const ActivePlayContext& activePlayContext, std::optional<std::string> bridgeInstanceId,
                      std::string bridgeVersion);
 
@@ -78,6 +82,12 @@ private:
 
     /// Shared failed-token throttle.
     security::FailedTokenThrottle& tokenThrottle_;
+
+    /// Shared persistent trust store.
+    security::TrustStore& trustStore_;
+
+    /// Shared failed device-credential attempt throttle.
+    security::FailedTokenThrottle& credentialThrottle_;
 
     /// Session manager shared by accepted connections.
     SessionManager& sessionManager_;

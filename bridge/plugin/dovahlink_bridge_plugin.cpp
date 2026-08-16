@@ -21,6 +21,8 @@
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
+#include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -189,6 +191,21 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::transport::ConnectionSlot connectionSlot;
     static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
+
+    // The persistent per-user trust store's backing file cannot be resolved
+    // without LOCALAPPDATA, which every interactive Windows user session sets;
+    // treated as fatal the same way a missing launch token is, rather than
+    // silently falling back to an in-memory-only store that would forget
+    // every paired client on the next restart.
+    auto trustStorePath = dovahlink::security::ResolveDefaultTrustStorePath();
+    if (!trustStorePath.has_value()) {
+        SKSE::log::error("Could not resolve the per-user trust-store path (LOCALAPPDATA unset).");
+        return false;
+    }
+    static dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
+    static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
+    static dovahlink::security::FailedTokenThrottle credentialThrottle;
+
     static dovahlink::application::SessionManager sessionManager;
 
     // The authoritative, play-context-owned identity and state per
@@ -210,8 +227,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, activePlayContext,
-        bridgeInstanceId, kBridgeVersion);
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, bridgeInstanceId, kBridgeVersion);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
