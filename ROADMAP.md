@@ -155,78 +155,196 @@ canonical contract tests.
 
 ### Outcome
 
-A client can pair with the local bridge through a short, user-friendly in-game confirmation flow,
-then reconnect after transport loss or a client restart without restarting Skyrim, manually copying
-a long token, or reusing the one-time bootstrap credential.
+A client pairs with the local bridge once through a short, user-friendly in-game confirmation flow,
+then reconnects automatically after transport loss, a client restart, a Bridge restart, or a Windows
+restart, without generating or configuring a long token, without restarting Skyrim, and without
+seeing another pairing code unless trust was actually removed.
 
 ### Scope and behavior
 
 - Introduce pairing as part of the current canonical contract. The Phase 1 `one_time_local_token`
   bootstrap behavior must not be silently reinterpreted as the pairing flow.
-- Require an unpaired client to explicitly request pairing. The bridge must not display a pairing
+- Require an unpaired client to explicitly request pairing; the bridge must not display a pairing
   code on every launch or on every ordinary connection attempt.
+- The bridge, not the client, owns whether pairing is currently available. The protocol represents
+  pairing-unavailable/initializing, pairing-available, and pairing-in-progress without embedding
+  Skyrim UI concepts into the wire contract; pairing must not claim to be ready if the in-game
+  confirmation cannot actually be presented.
+- Permit only one active pairing challenge globally. A second request while a challenge is active
+  does not generate or display a second code, does not replace the existing code, and does not spam
+  Skyrim notifications; it reports that pairing is already in progress and stays bound to the
+  existing challenge. Another challenge may begin only after the current one succeeds, expires, or
+  is explicitly cancelled.
 - When pairing is requested, generate a short-lived, single-use six-digit pairing code and display
   it through a native Skyrim notification. The first user-facing implementation must not require
-  SkyUI, another UI mod, a separate Papyrus mod, or a separately installed pairing utility.
-- Let the user enter the displayed code in the DovahLink client. A correct code bootstraps trust
-  only for that pairing operation; it is not itself a reusable session credential.
-- After successful code verification, bind a device-scoped credential to the approved `clientId`
-  and issue it to the pairing client. The credential is the only credential used for that client's
-  later reconnects; each reconnect still creates a fresh authenticated `sessionId`.
+  SkyUI, another UI mod, a separate Papyrus mod, or a separately installed pairing utility. Code
+  validation is atomic and fail closed; expired, already-consumed, invalid, and rate-limited attempts
+  fail clearly without invoking game-state behavior, and the final expiry and attempt limits are
+  recorded in the approved Phase 3 security/protocol design before implementation.
+- Let the user enter the displayed code in the DovahLink client. A correct code bootstraps trust only
+  for that pairing operation; it is never itself a reusable session credential.
+- Use a recoverable pairing handshake instead of an atomic cross-process transaction: the bridge
+  moves through explicit `pending`-credential and `trusted` states, and the client moves through
+  explicit `pairing`/`confirming`/`trusted` states. The client durably persists its issued credential
+  and its `confirming` recovery state before sending final confirmation, and final confirmation is
+  idempotent: a client recovering from `confirming` that receives an `already_trusted` outcome for
+  its own valid credential treats that as success, not an error. A pending credential the bridge does
+  not yet consider trusted must not authenticate an ordinary session. An incomplete pending pairing
+  does not need to survive a bridge restart; when the client retries confirmation against a bridge
+  that no longer recognizes the pending credential, it discards the incomplete local credential and
+  returns to unpaired.
+- After successful confirmation, bind a strong, device-scoped credential to the approved `clientId`
+  and issue it to the pairing client; that credential is the only credential used for that client's
+  later reconnects, and each reconnect still creates a fresh authenticated `sessionId`.
+- Persist completed trust so it survives Skyrim, Bridge, and Windows restarts, save changes,
+  `playContextId` changes, and `bridgeInstanceId` changes. Persistent trust belongs to the current
+  Windows user profile running the client and the Bridge, not to the modpack, the Skyrim
+  installation, a particular Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId`, so
+  two Windows users sharing one PC and modpack have independent trusted clients and exporting or
+  copying a modpack never copies another user's paired-device trust. Store both the Bridge's trusted-
+  client records and the client's own credential through an approved per-user secure-storage
+  mechanism for the platform; do not invent cryptography. `bridgeInstanceId` remains ephemeral exactly
+  as defined by `ARCHITECTURE.md`; persistent trust does not change that a bridge restart still
+  creates a new `bridgeInstanceId`, and the client authenticates again after a restart to receive a
+  new `sessionId`.
+- Scope `clientId` to the client installation and the Windows user profile running it, so the
+  official client does not share one `clientId` and credential between different Windows user
+  profiles merely because the executable is installed system-wide.
 - Store the device credential through an approved secure-storage mechanism in the client. Tokens,
   pairing codes, credentials, and raw protocol payloads must not appear in normal logs, errors,
   fixtures, or user-facing messages.
-- Make pairing-code validation atomic and fail closed. Expired, already-consumed, invalid, or
-  rate-limited attempts must fail clearly without invoking game-state behavior. Failed attempts
-  must be bounded, and the final expiry and attempt limits must be recorded in the approved
-  Phase 3 security/protocol design before implementation.
-- In the first implementation, invalidate device credentials when the bridge or Skyrim process
-  restarts. This keeps credential persistence out of the initial pairing proof and matches the
-  bridge-instance lifetime defined in `ARCHITECTURE.md`.
-- Preserve the Phase 1 one-time bootstrap token as a development and compatibility path until
-  pairing is implemented. Normal user pairing should not require manually copying a long
-  environment token after this phase is delivered.
+- Issue each trusted client a five-digit `shortId` alongside its real `clientId`, generated by the
+  bridge and unique among currently trusted clients in that Windows-user trust domain, for
+  human-readable administration only; a `shortId` is never authentication or authorization material
+  and is never treated as protocol/client identity, and may be reused once it is no longer associated
+  with a currently trusted client. Carry an optional `displayName` as presentation-only metadata: not
+  unique, never authentication or authorization material, never a substitute for `clientId`, bounded
+  in length, and free of control characters or unsafe presentation/logging behavior. A conforming
+  third-party or diagnostic client may leave `displayName` absent; requiring the official client to
+  collect a user-chosen display name belongs to its own connected-client UX phase.
+- Put persistent trust behind a dedicated trust-store abstraction (load, persist, revoke, reset,
+  query) rather than pairing logic owning a particular file format directly, and put administration
+  behavior (list trusted clients, revoke one, reset all) in a reusable Bridge application/domain
+  service rather than inside a Skyrim console-command handler, so console commands, a future Flutter
+  management UI, and developer tooling all call the same behavior. An explicit local reset-all-trust
+  operation exists from this phase onward. Trust-store corruption or inaccessible persistence fails
+  closed: it never crashes Skyrim, never silently trusts a client, never invents or merges uncertain
+  credentials, and always supports a clean reset-and-re-pair path.
+- Make revocation immediate: revoking a trusted client removes its active trust, invalidates any
+  current authenticated session it owns, closes that connection, and rejects reuse of the revoked
+  credential; resetting all trust applies the same behavior to every trusted client. A revoked client
+  that reconnects with its old credential receives a specific revoked/not-trusted outcome rather than
+  a generic transport failure, so it can return to pairing directly. Distinguishing a revoked
+  `clientId` from one that was never paired may use a minimal revocation tombstone containing no
+  credential; re-pairing an intentionally revoked `clientId` may remove or replace that tombstone and
+  establish a new credential.
+- Make the existing long-token capability explicit developer authentication rather than normal-user
+  authentication: it is enabled only when an explicit `DOVAHLINK_DEV_TOKEN` (or equivalent approved
+  configuration) is set, with identical behavior across debug, beta, and release builds. Developer-
+  token authentication is a separate provider from device pairing; it must not silently enroll the
+  authenticating client into the persistent trusted-device store, and a developer-authenticated
+  session still obeys loopback, input-limit, protocol-validation, fresh-`sessionId`, and
+  single-connected-client rules.
+- Give WebSocket-level Ping/Pong and a bounded idle timeout sole ownership of connection liveness
+  once a session is established, instead of an invented DovahLink application heartbeat or guessing a
+  TCP socket's state. Every transport/session failure (normal close, client crash, Bridge shutdown,
+  transport error, unresponsive peer, idle timeout) converges through one deterministic teardown:
+  invalidate `sessionId`, cancel or finish outstanding I/O, close the transport, then release the
+  connection slot; a dead `sessionId` can never become valid again. Audit the existing transport
+  timeout implementation so the established WebSocket liveness policy does not compete with an
+  incompatible lower-level TCP-stream timeout owner; lower-level connection/handshake deadlines may
+  still apply before WebSocket ownership begins.
+- Reconnect with a valid persisted credential always creates a fresh `sessionId` without requiring
+  another six-digit code, without resetting the authoritative revision, without reinterpreting
+  `bridgeInstanceId`, and without reviving pending messages from a dead session. If a client crashes
+  and restarts quickly enough that its previous connection is still tearing down, treat the retry as
+  bounded short retry/backoff against a temporarily busy slot rather than introducing same-client
+  connection takeover or generation-replacement semantics; runtime tests must prove that normal
+  close, crash, rapid restart, timeout, and Bridge restart all recover automatically.
 - Allow distinct clients to pair over time while retaining the single-connected-client limit.
-  Concurrent sessions and independent per-client delivery remain Phase 8 work.
+  Concurrent sessions and independent per-client delivery remain Phase 9 work.
 
 ### Dependencies and boundaries
 
 This phase depends on Phase 2 and remains loopback-only. The pairing code is a local bootstrap
 mechanism, not a substitute for authenticated encryption or a complete LAN trust protocol. Phone
 and LAN pairing, discovery, encrypted transport, replay protection, and remote revocation belong to
-Phase 21 and must receive a separate security design.
+Phase 22 and must receive a separate security design.
 
 The pairing notification is a runtime-facing adapter concern; it must not place Skyrim presentation
 details into the canonical protocol. The protocol should carry pairing state and outcomes, while
 the bridge/plugin boundary owns the native in-game notification mechanism. An optional QR-code
-convenience flow may be considered for Phase 21, but it must not become a dependency for entering a
+convenience flow may be considered for Phase 22, but it must not become a dependency for entering a
 code manually or require a separate client or mod.
 
-Long-term credential persistence across bridge restarts is intentionally deferred. It requires an
-explicit storage, reset, revocation, and bridge-identity design rather than being added implicitly
-to the first pairing implementation.
+Persistent trust storage is scoped to the current Windows user, but loopback TCP itself is not proof
+of Windows-user identity; the six-digit pairing proof, persistent credential authentication, rate
+limits, and loopback restriction remain the controls that apply, and strict isolation from another
+simultaneously logged-in local account is a separate threat boundary to solve deliberately if it
+becomes required, not something assumed from `127.0.0.1`. See `ai/context/protocol/security.md` for
+the full threat-boundary documentation this phase must produce.
+
+The Phase 3 trust-store implementation only needs to satisfy the current single-Bridge-process
+requirement, but its boundary must not make later multi-process support require rewriting the
+pairing protocol or trust-domain model; Phase 10 will eventually permit multiple Bridge processes for
+the same Windows user, and shared per-user trust must be able to gain multi-process synchronization
+later without changing client authentication semantics. This phase does not implement Phase 9
+concurrent-client delivery, Phase 10 multi-Bridge discovery, or Phase 11 automatic connection/transport
+selection; reconnect here targets the already-known local endpoint rather than discovering or
+selecting among Bridge processes.
 
 ### Acceptance criteria
 
-- An unpaired client can explicitly request pairing and receives a visible six-digit code in
-  Skyrim only for that request.
-- A user can complete pairing by entering the code in the DovahLink client without installing a
-  UI mod or copying a manually generated long token.
+- An unpaired client can explicitly request pairing and receives a visible six-digit code in Skyrim
+  only for that request, and only when the bridge reports pairing as actually available; a second
+  request while a challenge is active does not produce a second code.
+- A user can complete pairing by entering the code in the DovahLink client without installing a UI
+  mod or copying a manually generated long token.
 - A valid code is accepted at most once and only within its allowed lifetime; invalid, expired,
   reused, and rate-limited attempts fail without creating a client credential.
-- Successful pairing binds one device credential to one `clientId`, and the credential is stored
-  through approved secure client storage.
+- Pairing uses recoverable `pending`/`confirming`/`trusted` semantics: the client does not send final
+  confirmation before its credential and recovery state are durably stored, final confirmation is
+  idempotent, and recovering into an `already_trusted` outcome after a lost success response is a
+  successful outcome, not an error. Incomplete pending pairing may safely disappear on Bridge restart
+  without creating trust.
+- Successful pairing binds one strong device credential to one `clientId`; persistent trust survives
+  Skyrim, Bridge, and Windows restarts, save changes, and `playContextId`/`bridgeInstanceId` changes,
+  and is scoped to the Windows user profile rather than the modpack, Skyrim installation, or
+  `bridgeInstanceId`, so copying or exporting a modpack cannot copy trusted-device secrets.
+  `bridgeInstanceId` still changes on every Bridge runtime, and every authenticated socket still
+  receives a fresh `sessionId` that is invalid after disconnect/reconnect.
+- The official client's user profile does not accidentally share `clientId`/credential state between
+  different Windows users. Trusted clients carry a real `clientId` plus a separate five-digit
+  administration-only `shortId` that is never used for authentication, authorization, or identity;
+  `displayName` is optional, presentation-only protocol metadata with explicit safe bounds, never
+  required from third-party clients.
+- Persistent trust is accessed through a dedicated trust-store abstraction, and administration
+  (list/revoke/reset) is reusable application/core behavior rather than logic embedded in a Skyrim
+  console command. An explicit local reset-all-trust operation exists. Trust-store corruption or
+  inaccessibility fails closed without crashing Skyrim and without silently trusting a client, and
+  supports a clean reset/re-pair path.
+- Revoking or resetting trust immediately invalidates affected active sessions; a revoked credential
+  cannot reconnect and instead receives a clear revoked/not-trusted outcome suitable for returning to
+  pairing; re-pairing may safely establish a new credential afterward.
+- Developer-token authentication exists only when a dev token is explicitly configured, behaves
+  identically across debug, beta, and release builds, does not silently enroll that client as a
+  persistent trusted device, and still receives a normal fresh `sessionId` under normal transport and
+  protocol rules.
+- Connection liveness uses coherent WebSocket-level Ping/Pong/idle-timeout behavior instead of socket-
+  state guessing or an invented application heartbeat, and session teardown deterministically
+  invalidates the session and releases the single-client slot after close, error, timeout, or
+  shutdown.
 - A paired client reconnects into a fresh authenticated session with fresh state after transport
-  loss or client restart, without restarting Skyrim or displaying another code.
-- A credential from another client, a credential for another bridge instance, an expired or
-  revoked credential, and a credential presented after a bridge restart are rejected clearly and
-  fail closed.
-- Pairing secrets and credentials are absent from normal logs, errors, fixtures, and user-facing
-  diagnostics.
-- The loopback-only restriction and single-connected-client limit remain intact; this phase does
-  not accidentally enable LAN or concurrent-client behavior.
-- Independent and official clients use the same canonical pairing contract, with no Flutter-only
-  or Skyrim-specific wire behavior.
+  loss, a client restart, or a Bridge restart, using its existing credential and without displaying
+  another pairing code unless trust was actually removed; force-closing/crashing the client and an
+  immediate restart both recover automatically through bounded retry, not connection takeover.
+- The loopback-only restriction and single-connected-client limit remain intact; this phase does not
+  accidentally enable LAN or concurrent-client behavior, and does not implement Phase 10/11 Bridge
+  discovery or endpoint-selection behavior.
+- Independent and official clients use the same canonical pairing contract, with no Flutter-only or
+  Skyrim-specific wire behavior.
+- Pairing secrets, credentials, and developer tokens are absent from normal logs, errors, fixtures,
+  and user-facing diagnostics.
 
 ## 4. Live State Synchronization Foundation
 
@@ -267,7 +385,68 @@ unchanged unsolicited replaceable state produces no traffic; replaceable state c
 events stay ordered, and a client that cannot consume them in time is explicitly disconnected
 without stalling Skyrim.
 
-## 5. PC / Second-Screen Baseline
+## 5. Dart Client SDK Foundation
+
+**Status:** Planned
+
+### Outcome
+
+Dart applications can participate correctly in DovahLink — transport, Bridge-version compatibility
+detection, authentication, pairing recovery, reconnect, session and authoritative-state identity,
+revisions, subscriptions, snapshots, recovery, and reusable client persistence — without
+implementing that behavior themselves, and the official Flutter application becomes the first
+production consumer proving the supported SDK API is sufficient to build a complete client.
+
+### Scope and behavior
+
+- Create the real `sdk/dart/dovahlink_client/` package and establish it as a first-class repository
+  ownership boundary alongside `app/`, `bridge/`, `protocol/`, and `integration/`, per
+  `ARCHITECTURE.md` and `ai/context/sdk/`.
+- Migrate the reusable Dart-side connection, compatibility, authentication, pairing, reconnect,
+  session, revision, subscription, and recovery behavior already implemented directly in `app/` by
+  Phases 2 through 4 into the SDK boundary, rather than redesigning approved semantics.
+- Establish the SDK's explicit supported Bridge/mod-version range and its own persistence boundary
+  (stable local `clientId`, client credential, pairing recovery state, reusable cache metadata),
+  versioned and migration-owned by the SDK per `ai/context/sdk/persistence.md`.
+- Expose one underlying client engine through a small simple API plus focused expert capability
+  views (lifecycle, diagnostics, administration), per `ai/context/sdk/architecture.md` and
+  `api-design.md`; do not build a second parallel service stack.
+- Wire the official Flutter application through the SDK's public API and retire its parallel
+  app-private protocol/client implementation in this same phase; the app must not construct raw
+  transport, compatibility, authentication, pairing, reconnect, revision, or subscription logic
+  after this phase completes.
+- Keep the SDK repository-internal and unpublished; publication, package stability guarantees, and
+  a public release workflow remain a separate future decision.
+
+### Dependencies and boundaries
+
+This phase depends on Phases 2, 3, and 4 and consumes their approved identity, pairing/reconnection,
+and live-synchronization semantics rather than redesigning them. It does not implement Phase 9
+concurrent-client delivery, Phase 10 multi-Bridge discovery, Phase 11 automatic connection/transport
+selection, or Phase 22 secure LAN transport; when those phases are implemented, their Dart client
+behavior extends the SDK rather than being built privately into the app again. The independent .NET
+validation client remains a separate implementation of the canonical contract and does not consume,
+wrap, or generate from the Dart SDK.
+
+### Acceptance criteria
+
+- The `sdk/dart/dovahlink_client/` package exists with a curated public API; internal transport,
+  codec, persistence, compatibility, and state-machine types are not accidentally exported.
+- The SDK declares an explicit supported Bridge/mod-version range rather than inferring compatibility
+  from SemVer, and canonical contract changes are assessed against that declared range per
+  `ai/context/protocol/compatibility.md`.
+- The official Flutter application consumes the SDK exclusively for normal DovahLink communication;
+  its parallel app-private protocol/client stack is retired in this phase, not left running alongside
+  the SDK.
+- One underlying client engine backs every exposed API view; there is no duplicate transport,
+  session, or cache stack behind a "simple" and an "advanced" surface.
+- SDK-owned persistence (client credential, pairing recovery state, cache metadata) is versioned and
+  migration-owned by the SDK; the app never needs to understand or migrate that private schema.
+- The independent .NET validator still passes the same canonical fixtures without depending on the
+  Dart SDK.
+- The SDK is not published outside the repository as part of this phase.
+
+## 6. PC / Second-Screen Baseline
 
 **Status:** Planned
 
@@ -279,7 +458,8 @@ sample state understandable without developer documentation.
 ### Scope and behavior
 
 - Extend the Phase 0.5 shell into a connected desktop-sized client.
-- Use the same canonical protocol and pairing flow available to independent clients.
+- Connect through the Dart Client SDK's public API rather than app-private protocol/client code,
+  proving the SDK sufficient to build a complete connected client.
 - Present connecting, connected, recovering, incompatible, unavailable, stale, and disconnected
   states clearly.
 - Keep the client useful when Skyrim is absent or optional state is unavailable.
@@ -287,7 +467,7 @@ sample state understandable without developer documentation.
 
 ### Dependencies and boundaries
 
-This phase validates Phases 2 through 4. It remains loopback-only and excludes automatic discovery,
+This phase validates Phases 2 through 5. It remains loopback-only and excludes automatic discovery,
 broad player state, mobile packaging, dashboard customization, and actions.
 
 ### Acceptance criteria
@@ -295,7 +475,7 @@ broad player state, mobile packaging, dashboard customization, and actions.
 The desktop client connects, shows trustworthy sample state, reconnects after interruption, rejects
 stale context, and explains actionable failures without developer guidance.
 
-## 6. Core UI Theme System
+## 7. Core UI Theme System
 
 **Status:** Planned
 
@@ -322,7 +502,7 @@ theme data, and dashboard behavior remain later phases.
 Existing surfaces use shared tokens or components and remain useful at supported sizes and
 accessibility settings without optional resources.
 
-## 7. Live Player State
+## 8. Live Player State
 
 **Status:** Planned
 
@@ -348,7 +528,7 @@ map navigation, and commands.
 Approved values remain accurate through play, reconnect, and play-context replacement; unavailable
 state degrades clearly; and cross-side tests prove bridge/client agreement.
 
-## 8. Multi-Client Runtime Foundation
+## 9. Multi-Client Runtime Foundation
 
 **Status:** Planned
 
@@ -369,7 +549,7 @@ destabilize Skyrim or healthy clients.
 
 ### Dependencies and boundaries
 
-This phase follows the Phase 7 single-client proof and remains loopback-only. It excludes LAN,
+This phase follows the Phase 8 single-client proof and remains loopback-only. It excludes LAN,
 synchronized layouts, accounts, collaboration, and control permissions.
 
 ### Acceptance criteria
@@ -377,7 +557,7 @@ synchronized layouts, accounts, collaboration, and control permissions.
 At least two clients receive consistent state and recover independently; client count does not
 multiply equivalent Skyrim reads; and a slow client does not stall a healthy client.
 
-## 9. Multi-Bridge and Local Discovery Foundation
+## 10. Multi-Bridge and Local Discovery Foundation
 
 **Status:** Planned
 
@@ -397,14 +577,14 @@ Multiple bridge processes coexist on one machine without port collisions or ambi
 
 ### Dependencies and boundaries
 
-This phase depends on Phases 2 and 8. LAN discovery belongs to Phase 21.
+This phase depends on Phases 2 and 9. LAN discovery belongs to Phase 22.
 
 ### Acceptance criteria
 
 Two harness bridges run concurrently without manual port editing, appear as distinct choices, accept
 independent clients, and cannot corrupt each other's discovery state.
 
-## 10. Automatic Connection and Transport Selection
+## 11. Automatic Connection and Transport Selection
 
 **Status:** Planned
 
@@ -424,7 +604,7 @@ The client chooses the best path to the intended local bridge while preserving m
 
 ### Dependencies and boundaries
 
-This phase consumes Phase 9 and remains loopback-only. It excludes a resident monitor, LAN access,
+This phase consumes Phase 10 and remains loopback-only. It excludes a resident monitor, LAN access,
 internet exposure, hosted relay, and accounts.
 
 ### Acceptance criteria
@@ -432,7 +612,7 @@ internet exposure, hosted relay, and accounts.
 The client reconnects to the intended bridge, never confuses simultaneous instances, backs off
 responsibly, and provides actionable manual recovery.
 
-## 11. Mod Awareness
+## 12. Mod Awareness
 
 **Status:** Planned
 
@@ -458,7 +638,7 @@ promises.
 Clean and modded setups produce trustworthy capability summaries, unsupported cases fall back safely,
 and features do not consume raw CommonLib details.
 
-## 12. Interactive Map Foundation
+## 13. Interactive Map Foundation
 
 **Status:** Planned
 
@@ -485,7 +665,7 @@ every worldspace, and a parallel navmesh database.
 The base map tracks accurately, handles worldspace and play-context changes, survives reconnects,
 and never invents discovery or cleared state.
 
-## 13. Map Asset and Worldspace System
+## 14. Map Asset and Worldspace System
 
 **Status:** Planned
 
@@ -504,14 +684,14 @@ Map imagery and worldspaces grow without bloating live traffic or loading every 
 
 ### Dependencies and boundaries
 
-This phase extends Phase 12. Assets do not become live protocol messages.
+This phase extends Phase 13. Assets do not become live protocol messages.
 
 ### Acceptance criteria
 
 Packages load independently from live state, additional worldspaces do not inflate ordinary traffic,
 and missing assets cannot break synchronization.
 
-## 14. Quests
+## 15. Quests
 
 **Status:** Planned
 
@@ -535,7 +715,7 @@ This read-only phase does not activate quests, change stages, repair quests, or 
 Representative quests remain accurate through loads and reconnects, and hidden information is not
 fabricated.
 
-## 15. Navigation / Path Guidance
+## 16. Navigation / Path Guidance
 
 **Status:** Planned
 
@@ -561,7 +741,7 @@ authoritative. Arbitrary map destinations remain deferred.
 A reliable native route renders and invalidates correctly; an unreliable route is explicitly
 deferred.
 
-## 16. Inventory
+## 17. Inventory
 
 **Status:** Planned
 
@@ -586,7 +766,7 @@ This phase does not equip, drop, consume, transfer, favorite, or modify items.
 Inventory reconciles without stale duplicates, remains responsive at realistic sizes, and does not
 repeatedly rescan during idle play without reason.
 
-## 17. Equipment
+## 18. Equipment
 
 **Status:** Planned
 
@@ -609,7 +789,7 @@ This read-only phase excludes equip, unequip, loadouts, and remote item actions.
 
 Equipment matches authoritative state and cannot remain falsely equipped after invalidation.
 
-## 18. Magic, Spells, Shouts, and Powers
+## 19. Magic, Spells, Shouts, and Powers
 
 **Status:** Planned
 
@@ -633,7 +813,7 @@ This read-only phase excludes casting, equipping, unlocking, and spending resour
 Abilities appear in correct categories, selection and cooldown remain current, and unknown behavior
 degrades without fabricated values.
 
-## 19. Favorites and Hotkeys
+## 20. Favorites and Hotkeys
 
 **Status:** Planned
 
@@ -657,7 +837,7 @@ This read-only phase excludes activation, item use, casting, and assignment chan
 Favorites remain consistent through changes, reconnects, and play-context replacement; unresolved
 entries remain visible without misidentification.
 
-## 20. Customizable Dashboard
+## 21. Customizable Dashboard
 
 **Status:** Planned
 
@@ -683,7 +863,7 @@ and protocol-level dashboard configuration.
 Valid layouts persist and recover, modules cannot be resized into broken states, and corrupt
 preferences fall back safely.
 
-## 21. Secure LAN Transport and Network Discovery
+## 22. Secure LAN Transport and Network Discovery
 
 **Status:** Planned
 
@@ -699,7 +879,7 @@ Approved LAN clients securely discover and connect to the intended bridge withou
 - Authenticate endpoints before trusting advertised metadata.
 - Preserve per-client authorization, revocation, replay protection, and session binding.
 - Add approved wired and Wi-Fi/LAN candidates where platforms permit.
-- Feed candidates into Phase 10 and preserve manual connection.
+- Feed candidates into Phase 11 and preserve manual connection.
 
 ### Dependencies and boundaries
 
@@ -711,7 +891,7 @@ does not imply internet exposure, hosted relay, accounts, or cloud presence.
 Clients distinguish and securely connect to the intended bridge; spoofed or unpaired endpoints are
 not trusted; revocation works; and localhost remains preferred where applicable.
 
-## 22. Mobile / Tablet Client
+## 23. Mobile / Tablet Client
 
 **Status:** Planned
 
@@ -725,12 +905,12 @@ The companion experience works naturally on supported phones and tablets through
 - Support landscape second-screen presentation where appropriate.
 - Reuse domain and protocol boundaries with device-specific presentation.
 - Preserve pairing, recovery, background, resume, and network transitions.
-- Use the Phase 10 policy with manual fallback.
+- Use the Phase 11 policy with manual fallback.
 - Keep layout preferences local and provide mobile defaults.
 
 ### Dependencies and boundaries
 
-This phase depends on Phase 21 and does not imply internet access, hosted relay, accounts, or
+This phase depends on Phase 22 and does not imply internet access, hosted relay, accounts, or
 identical layouts.
 
 ### Acceptance criteria
@@ -738,7 +918,7 @@ identical layouts.
 A device pairs and reconnects securely, survives background and network changes, presents existing
 features accessibly, and cannot confuse another discovered bridge.
 
-## 23. Item Knowledge and Search
+## 24. Item Knowledge and Search
 
 **Status:** Planned
 
@@ -763,7 +943,7 @@ separate.
 Search remains responsive, provenance is clear, and outdated knowledge cannot create false live-state
 claims.
 
-## 24. Legacy of the Dragonborn Integration
+## 25. Legacy of the Dragonborn Integration
 
 **Status:** Planned
 
@@ -788,7 +968,7 @@ museum state.
 Supported setups report verified state, unsupported setups fall back to ordinary knowledge, and
 ambiguous values are not authoritative.
 
-## 25. Installed UI Detection
+## 26. Installed UI Detection
 
 **Status:** Planned
 
@@ -814,7 +994,7 @@ manager.
 Supported installs are identified reproducibly, ambiguous setups do not activate adapters, and
 failure cannot prevent startup.
 
-## 26. Optional UI Mod Adapters
+## 27. Optional UI Mod Adapters
 
 **Status:** Planned
 
@@ -839,7 +1019,7 @@ Adapters cannot replace dashboard structure, behavior, protocol models, or execu
 Adapters pass visual, fallback, accessibility, and version checks; invalid resources fall back to
 the native theme.
 
-## 27. Safe Companion Authorization Foundation
+## 28. Safe Companion Authorization Foundation
 
 **Status:** Planned after read-only product validation
 
@@ -873,7 +1053,7 @@ The contract can deny control independently from reads; unauthorized, replayed, 
 and unknown test commands are rejected deterministically; decisions are attributable; and no Skyrim
 mutation is exposed.
 
-## 28. Runtime Profiling and Advanced Bridge Hardening
+## 29. Runtime Profiling and Advanced Bridge Hardening
 
 **Status:** Planned
 
@@ -901,7 +1081,7 @@ hypothetical protocol complexity.
 Every optimization names a measured problem, demonstrates improvement, preserves recovery, and keeps
 game-thread cost negligible for approved targets.
 
-## 29. CommonLib Dependency Maintenance Audit
+## 30. CommonLib Dependency Maintenance Audit
 
 **Status:** Planned
 

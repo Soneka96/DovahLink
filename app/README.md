@@ -8,6 +8,16 @@ root [ROADMAP.md](../ROADMAP.md); system boundaries live in
 Canonical messages and shared fixtures remain under [`protocol/`](../protocol/). Client models and
 adapters consume that contract without redefining it.
 
+## SDK migration
+
+Before `ROADMAP.md`'s Phase 5 ("Dart Client SDK Foundation"), this directory owns its protocol and
+client adapters directly — the identity, pairing, and live-synchronization foundations already in
+progress are implemented here, following `ai/context/flutter/`. After that phase, this app consumes
+[`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink communication
+instead: transport, Bridge-version compatibility, authentication, pairing, reconnect, and revision
+logic move to the SDK boundary. Flutter conventions point to
+[`ai/context/sdk/`](../ai/context/sdk/) for that SDK-owned behavior rather than duplicating it here.
+
 ## Development checks
 
 Run commands from this directory:

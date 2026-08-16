@@ -363,12 +363,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "ARCHITECTURE.md"',
             '- "ROADMAP.md"',
             '- "CONTRIBUTING.md"',
+            '- "CHANGELOG.md"',
             '- ".github/workflows/**"',
             '- ".vscode/**"',
+            '- "ai/context/**"',
             '- "app/**"',
             '- "bridge/**"',
             '- "integration/**"',
             '- "protocol/**"',
+            '- "sdk/**"',
             '- "tooling/**"',
         }
 
@@ -649,31 +652,32 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "2. Bridge Identity and Authoritative State Foundation",
             "3. Local Device Pairing and Reconnection",
             "4. Live State Synchronization Foundation",
-            "5. PC / Second-Screen Baseline",
-            "6. Core UI Theme System",
-            "7. Live Player State",
-            "8. Multi-Client Runtime Foundation",
-            "9. Multi-Bridge and Local Discovery Foundation",
-            "10. Automatic Connection and Transport Selection",
-            "11. Mod Awareness",
-            "12. Interactive Map Foundation",
-            "13. Map Asset and Worldspace System",
-            "14. Quests",
-            "15. Navigation / Path Guidance",
-            "16. Inventory",
-            "17. Equipment",
-            "18. Magic, Spells, Shouts, and Powers",
-            "19. Favorites and Hotkeys",
-            "20. Customizable Dashboard",
-            "21. Secure LAN Transport and Network Discovery",
-            "22. Mobile / Tablet Client",
-            "23. Item Knowledge and Search",
-            "24. Legacy of the Dragonborn Integration",
-            "25. Installed UI Detection",
-            "26. Optional UI Mod Adapters",
-            "27. Safe Companion Authorization Foundation",
-            "28. Runtime Profiling and Advanced Bridge Hardening",
-            "29. CommonLib Dependency Maintenance Audit",
+            "5. Dart Client SDK Foundation",
+            "6. PC / Second-Screen Baseline",
+            "7. Core UI Theme System",
+            "8. Live Player State",
+            "9. Multi-Client Runtime Foundation",
+            "10. Multi-Bridge and Local Discovery Foundation",
+            "11. Automatic Connection and Transport Selection",
+            "12. Mod Awareness",
+            "13. Interactive Map Foundation",
+            "14. Map Asset and Worldspace System",
+            "15. Quests",
+            "16. Navigation / Path Guidance",
+            "17. Inventory",
+            "18. Equipment",
+            "19. Magic, Spells, Shouts, and Powers",
+            "20. Favorites and Hotkeys",
+            "21. Customizable Dashboard",
+            "22. Secure LAN Transport and Network Discovery",
+            "23. Mobile / Tablet Client",
+            "24. Item Knowledge and Search",
+            "25. Legacy of the Dragonborn Integration",
+            "26. Installed UI Detection",
+            "27. Optional UI Mod Adapters",
+            "28. Safe Companion Authorization Foundation",
+            "29. Runtime Profiling and Advanced Bridge Hardening",
+            "30. CommonLib Dependency Maintenance Audit",
         ]
         actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?\.? .+)$", roadmap)
 
@@ -682,14 +686,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 4)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
             if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
                 expected_status = "**Status:** Complete"
-            elif heading.startswith("27. "):
+            elif heading.startswith("28. "):
                 expected_status = "**Status:** Planned after read-only product validation"
             else:
                 expected_status = "**Status:** Planned"
@@ -713,29 +717,37 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("`ROADMAP.md`'s Phase 4\nand Phase 3 entries", integration_readme)
 
         ordering = {heading: roadmap.index(f"## {heading}") for heading in expected_headings}
-        self.assertLess(ordering["5. PC / Second-Screen Baseline"], ordering["6. Core UI Theme System"])
-        self.assertLess(ordering["6. Core UI Theme System"], ordering["7. Live Player State"])
-        self.assertLess(ordering["7. Live Player State"], ordering["8. Multi-Client Runtime Foundation"])
-        self.assertLess(ordering["8. Multi-Client Runtime Foundation"], ordering["12. Interactive Map Foundation"])
         self.assertLess(
-            ordering["21. Secure LAN Transport and Network Discovery"],
-            ordering["22. Mobile / Tablet Client"],
+            ordering["4. Live State Synchronization Foundation"],
+            ordering["5. Dart Client SDK Foundation"],
+        )
+        self.assertLess(
+            ordering["5. Dart Client SDK Foundation"], ordering["6. PC / Second-Screen Baseline"]
+        )
+        self.assertLess(ordering["6. PC / Second-Screen Baseline"], ordering["7. Core UI Theme System"])
+        self.assertLess(ordering["7. Core UI Theme System"], ordering["8. Live Player State"])
+        self.assertLess(ordering["8. Live Player State"], ordering["9. Multi-Client Runtime Foundation"])
+        self.assertLess(ordering["9. Multi-Client Runtime Foundation"], ordering["13. Interactive Map Foundation"])
+        self.assertLess(
+            ordering["22. Secure LAN Transport and Network Discovery"],
+            ordering["23. Mobile / Tablet Client"],
         )
 
         identity = self._markdown_section(
             "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
         )
         authorization = self._markdown_section(
-            "ROADMAP.md", "27. Safe Companion Authorization Foundation"
+            "ROADMAP.md", "28. Safe Companion Authorization Foundation"
         )
         deferred = self._markdown_section("ROADMAP.md", "Deferred possibilities")
         self.assertIn("does not add a separate\ngame-process identifier", identity)
         dependency_expectations = {
             "3. Local Device Pairing and Reconnection": "depends on Phase 2",
-            "5. PC / Second-Screen Baseline": "validates Phases 2 through 4",
-            "8. Multi-Client Runtime Foundation": "follows the Phase 7 single-client proof",
-            "9. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 8",
-            "27. Safe Companion Authorization Foundation": (
+            "5. Dart Client SDK Foundation": "depends on Phases 2, 3, and 4",
+            "6. PC / Second-Screen Baseline": "validates Phases 2 through 5",
+            "9. Multi-Client Runtime Foundation": "follows the Phase 8 single-client proof",
+            "10. Multi-Bridge and Local Discovery Foundation": "depends on Phases 2 and 9",
+            "28. Safe Companion Authorization Foundation": (
                 "depends on identity, multi-client isolation, and security"
             ),
         }
@@ -752,6 +764,473 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Individual companion actions", deferred)
         for deferred_action in ("equipment", "favorites or hotkeys", "map markers", "fast travel"):
             self.assertIn(deferred_action, deferred)
+
+    def test_pairing_phase_establishes_persistent_per_user_trust(self) -> None:
+        """Guard the persistent-trust pairing redesign and its retired restart-bound predecessor."""
+        pairing = self._markdown_section("ROADMAP.md", "3. Local Device Pairing and Reconnection")
+        normalized_pairing = self._normalize_whitespace(pairing)
+
+        for required_phrase in (
+            "Permit only one active pairing challenge globally",
+            "final confirmation is idempotent",
+            "Persist completed trust so it survives Skyrim, Bridge, and Windows restarts, save "
+            "changes, `playContextId` changes, and `bridgeInstanceId` changes",
+            "Persistent trust belongs to the current Windows user profile running the client and "
+            "the Bridge",
+            "Scope `clientId` to the client installation and the Windows user profile running it",
+            "a `shortId` is never authentication or authorization material",
+            "is enabled only when an explicit `DOVAHLINK_DEV_TOKEN`",
+            "token authentication is a separate provider from device pairing",
+            "Give WebSocket-level Ping/Pong and a bounded idle timeout sole ownership of "
+            "connection liveness",
+            "receives a specific revoked/not-trusted outcome",
+            "does not implement Phase 10/11 Bridge discovery or endpoint-selection behavior",
+            "administration behavior (list trusted clients, revoke one, reset all) in a reusable "
+            "Bridge application/domain service rather than inside a Skyrim console-command handler",
+            "revoking a trusted client removes its active trust, invalidates any current "
+            "authenticated session it owns, closes that connection, and rejects reuse of the "
+            "revoked credential",
+            "never crashes Skyrim, never silently trusts a client, never invents or merges "
+            "uncertain credentials",
+            "an approved per-user secure-storage mechanism for the platform; do not invent "
+            "cryptography",
+        ):
+            self.assertIn(required_phrase, normalized_pairing)
+
+        # The restart-bound credential model this phase replaces must not silently creep back in.
+        for retired_phrase in (
+            "invalidate device credentials when the bridge or Skyrim process",
+            "Long-term credential persistence across bridge restarts is intentionally deferred",
+        ):
+            self.assertNotIn(retired_phrase, normalized_pairing)
+
+        identity_model = self._markdown_section("ARCHITECTURE.md", "Runtime and identity model")
+        normalized_identity_model = self._normalize_whitespace(identity_model)
+        self.assertIn(
+            "Persistent device trust is a separate concept layered on top of these four "
+            "lifetimes, not a fifth lifetime that replaces or reinterprets them",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "a trusted client still authenticates into a fresh `sessionId` on every reconnect, "
+            "and a bridge restart still creates a new `bridgeInstanceId`",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "belongs to the Windows user profile running the client and the Bridge, and survives "
+            "Bridge, Skyrim, and Windows restarts",
+            normalized_identity_model,
+        )
+        self.assertIn(
+            "`ai/context/protocol/security.md` and `ROADMAP.md`'s Phase 3 own the pairing, "
+            "storage, and revocation design",
+            normalized_identity_model,
+        )
+
+    def test_security_doc_establishes_persistent_trust_and_liveness_ownership(self) -> None:
+        """Guard the pairing/trust, developer-auth, liveness, and threat-boundary sections."""
+        security = self._read("ai/context/protocol/security.md")
+        for heading in (
+            "## Persistent local trust",
+            "## Developer authentication",
+            "## Connection liveness",
+            "## Local-OS-user threat boundary",
+        ):
+            self.assertIn(heading, security)
+
+        trust = self._markdown_section(
+            "ai/context/protocol/security.md", "Persistent local trust"
+        )
+        normalized_trust = self._normalize_whitespace(trust)
+        for required_phrase in (
+            "Normal users authenticate through pairing, not a configured long token",
+            "Only one pairing challenge may be active at a time, globally",
+            "Final confirmation is idempotent",
+            "scoped to the Windows user profile running the client and the Bridge",
+            "Do not invent cryptography",
+            "the official client must not share one `clientId`/credential between different "
+            "Windows user profiles",
+            "A `shortId` is never authentication or authorization material",
+            "An explicit local reset-all-trust operation exists",
+            "Revocation is immediate: revoking a trusted client removes its active trust, "
+            "invalidates its current authenticated session, closes that connection, and rejects "
+            "reuse of the revoked credential",
+            "the Bridge must not claim pairing is available when the in-game confirmation cannot "
+            "actually be presented",
+            "A client that fails before saving the credential creates no durable trust and may "
+            "pair again once the Bridge's pending challenge expires",
+            "A client that saves the credential but crashes before confirming retries "
+            "confirmation on restart",
+            "If the Bridge restarted while the credential was only pending, it reports the "
+            "pending credential as no longer known/valid; the client discards its incomplete "
+            "local credential and returns to unpaired",
+            "it never crashes Skyrim, never silently trusts a client, never invents or merges "
+            "uncertain credentials, and always supports a clean reset-and-re-pair path",
+            "A revoked client that reconnects with its old credential receives a specific "
+            "revoked/not-trusted outcome rather than a generic transport failure",
+            "Distinguishing a revoked `clientId` from one that was never paired may use a "
+            "minimal revocation tombstone containing no credential; re-pairing an intentionally "
+            "revoked `clientId` may remove or replace that tombstone and establish a new "
+            "credential",
+        ):
+            self.assertIn(required_phrase, normalized_trust)
+
+        developer_auth = self._markdown_section(
+            "ai/context/protocol/security.md", "Developer authentication"
+        )
+        normalized_developer_auth = self._normalize_whitespace(developer_auth)
+        for required_phrase in (
+            "enabled only when an explicit development token (`DOVAHLINK_DEV_TOKEN` or "
+            "equivalent approved configuration) is configured, with identical behavior across "
+            "debug, beta, and release builds",
+            "must not silently enroll the authenticating client into the persistent "
+            "trusted-device store",
+            "Developer authentication is not a switch that disables security",
+            "loopback restriction, input limits, protocol validation, a fresh `sessionId`, and "
+            "the single-connected-client limit",
+        ):
+            self.assertIn(required_phrase, normalized_developer_auth)
+
+        liveness = self._markdown_section(
+            "ai/context/protocol/security.md", "Connection liveness"
+        )
+        normalized_liveness = self._normalize_whitespace(liveness)
+        for required_phrase in (
+            "WebSocket-level Ping/Pong and a bounded idle timeout own connection liveness",
+            "invalidate `sessionId`, cancel or finish outstanding I/O, close the transport, then "
+            "release the connection slot",
+            "prefer bounded short retry/backoff over same-client connection takeover",
+            "rapid restart, timeout, and Bridge restart all recover cleanly under this policy",
+            "A dead `sessionId` can never become valid again",
+        ):
+            self.assertIn(required_phrase, normalized_liveness)
+
+        threat_boundary = self._markdown_section(
+            "ai/context/protocol/security.md", "Local-OS-user threat boundary"
+        )
+        normalized_threat_boundary = self._normalize_whitespace(threat_boundary)
+        for required_phrase in (
+            "loopback TCP itself is not proof of Windows-user identity",
+            "does not automatically make a loopback socket isolated from another simultaneously "
+            "logged-in local account",
+            "must be solved deliberately, with its own approved design, rather than assumed "
+            "from `127.0.0.1`",
+        ):
+            self.assertIn(required_phrase, normalized_threat_boundary)
+
+        secrets_and_logging = self._markdown_section(
+            "ai/context/protocol/security.md", "Secrets and logging"
+        )
+        for required_phrase in (
+            "Store credentials only through the approved trust-store and per-user secure-storage "
+            'mechanisms defined under "Persistent local trust" above; do not invent persistence '
+            "or cryptography of your own.",
+            "Never log credentials, developer tokens, or other security-sensitive credential "
+            "verifiers.",
+            "Pairing codes are not written to normal persistent logs merely because they are "
+            "short-lived.",
+        ):
+            self.assertIn(required_phrase, secrets_and_logging)
+        # The pre-pairing "no approved persistence design" bullet this replaced must not return.
+        self.assertNotIn(
+            "do not invent persistence during the connection proof", secrets_and_logging
+        )
+
+    def test_architecture_establishes_sdk_boundary_and_replaces_client_non_goal(self) -> None:
+        """Guard the sdk/ repository boundary and the retired single-client non-goal."""
+        architecture = self._read("ARCHITECTURE.md")
+
+        self.assertIn("sdk/", architecture)
+        self.assertIn("reusable supported client SDK implementations", architecture)
+        self.assertIn(
+            "The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when "
+            "the Dart Client SDK Foundation phase begins",
+            architecture,
+        )
+        self.assertIn("Dart Client", architecture)
+        # Prove the SDK box actually sits between the protocol box and the client boxes in the
+        # diagram itself (box-drawing prefix disambiguates from the phrase's other prose uses).
+        self.assertLess(
+            architecture.index("│ DovahLink"), architecture.index("│ Dart Client")
+        )
+        self.assertLess(
+            architecture.index("│ Dart Client"), architecture.index("│ Desktop")
+        )
+        self.assertIn(
+            "see `sdk/README.md` for its current planned status", architecture
+        )
+        self.assertEqual(architecture.count("for its current planned status"), 2)
+        self.assertIn("### SDK", architecture)
+        self.assertIn(
+            "Implements the canonical contract for Dart consumers and is not a second protocol "
+            "authority",
+            architecture,
+        )
+        self.assertIn(
+            "it maps the wire contract into typed client/domain models without those models "
+            "becoming the contract itself",
+            architecture,
+        )
+        self.assertIn(
+            "The official Flutter app is the SDK's first production consumer", architecture
+        )
+        self.assertIn("See `ai/context/sdk/` for SDK-specific conventions", architecture)
+        self.assertIn(
+            "normal DovahLink communication from the app goes through the SDK rather than "
+            "through app-private transport, compatibility, authentication, pairing, reconnect, "
+            "or session code",
+            architecture,
+        )
+
+        non_goals = self._markdown_section("ARCHITECTURE.md", "Architectural non-goals")
+        normalized_non_goals = self._normalize_whitespace(non_goals)
+        self.assertIn(
+            "intentionally introduces a shared client implementation before a second product "
+            "client exists, replacing the earlier assumption that such an abstraction should "
+            "wait for a second client",
+            normalized_non_goals,
+        )
+        self.assertIn(
+            "has grown substantial enough to deserve its own boundary, with the official app as "
+            "its first consumer",
+            normalized_non_goals,
+        )
+        # The retired single-client-first non-goal this replaces must not silently creep back in.
+        self.assertNotIn(
+            "No shared client-implementation abstraction before there is a second client",
+            architecture,
+        )
+
+    def test_sdk_readme_documents_planned_status_without_an_implementation_skeleton(self) -> None:
+        """Guard sdk/README.md's content and the absence of a real Dart package."""
+        sdk_readme = self._read("sdk/README.md")
+
+        for required_phrase in (
+            "This directory owns the reusable, supported client SDK implementations for the "
+            "DovahLink protocol.",
+            "consumers do not need to implement transport, Bridge-version compatibility "
+            "detection,\nauthentication, pairing recovery, reconnect, session and "
+            "authoritative-state identity, revisions,\nsubscriptions, snapshots, recovery, or "
+            "reusable client persistence themselves.",
+            "Skyrim\n   |\nDovahLink Bridge / mod\n   |\nprotocol/\n   |\nDart Client SDK\n   |\n"
+            "Official Flutter app",
+            "`protocol/` remains the sole canonical language-neutral Bridge/client contract",
+            "the SDK implements\nthat contract for Dart consumers and is not a second protocol "
+            "authority",
+            "the SDK's first production consumer, not a privileged one — see",
+            "Planned. This directory currently contains only this README; no Dart package exists "
+            "yet.",
+            "The real\npackage is created when `ROADMAP.md`'s Phase 5, \"Dart Client SDK "
+            "Foundation,\" begins, at:",
+            "sdk/\n  dart/\n    dovahlink_client/",
+            "the app-side Dart client documented in",
+            "remains the active Dart consumer for the identity,\npairing, and live-synchronization "
+            "foundations already in progress",
+        ):
+            self.assertIn(required_phrase, sdk_readme)
+
+        # No implementation skeleton: the future package's own directory must not exist yet.
+        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart").exists())
+        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client").exists())
+        for filename in ("pubspec.yaml", "pubspec.lock"):
+            self.assertFalse((REPOSITORY_ROOT / "sdk" / filename).exists())
+        for stray_path in ("lib", ".dart_tool"):
+            self.assertFalse((REPOSITORY_ROOT / "sdk" / stray_path).exists())
+
+    def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
+        """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""
+        dart_style = self._read("ai/context/dart/dart-style.md")
+        flutter_dart_style = self._read("ai/context/flutter/dart-style.md")
+
+        for required_phrase in (
+            "Shared Dart-language conventions that apply to every Dart package in this "
+            "repository",
+            "Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type.",
+            "Use the null assertion operator (`!`) only when an immediately visible check or "
+            "constructor",
+            "Use Dart doc links such as `[SymbolName]` when referring to another documented "
+            "symbol",
+            "Missing implementation uses `// TODO: ...` immediately above the declaration.",
+            "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
+            "Use lowercase_with_underscores for packages, directories, source files, and import "
+            "prefixes.",
+            "Use `dart format`, trailing commas, braces for flow control, and single quotes.",
+            "Never prefix methods with `get`; use a getter or a descriptive verb.",
+        ):
+            self.assertIn(required_phrase, dart_style)
+
+        self.assertIn(
+            "Shared Dart-language conventions (type safety, naming case, formatting, async, "
+            "dartdoc mechanics)\nlive in [`ai/context/dart/dart-style.md`](../dart/dart-style.md)",
+            flutter_dart_style,
+        )
+        self.assertIn(
+            "follow `ai/context/dart/dart-style.md`'s baseline naming rules", flutter_dart_style
+        )
+        # The moved sections and their content must not be duplicated in the Flutter-only file.
+        for retired_phrase in (
+            "## Type safety",
+            "## Baseline Dart rules",
+            "Do not use `dynamic` or `any`-style escape hatches",
+            "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
+            "Use lowercase_with_underscores for packages, directories, source files",
+            "Use `dart format`, trailing commas, braces for flow control, and single quotes.",
+            "[CharacterStateEntity]",
+            "Missing implementation uses `// TODO:",
+            "Dart defaults: `snake_case.dart` filenames, `UpperCamelCase` types",
+        ):
+            self.assertNotIn(retired_phrase, flutter_dart_style)
+        # Flutter-architecture-specific documentation rules stay behind.
+        self.assertIn(
+            "Describe dependencies in the architectural direction: Model to Entity, UseCase to "
+            "repository",
+            flutter_dart_style,
+        )
+
+    def test_sdk_conventions_cover_architecture_api_persistence_and_testing(self) -> None:
+        """Guard the four ai/context/sdk/ convention files and their non-duplication of security/compatibility."""
+        sdk_architecture = self._read("ai/context/sdk/architecture.md")
+        sdk_api_design = self._read("ai/context/sdk/api-design.md")
+        sdk_persistence = self._read("ai/context/sdk/persistence.md")
+        sdk_testing = self._read("ai/context/sdk/testing.md")
+
+        for required_phrase in (
+            "`protocol/` remains the sole canonical language-neutral Bridge/client contract.",
+            "The Bridge remains authoritative for live Skyrim game state, authoritative "
+            "revisions, the current\n`playContextId`, server-side trusted-client records, "
+            "revocation, trust administration, Bridge\ncapabilities, and server-side security "
+            "decisions.",
+            "The SDK has one underlying client engine/state machine.",
+            "The reusable client core must not depend on Flutter widgets, Redux, `GetIt`, "
+            "navigation",
+            "it must never become\nauthoritative over Skyrim or server-side trust.",
+            "It must not construct a new parallel raw WebSocket implementation,\nBridge "
+            "compatibility implementation, protocol decoder, authentication implementation, "
+            "pairing\nimplementation, reconnect state machine, revision tracker, or subscription "
+            "engine.",
+        ):
+            self.assertIn(required_phrase, sdk_architecture)
+
+        for required_phrase in (
+            "The long-term simple\nexperience trends toward: find/select a Bridge, pair if "
+            "necessary, listen to typed state.",
+            '"Advanced" must not mean\n"bypass invariants"',
+            "Do not duplicate `ai/context/protocol/security.md` here; obey it.",
+            "The SDK owns typed meaning; the app owns user-facing wording and presentation.",
+            "never persists secrets insecurely, never turns a security-sensitive failure into\n"
+            "plausible success or default state",
+        ):
+            self.assertIn(required_phrase, sdk_api_design)
+
+        for required_phrase in (
+            "If persisted data is required for correct reusable DovahLink client behavior, the "
+            "SDK owns it.",
+            "the app must not persist a competing authoritative copy of SDK-owned protocol\nor "
+            "client state",
+            "The SDK is not merely a WebSocket wrapper",
+            "The SDK must not assume a cached resource is valid merely because a file exists",
+        ):
+            self.assertIn(required_phrase, sdk_persistence)
+
+        for required_phrase in (
+            "Do not maintain the same Dart client correctness test suite independently inside "
+            "both `app/` and\n`sdk/`.",
+            "It must not consume, wrap, generate from, or\notherwise reuse the Dart SDK",
+        ):
+            self.assertIn(required_phrase, sdk_testing)
+
+        # These conventions must point to the compatibility/security authorities, not restate
+        # their content — this is the same rule common.md applies to every shared contract.
+        retired_duplication_phrase = (
+            "Compatibility is identified by the DovahLink Bridge/mod release version against the "
+            "supported Bridge-version range a client or SDK explicitly declares"
+        )
+        for sdk_doc in (sdk_architecture, sdk_api_design, sdk_persistence, sdk_testing):
+            self.assertNotIn(retired_duplication_phrase, sdk_doc)
+            self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
+
+    def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(self) -> None:
+        """Guard the AGENTS.md/common.md pointers added for ai/context/dart/ and ai/context/sdk/."""
+        agents = self._read("AGENTS.md")
+        common = self._read("ai/context/common.md")
+
+        self.assertIn(
+            "- `ai/context/dart/` — shared Dart-language conventions; read for any Dart work, "
+            "Flutter client or SDK",
+            agents,
+        )
+        self.assertIn(
+            "- `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work", agents
+        )
+        self.assertIn(
+            "SDK conventions in `ai/context/sdk/` are locally originated for DovahLink, not "
+            "copied from Price check; do not treat Price check as their external source.",
+            agents,
+        )
+
+        self.assertIn(
+            "`sdk/` is reserved for reusable, supported client SDK implementations; see "
+            "`sdk/README.md`.",
+            common,
+        )
+        self.assertIn(
+            "Shared Dart-language conventions are the complete set in "
+            "`ai/context/dart/dart-style.md`; Flutter\n  conventions are the complete set in",
+            common,
+        )
+        self.assertIn(
+            "`ai/context/flutter/architecture.md`, `dart-style.md`,\n  `testing.md`, and "
+            "`error-handling.md`; SDK conventions are the complete set in",
+            common,
+        )
+        self.assertIn(
+            "SDK conventions are the complete set in\n  `ai/context/sdk/architecture.md`, "
+            "`api-design.md`, `persistence.md`, and `testing.md`.",
+            common,
+        )
+        self.assertIn("do not duplicate a rule across more than one of them.", common)
+
+    def test_app_protocol_and_integration_docs_reconcile_the_sdk_boundary(self) -> None:
+        """Guard the SDK-transition notes added to app/, protocol/, and integration/ READMEs."""
+        app_readme = self._read("app/README.md")
+        protocol_readme = self._read("protocol/README.md")
+        integration_readme = self._read("integration/README.md")
+
+        self.assertIn("## SDK migration", app_readme)
+        self.assertIn(
+            "Before `ROADMAP.md`'s Phase 5 (\"Dart Client SDK Foundation\"), this directory owns "
+            "its protocol and\nclient adapters directly",
+            app_readme,
+        )
+        self.assertIn(
+            "After that phase, this app consumes\n"
+            "[`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink "
+            "communication",
+            app_readme,
+        )
+        self.assertIn(
+            "instead: transport, Bridge-version compatibility, authentication, pairing, "
+            "reconnect, and revision\nlogic move to the SDK boundary.",
+            app_readme,
+        )
+        self.assertIn(
+            "Flutter conventions point to\n[`ai/context/sdk/`](../ai/context/sdk/) for that "
+            "SDK-owned behavior rather than duplicating it here.",
+            app_readme,
+        )
+
+        self.assertIn(
+            "The repository-root [`app/`](../app/) and planned `bridge/` areas, and the planned\n"
+            "  [`sdk/`](../sdk/) area, contain adapters, not competing protocol definitions.",
+            protocol_readme,
+        )
+
+        self.assertIn(
+            "It also does not consume, wrap, or generate from the future Dart Client SDK\n"
+            "(`sdk/`, see `ROADMAP.md`'s Phase 5) once one exists; its value depends on staying "
+            "an independent\nimplementation of the canonical contract.",
+            integration_readme,
+        )
 
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
@@ -854,7 +1333,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_dependency_audit_targets_the_next_public_release(self) -> None:
         """Keep maintenance commitments meaningful after the initial public release."""
         dependency_audit = self._markdown_section(
-            "ROADMAP.md", "29. CommonLib Dependency Maintenance Audit"
+            "ROADMAP.md", "30. CommonLib Dependency Maintenance Audit"
         )
 
         self.assertNotIn("before public release", dependency_audit)

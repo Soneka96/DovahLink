@@ -11,6 +11,8 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 - `CONTRIBUTING.md` — branch and pull request workflow for maintainer-led, AI-assisted development
 - `ai/context/common.md` — rules shared by every part of the product
 - `ai/context/flutter/` — Flutter client conventions; read for client work
+- `ai/context/dart/` — shared Dart-language conventions; read for any Dart work, Flutter client or SDK
+- `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work
 - `ai/context/skse/` — native Skyrim bridge conventions; read for SKSE work
 - `ai/context/dotnet/` — C# conventions; read for .NET integration or tooling work
 - `ai/context/python/` — Python conventions; read for Python tooling work
@@ -53,6 +55,8 @@ Flutter work follows the Price check conventions deliberately copied and adapted
 project, an absolute path, or instructions that are unavailable here.
 
 Only rules documented in this repository are binding for DovahLink. If a Price check convention has not yet been copied here, treat it as a proposal to discuss rather than an external requirement.
+
+SDK conventions in `ai/context/sdk/` are locally originated for DovahLink, not copied from Price check; do not treat Price check as their external source.
 
 ## Decision authority
 

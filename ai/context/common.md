@@ -19,14 +19,18 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - `app/` is reserved for the Flutter client.
 - `bridge/` is reserved for the native SKSE bridge.
 - `protocol/` is the sole home for canonical cross-side schemas and shared protocol fixtures.
+- `sdk/` is reserved for reusable, supported client SDK implementations; see `sdk/README.md`.
 - `integration/` is reserved for tests and scenarios that exercise boundaries between areas.
 - `test/` is reserved for tests owned by an implementation area; cross-side contract fixtures remain in `protocol/fixtures/`.
 - `tooling/` is reserved for maintainer-approved repository scripts and validation tools.
 - Root-level configuration belongs only to repository-wide tooling; it must not become a dumping ground for implementation code.
 - Generated files belong in the area that owns their source and must never be hand-edited.
 - C++ conventions are defined in `ai/context/skse/cpp-style.md`.
-- Flutter conventions are the complete set in `ai/context/flutter/architecture.md`,
-  `dart-style.md`, `testing.md`, and `error-handling.md`; do not replace them with a summary.
+- Shared Dart-language conventions are the complete set in `ai/context/dart/dart-style.md`; Flutter
+  conventions are the complete set in `ai/context/flutter/architecture.md`, `dart-style.md`,
+  `testing.md`, and `error-handling.md`; SDK conventions are the complete set in
+  `ai/context/sdk/architecture.md`, `api-design.md`, `persistence.md`, and `testing.md`. Do not
+  replace any of these with a summary, and do not duplicate a rule across more than one of them.
 - C# conventions are defined in `ai/context/dotnet/csharp-style.md`.
 - Python conventions are defined in `ai/context/python/python-style.md`.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
