@@ -3,9 +3,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
-import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
-import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 
 import 'harness_process.dart';
 

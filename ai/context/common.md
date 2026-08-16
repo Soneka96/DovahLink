@@ -54,6 +54,11 @@ see:
 - C# (.NET validation client and tooling): `ai/context/dotnet/csharp-style.md`
 - Python (repository tooling): `ai/context/python/python-style.md`
 
+A curated public export barrel (for example a Dart package's `lib/<package>.dart`) is not subject
+to this rule: it declares no types of its own, it only re-exports a curated public surface that
+already lives in its own properly organized file elsewhere, per each area's own public-API
+conventions (for the SDK, `ai/context/sdk/api-design.md`'s "curated public exports").
+
 ## Documentation
 
 Documentation describes the purpose and contract of the code it is attached to. Apply these rules

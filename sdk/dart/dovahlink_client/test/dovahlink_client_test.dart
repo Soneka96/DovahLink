@@ -5,7 +5,6 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
-import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 
 /// A controllable [DovahLinkTransport] double: records every sent message and replays queued raw
