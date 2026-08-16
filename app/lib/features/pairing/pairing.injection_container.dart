@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
@@ -7,7 +8,9 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Registers pairing dependencies.
 void initPairingDependencies() {
@@ -30,4 +33,10 @@ void initPairingDependencies() {
   sl.registerLazySingleton<DisconnectUseCase>(
     () => DisconnectUseCase(sl<IPairingRepository>()),
   );
+  sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
+    Store<AppState> store,
+    void _,
+  ) {
+    return PairingScreenViewModel.fromStore(store);
+  });
 }

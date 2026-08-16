@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/screens/connection_status.screen.dart';
+import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 
 /// Builds the app's router. Every destination is a plain top-level [GoRoute] -- no
@@ -17,12 +18,8 @@ GoRouter createRouter() => GoRouter(
     ),
     GoRoute(
       path: AppRoutes.pairing,
-      // Placeholder only: the real pairing UI (its own feature, wrapping the SDK's
-      // DovahLinkClient) replaces this in a separate, later build.
-      builder: (BuildContext context, GoRouterState state) => const Scaffold(
-        key: Key('pairing-placeholder'),
-        body: Center(child: Text('Pairing')),
-      ),
+      builder: (BuildContext context, GoRouterState state) =>
+          const PairingScreen(),
     ),
   ],
 );

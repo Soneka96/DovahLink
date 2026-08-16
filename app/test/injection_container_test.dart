@@ -9,6 +9,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
@@ -76,6 +77,12 @@ void main() {
       expect(sl.isRegistered<RequestPairingUseCase>(), isTrue);
       expect(sl.isRegistered<ConfirmPairingCodeUseCase>(), isTrue);
       expect(sl.isRegistered<DisconnectUseCase>(), isTrue);
+    });
+
+    test('initDependencies registers the pairing ViewModel factory', () {
+      initDependencies();
+
+      expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
     });
   });
 }

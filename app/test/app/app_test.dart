@@ -30,7 +30,7 @@ void main() {
       sl<GoRouter>().go(AppRoutes.pairing);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('pairing-placeholder')), findsOneWidget);
+      expect(find.byKey(const Key('pairing-status')), findsOneWidget);
       expect(find.byKey(const Key('connection-status')), findsNothing);
     });
 

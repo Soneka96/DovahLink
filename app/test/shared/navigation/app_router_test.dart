@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/screens/connection_status.screen.dart';
+import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
@@ -26,10 +27,10 @@ void main() {
       );
 
       expect(find.byType(ConnectionStatusScreen), findsOneWidget);
-      expect(find.byKey(const Key('pairing-placeholder')), findsNothing);
+      expect(find.byType(PairingScreen), findsNothing);
     });
 
-    testWidgets('resolves the pairing route to its placeholder', (
+    testWidgets('resolves the pairing route to PairingScreen', (
       WidgetTester tester,
     ) async {
       final GoRouter router = createRouter();
@@ -43,7 +44,7 @@ void main() {
       router.go(AppRoutes.pairing);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('pairing-placeholder')), findsOneWidget);
+      expect(find.byType(PairingScreen), findsOneWidget);
       expect(find.byType(ConnectionStatusScreen), findsNothing);
     });
 
@@ -60,12 +61,12 @@ void main() {
 
         router.go(AppRoutes.pairing);
         await tester.pumpAndSettle();
-        expect(find.byKey(const Key('pairing-placeholder')), findsOneWidget);
+        expect(find.byType(PairingScreen), findsOneWidget);
 
         router.go(AppRoutes.home);
         await tester.pumpAndSettle();
         expect(find.byType(ConnectionStatusScreen), findsOneWidget);
-        expect(find.byKey(const Key('pairing-placeholder')), findsNothing);
+        expect(find.byType(PairingScreen), findsNothing);
       },
     );
 
@@ -84,7 +85,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(ConnectionStatusScreen), findsNothing);
-        expect(find.byKey(const Key('pairing-placeholder')), findsNothing);
+        expect(find.byType(PairingScreen), findsNothing);
       },
     );
   });
