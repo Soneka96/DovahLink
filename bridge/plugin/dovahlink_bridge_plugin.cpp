@@ -13,10 +13,12 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
+#include "application/trust_admin_service.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/commonlib_pairing_notification_sink.hpp"
+#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
@@ -207,6 +209,14 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     }
     static dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
+
+    // Registers the optional trust-administration console adapter
+    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
+    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
+    // Papyrus glue script are not installed.
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore);
+    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
+
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
     static dovahlink::game_state::CommonLibPairingNotificationSink pairingNotificationSink;

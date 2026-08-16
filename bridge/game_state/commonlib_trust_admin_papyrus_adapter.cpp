@@ -73,7 +73,18 @@ bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
 
 void InstallTrustAdminPapyrusAdapter(application::TrustAdminService& service) {
     g_trustAdminService = &service;
-    SKSE::GetPapyrusInterface()->Register(RegisterFunctions);
+
+    // Unlike the plugin's messaging/serialization interfaces, this one backs a purely optional
+    // feature (ai/context/protocol/security.md's "Trust administration surface"): its absence
+    // disables only the console-admin adapter, never the rest of the bridge, so this logs and
+    // returns rather than failing plugin load.
+    auto* papyrus = SKSE::GetPapyrusInterface();
+    if (!papyrus) {
+        SKSE::log::warn("SKSE's Papyrus interface is unavailable; the trust-administration console "
+                         "adapter will not be registered.");
+        return;
+    }
+    papyrus->Register(RegisterFunctions);
 }
 
 }  // namespace dovahlink::game_state
