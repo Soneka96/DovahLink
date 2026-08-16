@@ -81,3 +81,6 @@ Organize the SDK around the capabilities it actually implements (connection/sess
 compatibility, pairing/trust, subscriptions/state, persistence, cache) rather than a generic
 "services" layer. Each capability's internal implementation stays internal; only its curated public
 surface is exported, per `ai/context/sdk/api-design.md`.
+
+File organization (one type per file, with the enum/constant exception) is a shared Dart-wide rule;
+see `ai/context/dart/dart-style.md`, not a restatement here.

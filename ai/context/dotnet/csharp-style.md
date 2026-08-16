@@ -2,6 +2,16 @@
 
 These conventions apply to handwritten C# in integration clients, tests, and repository tooling.
 
+## Files and types
+
+One primary public class, record, struct, or interface per file, per `ai/context/common.md`'s
+shared file-organization rule. Its two exceptions apply per project (`DovahLinkValidationClient`,
+`DovahLinkValidationClient.Tests`, and `tooling/BridgeBuilder` each get their own, never shared
+across a project boundary): every enum for that project belongs in that project's `Enums.cs`, and
+every small cross-cutting constant value (timeouts, limits, and similar) belongs in that project's
+`Constants.cs`. Within either file, group entries by the area they belong to, each preceded by a
+`// ---- <Area> ----` comment banner.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.

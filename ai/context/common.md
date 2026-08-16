@@ -36,6 +36,24 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
 - `protocol/fixtures/` contains canonical cross-side fixtures; `integration/` contains scenarios and harnesses that consume them.
 
+## File organization
+
+Keep one primary public type (class, struct, record, interface, enum, or similar) per file as the
+default, across every language in this repository. Two narrow exceptions exist because they would
+otherwise scatter many tiny, closely-related declarations across a large number of near-empty
+files: enums, and small cross-cutting constant values (timeouts, limits, and similar non-secret
+fixed values). Each language area groups these into its own shared file(s) within one compilation
+unit/package/project -- not across a package or project boundary, and not one repository-wide
+dumping ground -- ordered and separated into clearly labeled groups rather than left as a flat
+unordered list. Every other rule (documentation, naming, layering) still applies inside these files
+exactly as it would to any other file. The exact file name and grouping convention is area-specific;
+see:
+
+- Dart (Flutter client and SDK): `ai/context/dart/dart-style.md`
+- C++ (Skyrim bridge): `ai/context/skse/cpp-style.md`
+- C# (.NET validation client and tooling): `ai/context/dotnet/csharp-style.md`
+- Python (repository tooling): `ai/context/python/python-style.md`
+
 ## Documentation
 
 Documentation describes the purpose and contract of the code it is attached to. Apply these rules
