@@ -1187,6 +1187,48 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("do not duplicate a rule across more than one of them.", common)
 
+    def test_app_protocol_and_integration_docs_reconcile_the_sdk_boundary(self) -> None:
+        """Guard the SDK-transition notes added to app/, protocol/, and integration/ READMEs."""
+        app_readme = self._read("app/README.md")
+        protocol_readme = self._read("protocol/README.md")
+        integration_readme = self._read("integration/README.md")
+
+        self.assertIn("## SDK migration", app_readme)
+        self.assertIn(
+            "Before `ROADMAP.md`'s Phase 5 (\"Dart Client SDK Foundation\"), this directory owns "
+            "its protocol and\nclient adapters directly",
+            app_readme,
+        )
+        self.assertIn(
+            "After that phase, this app consumes\n"
+            "[`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink "
+            "communication",
+            app_readme,
+        )
+        self.assertIn(
+            "instead: transport, Bridge-version compatibility, authentication, pairing, "
+            "reconnect, and revision\nlogic move to the SDK boundary.",
+            app_readme,
+        )
+        self.assertIn(
+            "Flutter conventions point to\n[`ai/context/sdk/`](../ai/context/sdk/) for that "
+            "SDK-owned behavior rather than duplicating it here.",
+            app_readme,
+        )
+
+        self.assertIn(
+            "The repository-root [`app/`](../app/) and planned `bridge/` areas, and the planned\n"
+            "  [`sdk/`](../sdk/) area, contain adapters, not competing protocol definitions.",
+            protocol_readme,
+        )
+
+        self.assertIn(
+            "It also does not consume, wrap, or generate from the future Dart Client SDK\n"
+            "(`sdk/`, see `ROADMAP.md`'s Phase 5) once one exists; its value depends on staying "
+            "an independent\nimplementation of the canonical contract.",
+            integration_readme,
+        )
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")

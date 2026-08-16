@@ -3,7 +3,9 @@
 This directory holds the independent validation client and the deterministic end-to-end scenarios
 that exercise the Skyrim bridge's real protocol behavior. Everything here is a separate protocol
 consumer, hand-written with `System.Text.Json`; nothing links against or shares code with the
-bridge's own C++ codec.
+bridge's own C++ codec. It also does not consume, wrap, or generate from the future Dart Client SDK
+(`sdk/`, see `ROADMAP.md`'s Phase 5) once one exists; its value depends on staying an independent
+implementation of the canonical contract.
 
 ## Contents
 
