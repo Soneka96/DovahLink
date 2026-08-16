@@ -7,6 +7,13 @@ import 'package:async/async.dart';
 /// Launches and controls one deterministic bridge harness subprocess
 /// (`bridge/harness/dovahlink_bridge_harness.cpp`) for real end-to-end tests. Mirrors
 /// `integration/DovahLinkValidationClient.Tests/HarnessProcess.cs`'s mechanics for a Dart caller.
+///
+/// Every instance binds the bridge's fixed, documented loopback port -- the `.NET` integration
+/// suite solves the same constraint by disabling test-class parallelism outright
+/// (`integration/README.md`). `package:test` can run separate test files concurrently by default;
+/// repeated runs of this project's harness-using files together, including with concurrency
+/// forced above the default, have not shown a collision, so no such restriction is configured
+/// here yet. Add one (e.g. a shared `dart_test.yaml` tag with `concurrency: 1`) if that changes.
 class HarnessProcess {
   HarnessProcess._(this._process, this._stdoutLines, this._stderrBuffer);
 

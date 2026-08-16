@@ -1,16 +1,25 @@
 import 'dart:io';
 
+import 'package:async/async.dart';
+
 import 'dovahlink_transport.dart';
 
 /// A [DovahLinkTransport] backed by `dart:io`'s built-in [WebSocket] -- no additional package
-/// dependency, sufficient for this desktop client.
+/// dependency beyond `package:async`'s [StreamQueue], sufficient for this desktop client.
 class WebSocketTransport implements DovahLinkTransport {
   /// The underlying socket, once [connect] has succeeded.
   WebSocket? _socket;
 
-  /// The decoded message stream, computed once per [connect] so every access of [messages]
-  /// observes the same subscription rather than each racing its own listen against the socket.
-  Stream<String>? _messages;
+  /// Pulls one decoded text message at a time from the socket.
+  ///
+  /// `dart:io`'s [WebSocket] is a single-subscription stream: it can only ever be listened to
+  /// once. [DovahLinkTransport.messages] is read repeatedly over a connection's lifetime (once
+  /// per expected reply), so a cached `Stream.map()` over the raw socket would throw "Stream has
+  /// already been listened to" on the second read -- confirmed by a real end-to-end test against
+  /// the bridge, not by any fake-transport unit test, since only a real single-subscription
+  /// stream exhibits this. [StreamQueue] listens exactly once and buffers, letting [messages]
+  /// hand out one already-arrived (or not-yet-arrived) message per access instead.
+  StreamQueue<String>? _messageQueue;
 
   @override
   Future<void> connect(Uri uri) async {
@@ -21,17 +30,19 @@ class WebSocketTransport implements DovahLinkTransport {
     }
     final WebSocket socket = await WebSocket.connect(uri.toString());
     _socket = socket;
-    // A non-text frame throws inside map(), which Dart delivers as a stream error event to
-    // messages' listener, not a synchronous throw at the call site -- DovahLink only ever sends
-    // text frames, so this is a protocol-violation signal, not an expected branch.
-    _messages = socket.map((dynamic event) {
-      if (event is! String) {
-        throw StateError(
-          'Received a non-text WebSocket frame; DovahLink only sends text frames.',
-        );
-      }
-      return event;
-    });
+    // A non-text frame throws inside map(), which the StreamQueue delivers as an error to
+    // whichever `messages` access is waiting on it -- DovahLink only ever sends text frames, so
+    // this is a protocol-violation signal, not an expected branch.
+    _messageQueue = StreamQueue<String>(
+      socket.map((dynamic event) {
+        if (event is! String) {
+          throw StateError(
+            'Received a non-text WebSocket frame; DovahLink only sends text frames.',
+          );
+        }
+        return event;
+      }),
+    );
   }
 
   @override
@@ -40,19 +51,24 @@ class WebSocketTransport implements DovahLinkTransport {
   }
 
   @override
-  Stream<String> get messages {
-    final Stream<String>? messages = _messages;
-    if (messages == null) {
+  Stream<String> get messages async* {
+    final StreamQueue<String>? queue = _messageQueue;
+    if (queue == null) {
       throw StateError('Not connected. Call connect() first.');
     }
-    return messages;
+    // An async* generator body does not run until its stream is actually listened to, so
+    // queue.next -- which dequeues the next message the moment it runs -- only fires once a
+    // caller subscribes, not merely on accessing this getter. A non-generator
+    // `Stream.fromFuture(queue.next)` would call queue.next eagerly at getter-access time,
+    // silently dequeuing a message even if the returned stream is never listened to.
+    yield await queue.next;
   }
 
   @override
   Future<void> close() async {
     final WebSocket? socket = _socket;
     _socket = null;
-    _messages = null;
+    _messageQueue = null;
     await socket?.close();
   }
 
