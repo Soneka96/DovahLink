@@ -116,6 +116,7 @@ add_executable(dovahlink_bridge_tests
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
+    application/pairing_notification_sink_test.cpp
     application/play_context_test.cpp
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
