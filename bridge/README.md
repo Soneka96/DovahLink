@@ -223,6 +223,15 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
   protocol-limit change replaces it. How Phase 4 divides that bound among its three categories
   follows profiling once the real delivery mechanism exists, not advance estimation.
 
+## Optional trust-administration console adapter
+
+The bridge always registers native Papyrus functions for listing, revoking, and resetting trusted
+clients (`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`). Reaching them from
+Skyrim's in-game console requires a separate, optional integration
+([`console-admin/README.md`](../console-admin/README.md)) with a third-party plugin, ConsoleUtil
+Extended — not part of this bridge's own dependency baseline above, and not required for any other
+bridge behavior.
+
 ## Manual verification record template
 
 Use this template to record real Skyrim verification for a release. Nothing here can substitute for
