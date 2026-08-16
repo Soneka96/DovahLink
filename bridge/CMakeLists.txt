@@ -48,6 +48,7 @@ add_library(dovahlink_bridge_core STATIC
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
+    security/trust_store.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
     transport/websocket_session.cpp
@@ -131,6 +132,7 @@ add_executable(dovahlink_bridge_tests
     security/throttle_test.cpp
     security/token_provider_test.cpp
     security/token_store_test.cpp
+    security/trust_store_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
     protocol/json_field_decoders_test.cpp
