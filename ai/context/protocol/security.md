@@ -117,6 +117,52 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   use a minimal revocation tombstone containing no credential; re-pairing an intentionally revoked
   `clientId` may remove or replace that tombstone and establish a new credential.
 
+## Trust administration surface
+
+- Trust administration (list trusted clients, revoke one, reset all) is implemented once, as a
+  reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
+  load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
+  developer tooling -- duplicates trust-store logic; each only formats input and output around the
+  same calls.
+- The five-digit `shortId` (never `clientId`, never a credential) is the identifier every
+  administration surface accepts for "which trusted client" -- matching "Persistent local trust"'s
+  own stated purpose for `shortId`: human-readable administration only.
+- Native Skyrim has no supported API for registering a genuinely new console command. Confirmed by
+  inspecting the vendored CommonLibSSE-NG headers: `RE::SCRIPT_FUNCTION` is a fixed, pre-populated
+  table with no `AddCommand`, and intercepting the console's own script-compile call site requires
+  disassembling the exact pinned game binary to find an undocumented call-site offset -- not
+  something this project can determine safely or repeatably from source headers alone, and rejected
+  for that reason (2026-08-16). The approved integration is instead a small, explicitly optional
+  Papyrus console adapter, not a new native console-command mechanism:
+  - **ConsoleUtil Extended** (a third-party SKSE plugin, `github.com/KrisV-777/ConsoleUtil-Extended`)
+    parses in-game console text into named commands/subcommands/arguments from a YAML config and
+    calls a matching Papyrus `global` function per subcommand. Its documented syntax
+    (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
+    `dovahlink revoke -id <shortId>`, and `dovahlink reset` directly.
+  - DovahLink Bridge registers a small set of native Papyrus functions
+    (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
+    memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
+    The glue script and ConsoleUtil Extended's YAML config are kept outside `bridge/`: they are not
+    part of the native DovahLink core, only an optional way to reach it. Each native function does
+    nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
+    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
+    introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
+  - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
+    DovahLink Bridge itself. The bridge's native Papyrus-function registration succeeds
+    unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
+    to version-check at bridge startup); every other bridge behavior -- connection, pairing, trust
+    persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
+    config are absent. Without them, `dovahlink list`/`revoke`/`reset` are simply unrecognized
+    console commands, exactly like any other unknown input; there is no error path and no degraded
+    core behavior to account for.
+- Scope boundary, recorded explicitly rather than left implicit: this surface's `Revoke`/`Reset`
+  call `TrustStore::Revoke`/`TrustStore::Reset` directly, which removes persisted trust and (for
+  `Revoke`) tombstones the `clientId` -- a revoked client's *next* reconnect attempt with the old
+  credential fails cleanly. Forcing an *already-connected* session using the just-revoked credential
+  to disconnect immediately (the "revoke-while-connected" behavior this document's "Persistent local
+  trust" section and `ROADMAP.md`'s acceptance criteria both name) is proven end-to-end as its own
+  stage (`PLAN.md`'s stage J); this surface does not yet wire that disconnect itself.
+
 ## Developer authentication
 
 - The long-token capability from "Phase 1 exposure" becomes explicit developer authentication once
