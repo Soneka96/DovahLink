@@ -16,6 +16,7 @@
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
+#include "game_state/commonlib_pairing_notification_sink.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
@@ -88,18 +89,6 @@ public:
 private:
     /// Runtime event sink controlled by the coordinator lifecycle.
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
-};
-
-/// Displays a freshly generated pairing code via the SKSE log. A temporary stand-in for the real
-/// native Skyrim notification, which is stage G's own dedicated adapter (`bridge/plugin`,
-/// ai/context/protocol/security.md's "Persistent local trust") -- this class carries no pairing
-/// state logic, only where the code goes, matching PairingNotificationSink's own seam contract.
-class SkseLogPairingNotificationSink : public dovahlink::application::PairingNotificationSink {
-public:
-    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
-    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
-        SKSE::log::info("Pairing code: {}", sixDigitCode);
-    }
 };
 
 // The DovahLink Bridge/mod release version exposed to clients in
@@ -220,7 +209,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
-    static SkseLogPairingNotificationSink pairingNotificationSink;
+    static dovahlink::game_state::CommonLibPairingNotificationSink pairingNotificationSink;
 
     static dovahlink::application::SessionManager sessionManager;
 
