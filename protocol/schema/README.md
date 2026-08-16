@@ -93,7 +93,7 @@ with `hello_ack` after it receives and validates one.
   "endpoint": "client",
   "clientId": "opaque-client-id",
   "auth": {
-    "method": "one_time_local_token",
+    "method": "trusted_device_credential",
     "token": "redacted-in-documentation"
   }
 }
@@ -103,9 +103,22 @@ with `hello_ack` after it receives and validates one.
 sends `hello`. `clientId` identifies the logical client/installation independently of any
 connection; it persists across reconnects and is not itself a trust credential.
 
-Required payload fields: `endpoint`, `clientId`, `auth`. The current contract accepts only
-`auth.method: one_time_local_token` during the loopback proof. The peer responds with `hello_ack`
-only after token validation.
+`auth.method` is one of:
+
+- `one_time_local_token` — developer/loopback-proof authentication against the process-lifetime
+  one-time token. `auth.token` is required.
+- `unpaired` — no credential presented yet. Admits a session restricted to
+  `ping`/`capabilities`/`pairing_request`/`pairing_confirm`/`pairing_ack` until pairing succeeds
+  (see the pairing messages below). `auth.token` must be absent.
+- `trusted_device_credential` — a persisted pairing credential, for an ordinary reconnect.
+  `auth.token` carries the hex-encoded credential and is required.
+
+See [`ai/context/protocol/security.md`](../../ai/context/protocol/security.md)'s "Hello
+authentication and session trust tiers" for the full design.
+
+Required payload fields: `endpoint`, `clientId`, `auth`. `auth.token` is required for
+`one_time_local_token` and `trusted_device_credential`, and must be absent for `unpaired`. The peer
+responds with `hello_ack` only after authentication succeeds.
 
 ### `hello_ack`
 
@@ -115,7 +128,7 @@ compatibility information a client needs before trusting the rest of the exchang
 ```json
 {
   "bridgeVersion": "0.2.0",
-  "clientIdentityKind": "unpaired"
+  "clientIdentityKind": "paired"
 }
 ```
 
@@ -125,12 +138,107 @@ receive or evaluate a client-declared compatibility range itself. Checking `brid
 its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
 responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.
 
-`clientIdentityKind` is always `"unpaired"` in the current phase; a future pairing phase adds
-`"paired"` without changing this shape.
+`clientIdentityKind` is `"unpaired"` for a session admitted via `auth.method: one_time_local_token`
+or `unpaired` (trust-restricted until pairing succeeds), or `"paired"` for a session admitted via
+`trusted_device_credential`, or a restricted session upgraded in place by a successful
+`pairing_ack` — the upgrade happens on the same connection with no reconnect and no `sessionId`
+change, so a client only learns of it from that `pairing_outcome`, not from a fresh `hello_ack`.
 
 Required payload fields: `bridgeVersion`, `clientIdentityKind`.
 
 `hello_ack.correlationId` is the `messageId` of the `hello` it answers.
+
+### `pairing_request`
+
+Client request to start, or query the status of, a pairing challenge. Sent on a Restricted session
+only — an already-trusted (Full) session has no reason to re-pair, and the bridge rejects pairing
+messages on one.
+
+```json
+{}
+```
+
+No payload fields, matching `ping`'s empty-payload precedent. The bridge responds with
+`pairing_status`.
+
+### `pairing_status`
+
+Bridge report of pairing availability, sent in reply to `pairing_request`:
+
+```json
+{
+  "state": "available"
+}
+```
+
+`state` is one of `"unavailable"`, `"available"`, or `"in_progress"`. `"available"` means a fresh
+six-digit code was just generated and displayed to the user in Skyrim; a repeated `pairing_request`
+while that code is still active reports `"in_progress"` instead, without generating or displaying a
+second code.
+
+Required payload field: `state`.
+
+`pairing_status.correlationId` is the `messageId` of the `pairing_request` it answers.
+
+### `pairing_confirm`
+
+Client submission of the six-digit code the user read from Skyrim and entered:
+
+```json
+{
+  "code": "123456",
+  "displayName": "My PC"
+}
+```
+
+`code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
+client; send `null` when omitted. The bridge responds with `pairing_outcome`
+(`"credential_issued"`, `"expired"`, `"invalid"`, or `"rate_limited"`).
+
+Required payload field: `code`.
+
+### `pairing_ack`
+
+Client's final confirmation, echoing back the credential it durably saved:
+
+```json
+{
+  "credential": "a1b2c3d4e5f6"
+}
+```
+
+`credential` is the hex-encoded credential the client received in a prior `credential_issued`
+outcome, saved to persistent storage before this message is sent. The bridge responds with
+`pairing_outcome` (`"trusted"`, `"already_trusted"`, or `"pending_not_found"`), and on `"trusted"`
+upgrades the session to full trust in place on the same connection — no reconnect required.
+
+Required payload field: `credential`.
+
+### `pairing_outcome`
+
+Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished by `outcome`:
+
+```json
+{
+  "outcome": "trusted",
+  "credential": "a1b2c3d4e5f6",
+  "shortId": "12345",
+  "displayName": "My PC"
+}
+```
+
+`outcome` is one of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
+`"invalid"`, `"rate_limited"`, or `"pending_not_found"`. `credential` is present only for
+`"credential_issued"`, `"trusted"`, and `"already_trusted"`. `shortId` (an administration-only
+identifier, not a trust credential) is present only for `"trusted"` and `"already_trusted"`.
+`displayName` echoes the client-supplied label and is present only alongside `credential`/`shortId`
+when the client supplied one.
+
+Required payload field: `outcome`. `credential`, `shortId`, and `displayName` are always present in
+the payload as `null` unless the note above says otherwise.
+
+`pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
+answers.
 
 ### `capabilities`
 
