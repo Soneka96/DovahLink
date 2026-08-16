@@ -9,9 +9,11 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
@@ -51,6 +53,18 @@ public:
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
     /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
+};
+
+/// Displays a freshly generated pairing code by printing it to stdout, matching the harness's
+/// existing "print an observable signal for the test driver" convention (READY, BRIDGE_INSTANCE,
+/// LEVEL, PLAY_CONTEXT above). Stands in for the real Skyrim notification (stage G); a .NET
+/// validation-client scenario reads this line the same way it already reads the others.
+class StdoutPairingNotificationSink : public dovahlink::application::PairingNotificationSink {
+public:
+    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        std::cout << "PAIRING_CODE " << sixDigitCode << std::endl;
+    }
 };
 
 /// Processes one lifecycle event through the tracker and applies its
@@ -153,6 +167,8 @@ int main() {
     dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
     auto trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
     dovahlink::security::FailedTokenThrottle credentialThrottle;
+    dovahlink::security::PairingSession pairingSession;
+    StdoutPairingNotificationSink pairingNotificationSink;
 
     dovahlink::application::SessionManager sessionManager;
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
@@ -182,7 +198,8 @@ int main() {
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
                                                               tokenThrottle, trustStore, credentialThrottle,
-                                                              sessionManager, activePlayContext, bridgeInstanceId,
+                                                              sessionManager, activePlayContext, pairingSession,
+                                                              pairingNotificationSink, bridgeInstanceId,
                                                               kBridgeVersion);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

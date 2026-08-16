@@ -10,6 +10,7 @@
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
@@ -18,6 +19,7 @@
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
@@ -86,6 +88,18 @@ public:
 private:
     /// Runtime event sink controlled by the coordinator lifecycle.
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
+};
+
+/// Displays a freshly generated pairing code via the SKSE log. A temporary stand-in for the real
+/// native Skyrim notification, which is stage G's own dedicated adapter (`bridge/plugin`,
+/// ai/context/protocol/security.md's "Persistent local trust") -- this class carries no pairing
+/// state logic, only where the code goes, matching PairingNotificationSink's own seam contract.
+class SkseLogPairingNotificationSink : public dovahlink::application::PairingNotificationSink {
+public:
+    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        SKSE::log::info("Pairing code: {}", sixDigitCode);
+    }
 };
 
 // The DovahLink Bridge/mod release version exposed to clients in
@@ -205,6 +219,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
+    static dovahlink::security::PairingSession pairingSession;
+    static SkseLogPairingNotificationSink pairingNotificationSink;
 
     static dovahlink::application::SessionManager sessionManager;
 
@@ -228,7 +244,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-        sessionManager, activePlayContext, bridgeInstanceId, kBridgeVersion);
+        sessionManager, activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId,
+        kBridgeVersion);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

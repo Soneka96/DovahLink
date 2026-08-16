@@ -11,12 +11,14 @@ BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4, tran
                                    transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                                    security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
                                    security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
-                                   const ActivePlayContext& activePlayContext,
+                                   const ActivePlayContext& activePlayContext, security::PairingSession& pairingSession,
+                                   PairingNotificationSink& pairingNotificationSink,
                                    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot), tokenStore_(tokenStore),
       tokenThrottle_(tokenThrottle), trustStore_(trustStore), credentialThrottle_(credentialThrottle),
-      sessionManager_(sessionManager), activePlayContext_(activePlayContext),
-      bridgeInstanceId_(std::move(bridgeInstanceId)), bridgeVersion_(std::move(bridgeVersion)) {}
+      sessionManager_(sessionManager), activePlayContext_(activePlayContext), pairingSession_(pairingSession),
+      pairingNotificationSink_(pairingNotificationSink), bridgeInstanceId_(std::move(bridgeInstanceId)),
+      bridgeVersion_(std::move(bridgeVersion)) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
@@ -63,8 +65,8 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
 
             transport::WebSocketSession session(std::move(socketHandle));
             RunConnectionSession(session, tokenStore_, tokenThrottle_, trustStore_, credentialThrottle_,
-                                 sessionManager_, connection, activePlayContext_, bridgeInstanceId_,
-                                 bridgeVersion_);
+                                 sessionManager_, connection, activePlayContext_, pairingSession_,
+                                 pairingNotificationSink_, bridgeInstanceId_, bridgeVersion_);
         });
     }
 }

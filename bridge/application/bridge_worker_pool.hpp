@@ -2,8 +2,10 @@
 
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
@@ -33,6 +35,9 @@ public:
     /// @param sessionManager Session ownership manager.
     /// @param activePlayContext Source of the acquired play context each connection's state and
     ///     revisions belong to.
+    /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine
+    ///     shared by connections.
+    /// @param pairingNotificationSink Displays a freshly generated pairing code to the user.
     /// @param bridgeInstanceId This bridge process's identity, stamped onto every response
     ///     envelope; no value if generation failed at startup.
     /// @param bridgeVersion The DovahLink Bridge/mod release version exposed to clients in
@@ -41,7 +46,8 @@ public:
                      transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
-                     const ActivePlayContext& activePlayContext, std::optional<std::string> bridgeInstanceId,
+                     const ActivePlayContext& activePlayContext, security::PairingSession& pairingSession,
+                     PairingNotificationSink& pairingNotificationSink, std::optional<std::string> bridgeInstanceId,
                      std::string bridgeVersion);
 
     /// Stops and joins any workers that remain active.
@@ -94,6 +100,12 @@ private:
 
     /// Source of the acquired play context each connection's state and revisions belong to.
     const ActivePlayContext& activePlayContext_;
+
+    /// Shared pairing challenge/pending-credential state machine.
+    security::PairingSession& pairingSession_;
+
+    /// Displays a freshly generated pairing code to the user.
+    PairingNotificationSink& pairingNotificationSink_;
 
     /// This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId_;

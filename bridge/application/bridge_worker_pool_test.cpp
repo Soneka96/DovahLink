@@ -21,16 +21,20 @@
 #include <future>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
+using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
@@ -63,6 +67,20 @@ public:
 
     /// Always succeeds without recording anything.
     bool Save(const TrustStoreSnapshot&) override { return true; }
+};
+
+/// `PairingNotificationSink` double that records every code it is given. Pairing behavior itself
+/// is exercised in message_dispatcher_test.cpp and pairing_handler_test.cpp; these tests only need
+/// a working sink to satisfy `BridgeWorkerPool`'s signature.
+class RecordingPairingNotificationSink : public PairingNotificationSink {
+public:
+    /// Appends `sixDigitCode` to `codes`.
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        codes.emplace_back(sixDigitCode);
+    }
+
+    /// Every code this sink has been given, in order.
+    std::vector<std::string> codes;
 };
 
 /// Provides the same catch-all semantics as the coordinator for isolated pool
@@ -99,14 +117,19 @@ struct Fixture {
     TrustStore trustStore = TrustStore::Load(persistence);
     /// Tracks failed device-credential attempts; unused by these tests.
     FailedTokenThrottle credentialThrottle;
+    /// Pairing challenge/pending-credential state machine; unused by these tests.
+    PairingSession pairingSession;
+    /// Records pairing codes displayed to the user; unused by these tests.
+    RecordingPairingNotificationSink pairingNotificationSink;
     /// Tracks the authenticated test session.
     SessionManager sessionManager;
     /// Source of the acquired play context; empty (kNoContext) for these tests.
     ActivePlayContext activePlayContext;
     /// Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4,     listenerV6,        slot,          tokenStore,
-                         tokenThrottle,  trustStore,        credentialThrottle,
-                         sessionManager, activePlayContext, /*bridgeInstanceId=*/std::nullopt,
+    BridgeWorkerPool pool{listenerV4,        listenerV6,          slot,      tokenStore,
+                         tokenThrottle,     trustStore,          credentialThrottle,
+                         sessionManager,    activePlayContext,   pairingSession,
+                         pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt,
                          /*bridgeVersion=*/kBridgeVersion};
 };
 

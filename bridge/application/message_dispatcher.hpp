@@ -1,12 +1,15 @@
 #pragma once
 
 #include "application/connection_timeout_tracker.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/replay_guard.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "protocol/envelope.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
+#include "security/trust_store.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -42,7 +45,10 @@ struct SubscriptionState {
 /// @param receivedMessageCount Number of completed messages read in this session; incremented before decoding.
 /// @param sessionId Authenticated session identifier.
 /// @param connection Transport connection identifier.
-/// @param sessionManager Session registry.
+/// @param sessionManager Session registry. Also determines this call's allowed message types: a
+///     `Restricted` session may only exchange `ping`/`capabilities`/the three pairing message
+///     types; a `Full` session may only exchange `ping`/`capabilities`/`subscribe`/
+///     `snapshot_request` (pairing messages are pointless once already trusted).
 /// @param replayGuard Per-session message-ID guard.
 /// @param violations Per-connection protocol-violation tracker.
 /// @param rateLimiter Per-connection inbound rate limiter.
@@ -51,6 +57,10 @@ struct SubscriptionState {
 ///     revisions belong to; a connection with no active context reads the existing unavailable shape.
 /// @param subscriptionState Per-connection subscription bookkeeping driving the context-change
 ///     resync mechanism.
+/// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine, for
+///     the three pairing message types.
+/// @param trustStore Persistent trust store, for `pairing_ack`'s idempotent-retry check and commit.
+/// @param pairingNotificationSink Displays a freshly generated pairing code to the user.
 /// @param bridgeInstanceId This bridge process's identity, stamped onto every response this call
 ///     produces, including an early connection-hygiene rejection. The authenticated client
 ///     identity is never stamped on any response here: once a session exists, it is owned state
@@ -63,7 +73,9 @@ struct SubscriptionState {
     ConnectionId connection, SessionManager& sessionManager, ReplayGuard& replayGuard,
     security::ViolationTracker& violations, security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker, const ActivePlayContext& activePlayContext,
-    SubscriptionState& subscriptionState, const std::optional<std::string>& bridgeInstanceId,
-    std::chrono::steady_clock::time_point steadyNow, std::chrono::system_clock::time_point wallNow);
+    SubscriptionState& subscriptionState, security::PairingSession& pairingSession,
+    security::TrustStore& trustStore, PairingNotificationSink& pairingNotificationSink,
+    const std::optional<std::string>& bridgeInstanceId, std::chrono::steady_clock::time_point steadyNow,
+    std::chrono::system_clock::time_point wallNow);
 
 }  // namespace dovahlink::application

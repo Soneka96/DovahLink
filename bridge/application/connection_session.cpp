@@ -28,6 +28,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
                           security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
                           security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
                           ConnectionId connection, const ActivePlayContext& activePlayContext,
+                          security::PairingSession& pairingSession, PairingNotificationSink& pairingNotificationSink,
                           const std::optional<std::string>& bridgeInstanceId, const std::string& bridgeVersion,
                           SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
@@ -116,8 +117,8 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
         auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager,
                                              replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                             subscriptionState, bridgeInstanceId, steadyNow(),
-                                             std::chrono::system_clock::now());
+                                             subscriptionState, pairingSession, trustStore, pairingNotificationSink,
+                                             bridgeInstanceId, steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

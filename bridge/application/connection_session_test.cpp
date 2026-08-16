@@ -19,16 +19,20 @@
 
 #include <chrono>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 using dovahlink::application::ActivePlayContext;
+using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
@@ -58,6 +62,20 @@ public:
 
     /// Always succeeds without recording anything.
     bool Save(const TrustStoreSnapshot&) override { return true; }
+};
+
+/// `PairingNotificationSink` double that records every code it is given. These tests only need a
+/// working sink to satisfy `RunConnectionSession`'s signature -- pairing behavior itself is
+/// exercised in message_dispatcher_test.cpp and pairing_handler_test.cpp.
+class RecordingPairingNotificationSink : public PairingNotificationSink {
+public:
+    /// Appends `sixDigitCode` to `codes`.
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        codes.emplace_back(sixDigitCode);
+    }
+
+    /// Every code this sink has been given, in order.
+    std::vector<std::string> codes;
 };
 
 /// Reads and decodes one protocol envelope from the test WebSocket.
@@ -126,6 +144,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
     FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
@@ -154,7 +174,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -215,6 +235,8 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
     FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
@@ -227,7 +249,7 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             bridgeInstanceId, kBridgeVersion);
+                             pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -321,6 +343,8 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
     FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     activePlayContext.Begin("context-1");
@@ -334,7 +358,7 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             bridgeInstanceId, kBridgeVersion);
+                             pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -392,6 +416,8 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // connections below, matching how BridgeWorkerPool actually owns them at
     // pool lifetime rather than per-connection.
     SessionManager sessionManager;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(5);
@@ -406,7 +432,7 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, firstTokenStore, firstTokenThrottle, firstTrustStore, firstCredentialThrottle, sessionManager, /*connection=*/1,
-                             activePlayContext, bridgeInstanceId, kBridgeVersion);
+                             activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket firstClientSocket(ioc);
@@ -468,7 +494,7 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, secondTokenStore, secondTokenThrottle, secondTrustStore, secondCredentialThrottle, sessionManager, /*connection=*/2,
-                             activePlayContext, bridgeInstanceId, kBridgeVersion);
+                             activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket secondClientSocket(ioc);
@@ -531,6 +557,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
     FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -551,7 +579,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -603,6 +631,8 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
     FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
 
@@ -614,7 +644,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
         }
         WebSocketSession session(std::move(serverSocket));
         RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
