@@ -60,6 +60,26 @@ Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "m
     };
 }
 
+/// Builds a hello envelope using the bootstrap `unpaired` auth method (no `auth.token` field --
+/// `HandleHello` does not yet implement this path; see the `presentedBytes` comment in
+/// handshake_handler.cpp).
+Envelope BuildUnpairedHelloEnvelope(std::string messageId = "message-hello-1") {
+    boost::json::object payload;
+    payload["endpoint"] = "client";
+    payload["clientId"] = "client-1";
+    boost::json::object auth;
+    auth["method"] = "unpaired";
+    payload["auth"] = auth;
+
+    return Envelope{
+        .messageType = "hello",
+        .messageId = std::move(messageId),
+        .sessionId = std::nullopt,
+        .correlationId = std::nullopt,
+        .payload = payload,
+    };
+}
+
 }  // namespace
 
 TEST_CASE("HandleHello accepts a valid token and hello", "[application][handshake_handler]") {
@@ -272,6 +292,27 @@ TEST_CASE("HandleHello rejects a non-hex presented token the same way as a wrong
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "unauthenticated");
+    CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("HandleHello rejects an unpaired hello rather than crashing on the absent authToken",
+          "[application][handshake_handler]") {
+    // HandleHello does not yet implement the unpaired auth path (a later step); this proves the
+    // now-optional authToken is handled safely in the meantime, not dereferenced blindly.
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildUnpairedHelloEnvelope();
+    auto result = HandleHello(hello, tokenStore, throttle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+    CHECK_FALSE(sessions.IsValidForConnection("", 1));
     CHECK(tokenStore.IsAvailable());
 }
 

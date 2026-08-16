@@ -1,0 +1,15 @@
+{
+  "messageType": "pairing_outcome",
+  "messageId": "message-pairing-outcome-5",
+  "sessionId": "session-1",
+  "correlationId": "message-pairing-confirm-1",
+  "payload": {
+    "outcome": "invalid",
+    "credential": null,
+    "shortId": null,
+    "displayName": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

@@ -4,8 +4,11 @@
 #include "security/csprng.hpp"
 #include "security/hex.hpp"
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 // Design notes on decisions not spelled out verbatim in
 // protocol/schema/README.md or ai/context/protocol/security.md:
@@ -84,8 +87,13 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     // match the stored token; treat it as an immediate failed attempt
     // without a TryReserve call, matching this codebase's existing
     // accepted precedent for Phase 1's timing-side-channel posture (see
-    // token_store.cpp's "ponytail:" comment on TryReserve).
-    auto presentedBytes = security::DecodeHex(hello->authToken);
+    // token_store.cpp's "ponytail:" comment on TryReserve). `authToken` is
+    // absent for auth.method "unpaired" (DecodeHelloPayload now accepts it),
+    // which this function does not yet admit -- treated the same as an
+    // invalid token for now; dedicated unpaired/trusted_device_credential
+    // branches are a later step.
+    auto presentedBytes =
+        hello->authToken.has_value() ? security::DecodeHex(*hello->authToken) : std::optional<std::vector<std::uint8_t>>{};
     auto tokenReservation = presentedBytes.has_value()
                                 ? tokenStore.TryReserve(*presentedBytes)
                                 : std::optional<security::TokenStore::Reservation>{};
