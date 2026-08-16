@@ -74,6 +74,10 @@ public class PairingScenarioTests
         Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
         Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
         Assert.Equal("paired", reconnectHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        // Reconnect semantics (security.md's "Session and replay protection"): a credentialed
+        // reconnect always gets a fresh server-issued sessionId, never the pre-pairing one.
+        Assert.NotNull(reconnectHelloAck.SessionId);
+        Assert.NotEqual(sessionId, reconnectHelloAck.SessionId);
 
         await BridgeScenario.CloseAndQuitAsync(harness, reconnect);
     }
