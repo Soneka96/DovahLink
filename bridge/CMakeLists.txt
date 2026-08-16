@@ -31,6 +31,7 @@ add_library(dovahlink_bridge_core STATIC
     application/game_lifecycle_tracker.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
+    application/pairing_handler.cpp
     application/play_context.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
@@ -116,6 +117,7 @@ add_executable(dovahlink_bridge_tests
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
+    application/pairing_handler_test.cpp
     application/pairing_notification_sink_test.cpp
     application/play_context_test.cpp
     application/reconnect_reset_test.cpp

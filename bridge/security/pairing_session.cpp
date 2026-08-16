@@ -33,22 +33,29 @@ std::optional<std::string> PairingSession::TryStartChallenge() {
     return code;
 }
 
-bool PairingSession::TryConfirmCode(const std::string& presentedCode, std::chrono::steady_clock::time_point now,
-                                     std::string clientId, std::vector<std::uint8_t> credential,
-                                     std::optional<std::string> displayName) {
+PairingSession::ConfirmResult PairingSession::TryConfirmCode(const std::string& presentedCode,
+                                                              std::chrono::steady_clock::time_point now,
+                                                              std::string clientId,
+                                                              std::vector<std::uint8_t> credential,
+                                                              std::optional<std::string> displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (codeAttemptThrottle_.IsBlocked(now)) {
-        return false;
+        return ConfirmResult::kRateLimited;
     }
     if (!activeChallenge_.has_value()) {
-        return false;
+        return ConfirmResult::kInvalid;
+    }
+    // Checked ahead of TryReserve (which would itself fail identically either way) so a caller
+    // can be told "expired" instead of the less useful "invalid".
+    if (!activeChallenge_->IsAvailable()) {
+        return ConfirmResult::kExpired;
     }
 
     std::vector<std::uint8_t> presentedBytes(presentedCode.begin(), presentedCode.end());
     auto reservation = activeChallenge_->TryReserve(presentedBytes);
     if (!reservation.has_value()) {
         codeAttemptThrottle_.RecordFailure(now);
-        return false;
+        return ConfirmResult::kInvalid;
     }
 
     reservation->Commit();
@@ -58,7 +65,7 @@ bool PairingSession::TryConfirmCode(const std::string& presentedCode, std::chron
         .credential = std::move(credential),
         .displayName = std::move(displayName),
     };
-    return true;
+    return ConfirmResult::kConfirmed;
 }
 
 std::optional<PendingCredential> PairingSession::TryFinalize(const std::string& clientId,

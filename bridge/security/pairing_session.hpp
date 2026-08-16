@@ -55,20 +55,36 @@ public:
     ///     display a second code) or the code generator itself fails.
     [[nodiscard]] std::optional<std::string> TryStartChallenge();
 
+    /// Outcome of `TryConfirmCode`. `kExpired` and `kInvalid` are reported separately (unlike
+    /// `TokenStore`'s deliberately undifferentiated hello-token failures) because knowing which one
+    /// happened is genuine UX information for a human re-entering a code ("get a new code" vs.
+    /// "check what you typed"), not a security-relevant distinction: neither case reveals anything
+    /// that helps guess the code faster.
+    enum class ConfirmResult {
+        /// The code matched; a credential is now pending finalization.
+        kConfirmed,
+        /// `codeAttemptThrottle_` currently blocks attempts.
+        kRateLimited,
+        /// A challenge existed but is no longer available (its code expired, or was already
+        /// consumed by an earlier successful attempt).
+        kExpired,
+        /// No challenge was ever active, or the presented code did not match the active one.
+        kInvalid,
+    };
+
     /// Validates `presentedCode` against the active challenge (constant-time, single-use,
-    /// expiry-checked, attempt-limited against a throttle owned by and scoped to this session).
-    /// On a match, transitions `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`, holding `clientId`,
-    /// `credential`, and `displayName` for a later `TryFinalize`.
+    /// attempt-limited against a throttle owned by and scoped to this session). On a match,
+    /// transitions `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`, holding `clientId`, `credential`, and
+    /// `displayName` for a later `TryFinalize`.
     /// @param presentedCode The code the client submitted.
     /// @param now Current monotonic time, used only for attempt-limit accounting.
     /// @param clientId The pairing client's identity, to hold pending.
     /// @param credential The credential the caller generated for this attempt, to hold pending.
     /// @param displayName The client-supplied optional label, to hold pending.
-    /// @return Whether the code was valid. `false` for an invalid, expired, already-consumed, or
-    ///     throttled code, or when no challenge is active.
-    [[nodiscard]] bool TryConfirmCode(const std::string& presentedCode, std::chrono::steady_clock::time_point now,
-                                       std::string clientId, std::vector<std::uint8_t> credential,
-                                       std::optional<std::string> displayName);
+    [[nodiscard]] ConfirmResult TryConfirmCode(const std::string& presentedCode,
+                                                std::chrono::steady_clock::time_point now, std::string clientId,
+                                                std::vector<std::uint8_t> credential,
+                                                std::optional<std::string> displayName);
 
     /// Matches `clientId` and `credential` against the pending credential. On a match, transitions
     /// `PENDING_CREDENTIAL -> NONE` and returns it, ready for `TrustStore::Persist`. A mismatch

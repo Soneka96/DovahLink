@@ -11,6 +11,7 @@
 
 using dovahlink::security::PairingSession;
 using dovahlink::security::PendingCredential;
+using ConfirmResult = dovahlink::security::PairingSession::ConfirmResult;
 
 namespace {
 
@@ -48,7 +49,7 @@ TEST_CASE("full pairing lifecycle: start, confirm, finalize returns to NONE",
     CHECK(*code == "123456");
 
     REQUIRE(session.TryConfirmCode("123456", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::string("My PC")));
+                                    std::string("My PC")) == ConfirmResult::kConfirmed);
 
     auto finalized = session.TryFinalize("client-1", MakeCredential(1));
     REQUIRE(finalized.has_value());
@@ -70,7 +71,7 @@ TEST_CASE("a second TryStartChallenge while CHALLENGE_ACTIVE does not replace th
 
     // The original code still works -- it was not replaced or cleared.
     CHECK(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                  std::nullopt));
+                                  std::nullopt) == ConfirmResult::kConfirmed);
 }
 
 TEST_CASE("TryStartChallenge fails while a credential is pending finalization",
@@ -78,16 +79,16 @@ TEST_CASE("TryStartChallenge fails while a credential is pending finalization",
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::nullopt));
+                                    std::nullopt) == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.TryStartChallenge().has_value());
 }
 
-TEST_CASE("TryConfirmCode fails with no active challenge", "[security][pairing_session]") {
+TEST_CASE("TryConfirmCode reports kInvalid with no active challenge", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
 
-    CHECK_FALSE(
-        session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1), std::nullopt));
+    CHECK(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                  std::nullopt) == ConfirmResult::kInvalid);
 }
 
 TEST_CASE("a wrong code does not consume the real one, which still succeeds afterward",
@@ -95,42 +96,47 @@ TEST_CASE("a wrong code does not consume the real one, which still succeeds afte
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
 
-    CHECK_FALSE(session.TryConfirmCode("000000", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                        std::nullopt));
+    CHECK(session.TryConfirmCode("000000", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                  std::nullopt) == ConfirmResult::kInvalid);
     CHECK(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                  std::nullopt));
+                                  std::nullopt) == ConfirmResult::kConfirmed);
 }
 
 TEST_CASE("a code cannot be confirmed twice", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::nullopt));
+                                    std::nullopt) == ConfirmResult::kConfirmed);
 
-    CHECK_FALSE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                        std::nullopt));
+    // The challenge was consumed and cleared -- a second attempt finds no active challenge at
+    // all, distinct from a code that exists but expired.
+    CHECK(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                  std::nullopt) == ConfirmResult::kInvalid);
 }
 
-TEST_CASE("TryConfirmCode fails once the code has expired", "[security][pairing_session]") {
+TEST_CASE("TryConfirmCode reports kExpired for an expired code, distinct from kInvalid",
+          "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
     REQUIRE(session.TryStartChallenge().has_value());
 
-    CHECK_FALSE(
-        session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1), std::nullopt));
+    CHECK(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                  std::nullopt) == ConfirmResult::kExpired);
 }
 
-TEST_CASE("repeated wrong codes block further attempts", "[security][pairing_session]") {
+TEST_CASE("repeated wrong codes block further attempts with kRateLimited", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
 
     auto now = std::chrono::steady_clock::now();
     constexpr int kMaxFailedAttempts = 5;
     for (int i = 0; i < kMaxFailedAttempts; ++i) {
-        CHECK_FALSE(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt));
+        CHECK(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt) ==
+              ConfirmResult::kInvalid);
     }
 
     // Blocked now, even with the actually-correct code.
-    CHECK_FALSE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt));
+    CHECK(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt) ==
+          ConfirmResult::kRateLimited);
 }
 
 TEST_CASE("attempts succeed again once the throttle window has passed",
@@ -141,20 +147,23 @@ TEST_CASE("attempts succeed again once the throttle window has passed",
     auto now = std::chrono::steady_clock::now();
     constexpr int kMaxFailedAttempts = 5;
     for (int i = 0; i < kMaxFailedAttempts; ++i) {
-        CHECK_FALSE(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt));
+        CHECK(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt) ==
+              ConfirmResult::kInvalid);
     }
-    REQUIRE_FALSE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt));
+    REQUIRE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt) ==
+            ConfirmResult::kRateLimited);
 
     auto later = now + std::chrono::seconds(61);
-    CHECK(session.TryConfirmCode("111111", later, "client-1", MakeCredential(1), std::nullopt));
+    CHECK(session.TryConfirmCode("111111", later, "client-1", MakeCredential(1), std::nullopt) ==
+          ConfirmResult::kConfirmed);
 }
 
 TEST_CASE("TryStartChallenge issues a fresh code once the previous one expired",
           "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
     REQUIRE(session.TryStartChallenge().has_value());
-    REQUIRE_FALSE(
-        session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1), std::nullopt));
+    REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                    std::nullopt) == ConfirmResult::kExpired);
 
     auto retriedCode = session.TryStartChallenge();
 
@@ -184,7 +193,7 @@ TEST_CASE("TryFinalize fails and leaves the pending credential intact for the wr
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::nullopt));
+                                    std::nullopt) == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.TryFinalize("client-2", MakeCredential(1)).has_value());
     // The correct clientId+credential still finalizes afterward.
@@ -196,7 +205,7 @@ TEST_CASE("TryFinalize fails and leaves the pending credential intact for the wr
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::nullopt));
+                                    std::nullopt) == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.TryFinalize("client-1", MakeCredential(9)).has_value());
     CHECK(session.TryFinalize("client-1", MakeCredential(1)).has_value());
@@ -206,7 +215,7 @@ TEST_CASE("TryFinalize consumes the pending credential exactly once", "[security
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().has_value());
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
-                                    std::nullopt));
+                                    std::nullopt) == ConfirmResult::kConfirmed);
     REQUIRE(session.TryFinalize("client-1", MakeCredential(1)).has_value());
 
     CHECK_FALSE(session.TryFinalize("client-1", MakeCredential(1)).has_value());
