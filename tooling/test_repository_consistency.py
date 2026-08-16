@@ -1146,6 +1146,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
 
+    def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(self) -> None:
+        """Guard the AGENTS.md/common.md pointers added for ai/context/dart/ and ai/context/sdk/."""
+        agents = self._read("AGENTS.md")
+        common = self._read("ai/context/common.md")
+
+        self.assertIn(
+            "- `ai/context/dart/` — shared Dart-language conventions; read for any Dart work, "
+            "Flutter client or SDK",
+            agents,
+        )
+        self.assertIn(
+            "- `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work", agents
+        )
+        self.assertIn(
+            "SDK conventions in `ai/context/sdk/` are locally originated for DovahLink, not "
+            "copied from Price check; do not treat Price check as their external source.",
+            agents,
+        )
+
+        self.assertIn(
+            "`sdk/` is reserved for reusable, supported client SDK implementations; see "
+            "`sdk/README.md`.",
+            common,
+        )
+        self.assertIn(
+            "Shared Dart-language conventions are the complete set in "
+            "`ai/context/dart/dart-style.md`; Flutter\n  conventions are the complete set in",
+            common,
+        )
+        self.assertIn(
+            "`ai/context/flutter/architecture.md`, `dart-style.md`,\n  `testing.md`, and "
+            "`error-handling.md`; SDK conventions are the complete set in",
+            common,
+        )
+        self.assertIn(
+            "SDK conventions are the complete set in\n  `ai/context/sdk/architecture.md`, "
+            "`api-design.md`, `persistence.md`, and `testing.md`.",
+            common,
+        )
+        self.assertIn("do not duplicate a rule across more than one of them.", common)
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
