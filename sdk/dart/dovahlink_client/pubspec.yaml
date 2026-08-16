@@ -11,8 +11,10 @@ environment:
 
 dependencies:
   async: ^2.13.1
+  ffi: ^2.1.4
   json_annotation: ^4.12.0
   meta: ^1.18.0
+  win32: ^5.14.0
 
 dev_dependencies:
   test: ^1.25.0
