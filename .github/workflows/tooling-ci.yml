@@ -12,10 +12,12 @@ on:
       - "CONTRIBUTING.md"
       - ".github/workflows/**"
       - ".vscode/**"
+      - "ai/context/**"
       - "app/**"
       - "bridge/**"
       - "integration/**"
       - "protocol/**"
+      - "sdk/**"
       - "tooling/**"
   pull_request:
     paths:
@@ -27,10 +29,12 @@ on:
       - "CONTRIBUTING.md"
       - ".github/workflows/**"
       - ".vscode/**"
+      - "ai/context/**"
       - "app/**"
       - "bridge/**"
       - "integration/**"
       - "protocol/**"
+      - "sdk/**"
       - "tooling/**"
   workflow_dispatch:
 

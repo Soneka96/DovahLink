@@ -365,10 +365,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "CONTRIBUTING.md"',
             '- ".github/workflows/**"',
             '- ".vscode/**"',
+            '- "ai/context/**"',
             '- "app/**"',
             '- "bridge/**"',
             '- "integration/**"',
             '- "protocol/**"',
+            '- "sdk/**"',
             '- "tooling/**"',
         }
 
