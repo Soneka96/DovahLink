@@ -1034,6 +1034,56 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for stray_path in ("lib", ".dart_tool"):
             self.assertFalse((REPOSITORY_ROOT / "sdk" / stray_path).exists())
 
+    def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
+        """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""
+        dart_style = self._read("ai/context/dart/dart-style.md")
+        flutter_dart_style = self._read("ai/context/flutter/dart-style.md")
+
+        for required_phrase in (
+            "Shared Dart-language conventions that apply to every Dart package in this "
+            "repository",
+            "Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type.",
+            "Use the null assertion operator (`!`) only when an immediately visible check or "
+            "constructor",
+            "Use Dart doc links such as `[SymbolName]` when referring to another documented "
+            "symbol",
+            "Missing implementation uses `// TODO: ...` immediately above the declaration.",
+            "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
+            "Use lowercase_with_underscores for packages, directories, source files, and import "
+            "prefixes.",
+            "Use `dart format`, trailing commas, braces for flow control, and single quotes.",
+            "Never prefix methods with `get`; use a getter or a descriptive verb.",
+        ):
+            self.assertIn(required_phrase, dart_style)
+
+        self.assertIn(
+            "Shared Dart-language conventions (type safety, naming case, formatting, async, "
+            "dartdoc mechanics)\nlive in [`ai/context/dart/dart-style.md`](../dart/dart-style.md)",
+            flutter_dart_style,
+        )
+        self.assertIn(
+            "follow `ai/context/dart/dart-style.md`'s baseline naming rules", flutter_dart_style
+        )
+        # The moved sections and their content must not be duplicated in the Flutter-only file.
+        for retired_phrase in (
+            "## Type safety",
+            "## Baseline Dart rules",
+            "Do not use `dynamic` or `any`-style escape hatches",
+            "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
+            "Use lowercase_with_underscores for packages, directories, source files",
+            "Use `dart format`, trailing commas, braces for flow control, and single quotes.",
+            "[CharacterStateEntity]",
+            "Missing implementation uses `// TODO:",
+            "Dart defaults: `snake_case.dart` filenames, `UpperCamelCase` types",
+        ):
+            self.assertNotIn(retired_phrase, flutter_dart_style)
+        # Flutter-architecture-specific documentation rules stay behind.
+        self.assertIn(
+            "Describe dependencies in the architectural direction: Model to Entity, UseCase to "
+            "repository",
+            flutter_dart_style,
+        )
+
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
