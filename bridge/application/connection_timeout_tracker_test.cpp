@@ -115,6 +115,81 @@ TEST_CASE("RecordActivity resets the deadline correctly across repeated calls",
     CHECK(tracker.IsTimedOut(t0 + std::chrono::seconds(120)));
 }
 
+TEST_CASE("Deadline reports the handshake deadline before authentication",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+
+    CHECK(tracker.Deadline() == t0 + std::chrono::seconds(5));
+}
+
+TEST_CASE("Deadline reflects the idle deadline after MarkAuthenticated",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+
+    tracker.MarkAuthenticated(t0 + std::chrono::seconds(2));
+
+    CHECK(tracker.Deadline() == t0 + std::chrono::seconds(2) + std::chrono::seconds(60));
+}
+
+TEST_CASE("Deadline reflects the most recent RecordActivity call",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+    tracker.MarkAuthenticated(t0);
+
+    tracker.RecordActivity(t0 + std::chrono::seconds(30));
+
+    CHECK(tracker.Deadline() == t0 + std::chrono::seconds(30) + std::chrono::seconds(60));
+}
+
+TEST_CASE("IsTimedOut(Deadline()) is always true, matching the inclusive '>=' boundary",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+    CHECK(tracker.IsTimedOut(tracker.Deadline()));
+
+    tracker.MarkAuthenticated(t0);
+    CHECK(tracker.IsTimedOut(tracker.Deadline()));
+}
+
+TEST_CASE("Deadline stays at the stale handshake deadline when MarkAuthenticated arrives too late",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+    auto handshakeDeadline = tracker.Deadline();
+
+    tracker.MarkAuthenticated(t0 + std::chrono::seconds(5));
+
+    // MarkAuthenticated is a no-op past the handshake deadline (already-tested IsTimedOut
+    // behavior); Deadline() itself must reflect that no-op too, not just IsTimedOut's answer.
+    CHECK(tracker.Deadline() == handshakeDeadline);
+}
+
+TEST_CASE("Deadline stays at the stale idle deadline when RecordActivity arrives too late",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+    tracker.MarkAuthenticated(t0);
+    auto idleDeadline = tracker.Deadline();
+
+    tracker.RecordActivity(t0 + std::chrono::seconds(60));
+
+    CHECK(tracker.Deadline() == idleDeadline);
+}
+
+TEST_CASE("Deadline is unaffected by RecordActivity called before authentication",
+          "[application][connection_timeout_tracker]") {
+    Clock::time_point t0 = Clock::now();
+    ConnectionTimeoutTracker tracker(t0);
+    auto handshakeDeadline = tracker.Deadline();
+
+    tracker.RecordActivity(t0 + std::chrono::seconds(1));
+
+    CHECK(tracker.Deadline() == handshakeDeadline);
+}
+
 TEST_CASE("MarkAuthenticated is idempotent and does not push the idle deadline back further",
           "[application][connection_timeout_tracker]") {
     Clock::time_point t0 = Clock::now();
@@ -126,4 +201,5 @@ TEST_CASE("MarkAuthenticated is idempotent and does not push the idle deadline b
     // If the second call had reset the deadline, this would still be alive (t0+50+60=t0+110s).
     // Since it is a no-op, the original t0+61s deadline governs.
     CHECK(tracker.IsTimedOut(t0 + std::chrono::seconds(61)));
+    CHECK(tracker.Deadline() == t0 + std::chrono::seconds(61));
 }
