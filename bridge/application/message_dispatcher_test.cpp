@@ -831,6 +831,48 @@ TEST_CASE("ProcessInboundMessage closes with no response once the connection's t
     CHECK(fixture.replayGuard.Count() == 0);
 }
 
+TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed and replayed "
+          "messages: neither counts as activity",
+          "[application][message_dispatcher]") {
+    // Distinct from the two tests above: this proves WHY the idle deadline needs its own
+    // application-level tracking at all, not just a transport-level "was there any I/O" timer. A
+    // client spamming malformed or replayed traffic keeps a raw I/O-activity timer perpetually
+    // reset without ever doing anything genuine; RecordActivity's placement after the replay/rate/
+    // allowlist checks in ProcessInboundMessage (not before) is what stops that from working here.
+    Fixture fixture;
+    auto start = SteadyClock::now();
+    fixture.timeout = ConnectionTimeoutTracker(start);
+    fixture.timeout.MarkAuthenticated(start);
+
+    // The only genuinely accepted message in this whole test: sets the idle deadline to
+    // start+20s+60s = start+80s.
+    auto ping = fixture.Process(PingMessage("message-ping-1"), start + std::chrono::seconds(20));
+    REQUIRE_FALSE(ping.closeConnection);
+    REQUIRE(ping.responses.size() == 1);
+    CHECK(ping.responses[0].messageType == "pong");
+
+    // A replay of that same message: rejected before RecordActivity ever runs.
+    auto replayed = fixture.Process(PingMessage("message-ping-1"), start + std::chrono::seconds(30));
+    CHECK_FALSE(replayed.closeConnection);
+    auto replayedError = dovahlink::protocol::DecodeErrorPayload(replayed.responses[0].payload);
+    REQUIRE(replayedError.has_value());
+    CHECK(replayedError->code == "replayed_message");
+
+    // Malformed JSON: rejected even earlier, before envelope decoding.
+    auto malformed = fixture.Process("not json at all {{{", start + std::chrono::seconds(70));
+    CHECK_FALSE(malformed.closeConnection);
+    auto malformedError = dovahlink::protocol::DecodeErrorPayload(malformed.responses[0].payload);
+    REQUIRE(malformedError.has_value());
+    CHECK(malformedError->code == "malformed_message");
+
+    // start+81s is past start+80s -- the deadline set by the one genuinely accepted message above,
+    // unmoved by the replayed or malformed traffic in between -- even though an otherwise-valid
+    // ping arrives here.
+    auto finalPing = fixture.Process(PingMessage("message-ping-2"), start + std::chrono::seconds(81));
+    CHECK(finalPing.closeConnection);
+    CHECK(finalPing.responses.empty());
+}
+
 TEST_CASE("ProcessInboundMessage still processes an otherwise-valid message just before the "
           "timeout deadline",
           "[application][message_dispatcher]") {
