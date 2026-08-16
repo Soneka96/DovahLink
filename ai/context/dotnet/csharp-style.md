@@ -30,6 +30,19 @@ Follow the shared documentation rules in `ai/context/common.md`.
 - Use ordinary `//` comments inside a method for implementation reasoning. Do not mix `//` comments
   into an XML documentation block.
 
+## Test fixtures
+
+- Build representative test values through a static `Build<Type>` method with C# optional
+  parameters defaulting to one representative value per parameter; a test that wants the default
+  calls it with no arguments, and a test that needs one field different overrides only that
+  parameter (`BuildPairingHandshake(trusted: false)`).
+- Do not export a fixture as a bare `static readonly`/`const` field: a constant cannot be varied per
+  test case without either duplicating the whole value under a second name or mutating a shared
+  instance, and the builder's own job is to make that variation cheap.
+- Group builders in a `Fixtures` class per test project, mirroring this file's `Enums.cs`/
+  `Constants.cs` grouping exception above: organized by area with a `// ---- <Area> ----` banner per
+  group, rather than scattering ad-hoc test-data construction across individual test files.
+
 ## Process execution
 
 - When invoking a script through `cmd.exe`, do not rely on the working directory for command
