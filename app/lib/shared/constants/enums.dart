@@ -45,3 +45,45 @@ enum ConnectionPhase {
     ConnectionPhase.incompatible => 'Incompatible',
   };
 }
+
+/// Describes the current lifecycle of the local device pairing flow.
+enum PairingPhase {
+  /// Sentinel value indicating that no phase was selected.
+  none,
+
+  /// The client is opening a transport connection and authenticating.
+  connecting,
+
+  /// The session authenticated without a trusted credential; pairing has not
+  /// been requested yet.
+  unpaired,
+
+  /// The client is asking the bridge to start or query a pairing challenge.
+  requestingCode,
+
+  /// A pairing challenge is active; the user may enter the code shown in
+  /// Skyrim.
+  awaitingCode,
+
+  /// The client is submitting the entered code and completing the trust
+  /// handshake.
+  confirming,
+
+  /// The client holds a trusted credential for this bridge.
+  trusted,
+
+  /// The most recent pairing attempt failed with a user-safe error message.
+  failed;
+
+  /// Returns the concise user-visible label for this phase.
+  String get label => switch (this) {
+    PairingPhase.none => 'Unknown',
+    PairingPhase.connecting => 'Connecting',
+    PairingPhase.unpaired => 'Not paired',
+    PairingPhase.requestingCode => 'Requesting code',
+    PairingPhase.awaitingCode => 'Awaiting code',
+    PairingPhase.confirming => 'Confirming',
+    PairingPhase.trusted => 'Paired',
+    PairingPhase.failed => 'Failed',
+  };
+}

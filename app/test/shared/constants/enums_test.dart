@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
-/// Exercises stable labels for every connection phase.
+/// Exercises stable labels for every connection and pairing phase.
 void main() {
   group('ConnectionPhase label', () {
     test('returns the concise label for every phase', () {
@@ -15,6 +15,19 @@ void main() {
       expect(ConnectionPhase.recovering.label, 'Recovering');
       expect(ConnectionPhase.unavailable.label, 'Unavailable');
       expect(ConnectionPhase.incompatible.label, 'Incompatible');
+    });
+  });
+
+  group('PairingPhase label', () {
+    test('returns the concise label for every phase', () {
+      expect(PairingPhase.none.label, 'Unknown');
+      expect(PairingPhase.connecting.label, 'Connecting');
+      expect(PairingPhase.unpaired.label, 'Not paired');
+      expect(PairingPhase.requestingCode.label, 'Requesting code');
+      expect(PairingPhase.awaitingCode.label, 'Awaiting code');
+      expect(PairingPhase.confirming.label, 'Confirming');
+      expect(PairingPhase.trusted.label, 'Paired');
+      expect(PairingPhase.failed.label, 'Failed');
     });
   });
 }

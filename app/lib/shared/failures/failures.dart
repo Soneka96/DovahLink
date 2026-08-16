@@ -30,3 +30,11 @@ class DatabaseFailure extends Failure {
   /// Creates a database failure.
   const DatabaseFailure(super.message);
 }
+
+/// Indicates that the bridge rejected a pairing attempt (an expired,
+/// invalid, or rate-limited code), as distinct from a transport-level
+/// [NetworkFailure].
+class PairingFailure extends Failure {
+  /// Creates a pairing failure.
+  const PairingFailure(super.message);
+}
