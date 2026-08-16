@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connection_status_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
 void main() {
   group('injection_container — shared registrations', () {
@@ -10,5 +12,34 @@ void main() {
 
       expect(sl.isRegistered<ConnectionStatusScreenViewModel>(), isTrue);
     });
+
+    test('initDependencies registers the router', () {
+      initDependencies();
+
+      expect(sl.isRegistered<GoRouter>(), isTrue);
+    });
+
+    test('initDependencies registers the navigator service', () {
+      initDependencies();
+
+      expect(sl.isRegistered<NavigatorService>(), isTrue);
+    });
+
+    test('the registered GoRouter is a true singleton', () {
+      initDependencies();
+
+      expect(identical(sl<GoRouter>(), sl<GoRouter>()), isTrue);
+    });
+
+    test(
+      'calling initDependencies twice does not throw or re-register',
+      () {
+        initDependencies();
+
+        expect(initDependencies, returnsNormally);
+        expect(sl.isRegistered<GoRouter>(), isTrue);
+        expect(sl.isRegistered<NavigatorService>(), isTrue);
+      },
+    );
   });
 }
