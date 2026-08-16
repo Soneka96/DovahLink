@@ -363,6 +363,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "ARCHITECTURE.md"',
             '- "ROADMAP.md"',
             '- "CONTRIBUTING.md"',
+            '- "CHANGELOG.md"',
             '- ".github/workflows/**"',
             '- ".vscode/**"',
             '- "ai/context/**"',
