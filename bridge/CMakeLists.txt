@@ -50,6 +50,7 @@ add_library(dovahlink_bridge_core STATIC
     security/token_provider.cpp
     security/token_store.cpp
     security/trust_store.cpp
+    security/windows_trust_store_persistence.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
     transport/websocket_session.cpp
@@ -135,6 +136,7 @@ add_executable(dovahlink_bridge_tests
     security/token_provider_test.cpp
     security/token_store_test.cpp
     security/trust_store_test.cpp
+    security/windows_trust_store_persistence_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
     protocol/json_field_decoders_test.cpp
