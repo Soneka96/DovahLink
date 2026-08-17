@@ -31,6 +31,9 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Makes every [send] call throw [error] instead of succeeding.
   Object? failSendWith;
 
+  /// Makes the next [close] call throw [error] instead of succeeding.
+  Object? failCloseWith;
+
   /// Queues one raw JSON response for the next unconsumed [messages] access.
   void queueResponse(String rawJson) => _queuedResponses.add(rawJson);
 
@@ -64,6 +67,10 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   @override
   Future<void> close() async {
     closeCalled = true;
+    final Object? failure = failCloseWith;
+    if (failure != null) {
+      throw failure;
+    }
   }
 }
 
@@ -174,6 +181,8 @@ void main() {
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(client.trustState, DovahLinkTrustState.unpaired);
         expect(client.sessionId, 'session-1');
+        // A successful hello must never trigger the failure-path cleanup.
+        expect(transport.closeCalled, isFalse);
 
         final JsonMap sentPayload =
             (jsonDecode(transport.sent.single) as JsonMap)['payload']
@@ -277,6 +286,65 @@ void main() {
         );
         expect(client.trustState, isNull);
         expect(client.sessionId, isNull);
+        // The bridge already closed this socket (every HandleHello failure path does); the
+        // transport must be reset so the next connect() attempt does not find a stale socket
+        // WebSocketTransport still considers open.
+        expect(transport.closeCalled, isTrue);
+      },
+    );
+
+    test(
+      'the original rejection still surfaces even when cleanup itself fails',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(
+          _rawFixture('errors/error-unauthenticated-invalid-token.json'),
+        );
+        transport.failCloseWith = const SocketException('socket already gone');
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'unauthenticated',
+            ),
+          ),
+        );
+        // Cleanup was still attempted; its own failure must not replace the real error above.
+        expect(transport.closeCalled, isTrue);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+      },
+    );
+
+    test(
+      'session state is still reset when cleanup fails after the session was already established',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        // hello_ack decodes fine and sets sessionId/trustState, but the capabilities read right
+        // after it fails -- proving the reset covers state set moments earlier in this same call,
+        // not just the "never got that far" case above.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse('not valid json');
+        transport.failCloseWith = const SocketException('socket already gone');
+
+        await expectLater(
+          client.hello(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(transport.closeCalled, isTrue);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
       },
     );
 
@@ -309,6 +377,7 @@ void main() {
         );
         expect(client.trustState, isNull);
         expect(client.sessionId, isNull);
+        expect(transport.closeCalled, isTrue);
       },
     );
 
@@ -356,6 +425,7 @@ void main() {
             ),
           ),
         );
+        expect(transport.closeCalled, isTrue);
       },
     );
 
@@ -368,6 +438,9 @@ void main() {
           client.hello(),
           throwsA(isA<DovahLinkConnectionException>()),
         );
+        // A transport-level failure leaves the socket just as unusable as a protocol rejection;
+        // the reset must cover both, not only DovahLinkProtocolException.
+        expect(transport.closeCalled, isTrue);
       },
     );
   });
@@ -822,6 +895,23 @@ void main() {
 
       await expectLater(client.disconnect(), completes);
     });
+
+    test(
+      'resets in-memory session state and does not throw even when closing the transport fails',
+      () async {
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+        await client.hello();
+        transport.failCloseWith = const SocketException('socket already gone');
+
+        await expectLater(client.disconnect(), completes);
+
+        expect(transport.closeCalled, isTrue);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+      },
+    );
 
     test('leaves persisted state untouched', () async {
       await storage.save(

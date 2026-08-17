@@ -102,27 +102,37 @@ class DovahLinkClient {
       authMethod: credential == null ? 'unpaired' : 'trusted_device_credential',
       authToken: credential,
     );
-    final Envelope response = await _sendAndAwait(
-      messageType: 'hello',
-      payload: payload.toJson(),
-      expectedType: 'hello_ack',
-    );
-    final HelloAckPayload ack = HelloAckPayload.fromJson(response.payload);
-    final DovahLinkTrustState trustState = _parseClientIdentityKind(
-      ack.clientIdentityKind,
-    );
+    try {
+      final Envelope response = await _sendAndAwait(
+        messageType: 'hello',
+        payload: payload.toJson(),
+        expectedType: 'hello_ack',
+      );
+      final HelloAckPayload ack = HelloAckPayload.fromJson(response.payload);
+      final DovahLinkTrustState trustState = _parseClientIdentityKind(
+        ack.clientIdentityKind,
+      );
 
-    _sessionId = response.sessionId;
-    _trustState = trustState;
+      _sessionId = response.sessionId;
+      _trustState = trustState;
 
-    // The bridge always sends an unprompted `capabilities` message right after `hello_ack`;
-    // consumed and discarded here -- exposing it is out of this client's current scope.
-    await _readEnvelope(expectedType: 'capabilities');
+      // The bridge always sends an unprompted `capabilities` message right after `hello_ack`;
+      // consumed and discarded here -- exposing it is out of this client's current scope.
+      await _readEnvelope(expectedType: 'capabilities');
 
-    return HelloResult(
-      bridgeVersion: ack.bridgeVersion,
-      trustState: trustState,
-    );
+      return HelloResult(
+        bridgeVersion: ack.bridgeVersion,
+        trustState: trustState,
+      );
+    } on Object {
+      // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
+      // always sets closeConnection), and a genuine transport failure leaves the socket equally
+      // unusable either way -- reset so the next connect() attempt does not find a stale socket
+      // WebSocketTransport still considers open (its "Already connected" guard in connect()).
+      // disconnect() itself never throws, so this cannot mask the error being rethrown below.
+      await disconnect();
+      rethrow;
+    }
   }
 
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
@@ -233,13 +243,22 @@ class DovahLinkClient {
     }
   }
 
-  /// Closes the connection and resets in-memory session state. Idempotent. Persisted identity,
-  /// credential, and recovery state are untouched -- trust survives a disconnect.
+  /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
+  /// is a best-effort cleanup operation, matching [DovahLinkTransport.close]'s own "Idempotent"
+  /// contract. In-memory state resets even when the underlying transport cannot be closed
+  /// cleanly -- a broken close must not leave [connectionState]/[trustState]/[sessionId] lying
+  /// about a session that no longer exists. Persisted identity, credential, and recovery state are
+  /// untouched -- trust survives a disconnect.
   Future<void> disconnect() async {
-    await _transport.close();
     _connectionState = DovahLinkConnectionState.disconnected;
     _trustState = null;
     _sessionId = null;
+    try {
+      await _transport.close();
+    } on Object {
+      // Best-effort: in-memory state is already reset above regardless of whether the
+      // underlying transport could be closed cleanly.
+    }
   }
 
   /// Returns the persisted `clientId`, generating and persisting a fresh RFC 4122 version-4 UUID
