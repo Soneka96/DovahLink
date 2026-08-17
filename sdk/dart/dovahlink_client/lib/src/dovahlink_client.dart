@@ -58,6 +58,11 @@ class DovahLinkClient {
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
   String? _clientId;
 
+  /// The DovahLink Bridge/mod release version reported by the last successful [hello], or `null`
+  /// before [hello] succeeds. Cached so [authenticate] can report it again without re-sending
+  /// `hello` on an already-admitted session.
+  String? _bridgeVersion;
+
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState => _connectionState;
 
@@ -117,6 +122,7 @@ class DovahLinkClient {
 
       _sessionId = response.sessionId;
       _trustState = trustState;
+      _bridgeVersion = ack.bridgeVersion;
 
       // The bridge always sends an unprompted `capabilities` message right after `hello_ack`;
       // consumed and discarded here -- exposing it is out of this client's current scope.
@@ -143,10 +149,25 @@ class DovahLinkClient {
   /// thrown exception here. [HelloResult.recoveredFromRejectedCredential] reports whether that
   /// happened and why, so a caller can still explain it to the user. A transport failure, a
   /// non-recoverable protocol rejection, or the retry attempt's own failure still throws normally.
+  ///
+  /// A no-op that returns the cached result of the last [hello] when this client is already
+  /// [DovahLinkConnectionState.connected] and [DovahLinkTrustState.trusted] -- the bridge's
+  /// one-session-per-connection limit (`handshake_handler.cpp`'s `TryCreateSession`) rejects a
+  /// second `hello` on a socket that already holds a session, so re-authenticating an
+  /// already-trusted, still-open connection must not re-send one.
   /// @throws DovahLinkConnectionException if the socket cannot be established (initial or retry).
   /// @throws DovahLinkProtocolException if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
   Future<HelloResult> authenticate(Uri uri) async {
+    final String? cachedBridgeVersion = _bridgeVersion;
+    if (_connectionState == DovahLinkConnectionState.connected &&
+        _trustState == DovahLinkTrustState.trusted &&
+        cachedBridgeVersion != null) {
+      return HelloResult(
+        bridgeVersion: cachedBridgeVersion,
+        trustState: DovahLinkTrustState.trusted,
+      );
+    }
     await connect(uri);
     try {
       return await hello();

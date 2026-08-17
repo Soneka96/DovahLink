@@ -616,6 +616,101 @@ void main() {
         expect(transport.sent, isEmpty);
       },
     );
+
+    test(
+      'returns the cached result without reconnecting when already connected and trusted',
+      () async {
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-1',
+            'sessionId': 'session-1',
+            'correlationId': 'irrelevant',
+            'payload': <String, dynamic>{
+              'bridgeVersion': '0.2.0',
+              'clientIdentityKind': 'paired',
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
+        transport.queueResponse(_rawCapabilities());
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        final HelloResult first = await client.authenticate(uri);
+        expect(first.trustState, DovahLinkTrustState.trusted);
+
+        final HelloResult second = await client.authenticate(uri);
+
+        expect(second.bridgeVersion, first.bridgeVersion);
+        expect(second.trustState, DovahLinkTrustState.trusted);
+        expect(second.recoveredFromRejectedCredential, isNull);
+        expect(transport.connectCalls, hasLength(1));
+        expect(transport.sent, hasLength(1));
+      },
+    );
+
+    test(
+      'reconnects when already connected but still unpaired',
+      () async {
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        final HelloResult first = await client.authenticate(uri);
+        expect(first.trustState, DovahLinkTrustState.unpaired);
+
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+        await client.authenticate(uri);
+
+        expect(transport.connectCalls, hasLength(2));
+      },
+    );
+
+    test(
+      'reconnects after disconnect even though the client was last trusted',
+      () async {
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-1',
+            'sessionId': 'session-1',
+            'correlationId': 'irrelevant',
+            'payload': <String, dynamic>{
+              'bridgeVersion': '0.2.0',
+              'clientIdentityKind': 'paired',
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
+        transport.queueResponse(_rawCapabilities());
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        await client.authenticate(uri);
+        await client.disconnect();
+
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-2',
+            'sessionId': 'session-2',
+            'correlationId': 'irrelevant',
+            'payload': <String, dynamic>{
+              'bridgeVersion': '0.2.0',
+              'clientIdentityKind': 'paired',
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
+        transport.queueResponse(_rawCapabilities());
+        await client.authenticate(uri);
+
+        expect(transport.connectCalls, hasLength(2));
+      },
+    );
   });
 
   group('requestPairing', () {
