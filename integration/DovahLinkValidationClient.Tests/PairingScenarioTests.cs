@@ -145,6 +145,66 @@ public class PairingScenarioTests
     }
 
     /// <summary>
+    /// Verifies that revoking a client's trust force-closes its already-open, already-authenticated
+    /// session immediately -- not just the next reconnect attempt (security.md's "Persistent local
+    /// trust": "invalidates its current authenticated session, closes that connection"). This is
+    /// the stage J gap security.md's "Trust administration surface" named explicitly: revoking only
+    /// removed persisted trust and left an already-connected session on the old credential running.
+    /// </summary>
+    [Fact]
+    public async Task RevokeWhileConnectedClosesTheLiveSessionImmediately()
+    {
+        string trustStorePath = CreateIsolatedTrustStorePath();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Unlike RevokedCredentialReconnectReceivesARevokedOutcome, this connection stays open
+        // through the revoke below -- proving the live session itself is force-closed, not merely
+        // that a later reconnect attempt would be rejected.
+        await harness.WriteLineAsync("revoke client-1");
+        Assert.Equal("REVOKED client-1", await harness.ReadLineAsync());
+
+        // The still-open connection closes on its own, without the client ever sending anything new.
+        // Asserts the specific message BridgeConnection.ReceiveAsync's WebSocketException branch
+        // produces, distinct from its graceful-close-frame branch's wording -- confirming this was
+        // genuinely the silent, raw TCP-level cancel-and-close DisconnectIfClientActive performs
+        // (no application-level explanation message; deliberately out of this stage's scope), not an
+        // accidental graceful close.
+        InvalidOperationException closeException =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
+        Assert.Contains("ended before a complete protocol message was received", closeException.Message);
+        await connection.CloseAsync();
+
+        // The connection slot isn't wedged: a fresh, unrelated connection still succeeds right
+        // after, mirroring RevokedCredentialReconnectReceivesARevokedOutcome's same proof.
+        await using BridgeConnection healthyConnection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await healthyConnection.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope healthyHelloAck = await healthyConnection.ReceiveAsync();
+        Assert.Equal("hello_ack", healthyHelloAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, healthyConnection);
+    }
+
+    /// <summary>
     /// Verifies the reconnect-semantics policy in security.md's "Connection liveness" (bounded
     /// short retry/backoff over same-client takeover) for a real crash, not just a graceful close:
     /// after pairing, an abrupt disconnect immediately followed by a rapid reconnect using the
