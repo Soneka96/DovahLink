@@ -127,8 +127,8 @@ std::optional<std::filesystem::path> ReadTrustStorePathOverride(const dovahlink:
 /// Runs the standalone bridge integration harness.
 int main() {
     dovahlink::security::WindowsEnvironmentReader environmentReader;
-    auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
-    if (!tokenBytes.has_value()) {
+    auto tokenRead = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
+    if (tokenRead.outcome != dovahlink::security::TokenReadOutcome::kValid) {
         std::cerr << "DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded "
                      "256-bit token; the harness cannot authenticate a client without it.\n";
         return 1;
@@ -152,7 +152,7 @@ int main() {
 
     dovahlink::transport::ConnectionSlot connectionSlot;
     auto tokenTtl = ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
-    dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes), tokenTtl);
+    dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes), tokenTtl);
     dovahlink::security::FailedTokenThrottle tokenThrottle;
 
     auto trustStorePath = ReadTrustStorePathOverride(environmentReader);

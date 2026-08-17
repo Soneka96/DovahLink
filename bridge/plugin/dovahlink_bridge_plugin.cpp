@@ -151,8 +151,8 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // A missing or malformed launch token is fatal because no client could
     // authenticate without it.
     static dovahlink::security::WindowsEnvironmentReader environmentReader;
-    auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
-    if (!tokenBytes.has_value()) {
+    auto tokenRead = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
+    if (tokenRead.outcome != dovahlink::security::TokenReadOutcome::kValid) {
         SKSE::log::error("DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded 256-bit token; "
                           "the bridge cannot authenticate a client without it.");
         return false;
@@ -194,7 +194,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // ordering is exactly the construction order, without needing a
     // hand-rolled aggregate to express the same dependency graph.
     static dovahlink::transport::ConnectionSlot connectionSlot;
-    static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
+    static dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
 
     // The persistent per-user trust store's backing file cannot be resolved

@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <memory>
+#include <utility>
 
 namespace dovahlink::security {
 
@@ -40,21 +41,20 @@ std::optional<std::string> WindowsEnvironmentReader::Read(std::string_view name)
     return std::optional<std::string>(std::in_place, value);
 }
 
-std::optional<std::vector<std::uint8_t>> ReadTokenFromEnvironment(const EnvironmentReader& env,
-                                                                    std::string_view variableName) {
+TokenReadResult ReadTokenFromEnvironment(const EnvironmentReader& env, std::string_view variableName) {
     auto raw = env.Read(variableName);
     if (!raw.has_value()) {
-        return std::nullopt;
+        return TokenReadResult{.outcome = TokenReadOutcome::kMissing, .bytes = {}};
     }
     std::unique_ptr<std::string, void (*)(std::string*)> clearRaw(&*raw, SecureClearString);
     if (raw->empty()) {
-        return std::nullopt;
+        return TokenReadResult{.outcome = TokenReadOutcome::kMissing, .bytes = {}};
     }
     auto decoded = DecodeHex(*raw);
     if (!decoded.has_value() || decoded->size() != kTokenBytes) {
-        return std::nullopt;
+        return TokenReadResult{.outcome = TokenReadOutcome::kMalformed, .bytes = {}};
     }
-    return decoded;
+    return TokenReadResult{.outcome = TokenReadOutcome::kValid, .bytes = std::move(*decoded)};
 }
 
 }  // namespace dovahlink::security
