@@ -101,13 +101,18 @@ configuration value that changes only the port, never the listening address (`12
 private range (49152-65535) to avoid collision with common local dev-tool ports (3000, 5173,
 8000, 8080, 9000) and any Skyrim-related tooling's default ports.
 
-## One-time token supply
+## Developer-token authentication (optional)
 
-The bridge reads its expected one-time token from the `DOVAHLINK_BRIDGE_TOKEN` environment
-variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
-`0x` prefix, no separators). Hex was chosen over base64 to avoid pulling in an encoding dependency
-this codebase does not otherwise need and to keep the value trivially assembled by a developer
-launch script using a cryptographically secure generator:
+`DOVAHLINK_BRIDGE_TOKEN` is a developer-only authentication path, per
+[`ai/context/protocol/security.md`](../ai/context/protocol/security.md)'s "Developer authentication".
+**Normal users never set this variable.** They authenticate through the in-game pairing flow instead,
+and pairing works identically whether or not this variable is set -- it exists only so a developer can
+open a `one_time_local_token` session without going through pairing.
+
+When present, the bridge reads it from the environment at plugin load, hex-encoded (exactly 64
+lowercase-or-uppercase hex characters, no `0x` prefix, no separators). Hex was chosen over base64 to
+avoid pulling in an encoding dependency this codebase does not otherwise need and to keep the value
+trivially assembled by a developer launch script using a cryptographically secure generator:
 
 ```powershell
 $tokenBytes = [byte[]]::new(32)
@@ -122,11 +127,21 @@ finally {
 }
 ```
 
-A variable that is unset, empty, not valid hex, or does not decode to exactly 32
-bytes is treated identically to "no token available" -- never a partial or best-effort value. The
-decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
-which owns clearing them after consumption or expiry. The required token length, source, and
-failure behavior are defined in [`ai/context/protocol/security.md`](../ai/context/protocol/security.md).
+Plugin startup never fails because of this variable; it only affects whether developer-token
+authentication is available:
+
+- **Unset (the normal case):** the bridge loads normally, logs that developer-token authentication is
+  disabled, and pairing is unaffected.
+- **Set but malformed** (empty, not valid hex, or not exactly 32 decoded bytes): the bridge loads
+  normally, logs a warning naming the required format, and disables only developer-token
+  authentication. Pairing is unaffected.
+- **Set and valid:** developer-token authentication is enabled for the bridge's lifetime.
+
+The bridge never logs the token's value in any of these cases. The decoded bytes are handed directly
+to `security::TokenStore` (`bridge/security/token_store.hpp`), which owns clearing them after
+consumption or expiry; a missing or malformed value hands it an empty token, which `TokenStore` treats
+as permanently unavailable. The required token length, source, and failure behavior are defined in
+[`ai/context/protocol/security.md`](../ai/context/protocol/security.md).
 
 ### Known limitation: no reconnect after a successful session, within one bridge lifetime
 
