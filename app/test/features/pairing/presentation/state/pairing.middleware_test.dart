@@ -1,3 +1,4 @@
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
@@ -78,18 +79,130 @@ void main() {
       },
     );
 
-    test('dispatches PairingFailedAction when authentication fails', () async {
-      const NetworkFailure failure = NetworkFailure('unreachable');
-      when(
-        () => mockAuthenticate(any()),
-      ).thenAnswer((_) async => const Left(failure));
+    test(
+      'dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
+      () async {
+        const NetworkFailure failure = NetworkFailure('unreachable');
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(failure));
 
-      store.dispatch(const PairingStartedAction());
-      await Future<void>.delayed(Duration.zero);
+        store.dispatch(const PairingStartedAction());
+        await Future<void>.delayed(Duration.zero);
 
-      expect(store.state.pairing.phase, PairingPhase.failed);
-      expect(store.state.pairing.error, 'unreachable');
-    });
+        expect(store.state.pairing.phase, PairingPhase.disconnected);
+        expect(store.state.pairing.error, isNull);
+      },
+    );
+
+    test(
+      'dispatches PairingFailedAction when authentication fails with a non-network failure',
+      () async {
+        const PairingFailure failure = PairingFailure('rejected');
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(failure));
+
+        store.dispatch(const PairingStartedAction());
+        await Future<void>.delayed(Duration.zero);
+
+        expect(store.state.pairing.phase, PairingPhase.failed);
+        expect(store.state.pairing.error, 'rejected');
+      },
+    );
+
+    test(
+      'retries PairingStartedAction after reconnectDelay when still disconnected',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final Store<AppState> retryStore = const CreateStore()(
+            middleware: [PairingMiddleware(reconnectDelay: delay).call],
+          );
+          const NetworkFailure failure = NetworkFailure('unreachable');
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => const Left(failure));
+
+          retryStore.dispatch(const PairingStartedAction());
+          async.flushMicrotasks();
+          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
+
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
+          verify(() => mockAuthenticate(any())).called(2);
+        });
+      },
+    );
+
+    test(
+      'does not retry once PairingDisposedAction fires before reconnectDelay elapses',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final Store<AppState> retryStore = const CreateStore()(
+            middleware: [PairingMiddleware(reconnectDelay: delay).call],
+          );
+          const NetworkFailure failure = NetworkFailure('unreachable');
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => const Left(failure));
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
+
+          retryStore.dispatch(const PairingStartedAction());
+          async.flushMicrotasks();
+          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
+
+          // Disposes well before delay elapses; the scheduled retry's own
+          // phase guard must suppress it once virtual time catches up.
+          retryStore.dispatch(const PairingDisposedAction());
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(retryStore.state.pairing.phase, PairingPhase.none);
+          verify(() => mockAuthenticate(any())).called(1);
+        });
+      },
+    );
+
+    test(
+      'does not retry once a real reconnect moves the phase off disconnected before reconnectDelay elapses',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final Store<AppState> retryStore = const CreateStore()(
+            middleware: [PairingMiddleware(reconnectDelay: delay).call],
+          );
+          const NetworkFailure failure = NetworkFailure('unreachable');
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => const Left(failure));
+
+          retryStore.dispatch(const PairingStartedAction());
+          async.flushMicrotasks();
+          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
+
+          // A real reconnect (e.g. a manual retry landing before the
+          // scheduled one) moves the phase off disconnected well before
+          // delay elapses; the scheduled retry must not stomp back over it.
+          retryStore.dispatch(
+            const PairingAuthenticatedAction(
+              bridgeVersion: '1.2.3',
+              trusted: false,
+            ),
+          );
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(retryStore.state.pairing.phase, PairingPhase.unpaired);
+          verify(() => mockAuthenticate(any())).called(1);
+        });
+      },
+    );
   });
 
   group('PairingMiddleware — PairingCodeRequestedAction', () {

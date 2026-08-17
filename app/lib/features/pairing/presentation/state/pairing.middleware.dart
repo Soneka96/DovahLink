@@ -8,6 +8,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
@@ -15,6 +16,14 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 /// Handles pairing actions, resolving its use cases through the shared [sl]
 /// container.
 class PairingMiddleware extends MiddlewareClass<AppState> {
+  /// Creates pairing middleware. [reconnectDelay] is the wait before
+  /// silently retrying after the bridge is found unreachable; injectable so
+  /// tests don't wait in real time.
+  PairingMiddleware({this.reconnectDelay = const Duration(seconds: 3)});
+
+  /// Delay before automatically retrying after [PairingDisconnectedAction].
+  final Duration reconnectDelay;
+
   /// See [MiddlewareClass.call].
   @override
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
@@ -40,7 +49,12 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   ) async {
     (await sl<AuthenticateUseCase>()(NoParams())).fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        if (failure is NetworkFailure) {
+          store.dispatch(const PairingDisconnectedAction());
+          _scheduleReconnect(store);
+        } else {
+          store.dispatch(PairingFailedAction(failure.message));
+        }
       },
       (PairingHandshakeEntity handshake) {
         store.dispatch(
@@ -53,8 +67,26 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     );
   }
 
+  /// Silently retries [PairingStartedAction] after [reconnectDelay] if the
+  /// pairing state is still [PairingPhase.disconnected] -- that check is the
+  /// active-generation guard: a dispose or a real reconnect in the meantime
+  /// changes the phase, so a stale retry naturally no-ops instead of needing
+  /// a separate cancellation token.
+  void _scheduleReconnect(Store<AppState> store) {
+    Future<void>.delayed(reconnectDelay, () {
+      if (store.state.pairing.phase == PairingPhase.disconnected) {
+        store.dispatch(const PairingStartedAction());
+      }
+    });
+  }
+
   /// Handles [PairingCodeRequestedAction] by requesting a pairing challenge
-  /// through [RequestPairingUseCase].
+  /// through [RequestPairingUseCase]. Deliberately does not distinguish
+  /// [NetworkFailure] here or in [_pairingCodeSubmitted] the way
+  /// [_pairingStarted] does: silently discarding a code the user is
+  /// mid-entering to retry the initial connect would lose their progress, so
+  /// a network hiccup mid-flow surfaces as an ordinary [PairingFailedAction]
+  /// instead.
   Future<void> _pairingCodeRequested(
     Store<AppState> store,
     PairingCodeRequestedAction action,
