@@ -146,13 +146,33 @@ void main() {
 
       final PairingState result = pairingReducer(
         state,
-        const PairingDisposedAction(),
+        const PairingDisposedAction(wasTrusted: false),
       );
 
       expect(result.phase, PairingPhase.none);
       expect(result.bridgeVersion, isNull);
       expect(result.error, isNull);
     });
+
+    test(
+      'PairingDisposedAction resets phase, bridge version, and error regardless of wasTrusted',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.trusted,
+          bridgeVersion: '1.2.3',
+          error: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingDisposedAction(wasTrusted: true),
+        );
+
+        expect(result.phase, PairingPhase.none);
+        expect(result.bridgeVersion, isNull);
+        expect(result.error, isNull);
+      },
+    );
   });
 
   group('PairingReducer processes unhandled actions correctly', () {

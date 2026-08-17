@@ -26,8 +26,11 @@ class PairingScreen extends StatelessWidget {
       distinct: true,
       onInit: (Store<AppState> store) =>
           store.dispatch(const PairingStartedAction()),
-      onDispose: (Store<AppState> store) =>
-          store.dispatch(const PairingDisposedAction()),
+      onDispose: (Store<AppState> store) => store.dispatch(
+        PairingDisposedAction(
+          wasTrusted: store.state.pairing.phase == PairingPhase.trusted,
+        ),
+      ),
       converter: (Store<AppState> store) =>
           sl<PairingScreenViewModel>(param1: store),
       builder: (BuildContext context, PairingScreenViewModel viewModel) {

@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:dovahlink_client/shared/constants/enums.dart';
+
 /// Requests a new pairing session: connect, authenticate, and recover any
 /// interrupted pairing confirmation.
 class PairingStartedAction extends Equatable {
@@ -103,10 +105,16 @@ class PairingFailedAction extends Equatable {
 
 /// Closes the pairing session and resets its state.
 class PairingDisposedAction extends Equatable {
-  /// Creates a disposed-state action.
-  const PairingDisposedAction();
+  /// Creates a disposed-state action. [wasTrusted] is captured at dispatch time, before the
+  /// reducer resets [PairingState] -- middleware always sees reduced state, so this is the only
+  /// way its handler can know whether pairing had already succeeded.
+  const PairingDisposedAction({required this.wasTrusted});
+
+  /// Whether the pairing phase was [PairingPhase.trusted] at dispose time. When `true`, the
+  /// established trust and connection are kept rather than disconnected.
+  final bool wasTrusted;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [wasTrusted];
 }

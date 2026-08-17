@@ -123,13 +123,18 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   }
 
   /// Handles [PairingDisposedAction] by disconnecting through
-  /// [DisconnectUseCase]. Best-effort cleanup: the reducer has already reset
-  /// [AppState.pairing] by the time this runs, and there is no surviving
-  /// screen to report a disconnect failure to.
+  /// [DisconnectUseCase], unless [PairingDisposedAction.wasTrusted] -- pairing
+  /// had already succeeded, so the established trust and connection are kept
+  /// rather than torn down on the way out. Otherwise, best-effort cleanup:
+  /// the reducer has already reset [AppState.pairing] by the time this runs,
+  /// and there is no surviving screen to report a disconnect failure to.
   Future<void> _pairingDisposed(
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
+    if (action.wasTrusted) {
+      return;
+    }
     await sl<DisconnectUseCase>()(NoParams());
   }
 }

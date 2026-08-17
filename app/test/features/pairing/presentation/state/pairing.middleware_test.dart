@@ -159,7 +159,7 @@ void main() {
 
           // Disposes well before delay elapses; the scheduled retry's own
           // phase guard must suppress it once virtual time catches up.
-          retryStore.dispatch(const PairingDisposedAction());
+          retryStore.dispatch(const PairingDisposedAction(wasTrusted: false));
           async.elapse(delay);
           async.flushMicrotasks();
 
@@ -284,16 +284,23 @@ void main() {
   });
 
   group('PairingMiddleware — PairingDisposedAction', () {
-    test('calls DisconnectUseCase as a best-effort cleanup', () async {
+    test('calls DisconnectUseCase as a best-effort cleanup when not yet trusted', () async {
       when(
         () => mockDisconnect(any()),
       ).thenAnswer((_) async => const Right(unit));
 
-      store.dispatch(const PairingDisposedAction());
+      store.dispatch(const PairingDisposedAction(wasTrusted: false));
       await Future<void>.delayed(Duration.zero);
 
       verify(() => mockDisconnect(any())).called(1);
       expect(store.state.pairing.phase, PairingPhase.none);
+    });
+
+    test('does not call DisconnectUseCase when pairing had already succeeded', () async {
+      store.dispatch(const PairingDisposedAction(wasTrusted: true));
+      await Future<void>.delayed(Duration.zero);
+
+      verifyNever(() => mockDisconnect(any()));
     });
   });
 }

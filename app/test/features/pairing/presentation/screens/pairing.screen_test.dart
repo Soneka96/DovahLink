@@ -313,9 +313,55 @@ void main() {
         ),
       );
 
-      expect(dispatchedActions, contains(const PairingDisposedAction()));
+      expect(
+        dispatchedActions,
+        contains(const PairingDisposedAction(wasTrusted: false)),
+      );
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'dispatches PairingDisposedAction with wasTrusted when the screen unmounts while trusted',
+      (WidgetTester tester) async {
+        final List<Object?> dispatchedActions = [];
+        final Store<AppState> store = const CreateStore()(
+          middleware: [_spy(dispatchedActions)],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const PairingScreen(),
+            ),
+          ),
+        );
+        // Reach trusted after mount -- onInit's own PairingStartedAction
+        // would otherwise overwrite a pre-mount dispatch via the reducer.
+        store.dispatch(
+          const PairingAuthenticatedAction(
+            bridgeVersion: '1.2.3',
+            trusted: true,
+          ),
+        );
+        await tester.pump();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        expect(
+          dispatchedActions,
+          contains(const PairingDisposedAction(wasTrusted: true)),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   group('PairingScreen meets accessibility recommended guidelines', () {
