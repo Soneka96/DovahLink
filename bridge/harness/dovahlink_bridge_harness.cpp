@@ -250,9 +250,13 @@ int main() {
             // Test-only shortcut straight to TrustStore::Revoke: a real deployment only reaches
             // revocation through TrustAdminService (security.md's "Trust administration surface"),
             // but the harness already knows the clientId a scenario paired, so it skips the
-            // shortId lookup that surface exists for.
+            // shortId lookup that surface exists for. Still exercises the same
+            // ActiveSessionDisconnector force-close primitive TrustAdminService::RevokeByShortId
+            // itself calls, so a scenario can prove revoke-while-connected disconnects the live
+            // session immediately, not just the next reconnect attempt.
             std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
             if (trustStore.Revoke(revokedClientId)) {
+                bridgeWorkerPool.DisconnectIfClientActive(revokedClientId);
                 std::cout << "REVOKED " << revokedClientId << std::endl;
             } else {
                 std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;

@@ -252,13 +252,6 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
 
-    // Registers the optional trust-administration console adapter
-    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
-    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
-    // Papyrus glue script are not installed.
-    static dovahlink::application::TrustAdminService trustAdminService(trustStore);
-    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
-
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
     static dovahlink::game_state::CommonLibPairingNotificationSink pairingNotificationSink;
@@ -287,6 +280,16 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId,
         kBridgeVersion);
+
+    // Registers the optional trust-administration console adapter
+    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
+    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
+    // Papyrus glue script are not installed. Constructed after bridgeWorkerPool, which it depends on
+    // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
+    // (security.md's "Persistent local trust") against an already-connected session, not just the
+    // persisted trust record.
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool);
+    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
