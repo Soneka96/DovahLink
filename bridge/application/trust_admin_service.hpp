@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/active_session_disconnector.hpp"
 #include "security/trust_store.hpp"
 
 #include <string>
@@ -10,7 +11,9 @@ namespace dovahlink::application {
 /// Reusable trust-administration behavior (list/revoke/reset) over `security::TrustStore`, shared by
 /// every administration surface -- console, a future Flutter management UI, and developer tooling --
 /// so none of them duplicates trust-store logic (`ai/context/protocol/security.md`'s "Trust
-/// administration surface").
+/// administration surface"). Also enforces that section's "Revocation is immediate" guarantee: a
+/// successful `RevokeByShortId`/`Reset` force-closes the affected client's active session through
+/// the injected `ActiveSessionDisconnector`, not just the persisted trust record.
 ///
 /// ponytail: `RevokeByShortId`/`Reset` each call `TrustStore` more than once (list-then-act); each
 /// individual call is atomic but the pair is not, so a concurrent `Persist`/`Revoke` from an
@@ -21,9 +24,11 @@ namespace dovahlink::application {
 /// spanning both calls if a second concurrent admin surface is ever introduced.
 class TrustAdminService {
 public:
-    /// Binds the service to the trust store it administers.
+    /// Binds the service to the trust store it administers and the session disconnector it enforces
+    /// immediate revocation through.
     /// @param trustStore Persistent trust store this service reads and mutates.
-    explicit TrustAdminService(security::TrustStore& trustStore);
+    /// @param sessionDisconnector Force-closes the active session on a successful revoke or reset.
+    TrustAdminService(security::TrustStore& trustStore, ActiveSessionDisconnector& sessionDisconnector);
 
     /// Lists every currently trusted client as one display-ready, multi-line string: one
     /// `shortId  displayName` line per client, or a clear "no trusted clients" message when empty.
@@ -43,6 +48,9 @@ public:
 private:
     /// Trust store this service reads and mutates.
     security::TrustStore& trustStore_;
+
+    /// Force-closes the active session on a successful revoke or reset.
+    ActiveSessionDisconnector& sessionDisconnector_;
 };
 
 }  // namespace dovahlink::application

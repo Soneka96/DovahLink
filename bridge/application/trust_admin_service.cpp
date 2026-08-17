@@ -5,7 +5,8 @@
 
 namespace dovahlink::application {
 
-TrustAdminService::TrustAdminService(security::TrustStore& trustStore) : trustStore_(trustStore) {}
+TrustAdminService::TrustAdminService(security::TrustStore& trustStore, ActiveSessionDisconnector& sessionDisconnector)
+    : trustStore_(trustStore), sessionDisconnector_(sessionDisconnector) {}
 
 std::string TrustAdminService::ListTrusted() const {
     auto records = trustStore_.ListTrusted();
@@ -33,6 +34,7 @@ std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {
     if (!trustStore_.Revoke(it->clientId)) {
         return "Failed to revoke client " + std::string(shortId) + ": trust-store save failed.";
     }
+    sessionDisconnector_.DisconnectIfClientActive(it->clientId);
     return "Revoked client " + std::string(shortId) + " (" + displayName + ").";
 }
 
@@ -41,6 +43,7 @@ std::string TrustAdminService::Reset() const {
     if (!trustStore_.Reset()) {
         return "Failed to reset trust: trust-store save failed.";
     }
+    sessionDisconnector_.DisconnectActive();
     return "Reset all trust (" + std::to_string(previousCount) +
            (previousCount == 1 ? " client removed)." : " clients removed).");
 }
