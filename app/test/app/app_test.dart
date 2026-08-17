@@ -11,14 +11,17 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 /// Exercises the root application shell before connection.
 void main() {
   group('DovahLinkApp', () {
-    testWidgets('renders the disconnected shell before a connection exists', (
+    testWidgets('renders the Bridge list before a connection exists', (
       WidgetTester tester,
     ) async {
       initDependencies();
       await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-      expect(find.byKey(const Key('connection-status')), findsOneWidget);
-      expect(find.text('Disconnected'), findsOneWidget);
+      expect(
+        find.byKey(const Key('bridge-tile-Local Bridge')),
+        findsOneWidget,
+      );
+      expect(find.text('Local Bridge'), findsOneWidget);
     });
 
     testWidgets('resolves the pairing route through the real app shell', (
@@ -36,7 +39,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-      expect(find.byKey(const Key('connection-status')), findsNothing);
+      expect(find.byKey(const Key('bridge-tile-Local Bridge')), findsNothing);
     });
 
     testWidgets(
@@ -52,7 +55,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('connection-status')), findsNothing);
+        expect(
+          find.byKey(const Key('bridge-tile-Local Bridge')),
+          findsNothing,
+        );
       },
     );
   });

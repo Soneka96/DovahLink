@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/screens/connection_status.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/bridge_list.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 
@@ -14,7 +14,7 @@ GoRouter createRouter() => GoRouter(
     GoRoute(
       path: AppRoutes.home,
       builder: (BuildContext context, GoRouterState state) =>
-          const ConnectionStatusScreen(),
+          const BridgeListScreen(),
     ),
     GoRoute(
       path: AppRoutes.pairing,

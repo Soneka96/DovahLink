@@ -3,7 +3,7 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/screens/connection_status.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/bridge_list.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
@@ -16,7 +16,7 @@ void main() {
   setUp(initDependencies);
 
   group('createRouter', () {
-    testWidgets('resolves the home route to ConnectionStatusScreen', (
+    testWidgets('resolves the home route to BridgeListScreen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -26,7 +26,7 @@ void main() {
         ),
       );
 
-      expect(find.byType(ConnectionStatusScreen), findsOneWidget);
+      expect(find.byType(BridgeListScreen), findsOneWidget);
       expect(find.byType(PairingScreen), findsNothing);
     });
 
@@ -50,7 +50,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(PairingScreen), findsOneWidget);
-      expect(find.byType(ConnectionStatusScreen), findsNothing);
+      expect(find.byType(BridgeListScreen), findsNothing);
     });
 
     testWidgets(
@@ -67,7 +67,7 @@ void main() {
         router.go('/does-not-exist');
         await tester.pumpAndSettle();
 
-        expect(find.byType(ConnectionStatusScreen), findsNothing);
+        expect(find.byType(BridgeListScreen), findsNothing);
         expect(find.byType(PairingScreen), findsNothing);
       },
     );
