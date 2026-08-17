@@ -117,9 +117,14 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
 - ViewModels are thin connectors resolved through DI; they read selectors and create dispatch
   callbacks without re-deriving business state.
-- ViewModels and widgets must not read feature fields directly from Redux state. They receive
-  feature values through the feature's `.selectors.dart` file; selectors may compose derived
-  presentation values from simpler selectors.
+- Redux state is read only through selectors and changed only through reducers. This is absolute
+  and applies everywhere a `Store`/`AppState` is reachable, not only ViewModels and widgets:
+  middleware handlers and `StoreConnector`'s `onInit`/`onDispose` hooks read state the same way.
+  Never inline `store.state.<feature>.<field>` or `AppState`'s fields directly, anywhere; call the
+  feature's `.selectors.dart` function instead (`PairingSelectors.phaseSelector(store.state)`, not
+  `store.state.pairing.phase`), even from a middleware handler deciding whether to retry, or a
+  screen's `onDispose` computing a value to capture in a dispatched action. Selectors may compose
+  derived presentation values from simpler selectors.
 - The store is built exactly once through `CreateStore`; every `StoreConnector` uses
   `distinct: true`.
 - Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.

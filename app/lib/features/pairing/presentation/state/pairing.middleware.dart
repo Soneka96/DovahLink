@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.use
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
@@ -78,7 +79,8 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// a separate cancellation token.
   void _scheduleReconnect(Store<AppState> store) {
     Future<void>.delayed(reconnectDelay, () {
-      if (store.state.pairing.phase == PairingPhase.disconnected) {
+      if (PairingSelectors.phaseSelector(store.state) ==
+          PairingPhase.disconnected) {
         store.dispatch(const PairingStartedAction());
       }
     });

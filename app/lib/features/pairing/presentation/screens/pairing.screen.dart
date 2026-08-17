@@ -3,6 +3,7 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
@@ -29,7 +30,9 @@ class PairingScreen extends StatelessWidget {
           store.dispatch(const PairingStartedAction()),
       onDispose: (Store<AppState> store) => store.dispatch(
         PairingDisposedAction(
-          wasTrusted: store.state.pairing.phase == PairingPhase.trusted,
+          wasTrusted:
+              PairingSelectors.phaseSelector(store.state) ==
+              PairingPhase.trusted,
         ),
       ),
       converter: (Store<AppState> store) =>
