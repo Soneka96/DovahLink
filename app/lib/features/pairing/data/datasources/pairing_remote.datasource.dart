@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
@@ -23,16 +24,11 @@ abstract interface class PairingRemoteDataSource {
   Future<Either<Failure, Unit>> disconnect();
 }
 
-/// Connects to the documented default Phase 1 loopback bridge endpoint
-/// (`bridge/README.md`'s "Default loopback port") through an injected
-/// [DovahLinkClient], converting its typed exceptions into user-safe
-/// [Failure]s.
+/// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
+/// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s.
 class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// Creates a data source backed by [_client].
   PairingRemoteDataSourceImpl(this._client);
-
-  /// The Phase 1 default loopback bridge endpoint.
-  static final Uri _bridgeUri = Uri.parse('ws://127.0.0.1:58231/');
 
   /// The wrapped SDK client.
   final DovahLinkClient _client;
@@ -41,7 +37,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   @override
   Future<Either<Failure, PairingHandshakeEntity>> authenticate() async {
     try {
-      await _client.connect(_bridgeUri);
+      await _client.connect(defaultBridgeUri);
       final HelloResult hello = await _client.hello();
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {

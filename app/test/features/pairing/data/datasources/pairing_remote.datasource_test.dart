@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 import '../../fixtures/pairing.fixture.dart';
@@ -43,6 +44,7 @@ void main() {
         result,
         Right<Failure, PairingHandshakeEntity>(buildPairingHandshakeEntity()),
       );
+      verify(() => mockClient.connect(defaultBridgeUri)).called(1);
       verifyNever(() => mockClient.recoverPendingPairing());
     });
 
