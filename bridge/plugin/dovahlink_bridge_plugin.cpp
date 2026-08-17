@@ -9,11 +9,13 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
+#include "application/game_behavior_config.hpp"
 #include "application/game_lifecycle_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/trust_admin_service.hpp"
+#include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
@@ -42,6 +44,7 @@
 namespace {
 
 using dovahlink::application::kBridgePort;
+using dovahlink::application::kGameBehaviorConfigPath;
 using dovahlink::application::kTokenEnvVar;
 
 // Minimal file logging to the SKSE log directory.
@@ -146,6 +149,24 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
                           dovahlink::game_state::kSupportedSkseVersion.minor,
                           dovahlink::game_state::kSupportedSkseVersion.build);
         return false;
+    }
+
+    // Runtime compatibility toggles (both default enabled): keeping Skyrim
+    // active while unfocused so the pairing code stays visible while the
+    // player is in the DovahLink app, and patching achievement eligibility
+    // back on for a modded load order. Read once, early, so both outcomes
+    // are logged before any other setup and can be disabled independently
+    // through Data/SKSE/Plugins/DovahLinkBridge.ini.
+    static dovahlink::application::FilesystemGameBehaviorConfigFileReader gameBehaviorConfigReader;
+    dovahlink::application::GameBehaviorConfig behaviorConfig =
+        dovahlink::application::ReadGameBehaviorConfig(gameBehaviorConfigReader, kGameBehaviorConfigPath);
+    SKSE::log::info("Always-active mode: {}", behaviorConfig.alwaysActive ? "enabled" : "disabled");
+    SKSE::log::info("Achievement compatibility: {}", behaviorConfig.achievementCompat ? "enabled" : "disabled");
+    if (behaviorConfig.alwaysActive) {
+        dovahlink::game_state::ApplyAlwaysActiveSetting();
+    }
+    if (behaviorConfig.achievementCompat) {
+        dovahlink::game_state::InstallAchievementCompatibilityPatch();
     }
 
     // The developer token is optional, per ai/context/protocol/security.md's
