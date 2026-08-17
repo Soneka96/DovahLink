@@ -568,6 +568,16 @@ without accounting for that shift. It does not implement hardware/OS/platform de
 or physical-device attestation; that remains a deferred possibility. It does not change developer-
 token authentication's separate provider status.
 
+This phase also redefines what "reset" means, and that redefinition must be handled deliberately,
+not as a rename in place. Phase 3's already-shipped `TrustAdminService::Reset()` today performs the
+full, unconditional wipe (every trusted record and revocation tombstone removed, no confirmation
+step) that this document now calls **Factory Reset**. The new, narrower **Reset Trust** operation
+-- which preserves Known Device records and only revokes sessions/credentials -- is genuinely new
+behavior with no existing implementation. A future implementer must not assume today's `Reset()`
+call site can simply be renamed to mean "Reset Trust"; its existing behavior maps to Factory Reset
+(which additionally needs the new confirmation-code gate), and Reset Trust needs to be built as a
+distinct operation alongside it.
+
 ### Acceptance criteria
 
 - A device becomes a persistent Known Device only after a successful pairing, never merely from a
@@ -581,6 +591,13 @@ token authentication's separate provider status.
 - Unblocking returns a device to `Unpaired` without restoring its old credential, requiring a fresh
   pairing flow, while its `clientId`, `shortId`, `displayName`, and `createdAt` all survive
   unchanged.
+- An authenticated `Trusted` device can rename itself, an empty rename clears the display name, and
+  re-pairing without supplying a new name preserves the existing one; when two or more listed
+  devices share a display name, the admin listing disambiguates them in presentation only, numbered
+  oldest-to-newest by `createdAt`, without ever persisting the suffix or accepting it in place of
+  `shortId`.
+- Administration exposes both a general Known Device list carrying each device's state and a
+  filtered blocklist view, with every `Blocked` device appearing in both.
 - A Known Device's `shortId` never changes and never becomes available for reuse while that Known
   Device record exists, across every state transition it can undergo.
 - Repeated block/unblock operations against the same device return truthful, meaningful outcomes
