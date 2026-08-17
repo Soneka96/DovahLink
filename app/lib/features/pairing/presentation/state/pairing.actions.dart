@@ -19,6 +19,7 @@ class PairingAuthenticatedAction extends Equatable {
   const PairingAuthenticatedAction({
     required this.bridgeVersion,
     required this.trusted,
+    this.credentialRejectedMessage,
   });
 
   /// The DovahLink Bridge/mod release version reported by `hello_ack`.
@@ -27,9 +28,14 @@ class PairingAuthenticatedAction extends Equatable {
   /// Whether this session already holds a trusted credential.
   final bool trusted;
 
+  /// A user-safe explanation, or `null` when not applicable. Set only when this authentication
+  /// recovered from a rejected `trusted_device_credential` hello (revoked or unrecognized) by
+  /// discarding the stale credential and re-authenticating as unpaired.
+  final String? credentialRejectedMessage;
+
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [bridgeVersion, trusted];
+  List<Object?> get props => [bridgeVersion, trusted, credentialRejectedMessage];
 }
 
 /// Requests a pairing challenge.
@@ -96,22 +102,6 @@ class PairingFailedAction extends Equatable {
   const PairingFailedAction(this.message);
 
   /// A user-safe explanation of why pairing failed.
-  final String message;
-
-  /// See [Equatable.props].
-  @override
-  List<Object?> get props => [message];
-}
-
-/// Carries a user-safe explanation that this device's trust was revoked. Distinct from
-/// [PairingFailedAction]: the pairing screen returns to [PairingPhase.unpaired] rather than
-/// [PairingPhase.failed], since a revoked device's own next step is to request a new pairing code,
-/// not retry the same dead credential.
-class PairingRevokedAction extends Equatable {
-  /// Creates a revoked-state action.
-  const PairingRevokedAction(this.message);
-
-  /// A user-safe explanation naming the revocation.
   final String message;
 
   /// See [Equatable.props].

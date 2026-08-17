@@ -135,7 +135,33 @@ void main() {
           (actionLog[1] as PairingAuthenticatedAction).trusted,
           handshake.trusted,
         );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction).credentialRejectedMessage,
+          isNull,
+        );
         verify(() => mockAuthenticate(any())).called(1);
+      },
+    );
+
+    test(
+      'dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
+      () async {
+        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => Right(handshake));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectedMessage,
+          "This device's trust was revoked.",
+        );
       },
     );
 
@@ -154,52 +180,6 @@ void main() {
           isA<PairingStartedAction>(),
           isA<PairingDisconnectedAction>(),
         ]);
-      },
-    );
-
-    test(
-      'dispatches PairingRevokedAction when authentication fails with a RevokedFailure',
-      () async {
-        const RevokedFailure failure = RevokedFailure('trust was revoked');
-        when(
-          () => mockAuthenticate(any()),
-        ).thenAnswer((_) async => const Left(failure));
-
-        middleware.call(store, const PairingStartedAction(), next);
-        await Future<void>.delayed(Duration.zero);
-
-        expect(actionLog[0], isA<PairingStartedAction>());
-        expect(
-          actionLog[1],
-          const PairingRevokedAction('trust was revoked'),
-        );
-      },
-    );
-
-    test(
-      'does not schedule a retry when authentication fails with a RevokedFailure',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          const RevokedFailure failure = RevokedFailure('trust was revoked');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
-
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          // A revoked credential must not silently retry itself -- unlike
-          // NetworkFailure, no PairingStartedAction is ever rescheduled.
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-          verify(() => mockAuthenticate(any())).called(1);
-        });
       },
     );
 
