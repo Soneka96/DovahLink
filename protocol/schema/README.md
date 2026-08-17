@@ -186,7 +186,7 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 
 ```json
 {
-  "code": "123456",
+  "code": "redacted-in-documentation",
   "displayName": "My PC"
 }
 ```
@@ -203,7 +203,7 @@ Client's final confirmation, echoing back the credential it durably saved:
 
 ```json
 {
-  "credential": "a1b2c3d4e5f6"
+  "credential": "redacted-in-documentation"
 }
 ```
 
@@ -221,7 +221,7 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 ```json
 {
   "outcome": "trusted",
-  "credential": "a1b2c3d4e5f6",
+  "credential": "redacted-in-documentation",
   "shortId": "12345",
   "displayName": "My PC"
 }
