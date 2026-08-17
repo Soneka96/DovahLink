@@ -127,6 +127,27 @@ void main() {
       },
     );
 
+    test(
+      'PairingRevokedAction changes the phase to unpaired, stores the '
+      'message, and preserves bridgeVersion',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.connecting,
+          bridgeVersion: '1.2.3',
+          error: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingRevokedAction("This device's trust was revoked."),
+        );
+
+        expect(result.phase, PairingPhase.unpaired);
+        expect(result.error, "This device's trust was revoked.");
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
     test('PairingFailedAction stores the message and phase', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),

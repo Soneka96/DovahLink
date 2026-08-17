@@ -54,7 +54,9 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   ) async {
     (await sl<AuthenticateUseCase>()(NoParams())).fold(
       (Failure failure) {
-        if (failure is NetworkFailure) {
+        if (failure is RevokedFailure) {
+          store.dispatch(PairingRevokedAction(failure.message));
+        } else if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
           _scheduleReconnect(store);
         } else {

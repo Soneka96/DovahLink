@@ -103,6 +103,22 @@ class PairingFailedAction extends Equatable {
   List<Object?> get props => [message];
 }
 
+/// Carries a user-safe explanation that this device's trust was revoked. Distinct from
+/// [PairingFailedAction]: the pairing screen returns to [PairingPhase.unpaired] rather than
+/// [PairingPhase.failed], since a revoked device's own next step is to request a new pairing code,
+/// not retry the same dead credential.
+class PairingRevokedAction extends Equatable {
+  /// Creates a revoked-state action.
+  const PairingRevokedAction(this.message);
+
+  /// A user-safe explanation naming the revocation.
+  final String message;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [message];
+}
+
 /// Requests leaving the pairing screen and returning to home.
 class PairingBackRequestedAction extends Equatable {
   /// Creates a back-navigation request.

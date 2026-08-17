@@ -35,6 +35,10 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
     pairingDisconnectedReducer,
   ).call,
 
+  TypedReducer<PairingState, PairingRevokedAction>(
+    pairingRevokedReducer,
+  ).call,
+
   TypedReducer<PairingState, PairingFailedAction>(
     pairingFailedReducer,
   ).call,
@@ -96,6 +100,16 @@ PairingState pairingDisconnectedReducer(
   PairingState state,
   PairingDisconnectedAction action,
 ) => state.copyWith(phase: PairingPhase.disconnected, error: const None());
+
+/// Handles [PairingRevokedAction].
+/// Updates [PairingState.phase], [PairingState.error]. Returns to
+/// [PairingPhase.unpaired] rather than [PairingPhase.failed] -- a revoked device's own next step
+/// is to request a new pairing code, not retry the same dead credential -- reusing the unpaired
+/// screen's existing request-code affordance rather than introducing a dedicated phase or widget.
+PairingState pairingRevokedReducer(
+  PairingState state,
+  PairingRevokedAction action,
+) => state.copyWith(phase: PairingPhase.unpaired, error: Some(action.message));
 
 /// Handles [PairingFailedAction].
 /// Updates [PairingState.phase], [PairingState.error].
