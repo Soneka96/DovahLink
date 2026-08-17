@@ -687,8 +687,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 4)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 28)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 5)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
@@ -701,7 +701,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ")):
                 expected_status = "**Status:** Complete"
             elif heading.startswith("5. "):
                 expected_status = phase_5_status

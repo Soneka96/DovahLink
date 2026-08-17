@@ -151,7 +151,7 @@ canonical contract tests.
 
 ## 3. Local Device Pairing and Reconnection
 
-**Status:** Planned
+**Status:** Complete
 
 ### Outcome
 
