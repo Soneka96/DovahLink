@@ -33,12 +33,14 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// The wrapped SDK client.
   final DovahLinkClient _client;
 
-  /// See [PairingRemoteDataSource.authenticate].
+  /// See [PairingRemoteDataSource.authenticate]. Delegates to [DovahLinkClient.authenticate],
+  /// which recovers from a rejected `trusted_device_credential` hello by discarding the stale
+  /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
+  /// [HelloResult.recoveredFromRejectedCredential] when that happened.
   @override
   Future<Either<Failure, PairingHandshakeEntity>> authenticate() async {
     try {
-      await _client.connect(defaultBridgeUri);
-      final HelloResult hello = await _client.hello();
+      final HelloResult hello = await _client.authenticate(defaultBridgeUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
@@ -49,18 +51,14 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
         PairingHandshakeEntity(
           bridgeVersion: hello.bridgeVersion,
           trusted: trusted,
+          credentialRejectedMessage: _credentialRejectedMessage(
+            hello.recoveredFromRejectedCredential,
+          ),
         ),
       );
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
-      if (error.code == 'revoked') {
-        return const Left(
-          RevokedFailure(
-            "This device's trust was revoked. Request a new pairing code.",
-          ),
-        );
-      }
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
       return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
@@ -68,6 +66,17 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return Left(DatabaseFailure(error.message));
     }
   }
+
+  /// Converts a recovered credential-rejection reason into its user-safe explanation, or `null`
+  /// when [reason] is `null` (nothing was recovered from).
+  String? _credentialRejectedMessage(CredentialRejectionReason? reason) =>
+      switch (reason) {
+        CredentialRejectionReason.revoked =>
+          "This device's trust was revoked. Requesting a new pairing code.",
+        CredentialRejectionReason.unrecognized =>
+          "This device isn't recognized by this bridge. Requesting a new pairing code.",
+        null => null,
+      };
 
   /// See [PairingRemoteDataSource.requestPairingCode].
   @override

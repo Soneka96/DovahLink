@@ -35,6 +35,16 @@ enum AuthMethod {
   trustedDeviceCredential,
 }
 
+/// Why a `trusted_device_credential` hello was rejected and `DovahLinkClient.authenticate`
+/// recovered by discarding the credential and retrying as `unpaired`.
+enum CredentialRejectionReason {
+  /// The presented credential belonged to a clientId the bridge explicitly revoked.
+  revoked,
+
+  /// The presented credential did not match any credential the bridge currently trusts.
+  unrecognized,
+}
+
 // ---- Pairing ----
 
 /// The bridge's report of pairing availability, from `DovahLinkClient.requestPairing`.

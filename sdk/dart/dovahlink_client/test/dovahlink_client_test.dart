@@ -22,6 +22,10 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// The URI passed to [connect], or `null` if not yet called.
   Uri? connectedUri;
 
+  /// Every URI passed to [connect], in order -- unlike [connectedUri], proves how many times and
+  /// with what arguments [connect] was called across a retry.
+  final List<Uri> connectCalls = <Uri>[];
+
   /// Whether [close] was called.
   bool closeCalled = false;
 
@@ -44,6 +48,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
       throw failure;
     }
     connectedUri = uri;
+    connectCalls.add(uri);
   }
 
   @override
@@ -441,6 +446,174 @@ void main() {
         // A transport-level failure leaves the socket just as unusable as a protocol rejection;
         // the reset must cover both, not only DovahLinkProtocolException.
         expect(transport.closeCalled, isTrue);
+      },
+    );
+  });
+
+  group('authenticate', () {
+    test('delegates to connect and hello when nothing is rejected', () async {
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+
+      final HelloResult result = await client.authenticate(
+        Uri.parse('ws://127.0.0.1:58231/'),
+      );
+
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+      expect(result.recoveredFromRejectedCredential, isNull);
+      expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
+    });
+
+    test(
+      'recovers from a revoked credential by forgetting it and retrying as unpaired',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+
+        final HelloResult result = await client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+
+        expect(
+          result.recoveredFromRejectedCredential,
+          CredentialRejectionReason.revoked,
+        );
+        final PersistedClientState stored = await storage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.credential, isNull);
+        expect(transport.connectCalls, [
+          Uri.parse('ws://127.0.0.1:58231/'),
+          Uri.parse('ws://127.0.0.1:58231/'),
+        ]);
+      },
+    );
+
+    test(
+      'recovers from an unrecognized credential by forgetting it and retrying as unpaired',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(
+          _rawFixture('errors/error-unauthenticated-invalid-token.json'),
+        );
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+
+        final HelloResult result = await client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+
+        expect(
+          result.recoveredFromRejectedCredential,
+          CredentialRejectionReason.unrecognized,
+        );
+      },
+    );
+
+    test(
+      'rethrows a non-recoverable protocol rejection without forgetting the credential',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(
+          _rawFixture('errors/error-malformed-message.json'),
+        );
+
+        await expectLater(
+          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'malformed_message',
+            ),
+          ),
+        );
+        final PersistedClientState stored = await storage.load();
+        expect(stored.credential, 'deadbeef');
+      },
+    );
+
+    test(
+      "rethrows the retry's own rejection without retrying again",
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+        transport.queueResponse(_rawFixture('errors/error-rate-limited.json'));
+
+        await expectLater(
+          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'rate_limited',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'does not retry a second time when the retry is rejected with the same recoverable code',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+
+        await expectLater(
+          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'revoked',
+            ),
+          ),
+        );
+        // Exactly one retry: forgetCredential ran once and connect() was called exactly twice,
+        // not looping on a second revoked rejection.
+        final PersistedClientState stored = await storage.load();
+        expect(stored.credential, isNull);
+        expect(transport.connectCalls, hasLength(2));
+      },
+    );
+
+    test(
+      'propagates a transport failure on the initial connect without calling hello',
+      () async {
+        transport.failConnectWith = const SocketException('refused');
+
+        await expectLater(
+          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(transport.sent, isEmpty);
       },
     );
   });

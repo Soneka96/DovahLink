@@ -137,6 +137,37 @@ class DovahLinkClient {
     }
   }
 
+  /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
+  /// hello (`revoked` or an unrecognized credential) by discarding it and retrying once as
+  /// `unpaired` -- the bridge always accepts that, so a recoverable rejection never surfaces as a
+  /// thrown exception here. [HelloResult.recoveredFromRejectedCredential] reports whether that
+  /// happened and why, so a caller can still explain it to the user. A transport failure, a
+  /// non-recoverable protocol rejection, or the retry attempt's own failure still throws normally.
+  /// @throws DovahLinkConnectionException if the socket cannot be established (initial or retry).
+  /// @throws DovahLinkProtocolException if hello is rejected for a non-recoverable reason, or the
+  ///     retry attempt is itself rejected.
+  Future<HelloResult> authenticate(Uri uri) async {
+    await connect(uri);
+    try {
+      return await hello();
+    } on DovahLinkProtocolException catch (error) {
+      final CredentialRejectionReason? reason = _credentialRejectionReason(
+        error.code,
+      );
+      if (reason == null) {
+        rethrow;
+      }
+      await forgetCredential();
+      await connect(uri);
+      final HelloResult result = await hello();
+      return HelloResult(
+        bridgeVersion: result.bridgeVersion,
+        trustState: result.trustState,
+        recoveredFromRejectedCredential: reason,
+      );
+    }
+  }
+
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
   Future<PairingAvailability> requestPairing() async {
     final Envelope response = await _sendAndAwait(
@@ -399,4 +430,13 @@ class DovahLinkClient {
       retryable: false,
     ),
   };
+
+  /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
+  /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
+  CredentialRejectionReason? _credentialRejectionReason(String code) =>
+      switch (code) {
+        'revoked' => CredentialRejectionReason.revoked,
+        'unauthenticated' => CredentialRejectionReason.unrecognized,
+        _ => null,
+      };
 }

@@ -5,4 +5,9 @@ import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handsh
 PairingHandshakeEntity buildPairingHandshakeEntity({
   String bridgeVersion = '1.2.3',
   bool trusted = true,
-}) => PairingHandshakeEntity(bridgeVersion: bridgeVersion, trusted: trusted);
+  String? credentialRejectedMessage,
+}) => PairingHandshakeEntity(
+  bridgeVersion: bridgeVersion,
+  trusted: trusted,
+  credentialRejectedMessage: credentialRejectedMessage,
+);

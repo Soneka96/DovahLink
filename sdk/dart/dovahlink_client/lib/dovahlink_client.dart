@@ -8,7 +8,11 @@ library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;
 export 'src/enums.dart'
-    show DovahLinkConnectionState, DovahLinkTrustState, PairingAvailability;
+    show
+        CredentialRejectionReason,
+        DovahLinkConnectionState,
+        DovahLinkTrustState,
+        PairingAvailability;
 export 'src/hello_result.dart' show HelloResult;
 export 'src/dovahlink_client_exception.dart'
     show

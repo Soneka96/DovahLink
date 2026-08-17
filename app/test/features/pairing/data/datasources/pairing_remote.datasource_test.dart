@@ -29,8 +29,7 @@ void main() {
 
   group('PairingRemoteDataSourceImpl.authenticate', () {
     test('returns a trusted handshake without recovering pending pairing', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenAnswer(
+      when(() => mockClient.authenticate(any())).thenAnswer(
         (_) async => const HelloResult(
           bridgeVersion: '1.2.3',
           trustState: DovahLinkTrustState.trusted,
@@ -44,13 +43,12 @@ void main() {
         result,
         Right<Failure, PairingHandshakeEntity>(buildPairingHandshakeEntity()),
       );
-      verify(() => mockClient.connect(defaultBridgeUri)).called(1);
+      verify(() => mockClient.authenticate(defaultBridgeUri)).called(1);
       verifyNever(() => mockClient.recoverPendingPairing());
     });
 
     test('recovers an interrupted pairing when hello admits unpaired', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenAnswer(
+      when(() => mockClient.authenticate(any())).thenAnswer(
         (_) async => const HelloResult(
           bridgeVersion: '1.2.3',
           trustState: DovahLinkTrustState.unpaired,
@@ -71,8 +69,7 @@ void main() {
     });
 
     test('reports still-unpaired when no pairing recovers', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenAnswer(
+      when(() => mockClient.authenticate(any())).thenAnswer(
         (_) async => const HelloResult(
           bridgeVersion: '1.2.3',
           trustState: DovahLinkTrustState.unpaired,
@@ -93,9 +90,70 @@ void main() {
       );
     });
 
+    test(
+      'carries the revoked-credential explanation through when the SDK recovered',
+      () async {
+        when(() => mockClient.authenticate(any())).thenAnswer(
+          (_) async => const HelloResult(
+            bridgeVersion: '1.2.3',
+            trustState: DovahLinkTrustState.unpaired,
+            recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
+          ),
+        );
+        when(
+          () => mockClient.recoverPendingPairing(),
+        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          Right<Failure, PairingHandshakeEntity>(
+            buildPairingHandshakeEntity(
+              trusted: false,
+              credentialRejectedMessage:
+                  "This device's trust was revoked. Requesting a new pairing code.",
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'carries the unrecognized-credential explanation through when the SDK recovered',
+      () async {
+        when(() => mockClient.authenticate(any())).thenAnswer(
+          (_) async => const HelloResult(
+            bridgeVersion: '1.2.3',
+            trustState: DovahLinkTrustState.unpaired,
+            recoveredFromRejectedCredential:
+                CredentialRejectionReason.unrecognized,
+          ),
+        );
+        when(
+          () => mockClient.recoverPendingPairing(),
+        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          Right<Failure, PairingHandshakeEntity>(
+            buildPairingHandshakeEntity(
+              trusted: false,
+              credentialRejectedMessage:
+                  "This device isn't recognized by this bridge. Requesting a new pairing code.",
+            ),
+          ),
+        );
+      },
+    );
+
     test('maps a connection failure to NetworkFailure', () async {
       when(
-        () => mockClient.connect(any()),
+        () => mockClient.authenticate(any()),
       ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
       final Either<Failure, PairingHandshakeEntity> result = await dataSource
@@ -105,8 +163,7 @@ void main() {
     });
 
     test('maps a protocol failure to NetworkFailure', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenThrow(
+      when(() => mockClient.authenticate(any())).thenThrow(
         const DovahLinkProtocolException(
           code: 'malformed_message',
           message: 'bad reply',
@@ -120,33 +177,9 @@ void main() {
       expect(result, const Left<Failure, PairingHandshakeEntity>(NetworkFailure('bad reply')));
     });
 
-    test('maps a revoked-credential protocol failure to RevokedFailure', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenThrow(
-        const DovahLinkProtocolException(
-          code: 'revoked',
-          message: "This device's trust was revoked",
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, PairingHandshakeEntity> result = await dataSource
-          .authenticate();
-
-      expect(
-        result,
-        const Left<Failure, PairingHandshakeEntity>(
-          RevokedFailure(
-            "This device's trust was revoked. Request a new pairing code.",
-          ),
-        ),
-      );
-    });
-
     test('maps a storage failure to DatabaseFailure', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
       when(
-        () => mockClient.hello(),
+        () => mockClient.authenticate(any()),
       ).thenThrow(const DovahLinkStorageException('corrupt store'));
 
       final Either<Failure, PairingHandshakeEntity> result = await dataSource
@@ -156,8 +189,7 @@ void main() {
     });
 
     test('maps a pairing failure from recovery to a user-safe PairingFailure', () async {
-      when(() => mockClient.connect(any())).thenAnswer((_) async {});
-      when(() => mockClient.hello()).thenAnswer(
+      when(() => mockClient.authenticate(any())).thenAnswer(
         (_) async => const HelloResult(
           bridgeVersion: '1.2.3',
           trustState: DovahLinkTrustState.unpaired,
