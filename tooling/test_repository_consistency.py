@@ -82,13 +82,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/bridge-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
@@ -188,15 +193,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/app-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
@@ -245,15 +254,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/integration-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         self.assertEqual(
             self._yaml_block(workflow, "permissions:"),
@@ -375,15 +388,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "tooling/**"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         self.assertEqual(
             self._yaml_block(workflow, "permissions:"),

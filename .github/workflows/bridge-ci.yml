@@ -1,4 +1,4 @@
-name: bridge-ci
+name: Bridge
 
 on:
   push:
@@ -8,10 +8,6 @@ on:
       - "protocol/**"
       - ".github/workflows/bridge-ci.yml"
   pull_request:
-    paths:
-      - "bridge/**"
-      - "protocol/**"
-      - ".github/workflows/bridge-ci.yml"
   workflow_dispatch:
 
 concurrency:
@@ -23,6 +19,7 @@ permissions:
 
 jobs:
   build-and-test:
+    name: Build & Test
     # Pinned toolchain and dependency baselines are recorded in bridge/README.md.
     runs-on: windows-2022
     timeout-minutes: 30
