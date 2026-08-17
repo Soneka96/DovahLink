@@ -4,6 +4,11 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -45,7 +50,23 @@ class PairingScreen extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 16),
-                  ..._body(viewModel),
+                  switch (viewModel.phase) {
+                    PairingPhase.none ||
+                    PairingPhase.connecting ||
+                    PairingPhase.disconnected ||
+                    PairingPhase.requestingCode ||
+                    PairingPhase.confirming => const PairingLoadingIndicator(),
+                    PairingPhase.unpaired => PairingRequestCodeButton(
+                      onRequestCode: viewModel.onRequestCode,
+                    ),
+                    PairingPhase.awaitingCode => PairingCodeForm(
+                      onSubmit: viewModel.onSubmitCode,
+                    ),
+                    PairingPhase.trusted => const PairingTrustedIndicator(),
+                    PairingPhase.failed => PairingRetryButton(
+                      onRetry: viewModel.onStart,
+                    ),
+                  },
                   if (error != null) ...[
                     const SizedBox(height: 16),
                     Text(
@@ -62,117 +83,6 @@ class PairingScreen extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-
-  /// Returns the widgets specific to [viewModel]'s current phase.
-  List<Widget> _body(PairingScreenViewModel viewModel) {
-    switch (viewModel.phase) {
-      case PairingPhase.none:
-      case PairingPhase.connecting:
-      case PairingPhase.disconnected:
-      case PairingPhase.requestingCode:
-      case PairingPhase.confirming:
-        return const [CircularProgressIndicator(key: Key('pairing-loading'))];
-      case PairingPhase.unpaired:
-        return [
-          ElevatedButton(
-            key: const Key('pairing-request-code-button'),
-            onPressed: viewModel.onRequestCode,
-            child: const Text('Request Pairing Code'),
-          ),
-        ];
-      case PairingPhase.awaitingCode:
-        return [_PairingCodeForm(onSubmit: viewModel.onSubmitCode)];
-      case PairingPhase.trusted:
-        return const [Text('Paired', key: Key('pairing-trusted'))];
-      case PairingPhase.failed:
-        return [
-          ElevatedButton(
-            key: const Key('pairing-retry-button'),
-            onPressed: viewModel.onStart,
-            child: const Text('Try Again'),
-          ),
-        ];
-    }
-  }
-}
-
-/// The six-digit code and optional display-name entry form shown while
-/// [PairingPhase.awaitingCode].
-class _PairingCodeForm extends StatefulWidget {
-  /// Creates a pairing code form.
-  const _PairingCodeForm({required this.onSubmit});
-
-  /// Called with the entered code and optional display name.
-  final void Function(String code, String? displayName) onSubmit;
-
-  /// See [StatefulWidget.createState].
-  @override
-  State<_PairingCodeForm> createState() => _PairingCodeFormState();
-}
-
-/// State for [_PairingCodeForm].
-class _PairingCodeFormState extends State<_PairingCodeForm> {
-  /// Controls the six-digit code field.
-  final TextEditingController _codeController = TextEditingController();
-
-  /// Controls the optional display-name field.
-  final TextEditingController _displayNameController =
-      TextEditingController();
-
-  /// Owns focus for the code field, fixing its place first in traversal
-  /// order ahead of the display-name field.
-  final FocusNode _codeFocusNode = FocusNode();
-
-  /// Owns focus for the display-name field.
-  final FocusNode _displayNameFocusNode = FocusNode();
-
-  /// See [State.dispose].
-  @override
-  void dispose() {
-    _codeController.dispose();
-    _displayNameController.dispose();
-    _codeFocusNode.dispose();
-    _displayNameFocusNode.dispose();
-    super.dispose();
-  }
-
-  /// See [State.build].
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text('Enter the code shown in Skyrim.'),
-        const SizedBox(height: 8),
-        TextField(
-          key: const Key('pairing-code-field'),
-          controller: _codeController,
-          focusNode: _codeFocusNode,
-          maxLength: 6,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Pairing code'),
-        ),
-        TextField(
-          key: const Key('pairing-display-name-field'),
-          controller: _displayNameController,
-          focusNode: _displayNameFocusNode,
-          decoration: const InputDecoration(
-            labelText: 'Device name (optional)',
-          ),
-        ),
-        const SizedBox(height: 8),
-        ElevatedButton(
-          key: const Key('pairing-confirm-button'),
-          onPressed: () {
-            final String code = _codeController.text.trim();
-            final String displayName = _displayNameController.text.trim();
-            widget.onSubmit(code, displayName.isEmpty ? null : displayName);
-          },
-          child: const Text('Confirm'),
-        ),
-      ],
     );
   }
 }

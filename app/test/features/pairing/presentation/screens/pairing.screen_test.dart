@@ -5,6 +5,11 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
@@ -19,6 +24,11 @@ Middleware<AppState> _spy(List<Object?> dispatchedActions) {
 }
 
 /// Exercises pairing-screen rendering, dispatch, and accessibility behavior.
+///
+/// Per-widget rendering/interaction detail (button labels, form field
+/// behavior, focus order) lives in each extracted widget's own test file
+/// under `presentation/widgets/`; this file only proves the screen selects
+/// the correct widget per phase and wires Redux dispatch correctly.
 void main() {
   setUp(initDependencies);
 
@@ -38,7 +48,7 @@ void main() {
       );
 
       expect(find.text('Connecting'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
+      expect(find.byType(PairingLoadingIndicator), findsOneWidget);
     });
 
     testWidgets('contains the request-code button when unpaired', (
@@ -63,10 +73,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Not paired'), findsOneWidget);
-      expect(
-        find.byKey(const Key('pairing-request-code-button')),
-        findsOneWidget,
-      );
+      expect(find.byType(PairingRequestCodeButton), findsOneWidget);
     });
 
     testWidgets(
@@ -113,12 +120,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Awaiting code'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
-      expect(
-        find.byKey(const Key('pairing-display-name-field')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
+      expect(find.byType(PairingCodeForm), findsOneWidget);
     });
 
     testWidgets(
@@ -210,8 +212,7 @@ void main() {
       store.dispatch(const PairingConfirmedAction());
       await tester.pump();
 
-      expect(find.text('Paired'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-trusted')), findsOneWidget);
+      expect(find.byType(PairingTrustedIndicator), findsOneWidget);
     });
 
     testWidgets(
@@ -231,9 +232,9 @@ void main() {
         await tester.pump();
 
         expect(find.text('Waiting for bridge'), findsOneWidget);
-        expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
+        expect(find.byType(PairingLoadingIndicator), findsOneWidget);
         expect(find.byKey(const Key('pairing-error')), findsNothing);
-        expect(find.byKey(const Key('pairing-retry-button')), findsNothing);
+        expect(find.byType(PairingRetryButton), findsNothing);
       },
     );
 
@@ -256,7 +257,7 @@ void main() {
       expect(find.text('Failed'), findsOneWidget);
       expect(find.byKey(const Key('pairing-error')), findsOneWidget);
       expect(find.text("That code isn't correct."), findsOneWidget);
-      expect(find.byKey(const Key('pairing-retry-button')), findsOneWidget);
+      expect(find.byType(PairingRetryButton), findsOneWidget);
     });
 
     testWidgets(
@@ -278,7 +279,7 @@ void main() {
         await tester.pump();
 
         expect(find.text('Connecting'), findsOneWidget);
-        expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
+        expect(find.byType(PairingLoadingIndicator), findsOneWidget);
       },
     );
 
@@ -368,47 +369,6 @@ void main() {
       }
     });
 
-    testWidgets(
-      'labels the request-code button and meets its minimum interactive size',
-      (WidgetTester tester) async {
-        // DovahLink is a Windows desktop app, not a touch device, so this
-        // checks labeledTapTargetGuideline (semantic labeling, platform-
-        // neutral) and Material's own kMinInteractiveDimension directly,
-        // rather than the mobile-specific androidTapTargetGuideline/
-        // iOSTapTargetGuideline -- the app theme's default
-        // VisualDensity.adaptivePlatformDensity shrinks targets below the
-        // 48dp mobile touch guideline on desktop by design, which is not an
-        // accessibility defect here.
-        final SemanticsHandle handle = tester.ensureSemantics();
-        try {
-          final Store<AppState> store = const CreateStore()();
-          await tester.pumpWidget(
-            MaterialApp(
-              home: StoreProvider<AppState>(
-                store: store,
-                child: const PairingScreen(),
-              ),
-            ),
-          );
-          store.dispatch(
-            const PairingAuthenticatedAction(
-              bridgeVersion: '1.2.3',
-              trusted: false,
-            ),
-          );
-          await tester.pump();
-
-          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-          final Size buttonSize = tester.getSize(
-            find.byKey(const Key('pairing-request-code-button')),
-          );
-          expect(buttonSize.height, greaterThanOrEqualTo(kMinInteractiveDimension));
-        } finally {
-          handle.dispose();
-        }
-      },
-    );
-
     testWidgets('meets text contrast guidelines when displaying an error', (
       WidgetTester tester,
     ) async {
@@ -435,6 +395,11 @@ void main() {
     });
 
     testWidgets(
+      // Known pre-existing gap (tracked separately): the code form alone
+      // does not overflow at 2x text scale (see
+      // pairing_code_form.widget_test.dart), but the full screen's
+      // cumulative stacking (title + status label + form) does. Kept here,
+      // not deleted, so this regression stays caught until fixed.
       'lays out the code form without overflow at a large text scale',
       (WidgetTester tester) async {
         final Store<AppState> store = const CreateStore()();
@@ -457,55 +422,6 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
         expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
-      },
-    );
-
-    testWidgets(
-      'traverses focus from the code field to the display-name field in order',
-      (WidgetTester tester) async {
-        final Store<AppState> store = const CreateStore()();
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const PairingScreen(),
-            ),
-          ),
-        );
-        store.dispatch(const PairingCodeAvailableAction());
-        await tester.pump();
-
-        final Finder codeField = find.byKey(const Key('pairing-code-field'));
-        final Finder displayNameField = find.byKey(
-          const Key('pairing-display-name-field'),
-        );
-        // TextField wraps EditableText around the FocusNode it was given;
-        // reading it back from that descendant is the reliable way to
-        // identify one specific field's own focus state in a widget test.
-        final FocusNode codeFocusNode = tester
-            .widget<EditableText>(
-              find.descendant(of: codeField, matching: find.byType(EditableText)),
-            )
-            .focusNode;
-        final FocusNode displayNameFocusNode = tester
-            .widget<EditableText>(
-              find.descendant(
-                of: displayNameField,
-                matching: find.byType(EditableText),
-              ),
-            )
-            .focusNode;
-
-        await tester.tap(codeField);
-        await tester.pump();
-        expect(codeFocusNode.hasFocus, isTrue);
-        expect(displayNameFocusNode.hasFocus, isFalse);
-
-        codeFocusNode.nextFocus();
-        await tester.pump();
-
-        expect(codeFocusNode.hasFocus, isFalse);
-        expect(displayNameFocusNode.hasFocus, isTrue);
       },
     );
   });
