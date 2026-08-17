@@ -87,6 +87,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   boilerplate required by `json_serializable`; it is not a general constructor pattern.
 - Actions are the only permitted multi-class file exception, because action declarations and their closely related action value types are intentionally grouped.
 - A `StatefulWidget` and its paired `State<T>` class may also share a file.
+- A private widget class, or a method that returns widgets for a parent to render, still gets its
+  own file with the appropriate suffix; being private is not a one-class-per-file exemption.
 - Keep use cases to one public operation.
 - Keep view models as thin presentation connectors; business logic belongs in domain or state logic.
 - Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
@@ -107,6 +109,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 - Use Redux when a value is read by another screen, drives a use case, or must persist beyond one
   widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
+- Give a widget or section its own ViewModel, not just the parent Screen's, when many
+  independently-updating widgets are mounted at once and a shared ViewModel would rebuild all of
+  them on any single field's change.
 - The normal chain is `Screen/Section -> ViewModel -> Action -> Middleware -> ResultAction ->
   Reducer -> AppState -> StoreConnector`.
 - Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
