@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import '../enums.dart';
 import 'json_map.dart';
 import 'protocol_format_exception.dart';
 
@@ -9,23 +10,23 @@ part 'hello_payloads.g.dart';
 /// decodes its own `hello`, so this is hand-written rather than generated -- a single nested `auth`
 /// object is simpler to construct directly than to justify a generated companion for.
 class HelloPayload {
-  /// Creates a hello payload. [authToken] is required for `one_time_local_token` and
-  /// `trusted_device_credential`, and must be absent (not merely null) for `unpaired`.
+  /// Creates a hello payload. [authToken] is required for [AuthMethod.oneTimeLocalToken] and
+  /// [AuthMethod.trustedDeviceCredential], and must be absent (not merely null) for
+  /// [AuthMethod.unpaired].
   const HelloPayload({
     required this.clientId,
     required this.authMethod,
     this.authToken,
   }) : assert(
-         (authMethod == 'unpaired') == (authToken == null),
+         (authMethod == AuthMethod.unpaired) == (authToken == null),
          'authToken must be absent for unpaired, and present for every other auth method.',
        );
 
   /// The logical client/installation identity, independent of any connection.
   final String clientId;
 
-  /// The wire value of `auth.method`: `one_time_local_token`, `unpaired`, or
-  /// `trusted_device_credential`.
-  final String authMethod;
+  /// The auth method presented in `auth.method`.
+  final AuthMethod authMethod;
 
   /// The hex-encoded credential or token, when [authMethod] requires one.
   final String? authToken;
@@ -35,11 +36,18 @@ class HelloPayload {
     'endpoint': 'client',
     'clientId': clientId,
     'auth': <String, dynamic>{
-      'method': authMethod,
+      'method': _wireAuthMethod(authMethod),
       if (authToken != null) 'token': authToken,
     },
   };
 }
+
+/// Encodes [authMethod] as its `hello.auth.method` wire value.
+String _wireAuthMethod(AuthMethod authMethod) => switch (authMethod) {
+  AuthMethod.unpaired => 'unpaired',
+  AuthMethod.oneTimeLocalToken => 'one_time_local_token',
+  AuthMethod.trustedDeviceCredential => 'trusted_device_credential',
+};
 
 /// Incoming `hello_ack` payload (`protocol/schema/README.md`'s `hello_ack`). Decode-only: the
 /// client never sends its own `hello_ack`.

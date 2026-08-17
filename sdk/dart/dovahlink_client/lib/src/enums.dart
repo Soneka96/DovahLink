@@ -23,6 +23,18 @@ enum DovahLinkTrustState {
   trusted,
 }
 
+/// The wire value of `hello.auth.method` (`protocol/schema/README.md`'s `hello`).
+enum AuthMethod {
+  /// No credential presented yet; admits a trust-restricted session solely to run pairing.
+  unpaired,
+
+  /// Explicit developer authentication via a locally configured one-time token.
+  oneTimeLocalToken,
+
+  /// The persisted credential a completed pairing issued.
+  trustedDeviceCredential,
+}
+
 // ---- Pairing ----
 
 /// The bridge's report of pairing availability, from `DovahLinkClient.requestPairing`.

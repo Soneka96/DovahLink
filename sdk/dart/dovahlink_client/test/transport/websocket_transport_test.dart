@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/enums.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payloads.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
@@ -50,7 +51,7 @@ void main() {
           correlationId: null,
           payload: const HelloPayload(
             clientId: 'client-1',
-            authMethod: 'unpaired',
+            authMethod: AuthMethod.unpaired,
           ).toJson(),
           bridgeInstanceId: null,
           playContextId: null,

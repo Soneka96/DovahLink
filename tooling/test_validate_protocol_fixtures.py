@@ -256,6 +256,7 @@ class ValidateAllTests(unittest.TestCase):
             "errors/error-malformed-message.json",
             "errors/error-rate-limited.json",
             "errors/error-replayed-message.json",
+            "errors/error-revoked.json",
             "errors/error-stale-session.json",
             "errors/error-unauthenticated-expired-token.json",
             "errors/error-unauthenticated-invalid-token.json",

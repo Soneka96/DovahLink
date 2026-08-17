@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/enums.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payloads.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
@@ -19,7 +20,7 @@ void main() {
       test('toJson matches the canonical one_time_local_token fixture', () {
         const HelloPayload payload = HelloPayload(
           clientId: 'client-1',
-          authMethod: 'one_time_local_token',
+          authMethod: AuthMethod.oneTimeLocalToken,
           authToken: 'redacted-in-documentation',
         );
 
@@ -34,7 +35,7 @@ void main() {
         () {
           const HelloPayload payload = HelloPayload(
             clientId: 'client-1',
-            authMethod: 'trusted_device_credential',
+            authMethod: AuthMethod.trustedDeviceCredential,
             authToken: 'redacted-in-documentation',
           );
 
@@ -52,7 +53,7 @@ void main() {
         () {
           const HelloPayload payload = HelloPayload(
             clientId: 'client-1',
-            authMethod: 'unpaired',
+            authMethod: AuthMethod.unpaired,
           );
 
           final JsonMap json = payload.toJson();
@@ -70,7 +71,7 @@ void main() {
         expect(
           () => HelloPayload(
             clientId: 'client-1',
-            authMethod: 'unpaired',
+            authMethod: AuthMethod.unpaired,
             authToken: 'x',
           ),
           throwsA(isA<AssertionError>()),
@@ -83,7 +84,7 @@ void main() {
           expect(
             () => HelloPayload(
               clientId: 'client-1',
-              authMethod: 'trusted_device_credential',
+              authMethod: AuthMethod.trustedDeviceCredential,
             ),
             throwsA(isA<AssertionError>()),
           );

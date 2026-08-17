@@ -99,7 +99,9 @@ class DovahLinkClient {
 
     final HelloPayload payload = HelloPayload(
       clientId: clientId,
-      authMethod: credential == null ? 'unpaired' : 'trusted_device_credential',
+      authMethod: credential == null
+          ? AuthMethod.unpaired
+          : AuthMethod.trustedDeviceCredential,
       authToken: credential,
     );
     try {
