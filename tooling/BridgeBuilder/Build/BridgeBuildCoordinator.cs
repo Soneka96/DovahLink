@@ -25,17 +25,23 @@ public sealed class BridgeBuildCoordinator
     /// <summary>Provides the Visual Studio toolchain used by the build.</summary>
     private readonly Func<VisualStudioToolchain> toolchainProvider;
 
+    /// <summary>Provides the Papyrus compiler toolchain used to compile the console-admin script.</summary>
+    private readonly Func<PapyrusToolchain> papyrusToolchainProvider;
+
     /// <summary>
     /// Initializes a coordinator for building and packaging the bridge.
     /// </summary>
     /// <param name="commandRunner">The command runner used to execute the build.</param>
     /// <param name="toolchainProvider">The provider used to obtain the Visual Studio toolchain.</param>
+    /// <param name="papyrusToolchainProvider">The provider used to obtain the Papyrus compiler toolchain.</param>
     public BridgeBuildCoordinator(
         ICommandRunner commandRunner,
-        Func<VisualStudioToolchain> toolchainProvider)
+        Func<VisualStudioToolchain> toolchainProvider,
+        Func<PapyrusToolchain> papyrusToolchainProvider)
     {
         this.commandRunner = commandRunner;
         this.toolchainProvider = toolchainProvider;
+        this.papyrusToolchainProvider = papyrusToolchainProvider;
     }
 
     /// <summary>
@@ -89,6 +95,24 @@ public sealed class BridgeBuildCoordinator
         }
 
         string buildOutputRoot = Path.Combine(bridgeRoot, "build", ReleaseBuildDirectory);
+
+        onOutput?.Invoke("Compiling the DovahLink admin console script...");
+        PapyrusToolchain papyrusToolchain = PapyrusToolchainLocator.Validate(papyrusToolchainProvider());
+        string consoleAdminRoot = Path.Combine(repositoryRoot, "console-admin");
+        BuildCommand papyrusCommand = BuildCommand.CreatePapyrusCompile(
+            Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc"),
+            papyrusToolchain,
+            buildOutputRoot);
+        int papyrusExitCode = await commandRunner.RunAsync(papyrusCommand, onOutput, onOutput, cancellationToken);
+        if (papyrusExitCode != 0)
+        {
+            throw new InvalidOperationException($"The Papyrus compile failed with exit code {papyrusExitCode}.");
+        }
+        File.Copy(
+            Path.Combine(consoleAdminRoot, "dovahlink.yaml"),
+            Path.Combine(buildOutputRoot, "dovahlink.yaml"),
+            overwrite: true);
+
         string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
         Directory.CreateDirectory(outputRoot);
 
