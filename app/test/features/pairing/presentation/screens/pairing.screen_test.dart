@@ -49,7 +49,7 @@ void main() {
     when(() => mockViewModel.onRequestCode).thenReturn(() {});
     when(
       () => mockViewModel.onSubmitCode,
-    ).thenReturn((String _, String? __) {});
+    ).thenReturn((String _, String? _) {});
     when(() => mockViewModel.onBack).thenReturn(() {});
     sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
       Store<AppState> store,

@@ -59,7 +59,7 @@ void main() {
 
   Widget buildWidget() => StoreProvider<AppState>(
     store: store,
-    child: MaterialApp(home: const ConnectionStatusScreen()),
+    child: const MaterialApp(home: ConnectionStatusScreen()),
   );
 
   group('ConnectionStatusScreen contains widgets', () {
