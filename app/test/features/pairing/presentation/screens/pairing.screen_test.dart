@@ -5,6 +5,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
@@ -50,6 +51,69 @@ void main() {
       expect(find.text('Connecting'), findsOneWidget);
       expect(find.byType(PairingLoadingIndicator), findsOneWidget);
     });
+
+    testWidgets('contains the back button on mount', (
+      WidgetTester tester,
+    ) async {
+      final Store<AppState> store = const CreateStore()();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoreProvider<AppState>(
+            store: store,
+            child: const PairingScreen(),
+          ),
+        ),
+      );
+
+      expect(find.byType(PairingBackButton), findsOneWidget);
+    });
+
+    testWidgets('tapping the back button dispatches PairingBackRequestedAction', (
+      WidgetTester tester,
+    ) async {
+      final List<Object?> dispatchedActions = [];
+      final Store<AppState> store = const CreateStore()(
+        middleware: [_spy(dispatchedActions)],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoreProvider<AppState>(
+            store: store,
+            child: const PairingScreen(),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('pairing-back-button')));
+      await tester.pump();
+
+      expect(dispatchedActions, contains(const PairingBackRequestedAction()));
+    });
+
+    testWidgets(
+      'contains the back button once trusted, not just while connecting',
+      (WidgetTester tester) async {
+        // The back button sits in the AppBar, outside the phase switch that
+        // picks the body content, so this and the mount-time check together
+        // cover it: unconditional placement means no phase can hide it.
+        final Store<AppState> store = const CreateStore()();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const PairingScreen(),
+            ),
+          ),
+        );
+
+        store.dispatch(const PairingConfirmedAction());
+        await tester.pump();
+
+        expect(find.byType(PairingBackButton), findsOneWidget);
+      },
+    );
 
     testWidgets('contains the request-code button when unpaired', (
       WidgetTester tester,

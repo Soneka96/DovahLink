@@ -15,6 +15,8 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.mid
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
+import 'package:dovahlink_client/shared/navigation/app_routes.dart';
+import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
@@ -31,6 +33,10 @@ class MockConfirmPairingCodeUseCase extends Mock
 
 class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 
+/// Mocktail double for [NavigatorService], matching this project's existing
+/// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
+class MockNavigatorService extends Mock implements NavigatorService {}
+
 /// Exercises [PairingMiddleware]'s dispatched-action forwarding, using a real
 /// store with the mocked use cases registered behind [sl].
 void main() {
@@ -38,6 +44,7 @@ void main() {
   late MockRequestPairingUseCase mockRequestPairing;
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
+  late MockNavigatorService mockNavigatorService;
   late Store<AppState> store;
 
   setUpAll(() {
@@ -50,12 +57,14 @@ void main() {
     mockRequestPairing = MockRequestPairingUseCase();
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
     mockDisconnect = MockDisconnectUseCase();
+    mockNavigatorService = MockNavigatorService();
     sl.registerLazySingleton<AuthenticateUseCase>(() => mockAuthenticate);
     sl.registerLazySingleton<RequestPairingUseCase>(() => mockRequestPairing);
     sl.registerLazySingleton<ConfirmPairingCodeUseCase>(
       () => mockConfirmPairingCode,
     );
     sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
+    sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
     store = const CreateStore()(middleware: [PairingMiddleware().call]);
   });
 
@@ -301,6 +310,14 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       verifyNever(() => mockDisconnect(any()));
+    });
+  });
+
+  group('PairingMiddleware — PairingBackRequestedAction', () {
+    test('navigates to the home route', () {
+      store.dispatch(const PairingBackRequestedAction());
+
+      verify(() => mockNavigatorService.go(AppRoutes.home)).called(1);
     });
   });
 }

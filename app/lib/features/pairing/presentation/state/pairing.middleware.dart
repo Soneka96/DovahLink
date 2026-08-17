@@ -10,6 +10,8 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
+import 'package:dovahlink_client/shared/navigation/app_routes.dart';
+import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
@@ -38,6 +40,8 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         _pairingCodeSubmitted(store, action);
       case PairingDisposedAction _:
         _pairingDisposed(store, action);
+      case PairingBackRequestedAction _:
+        _pairingBackRequested(store, action);
     }
   }
 
@@ -136,5 +140,13 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       return;
     }
     await sl<DisconnectUseCase>()(NoParams());
+  }
+
+  /// Handles [PairingBackRequestedAction] by navigating to home.
+  void _pairingBackRequested(
+    Store<AppState> store,
+    PairingBackRequestedAction action,
+  ) {
+    sl<NavigatorService>().go(AppRoutes.home);
   }
 }

@@ -117,5 +117,25 @@ void main() {
         expect(store.state.pairing.phase, PairingPhase.confirming);
       },
     );
+
+    test('onBack dispatches PairingBackRequestedAction', () {
+      // PairingBackRequestedAction has no reducer effect (pure navigation),
+      // so dispatch is observed directly rather than through a phase change.
+      final List<Object?> dispatchedActions = [];
+      final Store<AppState> store = const CreateStore()(
+        middleware: [
+          (Store<AppState> store, dynamic action, NextDispatcher next) {
+            dispatchedActions.add(action);
+            next(action);
+          },
+        ],
+      );
+      final PairingScreenViewModel viewModel =
+          PairingScreenViewModel.fromStore(store);
+
+      viewModel.onBack();
+
+      expect(dispatchedActions, contains(const PairingBackRequestedAction()));
+    });
   });
 }

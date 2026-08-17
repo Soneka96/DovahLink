@@ -103,6 +103,16 @@ class PairingFailedAction extends Equatable {
   List<Object?> get props => [message];
 }
 
+/// Requests leaving the pairing screen and returning to home.
+class PairingBackRequestedAction extends Equatable {
+  /// Creates a back-navigation request.
+  const PairingBackRequestedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
 /// Closes the pairing session and resets its state.
 class PairingDisposedAction extends Equatable {
   /// Creates a disposed-state action. [wasTrusted] is captured at dispatch time, before the

@@ -4,6 +4,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
@@ -36,6 +37,9 @@ class PairingScreen extends StatelessWidget {
       builder: (BuildContext context, PairingScreenViewModel viewModel) {
         final String? error = viewModel.error;
         return Scaffold(
+          appBar: AppBar(
+            leading: PairingBackButton(onBack: viewModel.onBack),
+          ),
           // LayoutBuilder + a min-height ConstrainedBox keeps the normal case centered exactly as
           // before, while letting content that's taller than the viewport at a large text scale
           // scroll instead of overflowing.
