@@ -40,6 +40,15 @@ void main() {
         expect(payload.retryable, isTrue);
       });
 
+      test('fromJson decodes a non-retryable revoked-credential failure', () {
+        final ErrorPayload payload = ErrorPayload.fromJson(
+          _readPayload('errors/error-revoked.json'),
+        );
+
+        expect(payload.code, 'revoked');
+        expect(payload.retryable, isFalse);
+      });
+
       test('fromJson rejects a payload missing a required key', () {
         final JsonMap withMissingKey = _readPayload(
           'errors/error-rate-limited.json',

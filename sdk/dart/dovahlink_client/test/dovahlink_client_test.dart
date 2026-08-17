@@ -281,6 +281,38 @@ void main() {
     );
 
     test(
+      'a revoked-credential rejection throws DovahLinkProtocolException with code revoked',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'deadbeef',
+          ),
+        );
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException e) => e.code,
+                  'code',
+                  'revoked',
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.retryable,
+                  'retryable',
+                  isFalse,
+                ),
+          ),
+        );
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+      },
+    );
+
+    test(
       'a freshly generated clientId is still persisted even when the hello_ack is rejected',
       () async {
         transport.queueResponse(
