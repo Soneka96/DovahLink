@@ -83,6 +83,68 @@ public class PairingScenarioTests
     }
 
     /// <summary>
+    /// Verifies that a revoked client's next reconnect attempt with its old credential receives
+    /// the distinct "revoked" wire outcome (protocol/schema/README.md), not the generic
+    /// "unauthenticated" a never-paired or wrong-credential client gets, and that the connection
+    /// closes immediately like every other non-retryable handshake rejection.
+    /// </summary>
+    [Fact]
+    public async Task RevokedCredentialReconnectReceivesARevokedOutcome()
+    {
+        string trustStorePath = CreateIsolatedTrustStorePath();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        await connection.CloseAsync();
+
+        // Revokes the just-paired clientId through the harness's test-only revoke command
+        // (bridge/harness/dovahlink_bridge_harness.cpp) rather than the real TrustAdminService
+        // console-admin surface, which this headless harness has no Papyrus layer to drive.
+        await harness.WriteLineAsync("revoke client-1");
+        Assert.Equal("REVOKED client-1", await harness.ReadLineAsync());
+
+        await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
+        Envelope error = await reconnect.ReceiveAsync();
+        Assert.Equal("error", error.MessageType);
+        Assert.Equal("revoked", error.Payload["code"]!.GetValue<string>());
+        Assert.False(error.Payload["retryable"]!.GetValue<bool>());
+
+        // A revoked outcome closes the connection immediately, matching every other non-retryable
+        // handshake rejection (AuthScenarioTests.cs's invalid-token case).
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reconnect.ReceiveAsync());
+        await reconnect.CloseAsync();
+
+        // The revoked rejection must not wedge the connection slot: a fresh, unrelated connection
+        // still succeeds afterward, mirroring AuthScenarioTests.cs's real-token-still-works proof
+        // (InvalidTokenIsRejectedAndTheRealTokenStaysAvailable).
+        await using BridgeConnection healthyConnection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await healthyConnection.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope healthyHelloAck = await healthyConnection.ReceiveAsync();
+        Assert.Equal("hello_ack", healthyHelloAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, healthyConnection);
+    }
+
+    /// <summary>
     /// Verifies the reconnect-semantics policy in security.md's "Connection liveness" (bounded
     /// short retry/backoff over same-client takeover) for a real crash, not just a graceful close:
     /// after pairing, an abrupt disconnect immediately followed by a rapid reconnect using the
