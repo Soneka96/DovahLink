@@ -70,6 +70,7 @@ class PairingScreen extends StatelessWidget {
     switch (viewModel.phase) {
       case PairingPhase.none:
       case PairingPhase.connecting:
+      case PairingPhase.disconnected:
       case PairingPhase.requestingCode:
       case PairingPhase.confirming:
         return const [CircularProgressIndicator(key: Key('pairing-loading'))];

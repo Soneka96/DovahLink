@@ -214,6 +214,29 @@ void main() {
       expect(find.byKey(const Key('pairing-trusted')), findsOneWidget);
     });
 
+    testWidgets(
+      'shows a neutral waiting state with no error when the bridge is disconnected',
+      (WidgetTester tester) async {
+        final Store<AppState> store = const CreateStore()();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const PairingScreen(),
+            ),
+          ),
+        );
+
+        store.dispatch(const PairingDisconnectedAction());
+        await tester.pump();
+
+        expect(find.text('Waiting for bridge'), findsOneWidget);
+        expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
+        expect(find.byKey(const Key('pairing-error')), findsNothing);
+        expect(find.byKey(const Key('pairing-retry-button')), findsNothing);
+      },
+    );
+
     testWidgets('displays a pairing error and a retry button when failed', (
       WidgetTester tester,
     ) async {
@@ -312,6 +335,33 @@ void main() {
         expect(
           tester.getSemantics(find.byKey(const Key('pairing-status'))),
           matchesSemantics(label: 'Connecting'),
+        );
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('exposes the disconnected status label as semantics', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        final Store<AppState> store = const CreateStore()();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const PairingScreen(),
+            ),
+          ),
+        );
+
+        store.dispatch(const PairingDisconnectedAction());
+        await tester.pump();
+
+        expect(
+          tester.getSemantics(find.byKey(const Key('pairing-status'))),
+          matchesSemantics(label: 'Waiting for bridge'),
         );
       } finally {
         handle.dispose();
