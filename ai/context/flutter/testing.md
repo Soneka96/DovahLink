@@ -48,6 +48,16 @@
 - Repositories have an identity group and one behavior group per method, including exact datasource
   calls and symmetric no-call branches.
 - Reducers test handled actions and a separate unhandled-action pass-through case.
+- Middleware tests call `middleware.call(store, action, next)` directly rather than dispatching
+  through a real `Store` -- against a mocktail `MockStore` (`store.state` stubbed per test, no
+  live reducer behind it), the same "mock every `sl<>()`-resolved dependency, no real store"
+  approach widget tests use. `next` and `store.dispatch` both append to one shared action log
+  (`void next(dynamic action) => actionLog.add(action);`,
+  `when(() => store.dispatch(any())).thenAnswer((i) => actionLog.add(i.positionalArguments[0]));`),
+  so the log holds the triggering action first (recorded by `next`, since the handled action is
+  invoked directly rather than dispatched into a chain) followed by whatever the middleware itself
+  dispatches as a result -- those result actions are only ever logged, never actually reduced.
+  Assert against the log's contents and order, never a reducer-derived `store.state`.
 - Datasource tests cover every distinct catch, guard, explicit throw, and malformed-input branch.
 
 ## Test naming

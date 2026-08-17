@@ -4,6 +4,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -12,13 +13,13 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
-import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
 import '../../fixtures/pairing.fixture.dart';
@@ -37,15 +38,35 @@ class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
 class MockNavigatorService extends Mock implements NavigatorService {}
 
-/// Exercises [PairingMiddleware]'s dispatched-action forwarding, using a real
-/// store with the mocked use cases registered behind [sl].
+/// Mocktail double for [Store], called directly rather than dispatched
+/// through -- `dispatch` and the middleware's own `next` both append to one
+/// action log, so no real reducer is involved and `store.state` is exactly
+/// whatever a test stubs.
+class MockStore extends Mock implements Store<AppState> {}
+
+/// Builds an [AppState] with the given pairing [phase], the only field
+/// [PairingMiddleware] itself ever reads from the Store.
+AppState _stateWithPhase(PairingPhase phase) => AppState(
+  connection: ConnectionState.initial(),
+  pairing: PairingState(phase: phase, bridgeVersion: null, error: null),
+);
+
+/// Exercises [PairingMiddleware] in isolation: each test calls
+/// `middleware.call(store, action, next)` directly with the action under
+/// test, rather than dispatching through a real Store -- `next` and the
+/// mocked `store.dispatch` both log into [actionLog], so any action the
+/// middleware itself dispatches is observed there, never reduced.
 void main() {
+  late PairingMiddleware middleware;
   late MockAuthenticateUseCase mockAuthenticate;
   late MockRequestPairingUseCase mockRequestPairing;
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
   late MockNavigatorService mockNavigatorService;
-  late Store<AppState> store;
+  late MockStore store;
+  late List<Object?> actionLog;
+
+  void next(dynamic action) => actionLog.add(action);
 
   setUpAll(() {
     registerFallbackValue(NoParams());
@@ -53,6 +74,7 @@ void main() {
 
   setUp(() async {
     await sl.reset();
+    middleware = PairingMiddleware();
     mockAuthenticate = MockAuthenticateUseCase();
     mockRequestPairing = MockRequestPairingUseCase();
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
@@ -65,7 +87,28 @@ void main() {
     );
     sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
     sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
-    store = const CreateStore()(middleware: [PairingMiddleware().call]);
+
+    actionLog = [];
+    store = MockStore();
+    when(() => store.dispatch(any())).thenAnswer(
+      (Invocation invocation) =>
+          actionLog.add(invocation.positionalArguments[0]),
+    );
+    // Baseline default so a real Future.delayed from _scheduleReconnect that
+    // outlives its own test (only the fakeAsync tests elapse it themselves)
+    // reads a valid stub instead of throwing on a store already reset by
+    // tearDown.
+    when(() => store.state).thenReturn(_stateWithPhase(PairingPhase.none));
+  });
+
+  tearDown(() async {
+    await sl.reset();
+    reset(mockAuthenticate);
+    reset(mockRequestPairing);
+    reset(mockConfirmPairingCode);
+    reset(mockDisconnect);
+    reset(mockNavigatorService);
+    reset(store);
   });
 
   group('PairingMiddleware — PairingStartedAction', () {
@@ -79,11 +122,19 @@ void main() {
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
 
-        store.dispatch(const PairingStartedAction());
+        middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.state.pairing.phase, PairingPhase.unpaired);
-        expect(store.state.pairing.bridgeVersion, handshake.bridgeVersion);
+        expect(actionLog[0], isA<PairingStartedAction>());
+        expect(actionLog[1], isA<PairingAuthenticatedAction>());
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction).bridgeVersion,
+          handshake.bridgeVersion,
+        );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction).trusted,
+          handshake.trusted,
+        );
         verify(() => mockAuthenticate(any())).called(1);
       },
     );
@@ -96,11 +147,13 @@ void main() {
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => const Left(failure));
 
-        store.dispatch(const PairingStartedAction());
+        middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.state.pairing.phase, PairingPhase.disconnected);
-        expect(store.state.pairing.error, isNull);
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          isA<PairingDisconnectedAction>(),
+        ]);
       },
     );
 
@@ -112,102 +165,110 @@ void main() {
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => const Left(failure));
 
-        store.dispatch(const PairingStartedAction());
+        middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.state.pairing.phase, PairingPhase.failed);
-        expect(store.state.pairing.error, 'rejected');
+        expect(actionLog[0], isA<PairingStartedAction>());
+        expect(actionLog[1], const PairingFailedAction('rejected'));
       },
     );
 
     test(
-      'retries PairingStartedAction after reconnectDelay when still disconnected',
+      'schedules a retry that dispatches PairingStartedAction again after reconnectDelay when the Store still reports disconnected',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
-          final Store<AppState> retryStore = const CreateStore()(
-            middleware: [PairingMiddleware(reconnectDelay: delay).call],
-          );
-          const NetworkFailure failure = NetworkFailure('unreachable');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
-
-          retryStore.dispatch(const PairingStartedAction());
-          async.flushMicrotasks();
-          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
-
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
-          verify(() => mockAuthenticate(any())).called(2);
-        });
-      },
-    );
-
-    test(
-      'does not retry once PairingDisposedAction fires before reconnectDelay elapses',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final Store<AppState> retryStore = const CreateStore()(
-            middleware: [PairingMiddleware(reconnectDelay: delay).call],
+          final PairingMiddleware retryMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
           );
           const NetworkFailure failure = NetworkFailure('unreachable');
           when(
             () => mockAuthenticate(any()),
           ).thenAnswer((_) async => const Left(failure));
           when(
-            () => mockDisconnect(any()),
-          ).thenAnswer((_) async => const Right(unit));
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
 
-          retryStore.dispatch(const PairingStartedAction());
+          retryMiddleware.call(store, const PairingStartedAction(), next);
           async.flushMicrotasks();
-          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
 
-          // Disposes well before delay elapses; the scheduled retry's own
-          // phase guard must suppress it once virtual time catches up.
-          retryStore.dispatch(const PairingDisposedAction(wasTrusted: false));
           async.elapse(delay);
           async.flushMicrotasks();
 
-          expect(retryStore.state.pairing.phase, PairingPhase.none);
+          // The retry's redispatch is only ever logged here, never fed back
+          // through the middleware -- it does not itself call authenticate
+          // again, matching how a directly-invoked middleware call never
+          // recurses through its own dispatched actions.
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
           verify(() => mockAuthenticate(any())).called(1);
         });
       },
     );
 
     test(
-      'does not retry once a real reconnect moves the phase off disconnected before reconnectDelay elapses',
+      'does not retry once the Store no longer reports disconnected (e.g. disposed) before reconnectDelay elapses',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
-          final Store<AppState> retryStore = const CreateStore()(
-            middleware: [PairingMiddleware(reconnectDelay: delay).call],
+          final PairingMiddleware retryMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
           );
           const NetworkFailure failure = NetworkFailure('unreachable');
           when(
             () => mockAuthenticate(any()),
           ).thenAnswer((_) async => const Left(failure));
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
 
-          retryStore.dispatch(const PairingStartedAction());
+          retryMiddleware.call(store, const PairingStartedAction(), next);
           async.flushMicrotasks();
-          expect(retryStore.state.pairing.phase, PairingPhase.disconnected);
 
-          // A real reconnect (e.g. a manual retry landing before the
-          // scheduled one) moves the phase off disconnected well before
-          // delay elapses; the scheduled retry must not stomp back over it.
-          retryStore.dispatch(
-            const PairingAuthenticatedAction(
-              bridgeVersion: '1.2.3',
-              trusted: false,
-            ),
-          );
+          // Disposes well before delay elapses -- PairingDisposedAction's
+          // reducer would reset the phase away from disconnected; simulated
+          // directly since no real reducer runs against a mocked Store.
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.none));
           async.elapse(delay);
           async.flushMicrotasks();
 
-          expect(retryStore.state.pairing.phase, PairingPhase.unpaired);
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
+          verify(() => mockAuthenticate(any())).called(1);
+        });
+      },
+    );
+
+    test(
+      'does not retry once the Store reports a phase other than disconnected before reconnectDelay elapses',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final PairingMiddleware retryMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
+          );
+          const NetworkFailure failure = NetworkFailure('unreachable');
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => const Left(failure));
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+
+          retryMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+
+          // A real reconnect (e.g. a manual retry landing before the
+          // scheduled one) would move the phase off disconnected via the
+          // reducer; simulated directly since no real reducer runs against
+          // a mocked Store.
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.unpaired));
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
           verify(() => mockAuthenticate(any())).called(1);
         });
       },
@@ -222,10 +283,13 @@ void main() {
           () => mockRequestPairing(any()),
         ).thenAnswer((_) async => const Right(unit));
 
-        store.dispatch(const PairingCodeRequestedAction());
+        middleware.call(store, const PairingCodeRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.state.pairing.phase, PairingPhase.awaitingCode);
+        expect(actionLog, [
+          isA<PairingCodeRequestedAction>(),
+          isA<PairingCodeAvailableAction>(),
+        ]);
       },
     );
 
@@ -235,11 +299,11 @@ void main() {
         () => mockRequestPairing(any()),
       ).thenAnswer((_) async => const Left(failure));
 
-      store.dispatch(const PairingCodeRequestedAction());
+      middleware.call(store, const PairingCodeRequestedAction(), next);
       await Future<void>.delayed(Duration.zero);
 
-      expect(store.state.pairing.phase, PairingPhase.failed);
-      expect(store.state.pairing.error, 'unavailable');
+      expect(actionLog[0], isA<PairingCodeRequestedAction>());
+      expect(actionLog[1], const PairingFailedAction('unavailable'));
     });
   });
 
@@ -256,15 +320,23 @@ void main() {
           ),
         ).thenAnswer((_) async => const Right(unit));
 
-        store.dispatch(
+        middleware.call(
+          store,
           const PairingCodeSubmittedAction(
             code: '123456',
             displayName: 'Desktop',
           ),
+          next,
         );
         await Future<void>.delayed(Duration.zero);
 
-        expect(store.state.pairing.phase, PairingPhase.trusted);
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(
+            code: '123456',
+            displayName: 'Desktop',
+          ),
+          const PairingConfirmedAction(),
+        ]);
         verify(
           () => mockConfirmPairingCode(
             const ConfirmPairingCodeParams(
@@ -284,39 +356,61 @@ void main() {
         ),
       ).thenAnswer((_) async => const Left(failure));
 
-      store.dispatch(const PairingCodeSubmittedAction(code: '000000'));
+      middleware.call(
+        store,
+        const PairingCodeSubmittedAction(code: '000000'),
+        next,
+      );
       await Future<void>.delayed(Duration.zero);
 
-      expect(store.state.pairing.phase, PairingPhase.failed);
-      expect(store.state.pairing.error, 'invalid');
+      expect(actionLog, [
+        const PairingCodeSubmittedAction(code: '000000'),
+        const PairingFailedAction('invalid'),
+      ]);
     });
   });
 
   group('PairingMiddleware — PairingDisposedAction', () {
-    test('calls DisconnectUseCase as a best-effort cleanup when not yet trusted', () async {
-      when(
-        () => mockDisconnect(any()),
-      ).thenAnswer((_) async => const Right(unit));
+    test(
+      'calls DisconnectUseCase as a best-effort cleanup when not yet trusted',
+      () async {
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
 
-      store.dispatch(const PairingDisposedAction(wasTrusted: false));
-      await Future<void>.delayed(Duration.zero);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      verify(() => mockDisconnect(any())).called(1);
-      expect(store.state.pairing.phase, PairingPhase.none);
-    });
+        expect(actionLog, [const PairingDisposedAction(wasTrusted: false)]);
+        verify(() => mockDisconnect(any())).called(1);
+      },
+    );
 
-    test('does not call DisconnectUseCase when pairing had already succeeded', () async {
-      store.dispatch(const PairingDisposedAction(wasTrusted: true));
-      await Future<void>.delayed(Duration.zero);
+    test(
+      'does not call DisconnectUseCase when pairing had already succeeded',
+      () async {
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: true),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      verifyNever(() => mockDisconnect(any()));
-    });
+        expect(actionLog, [const PairingDisposedAction(wasTrusted: true)]);
+        verifyNever(() => mockDisconnect(any()));
+      },
+    );
   });
 
   group('PairingMiddleware — PairingBackRequestedAction', () {
     test('navigates to the home route', () {
-      store.dispatch(const PairingBackRequestedAction());
+      middleware.call(store, const PairingBackRequestedAction(), next);
 
+      expect(actionLog, [const PairingBackRequestedAction()]);
       verify(() => mockNavigatorService.go(AppRoutes.home)).called(1);
     });
   });
