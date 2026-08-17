@@ -49,5 +49,16 @@ void main() {
 
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
     });
+
+    test('two ViewModels with the same bridges are equal, regardless of callback identity', () {
+      final BridgeListScreenViewModel first = BridgeListScreenViewModel.fromStore(
+        const CreateStore()(),
+      );
+      final BridgeListScreenViewModel second = BridgeListScreenViewModel.fromStore(
+        const CreateStore()(),
+      );
+
+      expect(first, second);
+    });
   });
 }
