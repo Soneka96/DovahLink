@@ -83,6 +83,94 @@ public class RedactionScenarioTests
         }
     }
 
+    /// <summary>
+    /// Verifies that a real pairing code and issued credential never appear anywhere except the
+    /// owning connection's own designated response. The bridge never echoes a pairing code back to
+    /// anyone by protocol design, so that check is unconditional; the credential is legitimately
+    /// returned once, inside the owning connection's own <c>pairing_outcome</c>, so this test
+    /// captures that connection's traffic separately and scans only genuinely separate activity
+    /// afterward -- a different connection/client, a malformed message on it, an admin command's
+    /// reply, and harness stderr -- for a coincidental leak. Only response <em>payloads</em> are
+    /// scanned, not the full envelope text: `messageId`/`sessionId` are long opaque random IDs that
+    /// could coincidentally contain six consecutive digits matching the short numeric code, unlike
+    /// the credential's own far longer hex string, so including them would risk an unrelated,
+    /// flaky failure the way it would not for the original token-focused test above.
+    /// </summary>
+    [Fact]
+    public async Task PairingSecretsNeverAppearOutsideTheirDesignatedResponse()
+    {
+        var unrelatedPayloads = new List<string>();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
+
+        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath));
+        await harness.WaitForReadyAsync();
+
+        string code;
+        string credential;
+        await using (BridgeConnection pairing = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
+        {
+            await pairing.SendAsync(BridgeScenario.UnpairedHelloEnvelope());
+            Envelope helloAck = await pairing.ReceiveAsync();
+            if (helloAck.MessageType != "hello_ack" || helloAck.SessionId is null)
+            {
+                throw new InvalidOperationException($"Expected hello_ack with a sessionId, got {helloAck.MessageType}: {helloAck.Payload}");
+            }
+            string sessionId = helloAck.SessionId;
+            await pairing.ReceiveAsync();  // capabilities
+
+            await pairing.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+            await pairing.ReceiveAsync();  // pairing_status
+
+            code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+            await pairing.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+                new JsonObject { ["code"] = code }));
+            Envelope confirmOutcome = await pairing.ReceiveAsync();
+            if (confirmOutcome.Payload["outcome"]?.GetValue<string>() != "credential_issued")
+            {
+                throw new InvalidOperationException($"Expected credential_issued, got {confirmOutcome.Payload}.");
+            }
+            credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+            await pairing.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+                new JsonObject { ["credential"] = credential }));
+            Envelope ackOutcome = await pairing.ReceiveAsync();
+            if (ackOutcome.Payload["outcome"]?.GetValue<string>() != "trusted")
+            {
+                throw new InvalidOperationException($"Expected trusted, got {ackOutcome.Payload}.");
+            }
+
+            await pairing.CloseAsync();
+        }
+
+        // Genuinely separate activity: a different connection and client entirely, a malformed
+        // message on it, and an admin command's reply -- none of this has any legitimate reason to
+        // carry the code or credential from the pairing above.
+        await using (BridgeConnection unrelated = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri))
+        {
+            await unrelated.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+            unrelatedPayloads.Add((await unrelated.ReceiveAsync()).Payload.ToJsonString());
+            unrelatedPayloads.Add((await unrelated.ReceiveAsync()).Payload.ToJsonString());  // capabilities
+
+            await unrelated.SendRawTextAsync("not json {{{");
+            unrelatedPayloads.Add((await unrelated.ReceiveAsync()).Payload.ToJsonString());
+            await unrelated.CloseAsync();
+        }
+
+        await harness.WriteLineAsync("revoke client-1");
+        unrelatedPayloads.Add(await harness.ReadLineAsync() ?? string.Empty);
+
+        await harness.WriteLineAsync("quit");
+        await harness.WaitForExitAsync(TimeSpan.FromSeconds(5));
+        unrelatedPayloads.Add(harness.StandardError);
+
+        foreach (string text in unrelatedPayloads)
+        {
+            Assert.DoesNotContain(code, text, StringComparison.Ordinal);
+            Assert.DoesNotContain(credential, text, StringComparison.Ordinal);
+        }
+    }
+
     /// <summary>Serializes an envelope into the text inspected by the redaction test.</summary>
     private static string EnvelopeText(Envelope envelope) =>
         $"{envelope.MessageType}|{envelope.MessageId}|{envelope.SessionId}|{envelope.CorrelationId}|{envelope.Payload.ToJsonString()}";
