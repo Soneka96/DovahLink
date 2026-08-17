@@ -28,7 +28,12 @@ void main() {
       await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
       sl<GoRouter>().go(AppRoutes.pairing);
-      await tester.pumpAndSettle();
+      // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
+      // with no bridge listening in this test, so it retries forever by
+      // design and never quiesces. The route-transition duration is enough
+      // to mount the destination screen, which is all this asserts.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byKey(const Key('pairing-status')), findsOneWidget);
       expect(find.byKey(const Key('connection-status')), findsNothing);
@@ -41,9 +46,12 @@ void main() {
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
         sl<NavigatorService>().go(AppRoutes.pairing);
-        await tester.pumpAndSettle();
+        // See the comment above: PairingScreen never quiesces without a real
+        // bridge, so this waits out the route transition instead.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
 
-        expect(find.byKey(const Key('pairing-placeholder')), findsOneWidget);
+        expect(find.byKey(const Key('pairing-status')), findsOneWidget);
         expect(find.byKey(const Key('connection-status')), findsNothing);
       },
     );

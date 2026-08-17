@@ -42,7 +42,12 @@ void main() {
       );
 
       router.go(AppRoutes.pairing);
-      await tester.pumpAndSettle();
+      // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
+      // with no bridge listening in this test, so it retries forever by
+      // design and never quiesces. The route-transition duration is enough
+      // to mount the destination screen, which is all this asserts.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(PairingScreen), findsOneWidget);
       expect(find.byType(ConnectionStatusScreen), findsNothing);

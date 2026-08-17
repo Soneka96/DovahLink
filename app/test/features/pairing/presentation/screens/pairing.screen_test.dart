@@ -395,11 +395,6 @@ void main() {
     });
 
     testWidgets(
-      // Known pre-existing gap (tracked separately): the code form alone
-      // does not overflow at 2x text scale (see
-      // pairing_code_form.widget_test.dart), but the full screen's
-      // cumulative stacking (title + status label + form) does. Kept here,
-      // not deleted, so this regression stays caught until fixed.
       'lays out the code form without overflow at a large text scale',
       (WidgetTester tester) async {
         final Store<AppState> store = const CreateStore()();

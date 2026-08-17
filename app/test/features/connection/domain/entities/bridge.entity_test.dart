@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/bridges/domain/entities/bridge.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
 
 /// Exercises Bridge entity value preservation.
 void main() {

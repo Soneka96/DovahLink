@@ -33,53 +33,69 @@ class PairingScreen extends StatelessWidget {
       builder: (BuildContext context, PairingScreenViewModel viewModel) {
         final String? error = viewModel.error;
         return Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'DovahLink Pairing',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    viewModel.statusLabel,
-                    key: const Key('pairing-status'),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  switch (viewModel.phase) {
-                    PairingPhase.none ||
-                    PairingPhase.connecting ||
-                    PairingPhase.disconnected ||
-                    PairingPhase.requestingCode ||
-                    PairingPhase.confirming => const PairingLoadingIndicator(),
-                    PairingPhase.unpaired => PairingRequestCodeButton(
-                      onRequestCode: viewModel.onRequestCode,
-                    ),
-                    PairingPhase.awaitingCode => PairingCodeForm(
-                      onSubmit: viewModel.onSubmitCode,
-                    ),
-                    PairingPhase.trusted => const PairingTrustedIndicator(),
-                    PairingPhase.failed => PairingRetryButton(
-                      onRetry: viewModel.onStart,
-                    ),
-                  },
-                  if (error != null) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      error,
-                      key: const Key('pairing-error'),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
+          // LayoutBuilder + a min-height ConstrainedBox keeps the normal case centered exactly as
+          // before, while letting content that's taller than the viewport at a large text scale
+          // scroll instead of overflowing.
+          body: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'DovahLink Pairing',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            viewModel.statusLabel,
+                            key: const Key('pairing-status'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 16),
+                          switch (viewModel.phase) {
+                            PairingPhase.none ||
+                            PairingPhase.connecting ||
+                            PairingPhase.disconnected ||
+                            PairingPhase.requestingCode ||
+                            PairingPhase.confirming =>
+                              const PairingLoadingIndicator(),
+                            PairingPhase.unpaired => PairingRequestCodeButton(
+                              onRequestCode: viewModel.onRequestCode,
+                            ),
+                            PairingPhase.awaitingCode => PairingCodeForm(
+                              onSubmit: viewModel.onSubmitCode,
+                            ),
+                            PairingPhase.trusted =>
+                              const PairingTrustedIndicator(),
+                            PairingPhase.failed => PairingRetryButton(
+                              onRetry: viewModel.onStart,
+                            ),
+                          },
+                          if (error != null) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              error,
+                              key: const Key('pairing-error'),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
-                  ],
-                ],
-              ),
-            ),
+                  ),
+                ),
+              );
+            },
           ),
         );
       },

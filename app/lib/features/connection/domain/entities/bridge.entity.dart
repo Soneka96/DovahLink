@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-/// A DovahLink Bridge a client can select and pair or connect with.
+/// A DovahLink Bridge a client can select and connect or pair with.
 class BridgeEntity extends Equatable {
   /// Creates a Bridge identity.
   const BridgeEntity({required this.displayName, required this.uri});

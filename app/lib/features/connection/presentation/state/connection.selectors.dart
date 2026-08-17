@@ -1,3 +1,4 @@
+import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -6,6 +7,10 @@ abstract final class ConnectionSelectors {
   /// Returns the current connection lifecycle phase.
   static ConnectionPhase phaseSelector(AppState state) =>
       state.connection.phase;
+
+  /// Returns the Bridges available to select.
+  static List<BridgeEntity> bridgesSelector(AppState state) =>
+      state.connection.bridges;
 
   /// Returns the user-visible label for the current connection phase.
   static String statusLabelSelector(AppState state) =>
