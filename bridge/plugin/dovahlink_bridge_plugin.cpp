@@ -148,14 +148,35 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         return false;
     }
 
-    // A missing or malformed launch token is fatal because no client could
-    // authenticate without it.
+    // The developer token is optional, per ai/context/protocol/security.md's
+    // "Developer authentication": normal users never set it and authenticate
+    // through pairing instead, so a missing or malformed value must never
+    // fail plugin load (that would surface to the user only as SKSE's
+    // generic "incompatible plugin" failure, with no indication of the real
+    // cause). A missing or malformed value disables only the separate
+    // one_time_local_token auth path; TokenStore below already treats an
+    // empty token as permanently unavailable, so passing it an empty vector
+    // is sufficient -- no other component needs to know why it is empty.
+    // The token's own value is never logged in any branch.
     static dovahlink::security::WindowsEnvironmentReader environmentReader;
     auto tokenRead = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
-    if (tokenRead.outcome != dovahlink::security::TokenReadOutcome::kValid) {
-        SKSE::log::error("DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded 256-bit token; "
-                          "the bridge cannot authenticate a client without it.");
-        return false;
+    switch (tokenRead.outcome) {
+        case dovahlink::security::TokenReadOutcome::kMissing:
+            SKSE::log::info(
+                "{} is not set; developer-token authentication is disabled. Normal users do not need "
+                "it -- pair through the in-game pairing flow instead.",
+                kTokenEnvVar);
+            break;
+        case dovahlink::security::TokenReadOutcome::kMalformed:
+            SKSE::log::warn(
+                "{} is set but is not a valid token; developer-token authentication is disabled. "
+                "Expected exactly 64 hexadecimal characters, with no \"0x\" prefix and no separators. "
+                "Pairing is unaffected.",
+                kTokenEnvVar);
+            break;
+        case dovahlink::security::TokenReadOutcome::kValid:
+            SKSE::log::info("{} is set; developer-token authentication is enabled.", kTokenEnvVar);
+            break;
     }
 
     // Both IPv4 and IPv6 loopback listeners are required; only the port is
