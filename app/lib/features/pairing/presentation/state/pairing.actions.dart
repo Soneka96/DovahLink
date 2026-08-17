@@ -76,6 +76,18 @@ class PairingConfirmedAction extends Equatable {
   List<Object?> get props => [];
 }
 
+/// Marks the bridge as unreachable. Distinct from [PairingFailedAction]: this
+/// is an expected transport-level condition (the bridge may not be running
+/// yet), not a rejected pairing attempt.
+class PairingDisconnectedAction extends Equatable {
+  /// Creates a disconnected-state action.
+  const PairingDisconnectedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
 /// Carries a user-safe pairing failure message.
 class PairingFailedAction extends Equatable {
   /// Creates a failed-state action.

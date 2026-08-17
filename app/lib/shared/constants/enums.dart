@@ -54,6 +54,11 @@ enum PairingPhase {
   /// The client is opening a transport connection and authenticating.
   connecting,
 
+  /// The client could not reach the bridge (a transport-level failure, not a
+  /// rejected pairing attempt). Distinct from [failed] per
+  /// `ai/context/flutter/architecture.md`'s "Connection and recovery state".
+  disconnected,
+
   /// The session authenticated without a trusted credential; pairing has not
   /// been requested yet.
   unpaired,
@@ -79,6 +84,7 @@ enum PairingPhase {
   String get label => switch (this) {
     PairingPhase.none => 'Unknown',
     PairingPhase.connecting => 'Connecting',
+    PairingPhase.disconnected => 'Waiting for bridge',
     PairingPhase.unpaired => 'Not paired',
     PairingPhase.requestingCode => 'Requesting code',
     PairingPhase.awaitingCode => 'Awaiting code',

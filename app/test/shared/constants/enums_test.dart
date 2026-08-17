@@ -22,6 +22,7 @@ void main() {
     test('returns the concise label for every phase', () {
       expect(PairingPhase.none.label, 'Unknown');
       expect(PairingPhase.connecting.label, 'Connecting');
+      expect(PairingPhase.disconnected.label, 'Waiting for bridge');
       expect(PairingPhase.unpaired.label, 'Not paired');
       expect(PairingPhase.requestingCode.label, 'Requesting code');
       expect(PairingPhase.awaitingCode.label, 'Awaiting code');

@@ -106,6 +106,27 @@ void main() {
       expect(result.error, isNull);
     });
 
+    test(
+      'PairingDisconnectedAction changes the phase to disconnected, clears '
+      'error, and preserves bridgeVersion',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.connecting,
+          bridgeVersion: '1.2.3',
+          error: 'old error',
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingDisconnectedAction(),
+        );
+
+        expect(result.phase, PairingPhase.disconnected);
+        expect(result.error, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
     test('PairingFailedAction stores the message and phase', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),

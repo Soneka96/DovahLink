@@ -31,6 +31,10 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
     pairingConfirmedReducer,
   ).call,
 
+  TypedReducer<PairingState, PairingDisconnectedAction>(
+    pairingDisconnectedReducer,
+  ).call,
+
   TypedReducer<PairingState, PairingFailedAction>(
     pairingFailedReducer,
   ).call,
@@ -85,6 +89,13 @@ PairingState pairingConfirmedReducer(
   PairingState state,
   PairingConfirmedAction action,
 ) => state.copyWith(phase: PairingPhase.trusted, error: const None());
+
+/// Handles [PairingDisconnectedAction].
+/// Updates [PairingState.phase], [PairingState.error].
+PairingState pairingDisconnectedReducer(
+  PairingState state,
+  PairingDisconnectedAction action,
+) => state.copyWith(phase: PairingPhase.disconnected, error: const None());
 
 /// Handles [PairingFailedAction].
 /// Updates [PairingState.phase], [PairingState.error].
