@@ -10,9 +10,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task UnpairedHelloSucceedsAndSubscribeIsRejectedOnThatSession()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope helloAck, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -32,9 +32,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -91,9 +91,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task RevokedCredentialReconnectReceivesARevokedOutcome()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -154,9 +154,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task RevokeWhileConnectedClosesTheLiveSessionImmediately()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -215,9 +215,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task AbruptDisconnectAfterPairingRecoversViaBoundedRetryWithAFreshSession()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -261,9 +261,9 @@ public class PairingScenarioTests
     [Fact]
     public async Task WrongCodeYieldsAnInvalidOutcome()
     {
-        string trustStorePath = CreateIsolatedTrustStorePath();
+        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
         (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
-            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(TrustStoreOverride(trustStorePath));
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(BridgeScenario.TrustStoreOverride(trustStorePath));
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
@@ -290,18 +290,6 @@ public class PairingScenarioTests
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
-
-    /// <summary>Builds a harness environment override isolating the trust store at <paramref name="path"/>.</summary>
-    /// <param name="path">The isolated trust-store file path.</param>
-    private static Dictionary<string, string> TrustStoreOverride(string path) =>
-        new() { ["DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE"] = path };
-
-    /// <summary>
-    /// Creates a fresh, per-test trust-store file path under the OS temp directory so a pairing
-    /// scenario never touches the developer's real trust store.
-    /// </summary>
-    private static string CreateIsolatedTrustStorePath() =>
-        Path.Combine(Path.GetTempPath(), $"dovahlink-trust-{Guid.NewGuid():N}.json");
 
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>

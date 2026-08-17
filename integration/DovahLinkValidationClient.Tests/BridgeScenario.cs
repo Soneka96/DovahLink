@@ -285,6 +285,18 @@ public static class BridgeScenario
         }
     }
 
+    /// <summary>Builds a harness environment override isolating the trust store at <paramref name="path"/>.</summary>
+    /// <param name="path">The isolated trust-store file path.</param>
+    public static Dictionary<string, string> TrustStoreOverride(string path) =>
+        new() { ["DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE"] = path };
+
+    /// <summary>
+    /// Creates a fresh, per-test trust-store file path under the OS temp directory so a pairing or
+    /// restart scenario never touches the developer's real trust store.
+    /// </summary>
+    public static string CreateIsolatedTrustStorePath() =>
+        Path.Combine(Path.GetTempPath(), $"dovahlink-trust-{Guid.NewGuid():N}.json");
+
     /// <summary>
     /// Records sequential failed authentication attempts using separate bridge connections.
     /// </summary>
