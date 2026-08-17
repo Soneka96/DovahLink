@@ -247,6 +247,43 @@ Skyrim's in-game console requires a separate, optional integration
 Extended — not part of this bridge's own dependency baseline above, and not required for any other
 bridge behavior.
 
+## Runtime compatibility options
+
+The bridge reads an optional `Data/SKSE/Plugins/DovahLinkBridge.ini` at startup for two independent
+compatibility toggles, both enabled by default:
+
+```ini
+[DovahLink]
+bAlwaysActive=1
+bAchievementCompat=1
+```
+
+A missing file, a missing key, or a value other than `0`/`1` falls back to that key's own default
+rather than failing plugin load; see `bridge/application/game_behavior_config.hpp`.
+
+**`bAlwaysActive`** forces Skyrim's own `bAlwaysActive:General` setting on at startup
+(`RE::INISettingCollection`), so the game keeps running while the DovahLink window has focus instead
+of pausing -- required so the pairing code and the companion app stay usable while Skyrim is
+unfocused. This replaces the third-party "Skyrim Always Active" mod workaround previously documented
+in `TROUBLESHOOTING.md`.
+
+**`bAchievementCompat`** installs a runtime patch making achievements eligible with SKSE plugins
+loaded. This is a deliberate, maintainer-approved exception to `ai/context/skse/cpp-style.md`'s
+"minimize hooks" guidance and to this bridge's read-only-first default: it restores an engine-level
+eligibility flag, not a companion feature, and does not touch the DovahLink protocol, transport, or
+any state exposed to a client. The technique -- filling the target function with `REL::INT3`, then
+overwriting its start with an `xor rax, rax; ret` patch generated via Xbyak -- and its two Address
+Library IDs (SE `13647`, AE/current-runtime `441528`) are adapted from
+[`aers/EngineFixesSkyrim64`](https://github.com/aers/EngineFixesSkyrim64), translated to this pinned
+CommonLibSSE-NG's `REL::safe_fill`/`REL::safe_write` free functions, which take the place of that
+reference's `Relocation::write_fill`/`write` member functions:
+
+- Resolved commit: `c37a8041ffc0a5859e78a19c71b877327773455d`
+- License: MIT. Any adopted or adapted source retains its original MIT notice.
+
+Both toggles are applied once, early in `SKSEPluginLoad`, before `kDataLoaded`; see
+`bridge/game_state/commonlib_game_behavior_compatibility.cpp`.
+
 ## Manual verification record template
 
 Use this template to record real Skyrim verification for a release. Nothing here can substitute for
@@ -269,6 +306,13 @@ Installation and launch steps taken:
 
 Expected plugin startup behavior:
 Observed plugin startup behavior:
+
+Always-active behavior with bAlwaysActive=1 (expected: Skyrim keeps running while unfocused;
+observed):
+Achievement compatibility with bAchievementCompat=1 (expected: achievements remain eligible with
+SKSE plugins loaded, verified via Steam; observed):
+Both toggles disabled via DovahLinkBridge.ini (expected: prior default Skyrim behavior for both;
+observed):
 
 Initial level snapshot result (expected vs. observed):
 
