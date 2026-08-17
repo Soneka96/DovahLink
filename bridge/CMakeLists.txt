@@ -28,6 +28,7 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
+    application/game_behavior_config.cpp
     application/game_lifecycle_tracker.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
@@ -116,6 +117,7 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
+    application/game_behavior_config_test.cpp
     application/game_lifecycle_tracker_test.cpp
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
