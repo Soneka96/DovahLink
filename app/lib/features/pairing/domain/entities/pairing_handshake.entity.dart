@@ -6,6 +6,7 @@ class PairingHandshakeEntity extends Equatable {
   const PairingHandshakeEntity({
     required this.bridgeVersion,
     required this.trusted,
+    this.credentialRejectedMessage,
   });
 
   /// The DovahLink Bridge/mod release version reported by `hello_ack`.
@@ -16,7 +17,13 @@ class PairingHandshakeEntity extends Equatable {
   /// confirmation.
   final bool trusted;
 
+  /// A user-safe explanation, or `null` when not applicable. Set only when this handshake
+  /// recovered from a rejected `trusted_device_credential` hello (revoked or unrecognized) by
+  /// discarding the stale credential and re-authenticating as unpaired, so the caller can still
+  /// tell the user why they are being asked to pair again.
+  final String? credentialRejectedMessage;
+
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [bridgeVersion, trusted];
+  List<Object?> get props => [bridgeVersion, trusted, credentialRejectedMessage];
 }
