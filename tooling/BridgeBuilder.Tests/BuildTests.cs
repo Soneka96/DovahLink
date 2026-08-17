@@ -53,7 +53,7 @@ public sealed class BuildTests
         Assert.Equal(
             [
                 Path.GetFullPath(scriptPath),
-                $"-i={toolchain.ImportDirectory}",
+                $"-i={Path.GetDirectoryName(Path.GetFullPath(scriptPath))};{toolchain.ImportDirectory}",
                 $"-f={toolchain.FlagsFilePath}",
                 $"-o={Path.GetFullPath(outputDirectory)}",
             ],
@@ -288,7 +288,7 @@ public sealed class BuildTests
         Assert.Equal(
             [
                 Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc")),
-                $"-i={papyrusToolchain.ImportDirectory}",
+                $"-i={Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "console-admin"))};{papyrusToolchain.ImportDirectory}",
                 $"-f={papyrusToolchain.FlagsFilePath}",
                 $"-o={Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "bridge", "build", "windows-x64-release"))}",
             ],

@@ -59,14 +59,21 @@ public sealed record BuildCommand(
     /// <param name="toolchain">The Papyrus toolchain to invoke.</param>
     /// <param name="outputDirectory">The directory that receives the compiled <c>.pex</c>.</param>
     /// <returns>The validated Papyrus compiler invocation.</returns>
+    /// <remarks>
+    /// The script's own directory is prepended to the import paths: PapyrusCompiler.exe resolves even
+    /// its direct compile target through the import search path, and fails with "unable to locate
+    /// script" if that target's own directory is not included.
+    /// </remarks>
     public static BuildCommand CreatePapyrusCompile(string scriptPath, PapyrusToolchain toolchain, string outputDirectory)
     {
         PapyrusToolchain validated = PapyrusToolchainLocator.Validate(toolchain);
+        string fullScriptPath = Path.GetFullPath(scriptPath);
+        string scriptDirectory = Path.GetDirectoryName(fullScriptPath)!;
         return new BuildCommand(
             validated.CompilerPath,
             [
-                Path.GetFullPath(scriptPath),
-                $"-i={validated.ImportDirectory}",
+                fullScriptPath,
+                $"-i={scriptDirectory};{validated.ImportDirectory}",
                 $"-f={validated.FlagsFilePath}",
                 $"-o={Path.GetFullPath(outputDirectory)}",
             ],
