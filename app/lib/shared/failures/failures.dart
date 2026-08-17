@@ -38,3 +38,11 @@ class PairingFailure extends Failure {
   /// Creates a pairing failure.
   const PairingFailure(super.message);
 }
+
+/// Indicates that the bridge rejected a `trusted_device_credential` hello because this device's
+/// trust was explicitly revoked, as distinct from a transport-level [NetworkFailure] or an
+/// otherwise-unrecognized credential.
+class RevokedFailure extends Failure {
+  /// Creates a revoked-credential failure.
+  const RevokedFailure(super.message);
+}

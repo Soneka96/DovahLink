@@ -120,6 +120,29 @@ void main() {
       expect(result, const Left<Failure, PairingHandshakeEntity>(NetworkFailure('bad reply')));
     });
 
+    test('maps a revoked-credential protocol failure to RevokedFailure', () async {
+      when(() => mockClient.connect(any())).thenAnswer((_) async {});
+      when(() => mockClient.hello()).thenThrow(
+        const DovahLinkProtocolException(
+          code: 'revoked',
+          message: "This device's trust was revoked",
+          retryable: false,
+        ),
+      );
+
+      final Either<Failure, PairingHandshakeEntity> result = await dataSource
+          .authenticate();
+
+      expect(
+        result,
+        const Left<Failure, PairingHandshakeEntity>(
+          RevokedFailure(
+            "This device's trust was revoked. Request a new pairing code.",
+          ),
+        ),
+      );
+    });
+
     test('maps a storage failure to DatabaseFailure', () async {
       when(() => mockClient.connect(any())).thenAnswer((_) async {});
       when(

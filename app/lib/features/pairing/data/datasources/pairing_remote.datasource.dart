@@ -54,6 +54,13 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
+      if (error.code == 'revoked') {
+        return const Left(
+          RevokedFailure(
+            "This device's trust was revoked. Request a new pairing code.",
+          ),
+        );
+      }
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
       return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
