@@ -53,4 +53,24 @@ public sealed record BuildCommand(
                 environmentVariables),
         ];
     }
+
+    /// <summary>Creates the direct Papyrus compiler command for one script.</summary>
+    /// <param name="scriptPath">The path to the <c>.psc</c> source file to compile.</param>
+    /// <param name="toolchain">The Papyrus toolchain to invoke.</param>
+    /// <param name="outputDirectory">The directory that receives the compiled <c>.pex</c>.</param>
+    /// <returns>The validated Papyrus compiler invocation.</returns>
+    public static BuildCommand CreatePapyrusCompile(string scriptPath, PapyrusToolchain toolchain, string outputDirectory)
+    {
+        PapyrusToolchain validated = PapyrusToolchainLocator.Validate(toolchain);
+        return new BuildCommand(
+            validated.CompilerPath,
+            [
+                Path.GetFullPath(scriptPath),
+                $"-i={validated.ImportDirectory}",
+                $"-f={validated.FlagsFilePath}",
+                $"-o={Path.GetFullPath(outputDirectory)}",
+            ],
+            Path.GetDirectoryName(validated.CompilerPath)!,
+            new Dictionary<string, string>());
+    }
 }

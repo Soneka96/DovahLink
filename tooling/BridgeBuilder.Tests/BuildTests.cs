@@ -38,6 +38,46 @@ public sealed class BuildTests
             });
     }
 
+    /// <summary>Builds a direct Papyrus compiler command with named arguments and the compiler's own directory.</summary>
+    [Fact]
+    public void BuildsStructuredPapyrusCompileCommand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain toolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        string scriptPath = Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc");
+        string outputDirectory = Path.Combine(temporaryDirectory.Path, "out");
+
+        BuildCommand command = BuildCommand.CreatePapyrusCompile(scriptPath, toolchain, outputDirectory);
+
+        Assert.Equal(toolchain.CompilerPath, command.ExecutablePath);
+        Assert.Equal(
+            [
+                Path.GetFullPath(scriptPath),
+                $"-i={toolchain.ImportDirectory}",
+                $"-f={toolchain.FlagsFilePath}",
+                $"-o={Path.GetFullPath(outputDirectory)}",
+            ],
+            command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(toolchain.CompilerPath), command.WorkingDirectory);
+        Assert.Empty(command.EnvironmentVariables);
+    }
+
+    /// <summary>Normalizes a non-canonical script and output path into their full, canonical forms.</summary>
+    [Fact]
+    public void NormalizesTheScriptAndOutputPathsToFullPaths()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain toolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        string scriptPath = Path.Combine(temporaryDirectory.Path, "console-admin", "..", "console-admin", "DovahLinkAdmin.psc");
+        string outputDirectory = Path.Combine(temporaryDirectory.Path, "out", "..", "out");
+
+        BuildCommand command = BuildCommand.CreatePapyrusCompile(scriptPath, toolchain, outputDirectory);
+
+        Assert.DoesNotContain("..", command.Arguments[0]);
+        Assert.Equal(Path.GetFullPath(scriptPath), command.Arguments[0]);
+        Assert.Equal($"-o={Path.GetFullPath(outputDirectory)}", command.Arguments[3]);
+    }
+
     /// <summary>Imports a validated batch path containing spaces and shell metacharacters as environment data.</summary>
     [Fact]
     public async Task ImportsToolchainPathsWithoutInterpolatingThemIntoTheShellScript()
@@ -411,6 +451,22 @@ public sealed class BuildTests
         Directory.CreateDirectory(vcpkgRoot);
         File.WriteAllText(vcvarsallPath, "@echo off\n");
         return new VisualStudioToolchain(vcvarsallPath, vcpkgRoot);
+    }
+
+    /// <summary>Creates the validated Papyrus toolchain files used by compile-command tests.</summary>
+    /// <param name="repositoryRoot">The temporary root under which to create the installation.</param>
+    /// <returns>The created compiler, import directory, and flags file paths.</returns>
+    private static PapyrusToolchain CreatePapyrusToolchain(string repositoryRoot)
+    {
+        string installationRoot = Path.Combine(repositoryRoot, "Skyrim Special Edition");
+        string compilerPath = Path.Combine(installationRoot, "Papyrus Compiler", "PapyrusCompiler.exe");
+        string importDirectory = Path.Combine(installationRoot, "Data", "Scripts", "Source");
+        string flagsFilePath = Path.Combine(importDirectory, "TESV_Papyrus_Flags.flg");
+        Directory.CreateDirectory(Path.GetDirectoryName(compilerPath)!);
+        Directory.CreateDirectory(importDirectory);
+        File.WriteAllText(compilerPath, "compiler");
+        File.WriteAllText(flagsFilePath, "flags");
+        return new PapyrusToolchain(compilerPath, importDirectory, flagsFilePath);
     }
 
     /// <summary>Records command-runner inputs and returns a configured exit code.</summary>
