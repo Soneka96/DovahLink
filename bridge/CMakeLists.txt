@@ -71,6 +71,7 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 # target is linked into the real SKSE plugin binary, added in a later step.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
+    game_state/commonlib_game_behavior_compatibility.cpp
     game_state/commonlib_game_lifecycle_sink.cpp
     game_state/commonlib_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
