@@ -363,6 +363,50 @@ TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID acros
     CHECK(firstId != secondId);
 }
 
+TEST_CASE("dovahlink_bridge_harness's revoke command reports REVOKED for the given clientId",
+          "[harness]") {
+    // TrustStore::Revoke (bridge/security/trust_store.cpp) is intentionally idempotent: it
+    // reports success for a clientId that was never trusted the same way it does for one that
+    // actually held a credential, so REVOKED is the only branch reachable without a persisted
+    // credential in the store. The .NET validator's PairingScenarioTests.cs
+    // (integration/DovahLinkValidationClient.Tests) additionally proves that a real prior
+    // credential stops authenticating after this command runs, using the isolated-trust-store and
+    // full pairing-round-trip machinery this harness has no equivalent of on its own.
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    harness.WriteLine("revoke never-paired-client");
+    CHECK(harness.ReadLine() == "REVOKED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness's revoke command handles an empty clientId and is idempotent",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    // Nothing after the "revoke " prefix: the substr parse yields an empty clientId rather than
+    // failing to match the "revoke " branch at all.
+    harness.WriteLine("revoke ");
+    CHECK(harness.ReadLine() == "REVOKED ");
+
+    // Revoking the same never-trusted clientId twice in one session stays REVOKED both times,
+    // matching TrustStore::Revoke's documented idempotency.
+    harness.WriteLine("revoke never-paired-client");
+    CHECK(harness.ReadLine() == "REVOKED never-paired-client");
+    harness.WriteLine("revoke never-paired-client");
+    CHECK(harness.ReadLine() == "REVOKED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
 TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
           "lifecycle",
           "[harness]") {

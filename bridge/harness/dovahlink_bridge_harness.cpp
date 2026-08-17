@@ -2,7 +2,7 @@
 // deterministic character level, accepts the same authentication token as the
 // plugin, prints READY followed by its generated bridge instance ID after
 // startup, and handles increase_level, new_game, load_game, load_game_fail,
-// revert, and quit commands on standard input.
+// revert, revoke <clientId>, and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -30,6 +30,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -40,6 +41,7 @@ using dovahlink::application::kTokenEnvVar;
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
 constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
+constexpr std::string_view kRevokeCommandPrefix = "revoke ";
 
 // Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
 // bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
@@ -244,6 +246,17 @@ int main() {
             auto transition =
                 ProcessLifecycleEvent(lifecycleTracker, activePlayContext, dovahlink::application::LifecycleEvent::kRevert);
             std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
+        } else if (line.starts_with(kRevokeCommandPrefix)) {
+            // Test-only shortcut straight to TrustStore::Revoke: a real deployment only reaches
+            // revocation through TrustAdminService (security.md's "Trust administration surface"),
+            // but the harness already knows the clientId a scenario paired, so it skips the
+            // shortId lookup that surface exists for.
+            std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
+            if (trustStore.Revoke(revokedClientId)) {
+                std::cout << "REVOKED " << revokedClientId << std::endl;
+            } else {
+                std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;
+            }
         } else if (line == "quit") {
             break;
         }
