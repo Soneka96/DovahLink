@@ -77,6 +77,11 @@ bool SessionManager::IsFullyTrusted(ConnectionId connection) const {
     return activeTrustTier_ == SessionTrustTier::kFull;
 }
 
+std::optional<std::string> SessionManager::ActiveClientId() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return activeClientId_;
+}
+
 void SessionManager::UpgradeToFullTrust(ConnectionId connection, const std::string& sessionId) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value() && activeSessionId_.has_value() && *activeConnection_ == connection &&

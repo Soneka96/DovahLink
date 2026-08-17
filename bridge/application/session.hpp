@@ -98,6 +98,13 @@ public:
     ///     connection that does not own the active session.
     [[nodiscard]] bool IsFullyTrusted(ConnectionId connection) const;
 
+    /// Returns the authenticated client identity of the active session, independent of which
+    /// connection owns it. Unlike @ref ClientIdForConnection, this does not require the caller to
+    /// already know a `ConnectionId` -- needed by a caller (trust administration) that only knows a
+    /// `clientId` and must find out whether it is the one currently connected.
+    /// @return The active session's client identity, or no value when no session is active.
+    [[nodiscard]] std::optional<std::string> ActiveClientId() const;
+
     /// Upgrades the active session to `kFull` tier, if `connection` and `sessionId` both match the
     /// active session -- the same stale-caller guard `InvalidateSession` uses, so a delayed
     /// upgrade call arriving after `connection`'s session was invalidated and replaced cannot
