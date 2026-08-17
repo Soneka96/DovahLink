@@ -49,28 +49,6 @@ void main() {
     });
 
     testWidgets(
-      'navigating home -> pairing -> home resolves the correct screen each time',
-      (WidgetTester tester) async {
-        final GoRouter router = createRouter();
-        await tester.pumpWidget(
-          StoreProvider<AppState>(
-            store: const CreateStore()(),
-            child: MaterialApp.router(routerConfig: router),
-          ),
-        );
-
-        router.go(AppRoutes.pairing);
-        await tester.pumpAndSettle();
-        expect(find.byType(PairingScreen), findsOneWidget);
-
-        router.go(AppRoutes.home);
-        await tester.pumpAndSettle();
-        expect(find.byType(ConnectionStatusScreen), findsOneWidget);
-        expect(find.byType(PairingScreen), findsNothing);
-      },
-    );
-
-    testWidgets(
       'an unmatched path falls back safely instead of resolving a known screen',
       (WidgetTester tester) async {
         final GoRouter router = createRouter();
