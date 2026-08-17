@@ -929,6 +929,81 @@ void main() {
     });
   });
 
+  group('forgetCredential', () {
+    test('preserves clientId while clearing the credential and recovery state', () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'a1b2c3d4e5f6',
+          recoveryState: PairingRecoveryState.confirming,
+        ),
+      );
+
+      await client.forgetCredential();
+
+      final PersistedClientState stored = await storage.load();
+      expect(stored.clientId, 'client-1');
+      expect(stored.credential, isNull);
+      expect(stored.recoveryState, PairingRecoveryState.none);
+    });
+
+    test('is safe to call with nothing persisted yet', () async {
+      await expectLater(client.forgetCredential(), completes);
+
+      final PersistedClientState stored = await storage.load();
+      expect(stored.clientId, isNull);
+      expect(stored.credential, isNull);
+    });
+
+    test('is a no-op when the credential is already clear', () async {
+      await storage.save(const PersistedClientState(clientId: 'client-1'));
+
+      await client.forgetCredential();
+
+      final PersistedClientState stored = await storage.load();
+      expect(stored.clientId, 'client-1');
+      expect(stored.credential, isNull);
+      expect(stored.recoveryState, PairingRecoveryState.none);
+    });
+
+    test('is idempotent: calling it twice does not throw', () async {
+      await storage.save(
+        const PersistedClientState(clientId: 'client-1', credential: 'a1b2c3d4e5f6'),
+      );
+
+      await client.forgetCredential();
+
+      await expectLater(client.forgetCredential(), completes);
+    });
+
+    test('does not touch the transport or in-memory connection state', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+      await client.hello();
+
+      await client.forgetCredential();
+
+      expect(transport.closeCalled, isFalse);
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+    });
+
+    test('a later hello presents unpaired instead of the forgotten credential', () async {
+      await storage.save(
+        const PersistedClientState(clientId: 'client-1', credential: 'a1b2c3d4e5f6'),
+      );
+      await client.forgetCredential();
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+
+      await client.hello();
+
+      final JsonMap sentPayload =
+          (jsonDecode(transport.sent.single) as JsonMap)['payload'] as JsonMap;
+      expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
+    });
+  });
+
   group('protocol violations', () {
     test(
       'an unexpected message type throws DovahLinkProtocolException',

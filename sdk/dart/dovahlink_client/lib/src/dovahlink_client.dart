@@ -263,6 +263,17 @@ class DovahLinkClient {
     }
   }
 
+  /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
+  /// the next [hello] presents [AuthMethod.unpaired] instead of a credential the bridge has
+  /// already rejected. Call after a `trusted_device_credential` hello is rejected
+  /// (`unauthenticated`/`revoked`) and before retrying -- this installation's identity is not
+  /// itself invalid, only its stored credential. Does not touch the transport or in-memory
+  /// connection state; call [disconnect] separately if the connection also needs resetting.
+  Future<void> forgetCredential() async {
+    final PersistedClientState state = await _storage.load();
+    await _storage.save(PersistedClientState(clientId: state.clientId));
+  }
+
   /// Returns the persisted `clientId`, generating and persisting a fresh RFC 4122 version-4 UUID
   /// on first use.
   Future<String> _resolveClientId(PersistedClientState state) async {
