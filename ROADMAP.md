@@ -1392,3 +1392,6 @@ decisions before entering the ordered roadmap:
 - Internet or hosted remote connectivity
 - Accounts, cloud storage, or cross-device cloud synchronization
 - Broad compatibility promises for unsupported mods, UI themes, or Skyrim editions
+- A device-identity capability resistant to reinstall/identity reset, potentially including
+  physical-device attestation, reconsidered alongside the LAN/mobile security phases (22-23); not
+  committed scope for Phase 3.2's device-blocking work, which targets `clientId` identity only

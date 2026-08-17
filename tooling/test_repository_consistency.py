@@ -651,6 +651,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "1. Skyrim Bridge Foundation",
             "2. Bridge Identity and Authoritative State Foundation",
             "3. Local Device Pairing and Reconnection",
+            "3.1 Live Pairing Challenge UX",
+            "3.2 Known Device & Trust Administration",
             "4. Live State Synchronization Foundation",
             "5. Dart Client SDK Foundation",
             "6. PC / Second-Screen Baseline",
@@ -686,7 +688,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 4)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 28)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
