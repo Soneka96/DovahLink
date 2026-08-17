@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/active_session_disconnector.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
 #include "application/pairing_notification_sink.hpp"
@@ -15,14 +16,17 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <string_view>
 #include <thread>
 
 namespace dovahlink::application {
 
 /// Owns one accept worker per loopback listener and enforces one active client.
 /// `Stop()` closes listeners and shuts down the active session socket before
-/// `Join()` so blocked accepts, handshakes, and reads can finish.
-class BridgeWorkerPool : public WorkerPool {
+/// `Join()` so blocked accepts, handshakes, and reads can finish. Also the reusable
+/// `ActiveSessionDisconnector` implementation for trust administration, since it is the only
+/// component that ever holds a live session's socket handle.
+class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
 public:
     /// Creates workers for the two loopback listeners.
     /// @param listenerV4 IPv4 loopback listener owned by the caller.
@@ -68,11 +72,23 @@ public:
     /// @copydoc WorkerPool::Join
     void Join() override;
 
+    /// @copydoc ActiveSessionDisconnector::DisconnectIfClientActive
+    void DisconnectIfClientActive(std::string_view clientId) override;
+
+    /// @copydoc ActiveSessionDisconnector::DisconnectActive
+    void DisconnectActive() override;
+
 private:
     /// Accepts connections from one loopback listener until stopping.
     /// @param listener Listener whose accept loop is executed.
     /// @param workerRunner Per-connection exception containment boundary.
     void AcceptLoop(transport::LoopbackListener& listener, const ContainedWorkRunner& workerRunner);
+
+    /// Shuts down the active session socket, if one is currently published, independent of the
+    /// caller's thread -- the same cross-thread-safe path `Socket::Shutdown()` itself provides.
+    /// Shared by `Stop()`, `DisconnectIfClientActive()`, and `DisconnectActive()` so all three tear
+    /// down the active socket exactly the same way.
+    void ShutdownActiveSocket();
 
     /// IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;

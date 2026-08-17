@@ -345,3 +345,198 @@ TEST_CASE("BridgeWorkerPool Stop interrupts an authenticated session blocked "
     CHECK_FALSE(fixture.slot.IsOccupied());
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 }
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive is a no-op when no session is active",
+          "[application][bridge_worker_pool]") {
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    fixture.pool.DisconnectIfClientActive("client-1");
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectActive is a no-op when no connection was ever accepted",
+          "[application][bridge_worker_pool]") {
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    fixture.pool.DisconnectActive();
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated session blocked "
+          "on an idle read when the clientId matches",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer helloBuffer;
+    boost::system::error_code helloReadEc;
+    clientWs.read(helloBuffer, helloReadEc);
+    REQUIRE_FALSE(helloReadEc);
+    auto parsedHello = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(helloBuffer.data()));
+    REQUIRE(parsedHello.has_value());
+    auto helloAck = dovahlink::protocol::DecodeEnvelope(*parsedHello);
+    REQUIRE(helloAck.has_value());
+    REQUIRE(helloAck->sessionId.has_value());
+    std::string sessionId = *helloAck->sessionId;
+
+    boost::beast::flat_buffer capabilitiesBuffer;
+    boost::system::error_code capabilitiesReadEc;
+    clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+    REQUIRE_FALSE(capabilitiesReadEc);
+
+    fixture.pool.DisconnectIfClientActive("client-1");
+
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves the active session running for a "
+          "non-matching clientId",
+          "[application][bridge_worker_pool]") {
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer helloBuffer;
+    boost::system::error_code helloReadEc;
+    clientWs.read(helloBuffer, helloReadEc);
+    REQUIRE_FALSE(helloReadEc);
+    auto parsedHello = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(helloBuffer.data()));
+    REQUIRE(parsedHello.has_value());
+    auto helloAck = dovahlink::protocol::DecodeEnvelope(*parsedHello);
+    REQUIRE(helloAck.has_value());
+    REQUIRE(helloAck->sessionId.has_value());
+    std::string sessionId = *helloAck->sessionId;
+
+    boost::beast::flat_buffer capabilitiesBuffer;
+    boost::system::error_code capabilitiesReadEc;
+    clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+    REQUIRE_FALSE(capabilitiesReadEc);
+
+    fixture.pool.DisconnectIfClientActive("someone-else");
+
+    // Proves the mismatch genuinely left the session alone, rather than merely not yet having
+    // torn it down: a ping sent afterward still round-trips over the same connection.
+    std::string ping = R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": ")" + sessionId +
+                       R"(", "correlationId": null, "payload": {}, )"
+                       R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    clientWs.write(boost::asio::buffer(ping), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer pongBuffer;
+    boost::system::error_code pongReadEc;
+    clientWs.read(pongBuffer, pongReadEc);
+    REQUIRE_FALSE(pongReadEc);
+    auto parsedPong = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(pongBuffer.data()));
+    REQUIRE(parsedPong.has_value());
+    auto pong = dovahlink::protocol::DecodeEnvelope(*parsedPong);
+    REQUIRE(pong.has_value());
+    CHECK(pong->messageType == "pong");
+    CHECK(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated session blocked on an "
+          "idle read regardless of clientId",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer helloBuffer;
+    boost::system::error_code helloReadEc;
+    clientWs.read(helloBuffer, helloReadEc);
+    REQUIRE_FALSE(helloReadEc);
+    auto parsedHello = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(helloBuffer.data()));
+    REQUIRE(parsedHello.has_value());
+    auto helloAck = dovahlink::protocol::DecodeEnvelope(*parsedHello);
+    REQUIRE(helloAck.has_value());
+    REQUIRE(helloAck->sessionId.has_value());
+    std::string sessionId = *helloAck->sessionId;
+
+    boost::beast::flat_buffer capabilitiesBuffer;
+    boost::system::error_code capabilitiesReadEc;
+    clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+    REQUIRE_FALSE(capabilitiesReadEc);
+
+    fixture.pool.DisconnectActive();
+
+    auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    // A second call after the session already ended finds activeSocket_'s weak_ptr expired rather
+    // than merely unset -- a distinct guard path from "never had a connection at all," and must be
+    // just as safe to call again (for example a double revoke).
+    fixture.pool.DisconnectActive();
+    fixture.pool.DisconnectIfClientActive("client-1");
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}

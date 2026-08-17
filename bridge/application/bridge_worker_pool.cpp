@@ -83,7 +83,21 @@ void BridgeWorkerPool::Stop() {
     boost::system::error_code ec;
     listenerV4_.Acceptor().close(ec);
     listenerV6_.Acceptor().close(ec);
+    ShutdownActiveSocket();
+}
 
+void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
+    auto activeClientId = sessionManager_.ActiveClientId();
+    if (activeClientId.has_value() && *activeClientId == clientId) {
+        ShutdownActiveSocket();
+    }
+}
+
+void BridgeWorkerPool::DisconnectActive() {
+    ShutdownActiveSocket();
+}
+
+void BridgeWorkerPool::ShutdownActiveSocket() {
     transport::WebSocketSession::SocketHandle activeSocket;
     {
         std::lock_guard<std::mutex> lock(activeSocketMutex_);
