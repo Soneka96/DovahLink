@@ -65,6 +65,13 @@
 - Stub every dependency the widget reads during build.
 - For every state exposed by the client-state contract, test the corresponding presentation behavior. If a screen intentionally does not render a state, test that it delegates to the approved fallback and document the decision. Cover loading, success, empty, error, disconnected, stale-data, recovering, and disposed-subscription behavior where exposed.
 
+## Timers and delays
+
+- Code that schedules a `Timer` or `Future.delayed` is tested with `package:fake_async`'s
+  `fakeAsync`/`FakeAsync.elapse` to control time deterministically, not real waits.
+- `testWidgets` tests do not need `fakeAsync`: `TestWidgetsFlutterBinding` already fakes the clock
+  for `pump`/`pumpAndSettle`.
+
 ## Accessibility
 
 Accessibility checks must use concrete assertions or approved tooling: semantic labels, minimum tap-target dimensions, text-scaling layout behavior, focus traversal order, and contrast against approved theme colors. A screen change is incomplete if an applicable check is absent or skipped without maintainer approval. Keep these checks in the screen's own test file rather than a global accessibility file.
@@ -75,3 +82,5 @@ Accessibility checks must use concrete assertions or approved tooling: semantic 
 - Framework behavior
 - Pure wiring with no decision or failure path
 - Snapshot output
+- Multi-hop navigation sequences (push/pop/go chains) in a route-configuration test; assert only
+  that each route resolves to its screen
