@@ -39,6 +39,11 @@
 //   protocol/schema/README.md's registered codes. TokenStore::Reservation
 //   keeps the matching token unchanged until session admission commits, so
 //   this retryable failure does not spend the one-time token.
+// - A rejected trusted_device_credential gets `revoked` instead of the generic
+//   `unauthenticated` when TrustStore::IsRevoked reports true for the presented clientId:
+//   revocation is a bridge-side decision the client did not cause, and the distinct code lets the
+//   app return the user directly to pairing rather than retrying a dead credential forever
+//   (ai/context/protocol/security.md's "Persistent local trust").
 // - Handshake-timeout closure (checking ConnectionTimeoutTracker::IsTimedOut
 //   independent of a message actually arriving) is not this function's job;
 //   this function only runs once a hello message has already been read.
@@ -120,6 +125,9 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         bool authenticated = bytes.has_value() && trustStore.Authenticate(hello->clientId, *bytes);
         if (!authenticated) {
             credentialThrottle.RecordFailure(now);
+            if (trustStore.IsRevoked(hello->clientId)) {
+                return Fail(helloEnvelope, bridgeInstanceId, "revoked", "This device's trust was revoked", false);
+            }
             return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated",
                         "Invalid or unrecognized device credential", false);
         }

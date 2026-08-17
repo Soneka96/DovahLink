@@ -469,6 +469,86 @@ TEST_CASE("HandleHello rejects a trusted_device_credential hello with a wrong cr
     CHECK_FALSE(throttle.IsBlocked(now));
 }
 
+TEST_CASE("HandleHello reports revoked for a trusted_device_credential hello from a revoked clientId",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope(dovahlink::security::EncodeHex(credentialBytes));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "revoked");
+    CHECK_FALSE(error->retryable);
+    // Revocation is unrelated to the one-time-token flow; it must not spend or block that throttle.
+    CHECK_FALSE(throttle.IsBlocked(now));
+}
+
+TEST_CASE("HandleHello reports revoked for a revoked clientId even when a non-matching credential is presented",
+          "[application][handshake_handler]") {
+    // TrustStore::Revoke erases the stored credential entirely (bridge/security/trust_store.cpp),
+    // so a real revoked device reconnecting presents whatever old credential it still has locally --
+    // never bytes that happen to match a live record. The revoked outcome must not depend on
+    // guessing the original credential.
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope(
+        dovahlink::security::EncodeHex(std::vector<std::uint8_t>{9, 9, 9, 9}));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "revoked");
+}
+
+TEST_CASE("HandleHello reports revoked for a revoked clientId even when the credential is malformed",
+          "[application][handshake_handler]") {
+    // IsRevoked keys only on clientId, so it must still win over the "structurally invalid
+    // credential" path (a non-hex credential cannot be decoded to bytes at all).
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope("not-valid-hex");
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "revoked");
+}
+
 TEST_CASE("HandleHello rejects a trusted_device_credential hello for an unknown clientId",
           "[application][handshake_handler]") {
     EmptyPersistence persistence;
