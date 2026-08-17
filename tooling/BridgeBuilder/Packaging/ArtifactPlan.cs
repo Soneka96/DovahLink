@@ -32,7 +32,7 @@ public sealed record ArtifactPlan(
 
         string channelSuffix = channel == PackageChannel.Beta ? "-beta" : string.Empty;
         string archiveName = $"DovahLink-Bridge-{version}{channelSuffix}.zip";
-        string archiveDirectory = Path.Combine("Data", "SKSE", "Plugins");
+        string pluginsDirectory = Path.Combine("Data", "SKSE", "Plugins");
 
         string[] runtimeFiles =
         [
@@ -42,10 +42,13 @@ public sealed record ArtifactPlan(
             "spdlog.dll",
         ];
 
-        return new ArtifactPlan(
-            version,
-            channel,
-            archiveName,
-            runtimeFiles.Select(file => new ArtifactFile(file, Path.Combine(archiveDirectory, file))).ToArray());
+        ArtifactFile[] files =
+        [
+            .. runtimeFiles.Select(file => new ArtifactFile(file, Path.Combine(pluginsDirectory, file))),
+            new ArtifactFile("DovahLinkAdmin.pex", Path.Combine("Data", "Scripts", "DovahLinkAdmin.pex")),
+            new ArtifactFile("dovahlink.yaml", Path.Combine("Data", "SKSE", "CustomConsole", "dovahlink.yaml")),
+        ];
+
+        return new ArtifactPlan(version, channel, archiveName, files);
     }
 }
