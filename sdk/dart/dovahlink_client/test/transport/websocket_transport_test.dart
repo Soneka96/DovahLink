@@ -95,6 +95,7 @@ void main() {
       'connect() to an unreachable port fails promptly rather than hanging',
       () async {
         final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
 
         await expectLater(
           transport
@@ -102,6 +103,63 @@ void main() {
               .timeout(const Duration(seconds: 5)),
           throwsA(isNot(isA<TimeoutException>())),
         );
+      },
+    );
+
+    test(
+      'close() during an in-flight connect() discards the late socket instead of adopting it',
+      () async {
+        final HarnessProcess harness = await HarnessProcess.start(
+          token: _validHexToken,
+          extraEnvironment: <String, String>{
+            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+                _isolatedTrustStorePath(),
+          },
+        );
+        addTearDown(harness.dispose);
+        await harness.waitForReady();
+
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
+
+        // Deliberately not awaited: close() must run while connect() is still resolving.
+        final Future<void> connectFuture = transport.connect(_bridgeUri);
+        await transport.close();
+        await connectFuture;
+
+        // The socket connect() eventually received was discarded, not adopted -- the
+        // transport still behaves as never connected.
+        expect(() => transport.send('irrelevant'), throwsStateError);
+      },
+    );
+
+    test(
+      'a fresh connect() after an abandoned one succeeds normally',
+      () async {
+        final HarnessProcess harness = await HarnessProcess.start(
+          token: _validHexToken,
+          extraEnvironment: <String, String>{
+            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+                _isolatedTrustStorePath(),
+          },
+        );
+        addTearDown(harness.dispose);
+        await harness.waitForReady();
+
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
+
+        // Abandon a first in-flight connect(), then reconnect on the same instance -- this is
+        // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
+        // a stale _abandoned flag must not sabotage it.
+        final Future<void> firstConnect = transport.connect(_bridgeUri);
+        await transport.close();
+        await firstConnect;
+
+        await transport.connect(_bridgeUri);
+
+        // Proves the new socket was actually adopted this time, not discarded like the first.
+        await transport.send('probe');
       },
     );
   });

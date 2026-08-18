@@ -21,6 +21,14 @@ class WebSocketTransport implements DovahLinkTransport {
   /// hand out one already-arrived (or not-yet-arrived) message per access instead.
   StreamQueue<String>? _messageQueue;
 
+  /// Set by [close] to discard a still-resolving [connect] instead of adopting its socket.
+  /// `dart:io`'s [WebSocket.connect] has no cancellation: a caller that gives up on [connect] (for
+  /// example via its own `.timeout()`) does not stop it from eventually succeeding in the
+  /// background, and without this flag that late socket would silently end up open with nothing
+  /// managing it. Reset at the start of every [connect] call, since one transport instance is
+  /// reused across reconnects.
+  bool _abandoned = false;
+
   @override
   Future<void> connect(Uri uri) async {
     if (_socket != null) {
@@ -28,7 +36,17 @@ class WebSocketTransport implements DovahLinkTransport {
         'Already connected. Call close() before connecting again.',
       );
     }
+    // ponytail: connect() assumes no other connect() call is already in flight on this instance
+    // -- true of every caller in this codebase today (DovahLinkClient always awaits one attempt
+    // before starting another). A second overlapping connect() would race this reset against the
+    // first call's own _abandoned check. Add a "connecting" guard if a caller ever needs to start
+    // connect() again before a previous call has resolved or thrown.
+    _abandoned = false;
     final WebSocket socket = await WebSocket.connect(uri.toString());
+    if (_abandoned) {
+      await socket.close();
+      return;
+    }
     _socket = socket;
     // A non-text frame throws inside map(), which the StreamQueue delivers as an error to
     // whichever `messages` access is waiting on it -- DovahLink only ever sends text frames, so
@@ -66,6 +84,7 @@ class WebSocketTransport implements DovahLinkTransport {
 
   @override
   Future<void> close() async {
+    _abandoned = true;
     final WebSocket? socket = _socket;
     _socket = null;
     _messageQueue = null;
