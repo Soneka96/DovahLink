@@ -523,6 +523,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"pub\", \"get\")',
+            '$appBuildCache = Join-Path $appDirectory ".dart_tool',
+            'if (Test-Path -LiteralPath $appBuildCache) {',
+            'Remove-Item -LiteralPath $appBuildCache -Recurse -Force',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @(\"run\", \"build_runner\", \"build\")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"analyze\")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"test\")',
@@ -550,6 +553,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         command_positions = [
             script.index('Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'),
+            script.index('Remove-Item -LiteralPath $appBuildCache -Recurse -Force'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")'),
