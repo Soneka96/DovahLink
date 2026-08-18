@@ -134,3 +134,69 @@ class PairingDisposedAction extends Equatable {
   @override
   List<Object?> get props => [wasTrusted];
 }
+
+/// Requests redisplay of the active pairing code.
+class PairingRenotifyRequestedAction extends Equatable {
+  /// Creates a renotify-request action.
+  const PairingRenotifyRequestedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Marks the active pairing code as redisplayed in Skyrim.
+class PairingRenotifySucceededAction extends Equatable {
+  /// Creates a renotify-success action.
+  const PairingRenotifySucceededAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Carries renotify cooldown information when redisplay was rejected.
+class PairingRenotifyCooldownAction extends Equatable {
+  /// Creates a renotify-cooldown action.
+  const PairingRenotifyCooldownAction({required this.retryAfterSeconds});
+
+  /// The remaining cooldown in seconds before the next manual renotify.
+  final int retryAfterSeconds;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [retryAfterSeconds];
+}
+
+/// Requests cancellation of the active pairing challenge or pending credential.
+class PairingCancelRequestedAction extends Equatable {
+  /// Creates a cancel-request action.
+  const PairingCancelRequestedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Marks the active pairing challenge or pending credential as cancelled.
+class PairingCancelSucceededAction extends Equatable {
+  /// Creates a cancel-success action.
+  const PairingCancelSucceededAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Marks a wrong pairing code entry when attempts remain before hard limit.
+class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
+  /// Creates a failed-but-retriable code-submission action.
+  const PairingConfirmFailedWithAttemptsRemainingAction({required this.message});
+
+  /// A user-safe explanation of why the code was rejected.
+  final String message;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [message];
+}
