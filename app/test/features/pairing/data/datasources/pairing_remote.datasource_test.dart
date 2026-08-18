@@ -209,6 +209,20 @@ void main() {
         ),
       );
     });
+
+    test('maps an unexpected exception to a user-safe PairingFailure', () async {
+      when(() => mockClient.authenticate(any())).thenThrow(StateError('boom'));
+
+      final Either<Failure, PairingHandshakeEntity> result = await dataSource
+          .authenticate();
+
+      expect(
+        result,
+        const Left<Failure, PairingHandshakeEntity>(
+          PairingFailure('Pairing could not be completed. Please try again.'),
+        ),
+      );
+    });
   });
 
   group('PairingRemoteDataSourceImpl.requestPairingCode', () {
@@ -276,6 +290,20 @@ void main() {
           .requestPairingCode();
 
       expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
+    });
+
+    test('maps an unexpected exception to a user-safe PairingFailure', () async {
+      when(() => mockClient.requestPairing()).thenThrow(StateError('boom'));
+
+      final Either<Failure, Unit> result = await dataSource
+          .requestPairingCode();
+
+      expect(
+        result,
+        const Left<Failure, Unit>(
+          PairingFailure('Pairing could not be completed. Please try again.'),
+        ),
+      );
     });
   });
 
@@ -440,6 +468,27 @@ void main() {
 
       expect(result, const Left<Failure, Unit>(DatabaseFailure('corrupt store')));
     });
+
+    test('maps an unexpected exception to a user-safe PairingFailure', () async {
+      when(
+        () => mockClient.confirmPairingCode(
+          code: any(named: 'code'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenThrow(StateError('boom'));
+
+      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
+        code: '123456',
+      );
+
+      expect(
+        result,
+        const Left<Failure, Unit>(
+          PairingFailure('Pairing could not be completed. Please try again.'),
+        ),
+      );
+      verifyNever(() => mockClient.acknowledgeTrustedCredential(any()));
+    });
   });
 
   group('PairingRemoteDataSourceImpl.disconnect', () {
@@ -459,6 +508,19 @@ void main() {
       final Either<Failure, Unit> result = await dataSource.disconnect();
 
       expect(result, const Left<Failure, Unit>(NetworkFailure('socket failed')));
+    });
+
+    test('maps an unexpected exception to a user-safe PairingFailure', () async {
+      when(() => mockClient.disconnect()).thenThrow(StateError('boom'));
+
+      final Either<Failure, Unit> result = await dataSource.disconnect();
+
+      expect(
+        result,
+        const Left<Failure, Unit>(
+          PairingFailure('Pairing could not be completed. Please try again.'),
+        ),
+      );
     });
   });
 }

@@ -24,8 +24,16 @@ abstract interface class PairingRemoteDataSource {
   Future<Either<Failure, Unit>> disconnect();
 }
 
+/// The user-safe [Failure] reported for any exception this data source's typed catches don't
+/// recognize; shared by every method so an unexpected failure reads identically everywhere.
+const PairingFailure _unexpectedPairingFailure = PairingFailure(
+  'Pairing could not be completed. Please try again.',
+);
+
 /// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
-/// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s.
+/// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
+/// outside that documented set is also converted rather than left to escape this boundary, as
+/// [_unexpectedPairingFailure].
 class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// Creates a data source backed by [_client].
   PairingRemoteDataSourceImpl(this._client);
@@ -64,6 +72,12 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
+    } on Object {
+      // The typed catches above are the SDK's documented failure surface for this call; anything
+      // else is unexpected and must not escape past this boundary (ai/context/flutter/
+      // error-handling.md's "Never let raw infrastructure exceptions escape into a use case or
+      // presentation").
+      return const Left(_unexpectedPairingFailure);
     }
   }
 
@@ -95,6 +109,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
     }
   }
 
@@ -119,6 +135,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
     }
   }
 
@@ -130,6 +148,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
     }
   }
 
