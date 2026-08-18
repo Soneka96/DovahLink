@@ -22,6 +22,12 @@ abstract interface class PairingRemoteDataSource {
 
   /// Closes the current connection.
   Future<Either<Failure, Unit>> disconnect();
+
+  /// Requests redisplay of the active pairing code in Skyrim.
+  Future<Either<Failure, Unit>> requestPairingRenotify();
+
+  /// Cancels the owned active pairing challenge or pending credential.
+  Future<Either<Failure, Unit>> cancelPairing();
 }
 
 /// The user-safe [Failure] reported for any exception this data source's typed catches don't
@@ -161,4 +167,49 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     'rate_limited' => 'Too many attempts. Wait a moment before trying again.',
     _ => 'Pairing could not be completed. Please try again.',
   };
+
+  /// See [PairingRemoteDataSource.requestPairingRenotify].
+  @override
+  Future<Either<Failure, Unit>> requestPairingRenotify() async {
+    try {
+      final renotifyResult = await _client.requestPairingRenotify();
+      return switch (renotifyResult.status) {
+        PairingRenotifyStatus.renotified => const Right(unit),
+        PairingRenotifyStatus.cooldown =>
+          const Left(PairingFailure('Too many requests. Wait before trying again.')),
+        PairingRenotifyStatus.alreadyIdle =>
+          const Left(PairingFailure('No pairing is currently active.')),
+      };
+    } on DovahLinkConnectionException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkProtocolException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkPairingException catch (error) {
+      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
+    }
+  }
+
+  /// See [PairingRemoteDataSource.cancelPairing].
+  @override
+  Future<Either<Failure, Unit>> cancelPairing() async {
+    try {
+      final cancelOutcome = await _client.cancelPairing();
+      return switch (cancelOutcome.status) {
+        PairingCancelStatus.cancelled => const Right(unit),
+        PairingCancelStatus.alreadyIdle => const Right(unit),
+      };
+    } on DovahLinkConnectionException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkProtocolException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkPairingException catch (error) {
+      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+    } on DovahLinkStorageException catch (error) {
+      return Left(DatabaseFailure(error.message));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
+    }
+  }
 }

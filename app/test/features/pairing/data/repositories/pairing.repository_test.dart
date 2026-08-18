@@ -163,4 +163,60 @@ void main() {
       verifyNoMoreInteractions(mockDataSource);
     });
   });
+
+  group('PairingRepositoryImpl.requestPairingRenotify', () {
+    test('returns Right when the data source succeeds', () async {
+      when(
+        () => mockDataSource.requestPairingRenotify(),
+      ).thenAnswer((_) async => const Right(unit));
+
+      final Either<Failure, Unit> result = await repository
+          .requestPairingRenotify();
+
+      expect(result, const Right<Failure, Unit>(unit));
+      verify(() => mockDataSource.requestPairingRenotify()).called(1);
+      verifyNoMoreInteractions(mockDataSource);
+    });
+
+    test('returns Left when the data source fails', () async {
+      const PairingFailure failure = PairingFailure('cooldown');
+      when(
+        () => mockDataSource.requestPairingRenotify(),
+      ).thenAnswer((_) async => const Left(failure));
+
+      final Either<Failure, Unit> result = await repository
+          .requestPairingRenotify();
+
+      expect(result, const Left<Failure, Unit>(failure));
+      verify(() => mockDataSource.requestPairingRenotify()).called(1);
+      verifyNoMoreInteractions(mockDataSource);
+    });
+  });
+
+  group('PairingRepositoryImpl.cancelPairing', () {
+    test('returns Right when the data source succeeds', () async {
+      when(
+        () => mockDataSource.cancelPairing(),
+      ).thenAnswer((_) async => const Right(unit));
+
+      final Either<Failure, Unit> result = await repository.cancelPairing();
+
+      expect(result, const Right<Failure, Unit>(unit));
+      verify(() => mockDataSource.cancelPairing()).called(1);
+      verifyNoMoreInteractions(mockDataSource);
+    });
+
+    test('returns Left when the data source fails', () async {
+      const NetworkFailure failure = NetworkFailure('failed');
+      when(
+        () => mockDataSource.cancelPairing(),
+      ).thenAnswer((_) async => const Left(failure));
+
+      final Either<Failure, Unit> result = await repository.cancelPairing();
+
+      expect(result, const Left<Failure, Unit>(failure));
+      verify(() => mockDataSource.cancelPairing()).called(1);
+      verifyNoMoreInteractions(mockDataSource);
+    });
+  });
 }

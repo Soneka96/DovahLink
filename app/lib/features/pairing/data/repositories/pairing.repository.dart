@@ -36,4 +36,13 @@ class PairingRepositoryImpl implements IPairingRepository {
   /// See [IPairingRepository.disconnect].
   @override
   Future<Either<Failure, Unit>> disconnect() => _remoteDataSource.disconnect();
+
+  /// See [IPairingRepository.requestPairingRenotify].
+  @override
+  Future<Either<Failure, Unit>> requestPairingRenotify() =>
+      _remoteDataSource.requestPairingRenotify();
+
+  /// See [IPairingRepository.cancelPairing].
+  @override
+  Future<Either<Failure, Unit>> cancelPairing() => _remoteDataSource.cancelPairing();
 }
