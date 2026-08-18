@@ -1,5 +1,6 @@
 #include "security/pairing_session.hpp"
 
+#include "security/constant_time_compare.hpp"
 #include "security/csprng.hpp"
 
 #include <utility>
@@ -74,7 +75,8 @@ std::optional<PendingCredential> PairingSession::TryFinalize(const std::string& 
     if (!pendingCredential_.has_value()) {
         return std::nullopt;
     }
-    if (pendingCredential_->clientId != clientId || pendingCredential_->credential != credential) {
+    if (pendingCredential_->clientId != clientId ||
+        !ConstantTimeEquals(pendingCredential_->credential, credential)) {
         return std::nullopt;
     }
 

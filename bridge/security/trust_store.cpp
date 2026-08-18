@@ -1,5 +1,6 @@
 #include "security/trust_store.hpp"
 
+#include "security/constant_time_compare.hpp"
 #include "security/csprng.hpp"
 #include "security/limits.hpp"
 
@@ -18,19 +19,6 @@ void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
         SecureZeroMemory(buffer.data(), buffer.size());
     }
     buffer.clear();
-}
-
-/// Compares equal-length byte sequences without early exit on content, avoiding a timing
-/// side-channel on which byte first differs.
-bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
-    if (a.size() != b.size()) {
-        return false;
-    }
-    std::uint8_t diff = 0;
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        diff |= static_cast<std::uint8_t>(a[i] ^ b[i]);
-    }
-    return diff == 0;
 }
 
 }  // namespace

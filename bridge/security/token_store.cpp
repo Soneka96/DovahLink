@@ -1,5 +1,7 @@
 #include "security/token_store.hpp"
 
+#include "security/constant_time_compare.hpp"
+
 #include <windows.h>
 
 #include <utility>
@@ -7,20 +9,6 @@
 namespace dovahlink::security {
 
 namespace {
-
-// Constant-time comparison: always inspects every byte of both buffers
-// regardless of where they first differ, avoiding a timing side-channel that
-/// Compares equal-length byte sequences without early exit on content.
-bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
-    if (a.size() != b.size()) {
-        return false;
-    }
-    std::uint8_t diff = 0;
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        diff |= static_cast<std::uint8_t>(a[i] ^ b[i]);
-    }
-    return diff == 0;
-}
 
 // Overwrites the buffer's contents before releasing it, using a Windows API
 /// Overwrites a byte buffer without performing a potentially throwing reallocation.

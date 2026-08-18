@@ -46,6 +46,7 @@ add_library(dovahlink_bridge_core STATIC
     protocol/envelope.cpp
     protocol/json_field_decoders.cpp
     protocol/messages.cpp
+    security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
     security/hex.cpp
@@ -141,6 +142,7 @@ add_executable(dovahlink_bridge_tests
     plugin/dovahlink_bridge_plugin_logging_test.cpp
     plugin/dovahlink_bridge_plugin_registration_test.cpp
     security/limits_test.cpp
+    security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
     security/hex_test.cpp
