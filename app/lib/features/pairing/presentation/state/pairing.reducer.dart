@@ -42,6 +42,26 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
   TypedReducer<PairingState, PairingDisposedAction>(
     pairingDisposedReducer,
   ).call,
+
+  TypedReducer<PairingState, PairingRenotifyRequestedAction>(
+    pairingRenotifyRequestedReducer,
+  ).call,
+
+  TypedReducer<PairingState, PairingRenotifySucceededAction>(
+    pairingRenotifySucceededReducer,
+  ).call,
+
+  TypedReducer<PairingState, PairingRenotifyCooldownAction>(
+    pairingRenotifyCooldownReducer,
+  ).call,
+
+  TypedReducer<PairingState, PairingCancelSucceededAction>(
+    pairingCancelSucceededReducer,
+  ).call,
+
+  TypedReducer<PairingState, PairingConfirmFailedWithAttemptsRemainingAction>(
+    pairingConfirmFailedWithAttemptsRemainingReducer,
+  ).call,
 ]);
 
 /// Handles [PairingStartedAction].
@@ -114,3 +134,48 @@ PairingState pairingDisposedReducer(
   PairingState state,
   PairingDisposedAction action,
 ) => PairingState.initial();
+
+/// Handles [PairingRenotifyRequestedAction].
+/// Stays in [PairingPhase.awaitingCode], clears error.
+PairingState pairingRenotifyRequestedReducer(
+  PairingState state,
+  PairingRenotifyRequestedAction action,
+) => state.copyWith(error: const None());
+
+/// Handles [PairingRenotifySucceededAction].
+/// Stays in [PairingPhase.awaitingCode], clears error.
+PairingState pairingRenotifySucceededReducer(
+  PairingState state,
+  PairingRenotifySucceededAction action,
+) => state.copyWith(error: const None());
+
+/// Handles [PairingRenotifyCooldownAction].
+/// Sets [PairingState.renotifyAvailableAt] to the computed retry time.
+/// Stays in [PairingPhase.awaitingCode].
+PairingState pairingRenotifyCooldownReducer(
+  PairingState state,
+  PairingRenotifyCooldownAction action,
+) => state.copyWith(
+  renotifyAvailableAt: Some(
+    DateTime.now().add(Duration(seconds: action.retryAfterSeconds)),
+  ),
+);
+
+/// Handles [PairingCancelSucceededAction].
+/// Transitions to [PairingPhase.failed] to exit the pairing flow.
+PairingState pairingCancelSucceededReducer(
+  PairingState state,
+  PairingCancelSucceededAction action,
+) => state.copyWith(
+  phase: PairingPhase.failed,
+  error: const Some('Pairing cancelled.'),
+  codeExpiresAt: const None(),
+  renotifyAvailableAt: const None(),
+);
+
+/// Handles [PairingConfirmFailedWithAttemptsRemainingAction].
+/// Stays in [PairingPhase.awaitingCode], sets inline error message.
+PairingState pairingConfirmFailedWithAttemptsRemainingReducer(
+  PairingState state,
+  PairingConfirmFailedWithAttemptsRemainingAction action,
+) => state.copyWith(error: Some(action.message));

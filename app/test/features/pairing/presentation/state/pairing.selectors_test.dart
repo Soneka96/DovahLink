@@ -19,10 +19,7 @@ void main() {
         ),
       );
 
-      expect(
-        PairingSelectors.phaseSelector(state),
-        PairingPhase.awaitingCode,
-      );
+      expect(PairingSelectors.phaseSelector(state), PairingPhase.awaitingCode);
       expect(PairingSelectors.statusLabelSelector(state), 'Awaiting code');
     });
 
