@@ -59,7 +59,9 @@ void main() {
         );
         await transport.send(jsonEncode(helloEnvelope.toJson()));
 
-        final String rawResponse = await transport.messages.first;
+        final String rawResponse = await transport.messages.first.timeout(
+          const Duration(seconds: 5),
+        );
         final Envelope response = Envelope.fromJson(
           jsonDecode(rawResponse) as Map<String, dynamic>,
         );
