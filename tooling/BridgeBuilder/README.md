@@ -28,9 +28,9 @@ The builder also compiles `console-admin/DovahLinkAdmin.psc` with Creation
 Kit's Papyrus Compiler and packages `console-admin/dovahlink.yaml` alongside
 it (see [`console-admin/README.md`](../../console-admin/README.md)). This
 requires a Skyrim Special Edition installation containing
-`Papyrus Compiler\PapyrusCompiler.exe`; the builder searches the standard
-Steam install path and falls back to the `SKYRIM_INSTALL_DIR` environment
-variable when set, for a non-standard install location.
+`Papyrus Compiler\PapyrusCompiler.exe`; the builder checks the
+`SKYRIM_INSTALL_DIR` environment variable first, for a non-standard install
+location, and falls back to the standard Steam install path.
 
 ## Install the generated bridge
 

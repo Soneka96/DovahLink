@@ -240,10 +240,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
 
     // The persistent per-user trust store's backing file cannot be resolved
-    // without LOCALAPPDATA, which every interactive Windows user session sets;
-    // treated as fatal the same way a missing launch token is, rather than
-    // silently falling back to an in-memory-only store that would forget
-    // every paired client on the next restart.
+    // without LOCALAPPDATA, which every interactive Windows user session sets.
+    // Unlike the optional developer token above, this is fatal: the only
+    // alternative is an in-memory-only store that would silently forget every
+    // paired client on the next restart, which is worse than refusing to load.
     auto trustStorePath = dovahlink::security::ResolveDefaultTrustStorePath();
     if (!trustStorePath.has_value()) {
         SKSE::log::error("Could not resolve the per-user trust-store path (LOCALAPPDATA unset).");
