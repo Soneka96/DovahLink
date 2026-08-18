@@ -746,6 +746,143 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>
+    /// Verifies pairing_cancel on an active challenge (PLAN.md Stage D): the owning client can
+    /// cancel an active pairing challenge, clearing it immediately. A fresh pairing_request then
+    /// starts a new challenge, proving the slot was freed and not merely marked invalid.
+    /// </summary>
+    [Fact]
+    public async Task CancelActiveChallengeClears​And​AllowsFreshPairing()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Start pairing (active challenge).
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code1 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Cancel the active challenge.
+        await connection.SendAsync(BridgeScenario.CancelEnvelope(sessionId, "message-cancel-1"));
+        Envelope cancelOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", cancelOutcome.MessageType);
+        Assert.Equal("message-cancel-1", cancelOutcome.CorrelationId);
+        Assert.Equal("cancelled", cancelOutcome.Payload["outcome"]!.GetValue<string>());
+        // cancelled outcome carries no credential or retry info (challenge is cleared, not retryable).
+        Assert.Null(cancelOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(cancelOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+
+        // Fresh pairing_request: should start a new challenge with a fresh code.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
+        Envelope freshStatus = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", freshStatus.MessageType);
+        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
+        Assert.True(freshStatus.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+
+        string code2 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        Assert.NotEqual(code1, code2, "Fresh challenge must have a new code, not the cancelled one");
+
+        // Fresh code works (proves challenge was genuinely cleared).
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
+            new JsonObject { ["code"] = code2 }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
+    /// <summary>
+    /// Verifies pairing_cancel on a pending credential (PLAN.md Stage D): the owning client can
+    /// cancel a credential awaiting final acknowledgment (pairing_ack), clearing it without committing
+    /// it to persistent trust. A fresh pairing_request then starts a new challenge.
+    /// </summary>
+    [Fact]
+    public async Task CancelPendingCredentialClears​And​AllowsFreshPairing()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Start pairing and confirm code (credential becomes pending, awaiting ack).
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string pendingCredential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        // Before ack: cancel the pending credential.
+        await connection.SendAsync(BridgeScenario.CancelEnvelope(sessionId, "message-cancel-pending"));
+        Envelope cancelOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", cancelOutcome.MessageType);
+        Assert.Equal("message-cancel-pending", cancelOutcome.CorrelationId);
+        Assert.Equal("cancelled", cancelOutcome.Payload["outcome"]!.GetValue<string>());
+        // cancelled outcome carries no credential or retry info.
+        Assert.Null(cancelOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(cancelOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+
+        // The pending credential is not persisted: fresh pairing_request starts a new challenge
+        // (not a resume of the cancelled pending state).
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
+        Envelope freshStatus = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", freshStatus.MessageType);
+        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
+
+        string freshCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        Assert.NotEqual(code, freshCode);
+
+        // Fresh code works (proves the cancelled credential was not persisted and challenge was cleared).
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
+            new JsonObject { ["code"] = freshCode }));
+        Envelope freshConfirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", freshConfirmOutcome.MessageType);
+        Assert.Equal("credential_issued", freshConfirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string freshCredential = freshConfirmOutcome.Payload["credential"]!.GetValue<string>();
+        Assert.NotEqual(pendingCredential, freshCredential, "Fresh pairing must issue a new credential, not re-use the cancelled pending one");
+
+        // Complete fresh pairing to confirm it works.
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-fresh", sessionId, null,
+            new JsonObject { ["credential"] = freshCredential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Verify the cancelled credential was truly not persisted: attempting to reconnect with it fails.
+        await connection.CloseAsync();
+        await using BridgeConnection reconnectWithCancelled = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnectWithCancelled.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(pendingCredential));
+        Envelope rejectionError = await reconnectWithCancelled.ReceiveAsync();
+        Assert.Equal("error", rejectionError.MessageType);
+        Assert.Equal("unauthenticated", rejectionError.Payload["code"]!.GetValue<string>(),
+            "Cancelled pending credential must be rejected as unauthenticated, not persisted");
+
+        // Fresh credential works on a new connection (contrasting proof).
+        await reconnectWithCancelled.CloseAsync();
+        await using BridgeConnection reconnectWithFresh = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnectWithFresh.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(freshCredential));
+        Envelope freshHelloAck = await reconnectWithFresh.ReceiveAsync();
+        Assert.Equal("hello_ack", freshHelloAck.MessageType);
+        Assert.Equal("paired", freshHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, reconnectWithFresh);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
