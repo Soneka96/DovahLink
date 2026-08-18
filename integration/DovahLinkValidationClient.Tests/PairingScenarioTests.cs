@@ -664,6 +664,88 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>
+    /// Verifies the hard limit on wrong pairing attempts (PLAN.md Stage B): after 5 incorrect codes,
+    /// the challenge is cancelled with outcome "hard_limit_reached". The bridge signals challenge
+    /// exhaustion via PAIRING_ATTEMPTS_EXHAUSTED to the notification sink (distinct from per-attempt
+    /// PAIRING_CODE_INCORRECT). A fresh pairing_request generates a new challenge.
+    /// </summary>
+    [Fact]
+    public async Task FiveWrongAttemptsReachesHardLimitAndCancelsChallenge()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Start pairing.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Submit 4 wrong codes: each should yield "invalid" and auto-renotify.
+        for (int attempt = 1; attempt <= 4; attempt++)
+        {
+            string wrongCode = DifferentCode(correctCode);
+            await connection.SendAsync(new Envelope("pairing_confirm", $"message-confirm-wrong-{attempt}", sessionId, null,
+                new JsonObject { ["code"] = wrongCode }));
+            Envelope outcome = await connection.ReceiveAsync();
+            Assert.Equal("pairing_outcome", outcome.MessageType);
+            Assert.Equal($"message-confirm-wrong-{attempt}", outcome.CorrelationId);
+            Assert.Equal("invalid", outcome.Payload["outcome"]!.GetValue<string>());
+
+            // Each wrong attempt triggers auto-renotify: harness signals with PAIRING_CODE_INCORRECT.
+            string signal = await harness.ReadLineAsync();
+            Assert.StartsWith("PAIRING_CODE_INCORRECT ", signal);
+        }
+
+        // After 4 attempts, challenge still exists: query status to prove boundary.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-boundary", sessionId, null, new JsonObject()));
+        Envelope boundaryStatus = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", boundaryStatus.MessageType);
+        Assert.Equal("in_progress", boundaryStatus.Payload["state"]!.GetValue<string>());
+
+        // 5th wrong attempt: hits hard limit, challenge is cancelled.
+        string fifthWrongCode = DifferentCode(correctCode);
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-wrong-5", sessionId, null,
+            new JsonObject { ["code"] = fifthWrongCode }));
+        Envelope hardLimitOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", hardLimitOutcome.MessageType);
+        Assert.Equal("message-confirm-wrong-5", hardLimitOutcome.CorrelationId);
+        Assert.Equal("hard_limit_reached", hardLimitOutcome.Payload["outcome"]!.GetValue<string>());
+        // hard_limit_reached carries no credential or retry info (challenge is immediately cancelled, not retryable).
+        Assert.Null(hardLimitOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(hardLimitOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+
+        // Hard limit is signalled distinctly from per-attempt auto-renotify: harness prints PAIRING_ATTEMPTS_EXHAUSTED.
+        string exhaustedSignal = await harness.ReadLineAsync();
+        Assert.Equal("PAIRING_ATTEMPTS_EXHAUSTED", exhaustedSignal);
+
+        // Challenge is cleared by the hard limit: fresh pairing_request starts a new one with a fresh code.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
+        Envelope freshStatus = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", freshStatus.MessageType);
+        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
+        Assert.True(freshStatus.Payload["expiresInSeconds"]!.GetValue<int>() > 0, "Fresh challenge must carry expiresInSeconds");
+
+        string freshCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        // The new challenge has a different code (fresh attempt, not retry of the exhausted one).
+        Assert.NotEqual(correctCode, freshCode);
+
+        // Fresh code works (confirms the challenge was genuinely cleared and restarted).
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
+            new JsonObject { ["code"] = freshCode }));
+        Envelope freshConfirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", freshConfirmOutcome.MessageType);
+        Assert.Equal("credential_issued", freshConfirmOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
