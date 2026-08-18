@@ -2,18 +2,30 @@
 
 #include "protocol/json_field_decoders.hpp"
 
+#include <algorithm>
+#include <array>
 #include <utility>
 
 namespace dovahlink::protocol {
+
+namespace {
+
+constexpr std::array<std::string_view, 4> kValidPairingStates = {
+    "unavailable",
+    "available",
+    "in_progress",
+    "other_device_pairing",
+};
+
+}  // namespace
 
 std::expected<PairingStatusPayload, MessageError> DecodePairingStatusPayload(const boost::json::object& payload) {
     auto state = DecodeNonEmptyString(RequireField(payload, "state"), "state");
     if (!state) {
         return std::unexpected(state.error());
     }
-    if (*state != "unavailable" && *state != "available" && *state != "in_progress" &&
-        *state != "other_device_pairing") {
-        return Fail("state must be one of: unavailable, available, in_progress, other_device_pairing");
+    if (std::ranges::find(kValidPairingStates, *state) == kValidPairingStates.end()) {
+        return Fail("state must be one of the registered pairing states");
     }
     auto expiresInSeconds = DecodeOptionalNonNegativeInt(RequireField(payload, "expiresInSeconds"),
                                                           "expiresInSeconds");

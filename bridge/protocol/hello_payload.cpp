@@ -2,9 +2,21 @@
 
 #include "protocol/json_field_decoders.hpp"
 
+#include <algorithm>
+#include <array>
 #include <utility>
 
 namespace dovahlink::protocol {
+
+namespace {
+
+constexpr std::array<std::string_view, 3> kValidAuthMethods = {
+    "one_time_local_token",
+    "unpaired",
+    "trusted_device_credential",
+};
+
+}  // namespace
 
 std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::object& payload) {
     auto endpoint = DecodeNonEmptyString(RequireField(payload, "endpoint"), "endpoint");
@@ -25,9 +37,8 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     if (!authMethod) {
         return std::unexpected(authMethod.error());
     }
-    if (*authMethod != "one_time_local_token" && *authMethod != "unpaired" &&
-        *authMethod != "trusted_device_credential") {
-        return Fail("auth.method must be one of: one_time_local_token, unpaired, trusted_device_credential");
+    if (std::ranges::find(kValidAuthMethods, *authMethod) == kValidAuthMethods.end()) {
+        return Fail("auth.method must be one of the registered authentication methods");
     }
 
     // "unpaired" bootstraps a session with no credential to present yet; the other two methods
