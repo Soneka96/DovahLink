@@ -69,7 +69,7 @@ PairingSession::ConfirmResult PairingSession::TryConfirmCode(const std::string& 
     return ConfirmResult::kConfirmed;
 }
 
-std::optional<PendingCredential> PairingSession::TryFinalize(const std::string& clientId,
+std::optional<PendingCredential> PairingSession::PeekPending(const std::string& clientId,
                                                                const std::vector<std::uint8_t>& credential) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!pendingCredential_.has_value()) {
@@ -79,10 +79,20 @@ std::optional<PendingCredential> PairingSession::TryFinalize(const std::string& 
         !ConstantTimeEquals(pendingCredential_->credential, credential)) {
         return std::nullopt;
     }
+    return pendingCredential_;
+}
 
-    auto result = std::move(*pendingCredential_);
+bool PairingSession::CommitPending(const std::string& clientId, const std::vector<std::uint8_t>& credential) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!pendingCredential_.has_value()) {
+        return false;
+    }
+    if (pendingCredential_->clientId != clientId ||
+        !ConstantTimeEquals(pendingCredential_->credential, credential)) {
+        return false;
+    }
     pendingCredential_.reset();
-    return result;
+    return true;
 }
 
 }  // namespace dovahlink::security

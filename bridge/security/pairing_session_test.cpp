@@ -41,7 +41,7 @@ std::vector<std::uint8_t> MakeCredential(std::uint8_t seed) {
 
 }  // namespace
 
-TEST_CASE("full pairing lifecycle: start, confirm, finalize returns to NONE",
+TEST_CASE("full pairing lifecycle: start, confirm, peek then commit returns to NONE",
           "[security][pairing_session]") {
     PairingSession session(FixedCode("123456"));
 
@@ -53,12 +53,14 @@ TEST_CASE("full pairing lifecycle: start, confirm, finalize returns to NONE",
     REQUIRE(session.TryConfirmCode("123456", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
                                     std::string("My PC")) == ConfirmResult::kConfirmed);
 
-    auto finalized = session.TryFinalize("client-1", MakeCredential(1));
-    REQUIRE(finalized.has_value());
-    CHECK(finalized->clientId == "client-1");
-    CHECK(finalized->credential == MakeCredential(1));
-    REQUIRE(finalized->displayName.has_value());
-    CHECK(*finalized->displayName == "My PC");
+    auto peeked = session.PeekPending("client-1", MakeCredential(1));
+    REQUIRE(peeked.has_value());
+    CHECK(peeked->clientId == "client-1");
+    CHECK(peeked->credential == MakeCredential(1));
+    REQUIRE(peeked->displayName.has_value());
+    CHECK(*peeked->displayName == "My PC");
+
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1)));
 
     // Back to NONE: a fresh challenge can start again.
     CHECK(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
@@ -187,43 +189,114 @@ TEST_CASE("TryStartChallenge reports kGeneratorFailed distinctly from kAlreadyIn
     CHECK(*retried.code == "111111");
 }
 
-TEST_CASE("TryFinalize fails with no pending credential", "[security][pairing_session]") {
+TEST_CASE("PeekPending fails with no pending credential", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
 
-    CHECK_FALSE(session.TryFinalize("client-1", MakeCredential(1)).has_value());
+    CHECK_FALSE(session.PeekPending("client-1", MakeCredential(1)).has_value());
 }
 
-TEST_CASE("TryFinalize fails and leaves the pending credential intact for the wrong clientId",
+TEST_CASE("PeekPending fails and leaves the pending credential intact for the wrong clientId",
           "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
                                     std::nullopt) == ConfirmResult::kConfirmed);
 
-    CHECK_FALSE(session.TryFinalize("client-2", MakeCredential(1)).has_value());
-    // The correct clientId+credential still finalizes afterward.
-    CHECK(session.TryFinalize("client-1", MakeCredential(1)).has_value());
+    CHECK_FALSE(session.PeekPending("client-2", MakeCredential(1)).has_value());
+    // The correct clientId+credential still peeks afterward.
+    CHECK(session.PeekPending("client-1", MakeCredential(1)).has_value());
 }
 
-TEST_CASE("TryFinalize fails and leaves the pending credential intact for the wrong credential",
+TEST_CASE("PeekPending fails and leaves the pending credential intact for the wrong credential",
           "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
                                     std::nullopt) == ConfirmResult::kConfirmed);
 
-    CHECK_FALSE(session.TryFinalize("client-1", MakeCredential(9)).has_value());
-    CHECK(session.TryFinalize("client-1", MakeCredential(1)).has_value());
+    CHECK_FALSE(session.PeekPending("client-1", MakeCredential(9)).has_value());
+    CHECK(session.PeekPending("client-1", MakeCredential(1)).has_value());
 }
 
-TEST_CASE("TryFinalize consumes the pending credential exactly once", "[security][pairing_session]") {
+TEST_CASE("PeekPending does not consume the pending credential", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
     REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
                                     std::nullopt) == ConfirmResult::kConfirmed);
-    REQUIRE(session.TryFinalize("client-1", MakeCredential(1)).has_value());
 
-    CHECK_FALSE(session.TryFinalize("client-1", MakeCredential(1)).has_value());
+    auto first = session.PeekPending("client-1", MakeCredential(1));
+    REQUIRE(first.has_value());
+    CHECK_FALSE(first->displayName.has_value());
+
+    // A second peek still finds it, with identical contents -- peeking alone must be safe to
+    // repeat (for example across a failed TrustStore::Persist and its retry) and must not mutate
+    // what it returns.
+    auto second = session.PeekPending("client-1", MakeCredential(1));
+    REQUIRE(second.has_value());
+    CHECK(second->clientId == first->clientId);
+    CHECK(second->credential == first->credential);
+    CHECK(second->displayName == first->displayName);
+}
+
+TEST_CASE("a failed persist after PeekPending leaves the pending credential in place for a retry",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                    std::nullopt) == ConfirmResult::kConfirmed);
+
+    // Simulates the caller peeking, then TrustStore::Persist failing -- CommitPending is
+    // deliberately never called on this attempt.
+    REQUIRE(session.PeekPending("client-1", MakeCredential(1)).has_value());
+
+    // Still PENDING_CREDENTIAL: a new challenge must not be allowed to start over it.
+    CHECK(session.TryStartChallenge().outcome == StartChallengeOutcome::kAlreadyInProgress);
+
+    // The retry: peek again (still there), and this time persistence is simulated as succeeding.
+    REQUIRE(session.PeekPending("client-1", MakeCredential(1)).has_value());
+    CHECK(session.CommitPending("client-1", MakeCredential(1)));
+    CHECK(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("CommitPending fails with no pending credential", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+
+    CHECK_FALSE(session.CommitPending("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("CommitPending fails and leaves the pending credential intact for the wrong clientId",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                    std::nullopt) == ConfirmResult::kConfirmed);
+
+    CHECK_FALSE(session.CommitPending("client-2", MakeCredential(1)));
+    // The correct clientId+credential still commits afterward.
+    CHECK(session.CommitPending("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("CommitPending fails and leaves the pending credential intact for the wrong credential",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                    std::nullopt) == ConfirmResult::kConfirmed);
+
+    CHECK_FALSE(session.CommitPending("client-1", MakeCredential(9)));
+    CHECK(session.CommitPending("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("CommitPending consumes the pending credential exactly once", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    REQUIRE(session.TryStartChallenge().outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", std::chrono::steady_clock::now(), "client-1", MakeCredential(1),
+                                    std::nullopt) == ConfirmResult::kConfirmed);
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1)));
+
+    CHECK_FALSE(session.CommitPending("client-1", MakeCredential(1)));
+    // Nothing left to peek either, once committed.
+    CHECK_FALSE(session.PeekPending("client-1", MakeCredential(1)).has_value());
 }
 
 TEST_CASE("DefaultCodeGenerator produces a six-digit numeric candidate", "[security][pairing_session]") {

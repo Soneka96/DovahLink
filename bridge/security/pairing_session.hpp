@@ -110,13 +110,21 @@ public:
                                                 std::vector<std::uint8_t> credential,
                                                 std::optional<std::string> displayName);
 
-    /// Matches `clientId` and `credential` against the pending credential. On a match, transitions
-    /// `PENDING_CREDENTIAL -> NONE` and returns it, ready for `TrustStore::Persist`. A mismatch
-    /// leaves the pending credential untouched, allowing a correct retry.
-    /// @return The pending credential, or `std::nullopt` when it does not match or none is
-    ///     pending (including after a Bridge restart lost it).
-    [[nodiscard]] std::optional<PendingCredential> TryFinalize(const std::string& clientId,
+    /// Matches `clientId` and `credential` against the pending credential without consuming it, so
+    /// a caller can attempt `TrustStore::Persist` before committing. A mismatch leaves the pending
+    /// credential untouched, allowing a correct retry.
+    /// @return A copy of the pending credential, or `std::nullopt` when it does not match or none
+    ///     is pending (including after a Bridge restart lost it).
+    [[nodiscard]] std::optional<PendingCredential> PeekPending(const std::string& clientId,
                                                                 const std::vector<std::uint8_t>& credential);
+
+    /// Re-matches `clientId` and `credential` against the pending credential and, on a match,
+    /// transitions `PENDING_CREDENTIAL -> NONE`. Call only after `PeekPending` and a successful
+    /// `TrustStore::Persist`: a caller that skips committing on a failed persist leaves the pending
+    /// credential in place for a retry instead of losing it.
+    /// @return `true` if the pending credential matched and was cleared; `false` if it did not
+    ///     match or none is pending.
+    [[nodiscard]] bool CommitPending(const std::string& clientId, const std::vector<std::uint8_t>& credential);
 
 private:
     /// Serializes access to challenge and pending-credential state.
