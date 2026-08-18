@@ -854,6 +854,7 @@ TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed 
     // A replay of that same message: rejected before RecordActivity ever runs.
     auto replayed = fixture.Process(PingMessage("message-ping-1"), start + std::chrono::seconds(30));
     CHECK_FALSE(replayed.closeConnection);
+    REQUIRE(replayed.responses.size() == 1);
     auto replayedError = dovahlink::protocol::DecodeErrorPayload(replayed.responses[0].payload);
     REQUIRE(replayedError.has_value());
     CHECK(replayedError->code == "replayed_message");
@@ -861,6 +862,7 @@ TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed 
     // Malformed JSON: rejected even earlier, before envelope decoding.
     auto malformed = fixture.Process("not json at all {{{", start + std::chrono::seconds(70));
     CHECK_FALSE(malformed.closeConnection);
+    REQUIRE(malformed.responses.size() == 1);
     auto malformedError = dovahlink::protocol::DecodeErrorPayload(malformed.responses[0].payload);
     REQUIRE(malformedError.has_value());
     CHECK(malformedError->code == "malformed_message");

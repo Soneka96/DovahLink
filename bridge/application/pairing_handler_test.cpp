@@ -191,7 +191,7 @@ TEST_CASE("HandlePairingConfirm reports expired for an expired code", "[applicat
     PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); },
                                    std::chrono::seconds(0));
     RecordingPairingNotificationSink sink;
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
 
     auto response = HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
                                           pairingSession, std::chrono::steady_clock::now());
@@ -205,7 +205,7 @@ TEST_CASE("HandlePairingConfirm reports expired for an expired code", "[applicat
 TEST_CASE("HandlePairingConfirm reports invalid for a wrong code", "[application][pairing_handler]") {
     PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
     RecordingPairingNotificationSink sink;
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
 
     auto response = HandlePairingConfirm(BuildPairingConfirmEnvelope("000000"), kSessionId, kClientId,
                                           pairingSession, std::chrono::steady_clock::now());
@@ -219,11 +219,12 @@ TEST_CASE("HandlePairingConfirm reports rate_limited after repeated wrong codes"
           "[application][pairing_handler]") {
     PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
     RecordingPairingNotificationSink sink;
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
     auto now = std::chrono::steady_clock::now();
 
     for (int i = 0; i < 5; ++i) {
-        HandlePairingConfirm(BuildPairingConfirmEnvelope("000000"), kSessionId, kClientId, pairingSession, now);
+        static_cast<void>(
+            HandlePairingConfirm(BuildPairingConfirmEnvelope("000000"), kSessionId, kClientId, pairingSession, now));
     }
     auto response = HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
                                           pairingSession, now);
@@ -263,8 +264,9 @@ TEST_CASE("HandlePairingAck reports pending_not_found for a mismatched credentia
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
-    HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, now);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
+    static_cast<void>(
+        HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, now));
 
     auto response = HandlePairingAck(BuildPairingAckEnvelope(EncodeHex(std::vector<std::uint8_t>{9, 9, 9, 9})),
                                       kSessionId, kClientId, kConnection, pairingSession, trustStore, sessions);
@@ -303,7 +305,7 @@ TEST_CASE("HandlePairingAck reports already_trusted on a retry after the credent
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
     auto confirmResponse =
         HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, now);
     auto confirmOutcome = dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
@@ -341,7 +343,7 @@ TEST_CASE("HandlePairingAck reports internal_error when TrustStore::Persist fail
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
     auto confirmResponse =
         HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, now);
     auto confirmOutcome = dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
@@ -364,7 +366,7 @@ TEST_CASE("two separate successful pairing flows issue different credentials",
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
 
-    HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink));
     auto firstConfirm =
         HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, now);
     auto firstOutcome = dovahlink::protocol::DecodePairingOutcomePayload(firstConfirm.payload);
@@ -376,10 +378,11 @@ TEST_CASE("two separate successful pairing flows issue different credentials",
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted);
     REQUIRE(sessionLease.has_value());
-    HandlePairingAck(BuildPairingAckEnvelope(*firstOutcome->credential), kSessionId, kClientId, kConnection,
-                      pairingSession, trustStore, sessions);
+    static_cast<void>(HandlePairingAck(BuildPairingAckEnvelope(*firstOutcome->credential), kSessionId, kClientId,
+                                        kConnection, pairingSession, trustStore, sessions));
 
-    HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"), kSessionId, pairingSession, sink);
+    static_cast<void>(
+        HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"), kSessionId, pairingSession, sink));
     auto secondConfirm = HandlePairingConfirm(BuildPairingConfirmEnvelope("123456", std::nullopt, "message-confirm-2"),
                                                kSessionId, kClientId, pairingSession, now);
     auto secondOutcome = dovahlink::protocol::DecodePairingOutcomePayload(secondConfirm.payload);

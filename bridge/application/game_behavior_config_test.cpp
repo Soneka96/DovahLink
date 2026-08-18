@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 using dovahlink::application::GameBehaviorConfig;
 using dovahlink::application::GameBehaviorConfigFileReader;
