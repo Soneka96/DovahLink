@@ -396,15 +396,18 @@ public sealed class BuildTests
         Assert.Equal(4, runner.Commands.Count);
     }
 
-    /// <summary>Fails without packaging when the console-admin YAML config source is missing.</summary>
+    /// <summary>
+    /// Fails before any build command runs when the console-admin YAML config source is missing.
+    /// </summary>
     [Fact]
-    public async Task FailsWithoutPackagingWhenTheConsoleAdminYamlIsMissing()
+    public async Task FailsBeforeAnyBuildCommandWhenTheConsoleAdminYamlIsMissing()
     {
         using var temporaryDirectory = new TemporaryDirectory();
         CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
         File.Delete(Path.Combine(temporaryDirectory.Path, "console-admin", "dovahlink.yaml"));
+        var runner = new FakeCommandRunner();
         var coordinator = new BridgeBuildCoordinator(
-            new FakeCommandRunner(),
+            runner,
             () => CreateToolchain(temporaryDirectory.Path),
             () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
@@ -412,6 +415,74 @@ public sealed class BuildTests
             temporaryDirectory.Path,
             PackageChannel.Release)));
 
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>
+    /// Fails before any build command runs when the console-admin Papyrus script source is missing.
+    /// </summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheConsoleAdminScriptIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        File.Delete(Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc"));
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>Fails before any build command runs when the Papyrus compiler cannot be found.</summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenThePapyrusCompilerIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        PapyrusToolchain papyrusToolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        File.Delete(papyrusToolchain.CompilerPath);
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => papyrusToolchain);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>Fails before any build command runs when the Visual Studio toolchain cannot be found.</summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheVisualStudioToolchainIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        VisualStudioToolchain toolchain = CreateToolchain(temporaryDirectory.Path);
+        File.Delete(toolchain.VcvarsallPath);
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => toolchain,
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
         Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
     }
 
