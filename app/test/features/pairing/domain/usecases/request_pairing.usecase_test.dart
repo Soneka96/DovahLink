@@ -21,17 +21,35 @@ void main() {
   });
 
   group('Usecase RequestPairingUseCase returns the correct value', () {
-    test('returns Right when repository succeeds', () async {
-      when(
-        () => mockRepository.requestPairingCode(),
-      ).thenAnswer((_) async => const Right(unit));
+    test(
+      'returns Right with null when the repository reports no expiry',
+      () async {
+        when(
+          () => mockRepository.requestPairingCode(),
+        ).thenAnswer((_) async => const Right(null));
 
-      final Either<Failure, Unit> result = await useCase(NoParams());
+        final Either<Failure, int?> result = await useCase(NoParams());
 
-      expect(result, const Right(unit));
-      verify(() => mockRepository.requestPairingCode()).called(1);
-      verifyNoMoreInteractions(mockRepository);
-    });
+        expect(result, const Right(null));
+        verify(() => mockRepository.requestPairingCode()).called(1);
+        verifyNoMoreInteractions(mockRepository);
+      },
+    );
+
+    test(
+      'returns Right with expiresInSeconds when repository succeeds',
+      () async {
+        when(
+          () => mockRepository.requestPairingCode(),
+        ).thenAnswer((_) async => const Right(30));
+
+        final Either<Failure, int?> result = await useCase(NoParams());
+
+        expect(result, const Right(30));
+        verify(() => mockRepository.requestPairingCode()).called(1);
+        verifyNoMoreInteractions(mockRepository);
+      },
+    );
 
     test('returns Left when repository fails', () async {
       const PairingFailure failure = PairingFailure('unavailable');
@@ -39,7 +57,7 @@ void main() {
         () => mockRepository.requestPairingCode(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, Unit> result = await useCase(NoParams());
+      final Either<Failure, int?> result = await useCase(NoParams());
 
       expect(result, const Left(failure));
       verify(() => mockRepository.requestPairingCode()).called(1);

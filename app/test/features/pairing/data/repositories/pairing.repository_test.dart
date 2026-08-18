@@ -61,18 +61,37 @@ void main() {
   });
 
   group('PairingRepositoryImpl.requestPairingCode', () {
-    test('returns Right when the data source succeeds', () async {
-      when(
-        () => mockDataSource.requestPairingCode(),
-      ).thenAnswer((_) async => const Right(unit));
+    test(
+      'returns Right with null when the data source reports no expiry',
+      () async {
+        when(
+          () => mockDataSource.requestPairingCode(),
+        ).thenAnswer((_) async => const Right(null));
 
-      final Either<Failure, Unit> result = await repository
-          .requestPairingCode();
+        final Either<Failure, int?> result = await repository
+            .requestPairingCode();
 
-      expect(result, const Right<Failure, Unit>(unit));
-      verify(() => mockDataSource.requestPairingCode()).called(1);
-      verifyNoMoreInteractions(mockDataSource);
-    });
+        expect(result, const Right<Failure, int?>(null));
+        verify(() => mockDataSource.requestPairingCode()).called(1);
+        verifyNoMoreInteractions(mockDataSource);
+      },
+    );
+
+    test(
+      'returns Right with expiresInSeconds when the data source succeeds',
+      () async {
+        when(
+          () => mockDataSource.requestPairingCode(),
+        ).thenAnswer((_) async => const Right(30));
+
+        final Either<Failure, int?> result = await repository
+            .requestPairingCode();
+
+        expect(result, const Right<Failure, int?>(30));
+        verify(() => mockDataSource.requestPairingCode()).called(1);
+        verifyNoMoreInteractions(mockDataSource);
+      },
+    );
 
     test('returns Left when the data source fails', () async {
       const PairingFailure failure = PairingFailure('unavailable');
@@ -80,10 +99,10 @@ void main() {
         () => mockDataSource.requestPairingCode(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, Unit> result = await repository
+      final Either<Failure, int?> result = await repository
           .requestPairingCode();
 
-      expect(result, const Left<Failure, Unit>(failure));
+      expect(result, const Left<Failure, int?>(failure));
       verify(() => mockDataSource.requestPairingCode()).called(1);
       verifyNoMoreInteractions(mockDataSource);
     });

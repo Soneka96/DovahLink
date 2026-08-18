@@ -127,7 +127,55 @@ void main() {
 
       expect(result.phase, PairingPhase.awaitingCode);
       expect(result.error, isNull);
+      expect(result.codeExpiresAt, isNull);
     });
+
+    test(
+      'PairingCodeAvailableAction sets codeExpiresAt when expiresInSeconds is present',
+      () {
+        final PairingState result = pairingReducer(
+          PairingState.initial(),
+          const PairingCodeAvailableAction(expiresInSeconds: 30),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.codeExpiresAt, isNotNull);
+        expect(result.codeExpiresAt!.isAfter(DateTime.now()), isTrue);
+      },
+    );
+
+    test(
+      'PairingCodeAvailableAction sets codeExpiresAt when expiresInSeconds is zero',
+      () {
+        final PairingState result = pairingReducer(
+          PairingState.initial(),
+          const PairingCodeAvailableAction(expiresInSeconds: 0),
+        );
+
+        expect(result.codeExpiresAt, isNotNull);
+      },
+    );
+
+    test(
+      'PairingCodeAvailableAction clears a stale codeExpiresAt when expiresInSeconds is null',
+      () {
+        final DateTime staleExpiresAt = DateTime.now();
+        final PairingState state = PairingState(
+          phase: PairingPhase.requestingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: staleExpiresAt,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingCodeAvailableAction(),
+        );
+
+        expect(result.codeExpiresAt, isNull);
+      },
+    );
 
     test('PairingCodeSubmittedAction changes the phase to confirming', () {
       final PairingState result = pairingReducer(

@@ -12,8 +12,9 @@ abstract interface class IPairingRepository {
 
   /// Starts, or queries the status of, a pairing challenge. A fresh or
   /// already-active code is shown in Skyrim; this resolves once the client
-  /// may show its code-entry form.
-  Future<Either<Failure, Unit>> requestPairingCode();
+  /// may show its code-entry form. Returns the active code's remaining
+  /// validity in seconds, or null when the bridge did not report one.
+  Future<Either<Failure, int?>> requestPairingCode();
 
   /// Submits the six-digit code the user read from Skyrim and completes the
   /// trust handshake.

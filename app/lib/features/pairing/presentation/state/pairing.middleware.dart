@@ -94,9 +94,9 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         if (cooldownSeconds == null) {
           store.dispatch(const PairingRenotifySucceededAction());
         } else {
-          store.dispatch(PairingRenotifyCooldownAction(
-            retryAfterSeconds: cooldownSeconds,
-          ));
+          store.dispatch(
+            PairingRenotifyCooldownAction(retryAfterSeconds: cooldownSeconds),
+          );
         }
       },
     );
@@ -147,8 +147,10 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
-      (_) {
-        store.dispatch(const PairingCodeAvailableAction());
+      (int? expiresInSeconds) {
+        store.dispatch(
+          PairingCodeAvailableAction(expiresInSeconds: expiresInSeconds),
+        );
       },
     );
   }

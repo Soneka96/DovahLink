@@ -336,7 +336,7 @@ void main() {
       () async {
         when(
           () => mockRequestPairing(any()),
-        ).thenAnswer((_) async => const Right(unit));
+        ).thenAnswer((_) async => const Right(null));
 
         middleware.call(store, const PairingCodeRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -344,6 +344,23 @@ void main() {
         expect(actionLog, [
           isA<PairingCodeRequestedAction>(),
           isA<PairingCodeAvailableAction>(),
+        ]);
+      },
+    );
+
+    test(
+      'dispatches PairingCodeAvailableAction with expiresInSeconds forwarded',
+      () async {
+        when(
+          () => mockRequestPairing(any()),
+        ).thenAnswer((_) async => const Right(30));
+
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingCodeRequestedAction>(),
+          const PairingCodeAvailableAction(expiresInSeconds: 30),
         ]);
       },
     );
@@ -465,22 +482,20 @@ void main() {
     test(
       'dispatches PairingRenotifySucceededAction when renotify succeeds',
       () async {
-        final mockRenotifyUseCase = sl<RequestPairingRenotifyUseCase>()
-            as MockRequestPairingRenotifyUseCase;
-        when(() => mockRenotifyUseCase(any())).thenAnswer(
-          (_) async => const Right(null),
-        );
+        final mockRenotifyUseCase =
+            sl<RequestPairingRenotifyUseCase>()
+                as MockRequestPairingRenotifyUseCase;
+        when(
+          () => mockRenotifyUseCase(any()),
+        ).thenAnswer((_) async => const Right(null));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(
-          actionLog,
-          [
-            isA<PairingRenotifyRequestedAction>(),
-            isA<PairingRenotifySucceededAction>(),
-          ],
-        );
+        expect(actionLog, [
+          isA<PairingRenotifyRequestedAction>(),
+          isA<PairingRenotifySucceededAction>(),
+        ]);
         verify(() => mockRenotifyUseCase(any())).called(1);
       },
     );
@@ -488,11 +503,12 @@ void main() {
     test(
       'dispatches PairingRenotifyCooldownAction with seconds when renotify is in cooldown',
       () async {
-        final mockRenotifyUseCase = sl<RequestPairingRenotifyUseCase>()
-            as MockRequestPairingRenotifyUseCase;
-        when(() => mockRenotifyUseCase(any())).thenAnswer(
-          (_) async => const Right(5),
-        );
+        final mockRenotifyUseCase =
+            sl<RequestPairingRenotifyUseCase>()
+                as MockRequestPairingRenotifyUseCase;
+        when(
+          () => mockRenotifyUseCase(any()),
+        ).thenAnswer((_) async => const Right(5));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -511,11 +527,12 @@ void main() {
     test(
       'dispatches PairingRenotifyCooldownAction with zero when renotify cooldown is immediate',
       () async {
-        final mockRenotifyUseCase = sl<RequestPairingRenotifyUseCase>()
-            as MockRequestPairingRenotifyUseCase;
-        when(() => mockRenotifyUseCase(any())).thenAnswer(
-          (_) async => const Right(0),
-        );
+        final mockRenotifyUseCase =
+            sl<RequestPairingRenotifyUseCase>()
+                as MockRequestPairingRenotifyUseCase;
+        when(
+          () => mockRenotifyUseCase(any()),
+        ).thenAnswer((_) async => const Right(0));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -527,66 +544,58 @@ void main() {
       },
     );
 
-    test(
-      'dispatches PairingFailedAction when renotify fails',
-      () async {
-        final mockRenotifyUseCase = sl<RequestPairingRenotifyUseCase>()
-            as MockRequestPairingRenotifyUseCase;
-        const PairingFailure failure = PairingFailure('no challenge active');
-        when(() => mockRenotifyUseCase(any())).thenAnswer(
-          (_) async => const Left(failure),
-        );
+    test('dispatches PairingFailedAction when renotify fails', () async {
+      final mockRenotifyUseCase =
+          sl<RequestPairingRenotifyUseCase>()
+              as MockRequestPairingRenotifyUseCase;
+      const PairingFailure failure = PairingFailure('no challenge active');
+      when(
+        () => mockRenotifyUseCase(any()),
+      ).thenAnswer((_) async => const Left(failure));
 
-        middleware.call(store, const PairingRenotifyRequestedAction(), next);
-        await Future<void>.delayed(Duration.zero);
+      middleware.call(store, const PairingRenotifyRequestedAction(), next);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(actionLog[0], isA<PairingRenotifyRequestedAction>());
-        expect(actionLog[1], const PairingFailedAction('no challenge active'));
-      },
-    );
+      expect(actionLog[0], isA<PairingRenotifyRequestedAction>());
+      expect(actionLog[1], const PairingFailedAction('no challenge active'));
+    });
   });
 
   group('PairingMiddleware — PairingCancelRequestedAction', () {
     test(
       'dispatches PairingCancelSucceededAction when cancel succeeds',
       () async {
-        final mockCancelUseCase = sl<CancelPairingUseCase>()
-            as MockCancelPairingUseCase;
-        when(() => mockCancelUseCase(any())).thenAnswer(
-          (_) async => const Right(unit),
-        );
+        final mockCancelUseCase =
+            sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
+        when(
+          () => mockCancelUseCase(any()),
+        ).thenAnswer((_) async => const Right(unit));
 
         middleware.call(store, const PairingCancelRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
-        expect(
-          actionLog,
-          [
-            isA<PairingCancelRequestedAction>(),
-            isA<PairingCancelSucceededAction>(),
-          ],
-        );
+        expect(actionLog, [
+          isA<PairingCancelRequestedAction>(),
+          isA<PairingCancelSucceededAction>(),
+        ]);
         verify(() => mockCancelUseCase(any())).called(1);
       },
     );
 
-    test(
-      'dispatches PairingFailedAction when cancel fails',
-      () async {
-        final mockCancelUseCase = sl<CancelPairingUseCase>()
-            as MockCancelPairingUseCase;
-        const NetworkFailure failure = NetworkFailure('connection lost');
-        when(() => mockCancelUseCase(any())).thenAnswer(
-          (_) async => const Left(failure),
-        );
+    test('dispatches PairingFailedAction when cancel fails', () async {
+      final mockCancelUseCase =
+          sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
+      const NetworkFailure failure = NetworkFailure('connection lost');
+      when(
+        () => mockCancelUseCase(any()),
+      ).thenAnswer((_) async => const Left(failure));
 
-        middleware.call(store, const PairingCancelRequestedAction(), next);
-        await Future<void>.delayed(Duration.zero);
+      middleware.call(store, const PairingCancelRequestedAction(), next);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(actionLog[0], isA<PairingCancelRequestedAction>());
-        expect(actionLog[1], const PairingFailedAction('connection lost'));
-      },
-    );
+      expect(actionLog[0], isA<PairingCancelRequestedAction>());
+      expect(actionLog[1], const PairingFailedAction('connection lost'));
+    });
   });
 
   group('PairingMiddleware — PairingBackRequestedAction', () {

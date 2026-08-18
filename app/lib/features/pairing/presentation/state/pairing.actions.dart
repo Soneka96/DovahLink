@@ -35,7 +35,11 @@ class PairingAuthenticatedAction extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [bridgeVersion, trusted, credentialRejectedMessage];
+  List<Object?> get props => [
+    bridgeVersion,
+    trusted,
+    credentialRejectedMessage,
+  ];
 }
 
 /// Requests a pairing challenge.
@@ -51,11 +55,15 @@ class PairingCodeRequestedAction extends Equatable {
 /// Marks a pairing code as available to enter.
 class PairingCodeAvailableAction extends Equatable {
   /// Creates a code-available action.
-  const PairingCodeAvailableAction();
+  const PairingCodeAvailableAction({this.expiresInSeconds});
+
+  /// The active code's remaining validity in seconds, or null when the
+  /// bridge did not report one.
+  final int? expiresInSeconds;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [expiresInSeconds];
 }
 
 /// Submits the user-entered pairing code.
@@ -191,7 +199,9 @@ class PairingCancelSucceededAction extends Equatable {
 /// Marks a wrong pairing code entry when attempts remain before hard limit.
 class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
   /// Creates a failed-but-retriable code-submission action.
-  const PairingConfirmFailedWithAttemptsRemainingAction({required this.message});
+  const PairingConfirmFailedWithAttemptsRemainingAction({
+    required this.message,
+  });
 
   /// A user-safe explanation of why the code was rejected.
   final String message;

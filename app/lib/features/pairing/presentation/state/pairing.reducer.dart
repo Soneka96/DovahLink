@@ -7,9 +7,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Reduces pairing actions into [PairingState].
 Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
-  TypedReducer<PairingState, PairingStartedAction>(
-    pairingStartedReducer,
-  ).call,
+  TypedReducer<PairingState, PairingStartedAction>(pairingStartedReducer).call,
 
   TypedReducer<PairingState, PairingAuthenticatedAction>(
     pairingAuthenticatedReducer,
@@ -35,9 +33,7 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
     pairingDisconnectedReducer,
   ).call,
 
-  TypedReducer<PairingState, PairingFailedAction>(
-    pairingFailedReducer,
-  ).call,
+  TypedReducer<PairingState, PairingFailedAction>(pairingFailedReducer).call,
 
   TypedReducer<PairingState, PairingDisposedAction>(
     pairingDisposedReducer,
@@ -94,11 +90,17 @@ PairingState pairingCodeRequestedReducer(
 ) => state.copyWith(phase: PairingPhase.requestingCode, error: const None());
 
 /// Handles [PairingCodeAvailableAction].
-/// Updates [PairingState.phase], [PairingState.error].
+/// Updates [PairingState.phase], [PairingState.error], [PairingState.codeExpiresAt].
 PairingState pairingCodeAvailableReducer(
   PairingState state,
   PairingCodeAvailableAction action,
-) => state.copyWith(phase: PairingPhase.awaitingCode, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.awaitingCode,
+  error: const None(),
+  codeExpiresAt: action.expiresInSeconds == null
+      ? const None()
+      : Some(DateTime.now().add(Duration(seconds: action.expiresInSeconds!))),
+);
 
 /// Handles [PairingCodeSubmittedAction].
 /// Updates [PairingState.phase], [PairingState.error].

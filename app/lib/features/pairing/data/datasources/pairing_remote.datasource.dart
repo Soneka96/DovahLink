@@ -12,7 +12,9 @@ abstract interface class PairingRemoteDataSource {
   Future<Either<Failure, PairingHandshakeEntity>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
-  Future<Either<Failure, Unit>> requestPairingCode();
+  /// Returns the active code's remaining validity in seconds, or null when the bridge did not
+  /// report one.
+  Future<Either<Failure, int?>> requestPairingCode();
 
   /// Submits the six-digit code and completes the trust handshake.
   Future<Either<Failure, Unit>> confirmPairingCode({
@@ -90,29 +92,29 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
 
   /// Converts a recovered credential-rejection reason into its user-safe explanation, or `null`
   /// when [reason] is `null` (nothing was recovered from).
-  String? _credentialRejectedMessage(CredentialRejectionReason? reason) =>
-      switch (reason) {
-        CredentialRejectionReason.revoked =>
-          "This device's trust was revoked. Requesting a new pairing code.",
-        CredentialRejectionReason.unrecognized =>
-          "This device isn't recognized by this bridge. Requesting a new pairing code.",
-        null => null,
-      };
+  String? _credentialRejectedMessage(
+    CredentialRejectionReason? reason,
+  ) => switch (reason) {
+    CredentialRejectionReason.revoked =>
+      "This device's trust was revoked. Requesting a new pairing code.",
+    CredentialRejectionReason.unrecognized =>
+      "This device isn't recognized by this bridge. Requesting a new pairing code.",
+    null => null,
+  };
 
   /// See [PairingRemoteDataSource.requestPairingCode].
   @override
-  Future<Either<Failure, Unit>> requestPairingCode() async {
+  Future<Either<Failure, int?>> requestPairingCode() async {
     try {
-      final PairingAvailability availability =
-          (await _client.requestPairing()).availability;
-      if (availability == PairingAvailability.unavailable) {
+      final PairingChallengeStatus status = await _client.requestPairing();
+      if (status.availability == PairingAvailability.unavailable) {
         return const Left(
           PairingFailure(
             'Pairing is not available right now. Try again in a moment.',
           ),
         );
       }
-      return const Right(unit);
+      return Right(status.expiresInSeconds);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
@@ -177,9 +179,12 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       final renotifyResult = await _client.requestPairingRenotify();
       return switch (renotifyResult.status) {
         PairingRenotifyStatus.renotified => const Right(null),
-        PairingRenotifyStatus.cooldown => Right(renotifyResult.retryAfterSeconds),
-        PairingRenotifyStatus.alreadyIdle =>
-          const Left(PairingFailure('No pairing is currently active.')),
+        PairingRenotifyStatus.cooldown => Right(
+          renotifyResult.retryAfterSeconds,
+        ),
+        PairingRenotifyStatus.alreadyIdle => const Left(
+          PairingFailure('No pairing is currently active.'),
+        ),
       };
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));

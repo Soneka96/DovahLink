@@ -52,6 +52,33 @@ void main() {
     });
   });
 
+  group('PairingCodeAvailableAction', () {
+    test('stores and compares expiresInSeconds', () {
+      const action1 = PairingCodeAvailableAction(expiresInSeconds: 30);
+      const action2 = PairingCodeAvailableAction(expiresInSeconds: 30);
+
+      expect(action1, action2);
+    });
+
+    test('is not equal when expiresInSeconds differs', () {
+      const action1 = PairingCodeAvailableAction(expiresInSeconds: 30);
+      const action2 = PairingCodeAvailableAction(expiresInSeconds: 15);
+
+      expect(action1, isNot(action2));
+    });
+
+    test('handles a null expiresInSeconds', () {
+      const action1 = PairingCodeAvailableAction();
+      const action2 = PairingCodeAvailableAction(expiresInSeconds: null);
+
+      expect(action1, action2);
+      expect(
+        action1,
+        isNot(const PairingCodeAvailableAction(expiresInSeconds: 30)),
+      );
+    });
+  });
+
   group('PairingCancelRequestedAction', () {
     test('is constructible and equatable', () {
       const action1 = PairingCancelRequestedAction();
@@ -72,22 +99,34 @@ void main() {
 
   group('PairingConfirmFailedWithAttemptsRemainingAction', () {
     test('stores and compares message', () {
-      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(message: 'invalid');
-      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(message: 'invalid');
+      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: 'invalid',
+      );
+      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: 'invalid',
+      );
 
       expect(action1, action2);
     });
 
     test('is not equal when message differs', () {
-      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(message: 'invalid');
-      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(message: 'expired');
+      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: 'invalid',
+      );
+      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: 'expired',
+      );
 
       expect(action1, isNot(action2));
     });
 
     test('handles empty string message', () {
-      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(message: '');
-      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(message: '');
+      const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: '',
+      );
+      const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
+        message: '',
+      );
 
       expect(action1, action2);
       expect(action1.message, isEmpty);
