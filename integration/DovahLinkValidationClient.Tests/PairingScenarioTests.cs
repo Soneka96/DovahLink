@@ -600,6 +600,70 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>
+    /// Verifies the auto-renotify path (PLAN.md Stage D): when a client submits an incorrect code,
+    /// the outcome is "invalid" (challenge persists), the bridge auto-redisplays the code via
+    /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the expiry
+    /// is refreshed. The owning client may continue attempting with the original code.
+    /// </summary>
+    [Fact]
+    public async Task WrongCodeTriggersAutoRenotifyWithoutConsumingAttempt()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Start pairing.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        int initialExpiry = status.Payload["expiresInSeconds"]!.GetValue<int>();
+
+        string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        string wrongCode = DifferentCode(correctCode);
+
+        // Send wrong code: challenge persists (not hard-limit yet), returns "invalid" outcome.
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-wrong", sessionId, null,
+            new JsonObject { ["code"] = wrongCode }));
+        Envelope invalidOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", invalidOutcome.MessageType);
+        Assert.Equal("message-confirm-wrong", invalidOutcome.CorrelationId);
+        Assert.Equal("invalid", invalidOutcome.Payload["outcome"]!.GetValue<string>());
+        // Invalid outcome carries no credential or error info (challenge is still active).
+        Assert.Null(invalidOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(invalidOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+
+        // Bridge auto-renotifies the code via in-game notification; harness signals this.
+        string autoRenotifySignal = await harness.ReadLineAsync();
+        Assert.NotNull(autoRenotifySignal);
+        Assert.StartsWith("PAIRING_CODE_INCORRECT ", autoRenotifySignal);
+        Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
+
+        // Query pairing status: should be "in_progress" (same client owns active challenge)
+        // with refreshed expiry (auto-renotify extended the deadline).
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
+        Envelope statusAfterWrongCode = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", statusAfterWrongCode.MessageType);
+        Assert.Equal("in_progress", statusAfterWrongCode.Payload["state"]!.GetValue<string>());
+        int refreshedExpiry = statusAfterWrongCode.Payload["expiresInSeconds"]!.GetValue<int>();
+        Assert.True(refreshedExpiry > 0);
+        // Expiry should be refreshed by auto-renotify (roughly restored to full duration, minus latency).
+        Assert.True(refreshedExpiry >= initialExpiry - 5,
+            $"Refreshed expiry {refreshedExpiry}s should be close to initial {initialExpiry}s (within 5s latency)");
+
+        // Confirm with the original correct code: should succeed (wrong attempt didn't consume it).
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-correct", sessionId, null,
+            new JsonObject { ["code"] = correctCode }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
