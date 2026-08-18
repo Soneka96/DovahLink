@@ -160,15 +160,18 @@ public class RedactionScenarioTests
         await harness.WriteLineAsync("revoke client-1");
         unrelatedPayloads.Add(await harness.ReadLineAsync() ?? string.Empty);
 
-        await harness.WriteLineAsync("quit");
-        await harness.WaitForExitAsync(TimeSpan.FromSeconds(5));
-        unrelatedPayloads.Add(harness.StandardError);
-
         foreach (string text in unrelatedPayloads)
         {
             Assert.DoesNotContain(code, text, StringComparison.Ordinal);
             Assert.DoesNotContain(credential, text, StringComparison.Ordinal);
         }
+
+        await harness.WriteLineAsync("quit");
+        Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
+        // Only the long hex credential is scanned in raw stderr: a six-digit code could match an
+        // unrelated number there by coincidence (a timestamp, a port, an opaque ID), unlike the
+        // structured payloads above where the code check is safe.
+        Assert.DoesNotContain(credential, harness.StandardError, StringComparison.Ordinal);
     }
 
     /// <summary>Serializes an envelope into the text inspected by the redaction test.</summary>
