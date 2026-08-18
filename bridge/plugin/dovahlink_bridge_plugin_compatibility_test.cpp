@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -28,7 +29,63 @@ std::string ReadPluginSource() {
     return buffer.str();
 }
 
+/// Finds the index of the `}` matching the `{` at `openBracePos`, accounting for nested braces.
+/// @param source Text to search.
+/// @param openBracePos Index of the opening `{` whose match is sought.
+/// @return The matching `}`'s index, or `std::string::npos` if unbalanced.
+std::size_t FindMatchingCloseBrace(const std::string& source, std::size_t openBracePos) {
+    int depth = 0;
+    for (std::size_t i = openBracePos; i < source.size(); ++i) {
+        if (source[i] == '{') {
+            ++depth;
+        } else if (source[i] == '}') {
+            --depth;
+            if (depth == 0) {
+                return i;
+            }
+        }
+    }
+    return std::string::npos;
+}
+
+/// Finds the `{`/`}` index pair of the block immediately following an `if (...)` guard, by
+/// locating the next `{` after `guardPos` (the guard's own condition never contains a brace in
+/// this file) and that brace's match.
+/// @param source Text to search.
+/// @param guardPos Index where the guard's `if (...)` text begins.
+/// @return The open/close brace index pair; `close` is `std::string::npos` if unbalanced.
+std::pair<std::size_t, std::size_t> FindGuardBlockRange(const std::string& source, std::size_t guardPos) {
+    std::size_t openBrace = source.find('{', guardPos);
+    if (openBrace == std::string::npos) {
+        return {std::string::npos, std::string::npos};
+    }
+    return {openBrace, FindMatchingCloseBrace(source, openBrace)};
+}
+
 }  // namespace
+
+TEST_CASE("FindMatchingCloseBrace matches through nested braces", "[plugin][compatibility]") {
+    // The real plugin source these helpers scan never nests braces this deeply (each guard's body
+    // is one statement), so this proves the depth-counting itself independent of that coincidence.
+    std::string source = "before { outer { middle { inner } middle } outer } after";
+    std::size_t openBrace = source.find('{');
+    REQUIRE(openBrace != std::string::npos);
+
+    std::size_t closeBrace = FindMatchingCloseBrace(source, openBrace);
+
+    REQUIRE(closeBrace != std::string::npos);
+    // Matches the outermost brace, not the first "}" encountered (which would be "inner"'s).
+    CHECK(source.substr(closeBrace) == "} after");
+}
+
+TEST_CASE("FindMatchingCloseBrace reports no match for an unbalanced open brace",
+          "[plugin][compatibility]") {
+    std::string source = "before { outer { inner } after";
+    std::size_t openBrace = source.find('{');
+    REQUIRE(openBrace != std::string::npos);
+
+    CHECK(FindMatchingCloseBrace(source, openBrace) == std::string::npos);
+}
 
 // ApplyAlwaysActiveSetting and InstallAchievementCompatibilityPatch touch
 // CommonLib runtime state directly (ai/context/skse/testing.md excludes such
@@ -46,7 +103,13 @@ TEST_CASE("SKSEPluginLoad calls ApplyAlwaysActiveSetting exactly once, gated by 
     REQUIRE(guardPos != std::string::npos);
     std::size_t callPos = source.find("ApplyAlwaysActiveSetting(");
     REQUIRE(callPos != std::string::npos);
-    CHECK(guardPos < callPos);
+
+    // Not just "after the guard text" -- inside the guard's own braces, so a guard whose block
+    // closes before the call cannot pass.
+    auto [openBrace, closeBrace] = FindGuardBlockRange(source, guardPos);
+    REQUIRE(closeBrace != std::string::npos);
+    CHECK(callPos > openBrace);
+    CHECK(callPos < closeBrace);
 }
 
 TEST_CASE("SKSEPluginLoad calls InstallAchievementCompatibilityPatch exactly once, gated by its config flag",
@@ -58,7 +121,13 @@ TEST_CASE("SKSEPluginLoad calls InstallAchievementCompatibilityPatch exactly onc
     REQUIRE(guardPos != std::string::npos);
     std::size_t callPos = source.find("InstallAchievementCompatibilityPatch(");
     REQUIRE(callPos != std::string::npos);
-    CHECK(guardPos < callPos);
+
+    // Not just "after the guard text" -- inside the guard's own braces, so a guard whose block
+    // closes before the call cannot pass.
+    auto [openBrace, closeBrace] = FindGuardBlockRange(source, guardPos);
+    REQUIRE(closeBrace != std::string::npos);
+    CHECK(callPos > openBrace);
+    CHECK(callPos < closeBrace);
 }
 
 TEST_CASE("SKSEPluginLoad reads the compatibility config before starting the coordinator",
@@ -71,11 +140,10 @@ TEST_CASE("SKSEPluginLoad reads the compatibility config before starting the coo
     CHECK(configPos < startPos);
 }
 
-// The three tests above each check "guard before its own call" independently,
-// which alone would not catch the two if-blocks being swapped (each call
-// would still individually sit after some guard). This asserts the stricter
-// top-to-bottom order of all four positions, which only holds if each call
-// falls inside its own guard's block rather than the other one's.
+// The two tests above each check "call is inside its own guard's braces" independently, which
+// alone would not catch the two if-blocks being swapped in position (each call would still sit
+// inside *some* guard's braces). This asserts the two blocks themselves are not swapped or
+// interleaved in the wrong order.
 TEST_CASE("SKSEPluginLoad's two compatibility guards and calls are not swapped",
           "[plugin][compatibility]") {
     std::string source = ReadPluginSource();
@@ -88,9 +156,19 @@ TEST_CASE("SKSEPluginLoad's two compatibility guards and calls are not swapped",
     REQUIRE(achievementGuard != std::string::npos);
     REQUIRE(achievementCall != std::string::npos);
 
-    CHECK(alwaysActiveGuard < alwaysActiveCall);
-    CHECK(alwaysActiveCall < achievementGuard);
-    CHECK(achievementGuard < achievementCall);
+    auto [alwaysActiveOpen, alwaysActiveClose] = FindGuardBlockRange(source, alwaysActiveGuard);
+    auto [achievementOpen, achievementClose] = FindGuardBlockRange(source, achievementGuard);
+    REQUIRE(alwaysActiveClose != std::string::npos);
+    REQUIRE(achievementClose != std::string::npos);
+
+    // Each call falls strictly inside its own guard's braces, not merely after the guard text --
+    // catching a swap where each call still sits after *some* guard but the wrong one.
+    CHECK(alwaysActiveCall > alwaysActiveOpen);
+    CHECK(alwaysActiveCall < alwaysActiveClose);
+    CHECK(achievementCall > achievementOpen);
+    CHECK(achievementCall < achievementClose);
+    // The two blocks themselves are not swapped or overlapping in the wrong order.
+    CHECK(alwaysActiveClose < achievementOpen);
 }
 
 TEST_CASE("SKSEPluginLoad logs both compatibility flags unconditionally", "[plugin][compatibility]") {
