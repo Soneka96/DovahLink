@@ -90,7 +90,9 @@ PairingState pairingCodeRequestedReducer(
 ) => state.copyWith(phase: PairingPhase.requestingCode, error: const None());
 
 /// Handles [PairingCodeAvailableAction].
-/// Updates [PairingState.phase], [PairingState.error], [PairingState.codeExpiresAt].
+/// Updates [PairingState.phase], [PairingState.error], [PairingState.codeExpiresAt]. Clears
+/// [PairingState.renotifyAvailableAt] unconditionally: a fresh or re-queried challenge invalidates
+/// any cooldown left over from a previous one.
 PairingState pairingCodeAvailableReducer(
   PairingState state,
   PairingCodeAvailableAction action,
@@ -100,6 +102,7 @@ PairingState pairingCodeAvailableReducer(
   codeExpiresAt: action.expiresInSeconds == null
       ? const None()
       : Some(DateTime.now().add(Duration(seconds: action.expiresInSeconds!))),
+  renotifyAvailableAt: const None(),
 );
 
 /// Handles [PairingCodeSubmittedAction].

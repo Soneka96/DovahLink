@@ -177,6 +177,29 @@ void main() {
       },
     );
 
+    test(
+      'PairingCodeAvailableAction clears a stale renotifyAvailableAt from a previous challenge',
+      () {
+        final DateTime staleRenotifyAvailableAt = DateTime.now().add(
+          const Duration(seconds: 5),
+        );
+        final PairingState state = PairingState(
+          phase: PairingPhase.requestingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: staleRenotifyAvailableAt,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingCodeAvailableAction(expiresInSeconds: 30),
+        );
+
+        expect(result.renotifyAvailableAt, isNull);
+      },
+    );
+
     test('PairingCodeSubmittedAction changes the phase to confirming', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
