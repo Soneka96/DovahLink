@@ -1,0 +1,13 @@
+{
+  "messageType": "pairing_status",
+  "messageId": "message-pairing-status-3",
+  "sessionId": "session-2",
+  "correlationId": "message-pairing-request-2",
+  "payload": {
+    "state": "other_device_pairing",
+    "expiresInSeconds": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}
