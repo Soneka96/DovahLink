@@ -13,6 +13,14 @@
 ## Files and types
 
 - Keep one primary class or component per file unless the types are inseparable declarations and definitions.
+- Per `ai/context/common.md`'s file-organization rule, a small result/outcome value type is not
+  automatically "inseparable" merely because it is currently returned by only one method: it still
+  gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is
+  consolidated into `enums.hpp`. "Inseparable" means genuine structural coupling a file boundary
+  cannot express, such as a `friend`-only RAII helper that manipulates its owner's private state:
+  `TokenStore::Reservation` and `SessionManager::Lease` are the two carve-outs in this codebase
+  today, and they stay nested for that reason. A plain data-only result struct such as
+  `PairingSession`'s `StartChallengeResult` has no such coupling and does not qualify.
 - Two narrow exceptions to that rule, per `ai/context/common.md`'s shared file-organization rule,
   apply per module directory (`bridge/application/`, `bridge/game_state/`, `bridge/protocol/`,
   `bridge/security/`, `bridge/transport/`, `bridge/plugin/`) -- never shared across module

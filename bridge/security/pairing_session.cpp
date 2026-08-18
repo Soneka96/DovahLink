@@ -44,8 +44,8 @@ void PairingSession::ClearChallengeLocked() {
     autoRenotifyCooldownUntil_.reset();
 }
 
-PairingSession::StartChallengeResult PairingSession::TryStartChallenge(
-    const std::string& clientId, std::chrono::steady_clock::time_point now) {
+StartChallengeResult PairingSession::TryStartChallenge(const std::string& clientId,
+                                                         std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
     ExpirePendingIfElapsedLocked(now);
@@ -104,11 +104,10 @@ void PairingSession::NotifyReconnected(const std::string& clientId,
     }
 }
 
-PairingSession::ConfirmCodeResult PairingSession::TryConfirmCode(const std::string& presentedCode,
-                                                                   std::chrono::steady_clock::time_point now,
-                                                                   std::string clientId,
-                                                                   std::vector<std::uint8_t> credential,
-                                                                   std::optional<std::string> displayName) {
+ConfirmCodeResult PairingSession::TryConfirmCode(const std::string& presentedCode,
+                                                  std::chrono::steady_clock::time_point now,
+                                                  std::string clientId, std::vector<std::uint8_t> credential,
+                                                  std::optional<std::string> displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
     if (!activeChallenge_.has_value()) {
@@ -186,8 +185,8 @@ bool PairingSession::CommitPending(const std::string& clientId, const std::vecto
     return true;
 }
 
-PairingSession::RenotifyResult PairingSession::TryRenotify(const std::string& clientId,
-                                                             std::chrono::steady_clock::time_point now) {
+RenotifyResult PairingSession::TryRenotify(const std::string& clientId,
+                                            std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
     if (!activeChallenge_.has_value() || !ownerClientId_.has_value() || *ownerClientId_ != clientId) {

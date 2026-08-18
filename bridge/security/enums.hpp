@@ -19,8 +19,8 @@ enum class TokenReadOutcome {
 /// `kGeneratorFailed` must report pairing as unavailable rather than leaving the caller waiting on
 /// a code that will never arrive.
 enum class StartChallengeOutcome {
-    /// A new challenge was started; `PairingSession::StartChallengeResult::code` holds the
-    /// six-digit code to display.
+    /// A new challenge was started; `StartChallengeResult::code` holds the six-digit code to
+    /// display.
     kStarted,
     /// The calling `clientId` already owns the active challenge or pending credential; no new code
     /// is generated or displayed. Use `PairingSession::RemainingSeconds` for the active

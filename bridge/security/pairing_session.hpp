@@ -1,6 +1,9 @@
 #pragma once
 
+#include "security/confirm_code_result.hpp"
 #include "security/enums.hpp"
+#include "security/renotify_result.hpp"
+#include "security/start_challenge_result.hpp"
 #include "security/token_store.hpp"
 
 #include <chrono>
@@ -51,15 +54,6 @@ public:
     /// Generates one six-digit pairing code using the system CSPRNG.
     [[nodiscard]] static std::optional<std::string> DefaultCodeGenerator();
 
-    /// Result of a `TryStartChallenge` call.
-    struct StartChallengeResult {
-        /// Which of the four outcomes occurred.
-        StartChallengeOutcome outcome;
-        /// The six-digit code to display, populated only when `outcome ==
-        /// StartChallengeOutcome::kStarted`.
-        std::optional<std::string> code;
-    };
-
     /// Starts a new challenge (`NONE -> CHALLENGE_ACTIVE`) if none is active and no credential is
     /// currently pending finalization, or reports the existing challenge/pending credential's
     /// ownership per `ai/context/protocol/security.md`'s Phase 3.1 ownership model. Applies the
@@ -94,18 +88,6 @@ public:
     /// @param clientId The reconnecting client's identity.
     /// @param now Current monotonic time, for the reconnect-grace lazy-expiry check.
     void NotifyReconnected(const std::string& clientId, std::chrono::steady_clock::time_point now);
-
-    /// Result of a `TryConfirmCode` call.
-    struct ConfirmCodeResult {
-        /// Which of the documented outcomes occurred.
-        ConfirmResult outcome;
-        /// `true` only when `outcome == ConfirmResult::kInvalid` for a genuine wrong-code attempt
-        /// against the caller's own active challenge (never for "no challenge" or "not the
-        /// owner"), and this attempt's own auto-renotify cooldown allows redisplaying the code in
-        /// Skyrim now. The caller (the pairing handler) is responsible for actually redisplaying
-        /// it; `PairingSession` never touches Skyrim or any notification sink itself.
-        bool shouldAutoRenotify = false;
-    };
 
     /// Validates `presentedCode` against the active challenge (constant-time, single-use).
     /// Applies the reconnect-grace lazy-expiry check first, then rejects as `kInvalid` --
@@ -150,14 +132,6 @@ public:
     ///     match, was expired, or none is pending.
     [[nodiscard]] bool CommitPending(const std::string& clientId, const std::vector<std::uint8_t>& credential,
                                       std::chrono::steady_clock::time_point now);
-
-    /// Result of a `TryRenotify` call.
-    struct RenotifyResult {
-        /// Which of the three documented outcomes occurred.
-        RenotifyOutcome outcome;
-        /// The remaining cooldown, populated only when `outcome == RenotifyOutcome::kCooldown`.
-        std::optional<std::chrono::seconds> retryAfterSeconds;
-    };
 
     /// "Show code again": if `clientId` owns the active challenge and its own
     /// `kPairingRenotifyCooldown` has elapsed, starts a fresh cooldown and reports `kRenotified` --

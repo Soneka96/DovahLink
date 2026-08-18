@@ -12,6 +12,13 @@ every small cross-cutting constant value (timeouts, limits, and similar) belongs
 `Constants.cs`. Within either file, group entries by the area they belong to, each preceded by a
 `// ---- <Area> ----` comment banner.
 
+A small result/outcome record or class used by only one other type -- for example a typed return
+value distinguishing several outcomes of one method -- is not a third exception: it still gets its
+own file rather than being nested inside the type that returns it, per `ai/context/common.md`'s
+file-organization rule. A nested type is appropriate only when it is structurally inseparable from
+its owner (for example it requires `private`-member access no file boundary could express), not
+merely because it is small or currently used in one place.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.

@@ -9,7 +9,11 @@
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true
-            }
+            },
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/bridge"
+            ]
         }
     ],
     "version": 4,
