@@ -88,12 +88,12 @@ public class RestartScenarioTests
     [Fact]
     public async Task PairedTrustSurvivesAFullHarnessProcessRestart()
     {
-        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
+        using var trustStore = new IsolatedTrustStore();
         string credential;
         string firstBridgeInstanceId;
         string firstSessionId;
 
-        using (var firstHarness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath)))
+        using (var firstHarness = new HarnessProcess(BridgeScenario.ValidHexToken, trustStore.Override()))
         {
             firstBridgeInstanceId = await firstHarness.WaitForReadyAsync();
 
@@ -137,7 +137,7 @@ public class RestartScenarioTests
             await BridgeScenario.CloseAndQuitAsync(firstHarness, connection);
         }
 
-        using var secondHarness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath));
+        using var secondHarness = new HarnessProcess(BridgeScenario.ValidHexToken, trustStore.Override());
         string secondBridgeInstanceId = await secondHarness.WaitForReadyAsync();
         // A bridge restart always mints a fresh bridgeInstanceId (ARCHITECTURE.md's runtime/identity
         // model) -- confirms this really is a second, independent process, not a reused one.
@@ -178,10 +178,10 @@ public class RestartScenarioTests
     [Fact]
     public async Task RevocationPersistsAcrossAFullHarnessProcessRestart()
     {
-        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
+        using var trustStore = new IsolatedTrustStore();
         string credential;
 
-        using (var firstHarness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath)))
+        using (var firstHarness = new HarnessProcess(BridgeScenario.ValidHexToken, trustStore.Override()))
         {
             await firstHarness.WaitForReadyAsync();
 
@@ -217,7 +217,7 @@ public class RestartScenarioTests
             Assert.True(await firstHarness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
         }
 
-        using var secondHarness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath));
+        using var secondHarness = new HarnessProcess(BridgeScenario.ValidHexToken, trustStore.Override());
         await secondHarness.WaitForReadyAsync();
 
         await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);

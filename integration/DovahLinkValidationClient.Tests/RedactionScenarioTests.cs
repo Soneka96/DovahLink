@@ -100,9 +100,9 @@ public class RedactionScenarioTests
     public async Task PairingSecretsNeverAppearOutsideTheirDesignatedResponse()
     {
         var unrelatedPayloads = new List<string>();
-        string trustStorePath = BridgeScenario.CreateIsolatedTrustStorePath();
+        using var trustStore = new IsolatedTrustStore();
 
-        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken, BridgeScenario.TrustStoreOverride(trustStorePath));
+        using var harness = new HarnessProcess(BridgeScenario.ValidHexToken, trustStore.Override());
         await harness.WaitForReadyAsync();
 
         string code;
