@@ -16,4 +16,22 @@ abstract final class PairingSelectors {
 
   /// Returns the user-safe pairing error, or `null` when absent.
   static String? errorSelector(AppState state) => state.pairing.error;
+
+  /// Returns remaining seconds until code expires, or null if no active code.
+  /// Clamps to 0 if the expiry time is in the past (non-negative duration).
+  static int? codeCountdownSecondsSelector(AppState state) {
+    final expiresAt = state.pairing.codeExpiresAt;
+    if (expiresAt == null) return null;
+    final remaining = expiresAt.difference(DateTime.now()).inSeconds;
+    return remaining < 0 ? 0 : remaining;
+  }
+
+  /// Returns remaining seconds until renotify is available, or null if not cooling down.
+  /// Clamps to 0 if the availability time is in the past (non-negative duration).
+  static int? renotifyCooldownSecondsSelector(AppState state) {
+    final availableAt = state.pairing.renotifyAvailableAt;
+    if (availableAt == null) return null;
+    final remaining = availableAt.difference(DateTime.now()).inSeconds;
+    return remaining < 0 ? 0 : remaining;
+  }
 }
