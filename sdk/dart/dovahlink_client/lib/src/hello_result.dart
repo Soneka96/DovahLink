@@ -1,4 +1,4 @@
-import 'enums.dart';
+import 'shared/enums.dart';
 
 /// The bootstrap information `DovahLinkClient.hello`/`DovahLinkClient.authenticate` returns on
 /// success.

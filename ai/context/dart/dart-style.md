@@ -18,11 +18,15 @@ area; only genuinely language-wide conventions live here.
 
 One primary public class, mixin, or extension type per file, per `ai/context/common.md`'s shared
 file-organization rule. Its two exceptions apply per Dart package (the Flutter app and the SDK each
-get their own; never one file shared across a package boundary):
+get their own; never one file shared across a package boundary), at each package's own established
+location:
 
-- Every enum in the package belongs in that package's `lib/src/enums.dart`.
+- Every enum in the package belongs in that package's `enums.dart`: `lib/shared/constants/enums.dart`
+  for the Flutter app, `lib/src/shared/enums.dart` for the SDK.
 - Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that
-  package's `lib/src/constants.dart`.
+  package's `constants.dart`, alongside its `enums.dart`: `lib/shared/constants/constants.dart` for
+  the Flutter app, `lib/src/shared/constants.dart` for the SDK (not yet created; the SDK has no
+  cross-cutting constant of this kind yet).
 
 Within either file, group entries by the area they belong to, in the order those areas were
 introduced, each preceded by a `// ---- <Area> ----` comment banner. A type that is not itself an

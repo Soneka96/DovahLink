@@ -7,7 +7,7 @@
 library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;
-export 'src/enums.dart'
+export 'src/shared/enums.dart'
     show
         CredentialRejectionReason,
         DovahLinkConnectionState,

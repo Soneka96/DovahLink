@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/enums.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payloads.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Reads one canonical protocol fixture, relative to `protocol/fixtures/`.
 JsonMap _readFixture(String relativePath) {

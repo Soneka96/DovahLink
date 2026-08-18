@@ -1,6 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import '../enums.dart';
+import '../shared/enums.dart';
 import 'json_map.dart';
 import 'protocol_format_exception.dart';
 

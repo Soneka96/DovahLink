@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'dovahlink_client_exception.dart';
-import 'enums.dart';
 import 'hello_result.dart';
 import 'persistence/client_storage.dart';
 import 'persistence/persisted_client_state.dart';
@@ -12,6 +11,7 @@ import 'protocol/error_payload.dart';
 import 'protocol/hello_payloads.dart';
 import 'protocol/json_map.dart';
 import 'protocol/pairing_payloads.dart';
+import 'shared/enums.dart';
 import 'transport/dovahlink_transport.dart';
 import 'transport/websocket_transport.dart';
 

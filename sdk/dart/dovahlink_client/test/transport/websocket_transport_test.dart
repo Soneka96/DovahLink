@@ -4,9 +4,9 @@ import 'dart:io';
 
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/enums.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payloads.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 import '../harness_process.dart';
