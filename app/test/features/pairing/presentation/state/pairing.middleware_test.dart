@@ -94,10 +94,9 @@ void main() {
       (Invocation invocation) =>
           actionLog.add(invocation.positionalArguments[0]),
     );
-    // Baseline default so a real Future.delayed from _scheduleReconnect that
-    // outlives its own test (only the fakeAsync tests elapse it themselves)
-    // reads a valid stub instead of throwing on a store already reset by
-    // tearDown.
+    // Baseline default for _scheduleReconnect's disconnected-phase check; every test that
+    // reaches it runs inside fakeAsync and elapses its own timer before returning, so this value
+    // only matters to tests that don't override it with a more specific phase.
     when(() => store.state).thenReturn(_stateWithPhase(PairingPhase.none));
   });
 
@@ -136,7 +135,8 @@ void main() {
           handshake.trusted,
         );
         expect(
-          (actionLog[1] as PairingAuthenticatedAction).credentialRejectedMessage,
+          (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectedMessage,
           isNull,
         );
         verify(() => mockAuthenticate(any())).called(1);
@@ -167,19 +167,29 @@ void main() {
 
     test(
       'dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
-      () async {
-        const NetworkFailure failure = NetworkFailure('unreachable');
-        when(
-          () => mockAuthenticate(any()),
-        ).thenAnswer((_) async => const Left(failure));
+      () {
+        fakeAsync((FakeAsync async) {
+          const NetworkFailure failure = NetworkFailure('unreachable');
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => const Left(failure));
 
-        middleware.call(store, const PairingStartedAction(), next);
-        await Future<void>.delayed(Duration.zero);
+          middleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
 
-        expect(actionLog, [
-          isA<PairingStartedAction>(),
-          isA<PairingDisconnectedAction>(),
-        ]);
+          expect(actionLog, [
+            isA<PairingStartedAction>(),
+            isA<PairingDisconnectedAction>(),
+          ]);
+
+          // A NetworkFailure also schedules a real Future.delayed reconnect (_scheduleReconnect);
+          // drive it to completion inside this fakeAsync zone instead of leaving it pending as a
+          // genuine 3-second timer that would fire during a later test, after tearDown resets
+          // store's stubs. store.state's baseline stub (PairingPhase.none, set in setUp) means the
+          // reconnect's disconnected-phase check is false, so this does not redispatch.
+          async.elapse(middleware.reconnectDelay);
+          async.flushMicrotasks();
+        });
       },
     );
 
