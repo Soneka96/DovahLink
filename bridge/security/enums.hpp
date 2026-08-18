@@ -37,18 +37,45 @@ enum class StartChallengeOutcome {
 /// (unlike `TokenReadOutcome`'s deliberately undifferentiated hello-token failures) because
 /// knowing which one happened is genuine UX information for a human re-entering a code ("get a new
 /// code" vs. "check what you typed"), not a security-relevant distinction: neither case reveals
-/// anything that helps guess the code faster.
+/// anything that helps guess the code faster. `kPacingLimited` and `kHardLimitReached` replace the
+/// single undifferentiated rate-limit outcome earlier phases used: pacing blocks an attempt
+/// without counting against the wrong-attempt budget, while the hard limit is a terminal count of
+/// wrong attempts that destroys the challenge.
 enum class ConfirmResult {
     /// The code matched; a credential is now pending finalization.
     kConfirmed,
-    /// The session's `codeAttemptThrottle_` currently blocks attempts.
-    kRateLimited,
+    /// Evaluated less than `kPairingConfirmPacingInterval` after the previous evaluated attempt;
+    /// this attempt was not evaluated at all and does not count toward the wrong-attempt limit.
+    kPacingLimited,
     /// A challenge existed but is no longer available (its code expired, or was already consumed
     /// by an earlier successful attempt).
     kExpired,
     /// No challenge was ever active, the presented code did not match the active one, or the
     /// presenting `clientId` does not own the active challenge.
     kInvalid,
+    /// The wrong-attempt limit (`kPairingMaxWrongAttempts`) was just reached; the challenge is
+    /// cancelled and its code destroyed as part of this outcome, and a fresh `pairing_request` is
+    /// required to try again.
+    kHardLimitReached,
+};
+
+/// Outcome of `PairingSession::TryRenotify`.
+enum class RenotifyOutcome {
+    /// The caller owns an active challenge, and its own renotify cooldown allows a fresh Skyrim
+    /// redisplay of the code now.
+    kRenotified,
+    /// The caller owns an active challenge, but its own renotify cooldown has not elapsed yet.
+    kCooldown,
+    /// The caller owns no active challenge or pending credential to renotify.
+    kNotActive,
+};
+
+/// Outcome of `PairingSession::TryCancel`.
+enum class CancelOutcome {
+    /// The caller's owned active challenge or pending credential was cancelled.
+    kCancelled,
+    /// The caller owned nothing to cancel.
+    kAlreadyIdle,
 };
 
 }  // namespace dovahlink::security
