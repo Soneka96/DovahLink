@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 
@@ -5,9 +7,13 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Button to request pairing code redisplay, disabled when in cooldown.
-class RenotifyButtonWidget extends StatelessWidget {
-  const RenotifyButtonWidget({
+/// Button to request pairing code redisplay, disabled when in cooldown. [PairingState.
+/// renotifyAvailableAt] is a static absolute time (matching [PairingCountdown]'s own
+/// no-clock-drift design), so this widget ticks its own timer the same way -- otherwise nothing
+/// would trigger a rebuild once the cooldown elapses, and the button would stay disabled
+/// indefinitely until an unrelated Redux dispatch happened to reshuffle state.
+class PairingRenotifyButton extends StatefulWidget {
+  const PairingRenotifyButton({
     this.label = 'Send Code Again',
     this.cooldownLabel,
     super.key,
@@ -18,6 +24,29 @@ class RenotifyButtonWidget extends StatelessWidget {
 
   /// Label displayed during cooldown; if null, shows "[label] (Xs)" format.
   final String? cooldownLabel;
+
+  @override
+  State<PairingRenotifyButton> createState() => _PairingRenotifyButtonState();
+}
+
+class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,12 +75,12 @@ class RenotifyButtonWidget extends StatelessWidget {
 
   String _buildLabel(_RenotifyButtonViewModel viewModel) {
     if (viewModel.isAvailable) {
-      return label;
+      return widget.label;
     }
-    if (cooldownLabel != null) {
-      return cooldownLabel!;
+    if (widget.cooldownLabel != null) {
+      return widget.cooldownLabel!;
     }
-    return '$label (${viewModel.cooldownSeconds}s)';
+    return '${widget.label} (${viewModel.cooldownSeconds}s)';
   }
 }
 

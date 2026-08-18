@@ -440,6 +440,35 @@ void main() {
         const PairingFailedAction('invalid'),
       ]);
     });
+
+    test(
+      'dispatches PairingConfirmFailedWithAttemptsRemainingAction, not PairingFailedAction, '
+      'when the failure is retriable',
+      () async {
+        const PairingRetriableFailure failure = PairingRetriableFailure(
+          "That code isn't correct. Check Skyrim and try again.",
+        );
+        when(
+          () => mockConfirmPairingCode(
+            const ConfirmPairingCodeParams(code: '000000'),
+          ),
+        ).thenAnswer((_) async => const Left(failure));
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '000000'),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '000000'),
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: "That code isn't correct. Check Skyrim and try again.",
+          ),
+        ]);
+      },
+    );
   });
 
   group('PairingMiddleware — PairingDisposedAction', () {

@@ -4,8 +4,7 @@
   "sessionId": "session-2",
   "correlationId": "message-pairing-request-2",
   "payload": {
-    "state": "other_device_pairing",
-    "expiresInSeconds": null
+    "state": "other_device_pairing"
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,

@@ -7,8 +7,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Button to cancel the active pairing challenge, enabled only during code entry.
-class CancelButtonWidget extends StatelessWidget {
-  const CancelButtonWidget({
+class PairingCancelButton extends StatelessWidget {
+  const PairingCancelButton({
     this.label = 'Cancel',
     this.style = _defaultButtonStyle,
     super.key,

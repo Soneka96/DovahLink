@@ -2,6 +2,9 @@
 
 #include "security/enums.hpp"
 
+#include <chrono>
+#include <optional>
+
 namespace dovahlink::security {
 
 /// Result of a `PairingSession::TryConfirmCode` call.
@@ -14,6 +17,10 @@ struct ConfirmCodeResult {
     /// The caller (the pairing handler) is responsible for actually redisplaying it;
     /// `PairingSession` never touches Skyrim or any notification sink itself.
     bool shouldAutoRenotify = false;
+    /// The actual remaining wait, populated only when `outcome == ConfirmResult::kPacingLimited`.
+    /// Matches `protocol/schema/README.md`'s "remaining wait" contract for `retryAfterSeconds`
+    /// rather than always reporting the full `kPairingConfirmPacingInterval`.
+    std::optional<std::chrono::seconds> retryAfterSeconds;
 };
 
 }  // namespace dovahlink::security

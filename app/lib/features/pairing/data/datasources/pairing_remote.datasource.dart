@@ -114,6 +114,15 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
           ),
         );
       }
+      if (status.availability == PairingAvailability.otherDevicePairing) {
+        // Reveals nothing about the owning device or its code, matching
+        // ai/context/protocol/security.md's other_device_pairing contract.
+        return const Left(
+          PairingFailure(
+            'Another device is already pairing. Try again in a moment.',
+          ),
+        );
+      }
       return Right(status.expiresInSeconds);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
@@ -142,7 +151,16 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
-      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+      final String message = _pairingOutcomeMessage(error.outcome);
+      // Only a wrong code or a too-soon retry are retriable against the same still-active
+      // challenge: everything else (expired, hard_limit_reached, pending_not_found) ends the
+      // flow, matching PLAN.md stage I's "keeps a short-of-hard-limit wrong code on
+      // awaitingCode... instead of bouncing to failed" versus "maps hard_limit_reached to the
+      // existing PairingFailedAction path."
+      if (error.outcome == 'invalid' || error.outcome == 'pacing_limited') {
+        return Left(PairingRetriableFailure(message));
+      }
+      return Left(PairingFailure(message));
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
     } on Object {
@@ -168,7 +186,11 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   String _pairingOutcomeMessage(String outcome) => switch (outcome) {
     'expired' => 'That pairing code has expired. Request a new one.',
     'invalid' => "That code isn't correct. Check Skyrim and try again.",
-    'rate_limited' => 'Too many attempts. Wait a moment before trying again.',
+    'pacing_limited' => 'Slow down a little, then try again.',
+    'hard_limit_reached' =>
+      'Too many wrong attempts. Request a new pairing code.',
+    'pending_not_found' =>
+      'This pairing attempt is no longer recognized. Request a new code.',
     _ => 'Pairing could not be completed. Please try again.',
   };
 

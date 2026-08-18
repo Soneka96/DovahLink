@@ -9,15 +9,15 @@ import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.s
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/cancel_button_widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/countdown_widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/renotify_button_widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -161,7 +161,7 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.byType(CountdownWidget), findsOneWidget);
+        expect(find.byType(PairingCountdown), findsOneWidget);
       },
     );
 
@@ -173,8 +173,8 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.byType(RenotifyButtonWidget), findsOneWidget);
-        expect(find.byType(CancelButtonWidget), findsOneWidget);
+        expect(find.byType(PairingRenotifyButton), findsOneWidget);
+        expect(find.byType(PairingCancelButton), findsOneWidget);
       },
     );
 
@@ -467,9 +467,9 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.byType(CountdownWidget), findsOneWidget);
-        expect(find.byType(RenotifyButtonWidget), findsOneWidget);
-        expect(find.byType(CancelButtonWidget), findsOneWidget);
+        expect(find.byType(PairingCountdown), findsOneWidget);
+        expect(find.byType(PairingRenotifyButton), findsOneWidget);
+        expect(find.byType(PairingCancelButton), findsOneWidget);
       },
     );
 
@@ -481,9 +481,9 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.byType(CountdownWidget), findsNothing);
-        expect(find.byType(RenotifyButtonWidget), findsNothing);
-        expect(find.byType(CancelButtonWidget), findsNothing);
+        expect(find.byType(PairingCountdown), findsNothing);
+        expect(find.byType(PairingRenotifyButton), findsNothing);
+        expect(find.byType(PairingCancelButton), findsNothing);
       },
     );
   });

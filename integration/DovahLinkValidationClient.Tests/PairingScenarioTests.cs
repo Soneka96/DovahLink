@@ -325,6 +325,7 @@ public class PairingScenarioTests
         Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
         string newSessionId = reconnectHelloAck.SessionId!;
         Assert.NotNull(newSessionId);
+        await reconnect.ReceiveAsync(); // capabilities (ignored)
 
         // Query pairing status on the reconnected session: should resume the existing challenge, not start fresh.
         await reconnect.SendAsync(new Envelope("pairing_request", "message-request-2", newSessionId, null, new JsonObject()));
@@ -335,7 +336,13 @@ public class PairingScenarioTests
         int? expiresInSecondsResumed = resumeStatus.Payload["expiresInSeconds"]?.GetValue<int>();
         Assert.NotNull(expiresInSecondsResumed);
         Assert.True(expiresInSecondsResumed > 0);
-        Assert.True(expiresInSecondsResumed <= 287, $"Resume expiry {expiresInSecondsResumed} exceeds 287s (5min initial minus reconnect latency)");
+        // Never larger than the original (the same challenge's countdown keeps running through the
+        // disconnect, it isn't reset to a fresh full duration) -- a loose lower bound only guards
+        // against an unrelated pathological delay, not the (fast, local) real latency here.
+        Assert.True(expiresInSecondsResumed <= expiresInSecondsFirst,
+            $"Resume expiry {expiresInSecondsResumed}s must not exceed the original {expiresInSecondsFirst}s");
+        Assert.True(expiresInSecondsResumed >= expiresInSecondsFirst - 60,
+            $"Resume expiry {expiresInSecondsResumed}s dropped implausibly far below the original {expiresInSecondsFirst}s");
 
         // Confirm with the original code on the reconnected session: should succeed.
         await reconnect.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", newSessionId, null,
@@ -481,8 +488,11 @@ public class PairingScenarioTests
         // and integration/README.md, we only use these for periods that aren't proven elsewhere
         // at the C++ unit-test level). The hard-limit and other decision points are already
         // covered by pairing_session_test.cpp; this integration layer proves the full
-        // end-to-end wire behavior, including the real socket delays.
-        await Task.Delay(TimeSpan.FromSeconds(11));
+        // end-to-end wire behavior, including the real socket delays. A wider-than-minimal margin
+        // (3s, not 1s) absorbs that the grace clock only starts once the bridge's blocking read
+        // actually observes the abort -- itself subject to OS/scheduling latency that can vary
+        // more on a shared CI runner than on a local machine.
+        await Task.Delay(TimeSpan.FromSeconds(13));
 
         // Client-2 connects and requests pairing: should get "available" with a fresh code
         // (slot was freed by grace-period expiry), not "other_device_pairing".
@@ -565,6 +575,11 @@ public class PairingScenarioTests
         // renotified outcome carries no expiry, code, or error info (code is redisplayed in-game, not over wire).
         Assert.Null(renotifyOutcome1.Payload["retryAfterSeconds"]?.GetValue<int?>());
         Assert.False(renotifyOutcome1.Payload.ContainsKey("expiresInSeconds"));
+        // The wire outcome alone doesn't prove the code was actually redisplayed in-game -- confirm
+        // the harness actually observed a second PAIRING_CODE line (the first was the original
+        // display), carrying the same code.
+        string renotifiedCode1 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        Assert.Equal(code, renotifiedCode1);
 
         // Immediate second renotify: hits the 5-second cooldown, returns remaining wait.
         // renotify_cooldown carries retryAfterSeconds but not expiresInSeconds (protocol/schema/README.md lines 277-285).
@@ -589,6 +604,8 @@ public class PairingScenarioTests
         Assert.Equal("renotified", renotifyOutcome3.Payload["outcome"]!.GetValue<string>());
         Assert.Null(renotifyOutcome3.Payload["retryAfterSeconds"]?.GetValue<int?>());
         Assert.False(renotifyOutcome3.Payload.ContainsKey("expiresInSeconds"));
+        string renotifiedCode3 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        Assert.Equal(code, renotifiedCode3);
 
         // Confirm the original code: should succeed (code remained valid through renotifies).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
@@ -642,17 +659,27 @@ public class PairingScenarioTests
         Assert.StartsWith("PAIRING_CODE_INCORRECT ", autoRenotifySignal);
         Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
 
-        // Query pairing status: should be "in_progress" (same client owns active challenge)
-        // with refreshed expiry (auto-renotify extended the deadline).
+        // Query pairing status: should be "in_progress" (same client owns active challenge).
+        // A wrong code leaves the challenge, code, and expiry in place (ROADMAP.md) -- it does
+        // NOT refresh/extend the deadline, distinct from the code being freshly generated.
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope statusAfterWrongCode = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", statusAfterWrongCode.MessageType);
         Assert.Equal("in_progress", statusAfterWrongCode.Payload["state"]!.GetValue<string>());
         int refreshedExpiry = statusAfterWrongCode.Payload["expiresInSeconds"]!.GetValue<int>();
         Assert.True(refreshedExpiry > 0);
-        // Expiry should be refreshed by auto-renotify (roughly restored to full duration, minus latency).
+        // Never larger than the original (a wrong attempt must not extend it), and not further
+        // below it than plausible round-trip latency (proving it wasn't reset to a fresh full
+        // duration either -- distinguishing "left in place" from both possible regressions).
+        Assert.True(refreshedExpiry <= initialExpiry,
+            $"Expiry {refreshedExpiry}s must not exceed the original {initialExpiry}s -- a wrong code must not extend it");
         Assert.True(refreshedExpiry >= initialExpiry - 5,
-            $"Refreshed expiry {refreshedExpiry}s should be close to initial {initialExpiry}s (within 5s latency)");
+            $"Expiry {refreshedExpiry}s dropped too far below the original {initialExpiry}s for mere round-trip latency");
+
+        // The bridge's 1-second pacing interval applies to evaluated pairing_confirm attempts only
+        // (this scenario's own wrong attempt above already started that clock) -- wait it out so
+        // this final, correct attempt is genuinely evaluated rather than paced out.
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
 
         // Confirm with the original correct code: should succeed (wrong attempt didn't consume it).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-correct", sessionId, null,
@@ -660,6 +687,63 @@ public class PairingScenarioTests
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
         Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
+    /// <summary>
+    /// Verifies pacing_limited (PLAN.md Stage B): a pairing_confirm sent too soon after the
+    /// previous evaluated attempt is rejected as "pacing_limited" without counting as a wrong
+    /// attempt, distinct from the hard-limit's "hard_limit_reached". Once the 1-second pacing
+    /// interval elapses, the same correct code is genuinely evaluated and succeeds -- proving the
+    /// paced-out attempt was never evaluated at all.
+    /// </summary>
+    [Fact]
+    public async Task PacingLimitedRejectsAnEvaluatedAttemptTooSoonWithoutConsumingIt()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+        string wrongCode = DifferentCode(correctCode);
+
+        // First attempt (wrong): genuinely evaluated, starts the pacing clock.
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = wrongCode }));
+        Envelope firstOutcome = await connection.ReceiveAsync();
+        Assert.Equal("invalid", firstOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.StartsWith("PAIRING_CODE_INCORRECT ", await harness.ReadLineAsync());
+
+        // Second attempt, immediately after: too soon to be evaluated, even with the correct code.
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", sessionId, null,
+            new JsonObject { ["code"] = correctCode }));
+        Envelope pacedOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", pacedOutcome.MessageType);
+        Assert.Equal("message-confirm-2", pacedOutcome.CorrelationId);
+        Assert.Equal("pacing_limited", pacedOutcome.Payload["outcome"]!.GetValue<string>());
+        int retryAfter = pacedOutcome.Payload["retryAfterSeconds"]!.GetValue<int>();
+        // Truncated to whole seconds: two attempts this close together leave well under a second
+        // of true remaining wait, which truncates to 0 -- not the full 1-second interval.
+        Assert.True(retryAfter is >= 0 and <= 1,
+            $"Pacing retryAfterSeconds {retryAfter}s should be the true remaining wait, within kPairingConfirmPacingInterval (1s)");
+        // pacing_limited carries no credential (never evaluated, so nothing was issued or consumed).
+        Assert.Null(pacedOutcome.Payload["credential"]?.GetValue<string>());
+
+        // Once the pacing interval elapses, the correct code is genuinely evaluated and succeeds.
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-3", sessionId, null,
+            new JsonObject { ["code"] = correctCode }));
+        Envelope finalOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", finalOutcome.MessageType);
+        Assert.Equal("credential_issued", finalOutcome.Payload["outcome"]!.GetValue<string>());
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -687,9 +771,18 @@ public class PairingScenarioTests
 
         string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
-        // Submit 4 wrong codes: each should yield "invalid" and auto-renotify.
+        // Submit 4 wrong codes: each should yield "invalid" and auto-renotify. Consecutive attempts
+        // must be spaced out by more than kPairingRenotifyCooldown (5s) -- not just the shorter
+        // kPairingConfirmPacingInterval (1s) -- or they'd either be paced out (pacing_limited,
+        // never evaluated) or evaluated but skip auto-renotify (its own independent 5-second
+        // cooldown, per pairing_session.cpp's TryConfirmCode), leaving no PAIRING_CODE_INCORRECT
+        // line for this test to read.
         for (int attempt = 1; attempt <= 4; attempt++)
         {
+            if (attempt > 1)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5.1));
+            }
             string wrongCode = DifferentCode(correctCode);
             await connection.SendAsync(new Envelope("pairing_confirm", $"message-confirm-wrong-{attempt}", sessionId, null,
                 new JsonObject { ["code"] = wrongCode }));
@@ -709,7 +802,9 @@ public class PairingScenarioTests
         Assert.Equal("pairing_status", boundaryStatus.MessageType);
         Assert.Equal("in_progress", boundaryStatus.Payload["state"]!.GetValue<string>());
 
-        // 5th wrong attempt: hits hard limit, challenge is cancelled.
+        // 5th wrong attempt: hits hard limit, challenge is cancelled. Spaced out from the 4th
+        // attempt's own evaluated confirm, same pacing reason as the loop above.
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
         string fifthWrongCode = DifferentCode(correctCode);
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-wrong-5", sessionId, null,
             new JsonObject { ["code"] = fifthWrongCode }));
@@ -786,7 +881,8 @@ public class PairingScenarioTests
         Assert.True(freshStatus.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
 
         string code2 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
-        Assert.NotEqual(code1, code2, "Fresh challenge must have a new code, not the cancelled one");
+        // Fresh challenge must have a new code, not the cancelled one.
+        Assert.NotEqual(code1, code2);
 
         // Fresh code works (proves challenge was genuinely cleared).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
@@ -854,7 +950,8 @@ public class PairingScenarioTests
         Assert.Equal("pairing_outcome", freshConfirmOutcome.MessageType);
         Assert.Equal("credential_issued", freshConfirmOutcome.Payload["outcome"]!.GetValue<string>());
         string freshCredential = freshConfirmOutcome.Payload["credential"]!.GetValue<string>();
-        Assert.NotEqual(pendingCredential, freshCredential, "Fresh pairing must issue a new credential, not re-use the cancelled pending one");
+        // Fresh pairing must issue a new credential, not re-use the cancelled pending one.
+        Assert.NotEqual(pendingCredential, freshCredential);
 
         // Complete fresh pairing to confirm it works.
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-fresh", sessionId, null,
@@ -869,8 +966,8 @@ public class PairingScenarioTests
         await reconnectWithCancelled.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(pendingCredential));
         Envelope rejectionError = await reconnectWithCancelled.ReceiveAsync();
         Assert.Equal("error", rejectionError.MessageType);
-        Assert.Equal("unauthenticated", rejectionError.Payload["code"]!.GetValue<string>(),
-            "Cancelled pending credential must be rejected as unauthenticated, not persisted");
+        // Cancelled pending credential must be rejected as unauthenticated, not persisted.
+        Assert.Equal("unauthenticated", rejectionError.Payload["code"]!.GetValue<string>());
 
         // Fresh credential works on a new connection (contrasting proof).
         await reconnectWithCancelled.CloseAsync();

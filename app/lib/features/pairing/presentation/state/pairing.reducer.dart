@@ -127,11 +127,19 @@ PairingState pairingDisconnectedReducer(
 ) => state.copyWith(phase: PairingPhase.disconnected, error: const None());
 
 /// Handles [PairingFailedAction].
-/// Updates [PairingState.phase], [PairingState.error].
+/// Updates [PairingState.phase], [PairingState.error]. Clears
+/// [PairingState.codeExpiresAt]/[PairingState.renotifyAvailableAt]: leaving the pairing flow
+/// must not leave timing fields describing a challenge that no longer applies, matching
+/// [pairingCancelSucceededReducer]'s own clear-both-timing-fields behavior.
 PairingState pairingFailedReducer(
   PairingState state,
   PairingFailedAction action,
-) => state.copyWith(phase: PairingPhase.failed, error: Some(action.message));
+) => state.copyWith(
+  phase: PairingPhase.failed,
+  error: Some(action.message),
+  codeExpiresAt: const None(),
+  renotifyAvailableAt: const None(),
+);
 
 /// Handles [PairingDisposedAction].
 /// Resets [PairingState] to its initial value.
@@ -179,8 +187,14 @@ PairingState pairingCancelSucceededReducer(
 );
 
 /// Handles [PairingConfirmFailedWithAttemptsRemainingAction].
-/// Stays in [PairingPhase.awaitingCode], sets inline error message.
+/// Returns to [PairingPhase.awaitingCode] (the real predecessor is
+/// [PairingPhase.confirming], set by [PairingCodeSubmittedAction] -- this reducer must set the
+/// phase explicitly rather than relying on it already being [PairingPhase.awaitingCode]), sets
+/// inline error message.
 PairingState pairingConfirmFailedWithAttemptsRemainingReducer(
   PairingState state,
   PairingConfirmFailedWithAttemptsRemainingAction action,
-) => state.copyWith(error: Some(action.message));
+) => state.copyWith(
+  phase: PairingPhase.awaitingCode,
+  error: Some(action.message),
+);

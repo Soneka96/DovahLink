@@ -9,7 +9,7 @@ part of 'pairing_payloads.dart';
 PairingStatusPayload _$PairingStatusPayloadFromJson(
   Map<String, dynamic> json,
 ) => $checkedCreate('PairingStatusPayload', json, ($checkedConvert) {
-  $checkKeys(json, requiredKeys: const ['state', 'expiresInSeconds']);
+  $checkKeys(json, requiredKeys: const ['state']);
   final val = PairingStatusPayload(
     state: $checkedConvert('state', (v) => v as String),
     expiresInSeconds: $checkedConvert(

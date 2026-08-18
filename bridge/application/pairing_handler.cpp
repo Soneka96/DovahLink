@@ -3,7 +3,6 @@
 #include "protocol/messages.hpp"
 #include "security/csprng.hpp"
 #include "security/hex.hpp"
-#include "security/limits.hpp"
 
 #include <cstdint>
 #include <utility>
@@ -115,11 +114,10 @@ protocol::Envelope HandlePairingConfirm(const protocol::Envelope& pairingConfirm
                                     });
     }
     if (result.outcome == security::ConfirmResult::kPacingLimited) {
-        return BuildPairingOutcome(
-            sessionId, pairingConfirmEnvelope.messageId,
-            protocol::PairingOutcomePayload{
-                .outcome = "pacing_limited",
-                .retryAfterSeconds = ToWireSeconds(security::kPairingConfirmPacingInterval)});
+        return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
+                                    protocol::PairingOutcomePayload{
+                                        .outcome = "pacing_limited",
+                                        .retryAfterSeconds = ToWireSeconds(result.retryAfterSeconds)});
     }
     if (result.outcome == security::ConfirmResult::kExpired) {
         return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,

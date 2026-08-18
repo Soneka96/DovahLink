@@ -290,7 +290,7 @@ void main() {
     );
 
     test(
-      'returns Right with null when a different device owns the challenge',
+      'returns a PairingFailure revealing nothing when a different device owns the challenge',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -301,7 +301,14 @@ void main() {
         final Either<Failure, int?> result = await dataSource
             .requestPairingCode();
 
-        expect(result, const Right<Failure, int?>(null));
+        expect(
+          result,
+          const Left<Failure, int?>(
+            PairingFailure(
+              'Another device is already pairing. Try again in a moment.',
+            ),
+          ),
+        );
       },
     );
 
@@ -440,52 +447,77 @@ void main() {
       verifyNever(() => mockClient.acknowledgeTrustedCredential(any()));
     });
 
-    test('maps an invalid code to a user-safe PairingFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(const DovahLinkPairingException('invalid'));
-
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '000000',
-      );
-
-      expect(
-        result,
-        const Left<Failure, Unit>(
-          PairingFailure(
-            "That code isn't correct. Check Skyrim and try again.",
+    test(
+      'maps an invalid code to a retriable PairingRetriableFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
           ),
-        ),
-      );
-    });
+        ).thenThrow(const DovahLinkPairingException('invalid'));
 
-    test('maps a rate-limited code to a user-safe PairingFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(const DovahLinkPairingException('rate_limited'));
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '000000');
 
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '000000',
-      );
-
-      expect(
-        result,
-        const Left<Failure, Unit>(
-          PairingFailure(
-            'Too many attempts. Wait a moment before trying again.',
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingRetriableFailure(
+              "That code isn't correct. Check Skyrim and try again.",
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test(
-      'maps an unrecognized outcome from acknowledgement to a generic PairingFailure',
+      'maps a pacing-limited attempt to a retriable PairingRetriableFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(const DovahLinkPairingException('pacing_limited'));
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '000000');
+
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingRetriableFailure('Slow down a little, then try again.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'maps a hard-limit-reached code to a non-retriable PairingFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(const DovahLinkPairingException('hard_limit_reached'));
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '000000');
+
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingFailure('Too many wrong attempts. Request a new pairing code.'),
+          ),
+        );
+        expect(result.fold((f) => f, (_) => null), isNot(isA<PairingRetriableFailure>()));
+      },
+    );
+
+    test(
+      'maps an unrecognized outcome from acknowledgement to a non-retriable PairingFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -503,7 +535,9 @@ void main() {
         expect(
           result,
           const Left<Failure, Unit>(
-            PairingFailure('Pairing could not be completed. Please try again.'),
+            PairingFailure(
+              'This pairing attempt is no longer recognized. Request a new code.',
+            ),
           ),
         );
       },

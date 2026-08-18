@@ -120,14 +120,15 @@ void main() {
       });
 
       test(
-        'fromJson rejects a payload missing the required expiresInSeconds key',
+        'fromJson decodes a payload with expiresInSeconds genuinely omitted as null, matching '
+        'other_device_pairing\'s wire contract',
         () {
-          expect(
-            () => PairingStatusPayload.fromJson(<String, dynamic>{
-              'state': 'unavailable',
-            }),
-            throwsA(isA<ProtocolFormatException>()),
+          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+            <String, dynamic>{'state': 'other_device_pairing'},
           );
+
+          expect(payload.state, 'other_device_pairing');
+          expect(payload.expiresInSeconds, isNull);
         },
       );
 

@@ -42,8 +42,8 @@ class DovahLinkPairingException implements Exception {
   /// Creates a pairing exception from the bridge's reported [outcome].
   const DovahLinkPairingException(this.outcome);
 
-  /// The raw wire outcome: `expired`, `invalid`, `rate_limited` (from `pairing_confirm`), or
-  /// `pending_not_found` (from `pairing_ack`).
+  /// The raw wire outcome: `expired`, `invalid`, `pacing_limited`, or `hard_limit_reached` (from
+  /// `pairing_confirm`), `pending_not_found` (from `pairing_ack`).
   final String outcome;
 
   @override

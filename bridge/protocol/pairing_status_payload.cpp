@@ -38,8 +38,14 @@ std::expected<PairingStatusPayload, MessageError> DecodePairingStatusPayload(con
 boost::json::object EncodePairingStatusPayload(const PairingStatusPayload& payload) {
     boost::json::object obj;
     obj["state"] = payload.state;
-    obj["expiresInSeconds"] = payload.expiresInSeconds.has_value() ? boost::json::value(*payload.expiresInSeconds)
-                                                                     : boost::json::value(nullptr);
+    // protocol/schema/README.md: expiresInSeconds is always present as null for every other
+    // state, but genuinely omitted -- not merely null -- for other_device_pairing, so a competing
+    // device's request reveals nothing else about the owning device or its code.
+    if (payload.state != "other_device_pairing") {
+        obj["expiresInSeconds"] = payload.expiresInSeconds.has_value()
+                                       ? boost::json::value(*payload.expiresInSeconds)
+                                       : boost::json::value(nullptr);
+    }
     return obj;
 }
 

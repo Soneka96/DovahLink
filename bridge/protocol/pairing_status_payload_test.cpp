@@ -80,6 +80,15 @@ TEST_CASE("pairing_status is rejected when state has the wrong type", "[protocol
     REQUIRE_FALSE(status.has_value());
 }
 
+TEST_CASE("EncodePairingStatusPayload omits expiresInSeconds entirely for other_device_pairing, "
+          "not just as null",
+          "[protocol][pairing_status_payload]") {
+    auto encoded = dovahlink::protocol::EncodePairingStatusPayload(
+        dovahlink::protocol::PairingStatusPayload{.state = "other_device_pairing"});
+
+    CHECK(encoded.if_contains("expiresInSeconds") == nullptr);
+}
+
 TEST_CASE("EncodePairingStatusPayload writes the state field directly", "[protocol][pairing_status_payload]") {
     auto encoded = dovahlink::protocol::EncodePairingStatusPayload(
         dovahlink::protocol::PairingStatusPayload{.state = "in_progress"});

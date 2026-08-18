@@ -6,13 +6,13 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/cancel_button_widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Exercises [CancelButtonWidget] dispatch behavior and enabled/disabled states.
+/// Exercises [PairingCancelButton] dispatch behavior and enabled/disabled states.
 void main() {
-  group('CancelButtonWidget', () {
+  group('PairingCancelButton', () {
     testWidgets('displays enabled button during awaiting-code phase',
         (WidgetTester tester) async {
       final store = Store<AppState>(
@@ -34,7 +34,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -68,7 +68,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -98,7 +98,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -128,7 +128,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -163,7 +163,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -198,7 +198,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -235,7 +235,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(label: 'Exit Pairing'),
+              body: PairingCancelButton(label: 'Exit Pairing'),
             ),
           ),
         ),
@@ -279,7 +279,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -342,7 +342,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(),
+              body: PairingCancelButton(),
             ),
           ),
         ),
@@ -387,7 +387,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CancelButtonWidget(style: customStyle),
+              body: PairingCancelButton(style: customStyle),
             ),
           ),
         ),

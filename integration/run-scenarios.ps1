@@ -90,22 +90,28 @@ The validated toolchain returned by Find-VisualStudioToolchain.
 function Import-VisualStudioEnvironment {
     param($Toolchain)
 
-    Push-Location (Split-Path -Parent $Toolchain.VcvarsallPath)
+    $tempEnvFile = Join-Path ([System.IO.Path]::GetTempPath()) "vs_env_$([System.Diagnostics.Process]::GetCurrentProcess().Id).txt"
     try {
-        $environmentLines = @(& $env:ComSpec /d /c "call vcvarsall.bat x64 >nul && set")
+        & $env:ComSpec /c "`"$($Toolchain.VcvarsallPath)`" x64 >nul && set > `"$tempEnvFile`""
         if ($LASTEXITCODE -ne 0) {
             throw "Visual Studio x64 environment initialization failed with exit code $LASTEXITCODE."
         }
     }
-    finally {
-        Pop-Location
+    catch {
+        throw $_
     }
 
-    foreach ($line in $environmentLines) {
-        $separator = $line.IndexOf('=')
-        if ($separator -gt 0) {
-            [System.Environment]::SetEnvironmentVariable($line.Substring(0, $separator), $line.Substring($separator + 1), 'Process')
+    try {
+        $environmentLines = Get-Content -Path $tempEnvFile -Encoding ASCII
+        foreach ($line in $environmentLines) {
+            $separator = $line.IndexOf('=')
+            if ($separator -gt 0) {
+                [System.Environment]::SetEnvironmentVariable($line.Substring(0, $separator), $line.Substring($separator + 1), 'Process')
+            }
         }
+    }
+    finally {
+        Remove-Item -Path $tempEnvFile -Force -ErrorAction SilentlyContinue
     }
     $env:VCPKG_ROOT = $Toolchain.VcpkgRoot
     $env:PATH = "$($Toolchain.CMakeDirectory);$($Toolchain.NinjaDirectory);$env:PATH"

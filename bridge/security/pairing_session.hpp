@@ -180,6 +180,15 @@ private:
     /// @param now Current monotonic time.
     void ExpirePendingIfElapsedLocked(std::chrono::steady_clock::time_point now);
 
+    /// Clears `activeChallenge_` once its own `TokenStore::IsAvailable` reports the code's TTL has
+    /// naturally elapsed -- distinct from `ExpireOwnerIfGraceElapsedLocked`'s disconnect-driven
+    /// grace period, this fires even while the owner stays continuously connected. Without this,
+    /// `CurrentCode`/`TryRenotify`/`TryCancel` could treat a challenge past its own `RemainingSeconds`
+    /// as still active, since only `TryConfirmCode` (via its own explicit `kExpired` outcome) and
+    /// `TryStartChallenge` (via its own explicit `IsAvailable` check) already accounted for this. A
+    /// no-op when no challenge is active or it has not yet expired. Call while holding `mutex_`.
+    void ExpireChallengeIfElapsedLocked();
+
     /// Resets every field scoped to one active challenge's lifetime (`activeChallenge_`,
     /// `activeCode_`, `ownerClientId_`, `disconnectedAt_`, the wrong-attempt/pacing counters, and
     /// both renotify cooldowns) back to their `NONE` state together, so no field can accidentally

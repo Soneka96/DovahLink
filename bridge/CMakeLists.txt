@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Catch2 3 CONFIG REQUIRED)
+find_package(Catch2 3.0 CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(boost_beast CONFIG REQUIRED)
 find_package(boost_json CONFIG REQUIRED)

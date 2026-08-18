@@ -623,7 +623,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn(
             f'CHECK(helloAck->bridgeVersion == "{version}");',
-            self._read("bridge/protocol/messages_test.cpp"),
+            self._read("bridge/protocol/hello_ack_payload_test.cpp"),
         )
 
     def test_changelog_matches_the_published_bridge_version(self) -> None:

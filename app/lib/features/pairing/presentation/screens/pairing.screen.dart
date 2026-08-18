@@ -5,15 +5,15 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/cancel_button_widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/countdown_widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/renotify_button_widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -83,7 +83,7 @@ class PairingScreen extends StatelessWidget {
                             ),
                             PairingPhase.awaitingCode => Column(
                               children: [
-                                CountdownWidget(
+                                PairingCountdown(
                                   textStyle:
                                       Theme.of(context).textTheme.headlineLarge,
                                 ),
@@ -97,11 +97,11 @@ class PairingScreen extends StatelessWidget {
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
                                     Expanded(
-                                      child: RenotifyButtonWidget(),
+                                      child: PairingRenotifyButton(),
                                     ),
                                     SizedBox(width: 8),
                                     Expanded(
-                                      child: CancelButtonWidget(),
+                                      child: PairingCancelButton(),
                                     ),
                                   ],
                                 ),

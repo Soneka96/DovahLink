@@ -763,9 +763,11 @@ TEST_CASE("HandlePairingRenotify succeeds again once its cooldown elapses",
     auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
     REQUIRE(outcome.has_value());
     CHECK(outcome->outcome == "renotified");
-    // The original display, plus one redisplay per successful renotify.
-    REQUIRE(sink.codes.size() == 2);
+    // The original display, plus one redisplay per successful renotify -- both the first (at
+    // `now`) and this second one (at `now + 5s`, exactly when its cooldown elapses) succeeded.
+    REQUIRE(sink.codes.size() == 3);
     CHECK(sink.codes[1] == "123456");
+    CHECK(sink.codes[2] == "123456");
 }
 
 TEST_CASE("HandlePairingRenotify reports already_idle once the challenge reaches PENDING_CREDENTIAL",

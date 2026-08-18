@@ -834,6 +834,21 @@ void main() {
         expect(sent['payload'], <String, dynamic>{});
       },
     );
+
+    test(
+      'a transport failure mid-request resets connection state, not just hello\'s',
+      () async {
+        transport.failSendWith = const SocketException('reset');
+
+        await expectLater(
+          client.requestPairing(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(transport.closeCalled, isTrue);
+      },
+    );
   });
 
   group('requestPairingRenotify', () {

@@ -5,13 +5,13 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/countdown_widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Exercises [CountdownWidget] countdown display and periodic updates.
+/// Exercises [PairingCountdown] countdown display and periodic updates.
 void main() {
-  group('CountdownWidget', () {
+  group('PairingCountdown', () {
     testWidgets('renders nothing when countdown is null', (WidgetTester tester) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
@@ -32,7 +32,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(),
+              body: PairingCountdown(),
             ),
           ),
         ),
@@ -67,7 +67,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(),
+              body: PairingCountdown(),
             ),
           ),
         ),
@@ -101,7 +101,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(),
+              body: PairingCountdown(),
             ),
           ),
         ),
@@ -136,7 +136,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(textStyle: customStyle),
+              body: PairingCountdown(textStyle: customStyle),
             ),
           ),
         ),
@@ -170,7 +170,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: Scaffold(
-              body: CountdownWidget(
+              body: PairingCountdown(
                 formatSeconds: (secs) => '${secs}s remaining',
               ),
             ),
@@ -224,7 +224,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(),
+              body: PairingCountdown(),
             ),
           ),
         ),
@@ -263,7 +263,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: CountdownWidget(),
+              body: PairingCountdown(),
             ),
           ),
         ),

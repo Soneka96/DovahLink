@@ -168,7 +168,18 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       ),
     )).fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        // A wrong code or a too-soon retry stays on the same still-active challenge with an
+        // inline mistake message; everything else (expired, hard_limit_reached, other transport
+        // failures) ends the flow.
+        if (failure is PairingRetriableFailure) {
+          store.dispatch(
+            PairingConfirmFailedWithAttemptsRemainingAction(
+              message: failure.message,
+            ),
+          );
+        } else {
+          store.dispatch(PairingFailedAction(failure.message));
+        }
       },
       (_) {
         store.dispatch(const PairingConfirmedAction());

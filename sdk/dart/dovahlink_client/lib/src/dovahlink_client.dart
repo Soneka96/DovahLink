@@ -252,7 +252,8 @@ class DovahLinkClient {
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
   /// @return The issued credential, already persisted.
-  /// @throws DovahLinkPairingException if the code was expired, invalid, or rate-limited.
+  /// @throws DovahLinkPairingException if the code was expired, invalid, paced too soon, or
+  ///     hit the hard wrong-attempt limit.
   Future<String> confirmPairingCode({
     required String code,
     String? displayName,
@@ -385,7 +386,13 @@ class DovahLinkClient {
     return generated;
   }
 
-  /// Sends one envelope carrying [messageType]/[payload] and awaits its expected reply.
+  /// Sends one envelope carrying [messageType]/[payload] and awaits its expected reply. A
+  /// [DovahLinkConnectionException] (the transport itself failed to send or receive) resets
+  /// connection state the same way [hello]'s own failure path does, before rethrowing -- every
+  /// caller shares this one send/await path, so every caller shares this cleanup rather than each
+  /// needing its own copy. A [DovahLinkProtocolException] (a wire-level rejection on an otherwise
+  /// live socket) is left untouched: unlike `hello`, most callers' protocol-level outcomes (a wrong
+  /// code, a cooldown, a hard limit) do not imply the bridge closed the connection.
   Future<Envelope> _sendAndAwait({
     required String messageType,
     required JsonMap payload,
@@ -404,9 +411,15 @@ class DovahLinkClient {
     try {
       await _transport.send(jsonEncode(outgoing.toJson()));
     } on Object catch (error) {
+      await disconnect();
       throw DovahLinkConnectionException('Failed to send $messageType: $error');
     }
-    return _readEnvelope(expectedType: expectedType);
+    try {
+      return await _readEnvelope(expectedType: expectedType);
+    } on DovahLinkConnectionException {
+      await disconnect();
+      rethrow;
+    }
   }
 
   /// Reads one reply envelope, translating a wire `error` or an unexpected message type into a

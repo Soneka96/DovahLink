@@ -263,6 +263,18 @@ TEST_CASE("CurrentCode reports no value once the challenge reaches PENDING_CREDE
     CHECK_FALSE(session.CurrentCode(now).has_value());
 }
 
+TEST_CASE("CurrentCode reports no value once the challenge's own TTL naturally elapses, with no "
+          "disconnect involved",
+          "[security][pairing_session]") {
+    // Zero TTL: the challenge is already past its own expiry the instant it starts, distinct from
+    // the reconnect-grace path (the owner never disconnects here).
+    PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    CHECK_FALSE(session.CurrentCode(now).has_value());
+}
+
 TEST_CASE("CurrentCode respects the reconnect-grace lazy-expiry check", "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));
     auto now = std::chrono::steady_clock::now();
@@ -377,6 +389,26 @@ TEST_CASE("an evaluated attempt within the pacing interval is rejected without c
     auto pastPacing = now + std::chrono::seconds(1);
     CHECK(session.TryConfirmCode("111111", pastPacing, "client-1", MakeCredential(1), std::nullopt).outcome ==
           ConfirmResult::kConfirmed);
+}
+
+TEST_CASE("kPacingLimited reports the actual remaining wait, not the full pacing interval",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    // First attempt (wrong) is evaluated and starts the pacing clock.
+    REQUIRE(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt).outcome ==
+            ConfirmResult::kInvalid);
+
+    // 400ms later: well past the pacing interval's start, so the true remaining wait (600ms,
+    // truncated to 0 whole seconds) differs from the full 1-second interval a hardcoded constant
+    // would have reported instead.
+    auto paced = session.TryConfirmCode("111111", now + std::chrono::milliseconds(400), "client-1",
+                                         MakeCredential(1), std::nullopt);
+    REQUIRE(paced.outcome == ConfirmResult::kPacingLimited);
+    REQUIRE(paced.retryAfterSeconds.has_value());
+    CHECK(*paced.retryAfterSeconds == std::chrono::seconds(0));
 }
 
 TEST_CASE("the fifth wrong evaluated attempt cancels the challenge and destroys the code",
@@ -771,6 +803,33 @@ TEST_CASE("TryRenotify reports kNotActive once the challenge reaches PENDING_CRE
 
     // Nothing left to redisplay -- the code is gone, only a pending credential remains.
     CHECK(session.TryRenotify("client-1", now).outcome == RenotifyOutcome::kNotActive);
+}
+
+TEST_CASE("TryRenotify reports kNotActive once the challenge's own TTL naturally elapses, with no "
+          "disconnect involved",
+          "[security][pairing_session]") {
+    // Zero TTL: the challenge is already past its own expiry the instant it starts, distinct from
+    // the reconnect-grace path (the owner never disconnects here).
+    PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    // A dead code must never be reported as successfully redisplayed.
+    CHECK(session.TryRenotify("client-1", now).outcome == RenotifyOutcome::kNotActive);
+}
+
+TEST_CASE("TryCancel reports kAlreadyIdle, not kCancelled, once the challenge's own TTL naturally "
+          "elapses",
+          "[security][pairing_session]") {
+    // Zero TTL: the challenge is already past its own expiry the instant it starts, distinct from
+    // the reconnect-grace path (the owner never disconnects here).
+    PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    // Nothing genuinely active was cleared -- truthfully reports kAlreadyIdle, matching
+    // TryCancel's own "idempotent without pretending work occurred" contract.
+    CHECK(session.TryCancel("client-1", now) == CancelOutcome::kAlreadyIdle);
 }
 
 TEST_CASE("an evaluated attempt exactly at the pacing-interval boundary is allowed",

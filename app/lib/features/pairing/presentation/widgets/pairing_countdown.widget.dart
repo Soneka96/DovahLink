@@ -8,8 +8,8 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Displays a countdown timer for remaining seconds until pairing code expires.
 /// Rebuilds periodically to update the display.
-class CountdownWidget extends StatefulWidget {
-  const CountdownWidget({
+class PairingCountdown extends StatefulWidget {
+  const PairingCountdown({
     this.textStyle,
     this.formatSeconds = _defaultFormatSeconds,
     super.key,
@@ -28,10 +28,10 @@ class CountdownWidget extends StatefulWidget {
   }
 
   @override
-  State<CountdownWidget> createState() => _CountdownWidgetState();
+  State<PairingCountdown> createState() => _PairingCountdownState();
 }
 
-class _CountdownWidgetState extends State<CountdownWidget> {
+class _PairingCountdownState extends State<PairingCountdown> {
   Timer? _timer;
 
   @override

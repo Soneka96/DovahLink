@@ -38,3 +38,13 @@ class PairingFailure extends Failure {
   /// Creates a pairing failure.
   const PairingFailure(super.message);
 }
+
+/// A [PairingFailure] the user can retry against the same still-active
+/// challenge: a wrong code that hasn't hit the hard attempt limit yet, or an
+/// attempt rejected only for being paced too soon. Distinct from a plain
+/// [PairingFailure] so presentation code can keep the user on the code-entry
+/// screen instead of bouncing them out of the pairing flow.
+class PairingRetriableFailure extends PairingFailure {
+  /// Creates a retriable pairing failure.
+  const PairingRetriableFailure(super.message);
+}

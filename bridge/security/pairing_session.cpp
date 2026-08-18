@@ -34,6 +34,12 @@ void PairingSession::ExpirePendingIfElapsedLocked(std::chrono::steady_clock::tim
     }
 }
 
+void PairingSession::ExpireChallengeIfElapsedLocked() {
+    if (activeChallenge_.has_value() && !activeChallenge_->IsAvailable()) {
+        ClearChallengeLocked();
+    }
+}
+
 void PairingSession::ClearChallengeLocked() {
     activeChallenge_.reset();
     activeCode_.reset();
@@ -92,6 +98,7 @@ std::optional<std::chrono::seconds> PairingSession::RemainingSeconds(
 std::optional<std::string> PairingSession::CurrentCode(std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
+    ExpireChallengeIfElapsedLocked();
     if (!activeChallenge_.has_value()) {
         return std::nullopt;
     }
@@ -135,7 +142,10 @@ ConfirmCodeResult PairingSession::TryConfirmCode(const std::string& presentedCod
         return {.outcome = ConfirmResult::kExpired, .shouldAutoRenotify = false};
     }
     if (lastConfirmAttemptAt_.has_value() && now - *lastConfirmAttemptAt_ < kPairingConfirmPacingInterval) {
-        return {.outcome = ConfirmResult::kPacingLimited, .shouldAutoRenotify = false};
+        auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
+            kPairingConfirmPacingInterval - (now - *lastConfirmAttemptAt_));
+        return {.outcome = ConfirmResult::kPacingLimited, .shouldAutoRenotify = false,
+                .retryAfterSeconds = remaining};
     }
     lastConfirmAttemptAt_ = now;
 
@@ -200,6 +210,7 @@ RenotifyResult PairingSession::TryRenotify(const std::string& clientId,
                                             std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
+    ExpireChallengeIfElapsedLocked();
     if (!activeChallenge_.has_value() || !ownerClientId_.has_value() || *ownerClientId_ != clientId) {
         return {.outcome = RenotifyOutcome::kNotActive, .retryAfterSeconds = std::nullopt};
     }
@@ -215,6 +226,7 @@ CancelOutcome PairingSession::TryCancel(const std::string& clientId, std::chrono
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
     ExpirePendingIfElapsedLocked(now);
+    ExpireChallengeIfElapsedLocked();
 
     if (pendingCredential_.has_value() && pendingCredential_->clientId == clientId) {
         pendingCredential_.reset();

@@ -60,8 +60,9 @@ class PairingStatusPayload {
   final String state;
 
   /// The active challenge's remaining code validity in seconds, present for `"available"` and
-  /// `"in_progress"`; `null` otherwise.
-  @JsonKey(required: true)
+  /// `"in_progress"`, `null` for other non-`other_device_pairing` states, and the key itself
+  /// genuinely omitted for `"other_device_pairing"` (not just `null`) -- so this key is optional,
+  /// unlike this payload's other, always-present fields.
   final int? expiresInSeconds;
 }
 

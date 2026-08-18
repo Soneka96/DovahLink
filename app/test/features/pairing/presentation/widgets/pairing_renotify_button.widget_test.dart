@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/renotify_button_widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Exercises [RenotifyButtonWidget] dispatch behavior and enabled/disabled states.
+/// Exercises [PairingRenotifyButton] dispatch behavior and enabled/disabled states.
 void main() {
-  group('RenotifyButtonWidget', () {
+  group('PairingRenotifyButton', () {
     testWidgets('displays enabled button when renotify is available',
         (WidgetTester tester) async {
       final store = Store<AppState>(
@@ -34,7 +35,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -69,7 +70,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -101,7 +102,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -133,7 +134,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -168,7 +169,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(
+              body: PairingRenotifyButton(
                 cooldownLabel: 'Please wait...',
               ),
             ),
@@ -205,7 +206,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -242,7 +243,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -297,7 +298,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: RenotifyButtonWidget(),
+              body: PairingRenotifyButton(),
             ),
           ),
         ),
@@ -312,7 +313,80 @@ void main() {
       text = tester.widget<Text>(find.byType(Text));
       expect(text.data, 'Send Code Again');
     });
+
+    testWidgets(
+      'becomes enabled once the cooldown elapses with no Redux dispatch at all',
+      (WidgetTester tester) async {
+        final store = Store<AppState>(
+          (AppState state, dynamic action) {
+            if (action is _SetRenotifyAvailableAtAction) {
+              return AppState(
+                connection: state.connection,
+                pairing: state.pairing.copyWith(
+                  renotifyAvailableAt: Some(action.availableAt),
+                ),
+              );
+            }
+            return state;
+          },
+          initialState: AppState(
+            connection: ConnectionState.initial(),
+            // Set once pumpWidget below has already settled, so real test-framework startup
+            // overhead can't eat into this margin the way capturing `now` beforehand would.
+            pairing: const PairingState(
+              phase: PairingPhase.awaitingCode,
+              bridgeVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
+            ),
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const Scaffold(
+                body: PairingRenotifyButton(),
+              ),
+            ),
+          ),
+        );
+
+        store.dispatch(
+          _SetRenotifyAvailableAtAction(
+            DateTime.now().add(const Duration(seconds: 2)),
+          ),
+        );
+        await tester.pump();
+        expect(
+          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+          isNull,
+        );
+
+        // Two clocks are in play here: `renotifyCooldownSecondsSelector` reads real
+        // DateTime.now(), which only runAsync's real wait can advance; the widget's own
+        // Timer.periodic runs on flutter_test's simulated clock, which only tester.pump(duration)
+        // can advance. Neither alone triggers a rebuild that observes the elapsed cooldown -- both
+        // are needed, with no further Redux dispatch involved at all.
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(seconds: 3)),
+        );
+        await tester.pump(const Duration(seconds: 2));
+
+        expect(
+          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+          isNotNull,
+        );
+      },
+    );
   });
+}
+
+class _SetRenotifyAvailableAtAction {
+  _SetRenotifyAvailableAtAction(this.availableAt);
+  final DateTime availableAt;
 }
 
 class _TransitionCooldownAction {
