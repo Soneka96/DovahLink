@@ -146,7 +146,7 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
         }
     }
 
-    auto pending = pairingSession.TryFinalize(clientId, *credentialBytes);
+    auto pending = pairingSession.PeekPending(clientId, *credentialBytes);
     if (!pending.has_value()) {
         return BuildPairingOutcome(sessionId, pairingAckEnvelope.messageId,
                                     protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
@@ -154,9 +154,12 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
 
     auto persisted = trustStore.Persist(pending->clientId, pending->credential, pending->displayName);
     if (!persisted.has_value()) {
+        // Deliberately not committed: leaving the pending credential in place lets a retried
+        // pairing_ack try again instead of losing it to this transient failure.
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId, "internal_error",
                                              "Unable to commit trust", false);
     }
+    static_cast<void>(pairingSession.CommitPending(clientId, *credentialBytes));
 
     sessionManager.UpgradeToFullTrust(connection, sessionId);
 
