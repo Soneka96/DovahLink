@@ -3,6 +3,9 @@ import 'dart:math';
 
 import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
+import 'pairing_cancel_outcome.dart';
+import 'pairing_challenge_status.dart';
+import 'pairing_renotify_result.dart';
 import 'persistence/client_storage.dart';
 import 'persistence/persisted_client_state.dart';
 import 'persistence/windows/dpapi_client_storage.dart';
@@ -190,7 +193,9 @@ class DovahLinkClient {
   }
 
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
-  Future<PairingAvailability> requestPairing() async {
+  /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
+  /// different clientId currently owns the active challenge or pending credential.
+  Future<PairingChallengeStatus> requestPairing() async {
     final Envelope response = await _sendAndAwait(
       messageType: 'pairing_request',
       payload: const <String, dynamic>{},
@@ -199,7 +204,45 @@ class DovahLinkClient {
     final PairingStatusPayload status = PairingStatusPayload.fromJson(
       response.payload,
     );
-    return _parsePairingAvailability(status.state);
+    return PairingChallengeStatus(
+      availability: _parsePairingAvailability(status.state),
+      expiresInSeconds: status.expiresInSeconds,
+    );
+  }
+
+  /// Requests redisplay of the active pairing challenge's code the caller owns. Never generates a
+  /// new code and never sends the code itself over the wire -- redisplay occurs through the
+  /// in-game notification, not the connection. Valid only on an `unpaired` session.
+  Future<PairingRenotifyResult> requestPairingRenotify() async {
+    final Envelope response = await _sendAndAwait(
+      messageType: 'pairing_renotify',
+      payload: const <String, dynamic>{},
+      expectedType: 'pairing_outcome',
+    );
+    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
+      response.payload,
+    );
+    return PairingRenotifyResult(
+      status: _parsePairingRenotifyStatus(outcome.outcome),
+      retryAfterSeconds: outcome.retryAfterSeconds,
+    );
+  }
+
+  /// Gives up an owned active challenge or pending credential, freeing the slot for a fresh
+  /// [requestPairing]. Never touches persisted trust or an already-committed credential. Valid
+  /// only on an `unpaired` session.
+  Future<PairingCancelOutcome> cancelPairing() async {
+    final Envelope response = await _sendAndAwait(
+      messageType: 'pairing_cancel',
+      payload: const <String, dynamic>{},
+      expectedType: 'pairing_outcome',
+    );
+    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
+      response.payload,
+    );
+    return PairingCancelOutcome(
+      status: _parsePairingCancelStatus(outcome.outcome),
+    );
   }
 
   /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
@@ -445,9 +488,34 @@ class DovahLinkClient {
     'unavailable' => PairingAvailability.unavailable,
     'available' => PairingAvailability.available,
     'in_progress' => PairingAvailability.inProgress,
+    'other_device_pairing' => PairingAvailability.otherDevicePairing,
     _ => throw DovahLinkProtocolException(
       code: 'malformed_message',
       message: 'Unrecognized pairing_status.state: $raw',
+      retryable: false,
+    ),
+  };
+
+  /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to
+  /// `pairing_renotify`.
+  PairingRenotifyStatus _parsePairingRenotifyStatus(String raw) => switch (raw) {
+    'renotified' => PairingRenotifyStatus.renotified,
+    'renotify_cooldown' => PairingRenotifyStatus.cooldown,
+    'already_idle' => PairingRenotifyStatus.alreadyIdle,
+    _ => throw DovahLinkProtocolException(
+      code: 'malformed_message',
+      message: 'Unrecognized pairing_renotify outcome: $raw',
+      retryable: false,
+    ),
+  };
+
+  /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to `pairing_cancel`.
+  PairingCancelStatus _parsePairingCancelStatus(String raw) => switch (raw) {
+    'cancelled' => PairingCancelStatus.cancelled,
+    'already_idle' => PairingCancelStatus.alreadyIdle,
+    _ => throw DovahLinkProtocolException(
+      code: 'malformed_message',
+      message: 'Unrecognized pairing_cancel outcome: $raw',
       retryable: false,
     ),
   };

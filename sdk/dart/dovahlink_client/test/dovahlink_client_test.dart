@@ -720,17 +720,62 @@ void main() {
           'pairing/pairing-status-unavailable.json',
       PairingAvailability.available: 'pairing/pairing-status-available.json',
       PairingAvailability.inProgress: 'pairing/pairing-status-in-progress.json',
+      PairingAvailability.otherDevicePairing:
+          'pairing/pairing-status-other-device.json',
     };
     for (final MapEntry<PairingAvailability, String> entry
         in stateFixtures.entries) {
       test('reports ${entry.key} from the real fixture', () async {
         transport.queueResponse(_rawFixture(entry.value));
 
-        final PairingAvailability availability = await client.requestPairing();
+        final PairingChallengeStatus status = await client.requestPairing();
 
-        expect(availability, entry.key);
+        expect(status.availability, entry.key);
       });
     }
+
+    test('reports expiresInSeconds for an available fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-status-available.json'),
+      );
+
+      final PairingChallengeStatus status = await client.requestPairing();
+
+      expect(status.expiresInSeconds, 300);
+    });
+
+    test('reports expiresInSeconds for an in_progress fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-status-in-progress.json'),
+      );
+
+      final PairingChallengeStatus status = await client.requestPairing();
+
+      expect(status.expiresInSeconds, 187);
+    });
+
+    test('reports expiresInSeconds as null for an unavailable fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-status-unavailable.json'),
+      );
+
+      final PairingChallengeStatus status = await client.requestPairing();
+
+      expect(status.expiresInSeconds, isNull);
+    });
+
+    test(
+      'reports expiresInSeconds as null for an other_device_pairing fixture',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-status-other-device.json'),
+        );
+
+        final PairingChallengeStatus status = await client.requestPairing();
+
+        expect(status.expiresInSeconds, isNull);
+      },
+    );
 
     test(
       'an unrecognized state throws DovahLinkProtocolException(malformed_message)',
@@ -794,6 +839,167 @@ void main() {
     );
   });
 
+  group('requestPairingRenotify', () {
+    test('reports renotified from the real fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-renotified.json'),
+      );
+
+      final PairingRenotifyResult result = await client
+          .requestPairingRenotify();
+
+      expect(result.status, PairingRenotifyStatus.renotified);
+      expect(result.retryAfterSeconds, isNull);
+    });
+
+    test(
+      'reports cooldown with retryAfterSeconds from the real fixture',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-renotify-cooldown.json'),
+        );
+
+        final PairingRenotifyResult result = await client
+            .requestPairingRenotify();
+
+        expect(result.status, PairingRenotifyStatus.cooldown);
+        expect(result.retryAfterSeconds, 3);
+      },
+    );
+
+    test('reports alreadyIdle from the real fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-already-idle.json'),
+      );
+
+      final PairingRenotifyResult result = await client
+          .requestPairingRenotify();
+
+      expect(result.status, PairingRenotifyStatus.alreadyIdle);
+      expect(result.retryAfterSeconds, isNull);
+    });
+
+    test(
+      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+
+        await expectLater(
+          client.requestPairingRenotify(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'malformed_message',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'sends an empty payload, matching the pairing_renotify fixture shape',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-renotified.json'),
+        );
+
+        await client.requestPairingRenotify();
+
+        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
+        expect(sent['messageType'], 'pairing_renotify');
+        expect(sent['payload'], <String, dynamic>{});
+      },
+    );
+
+    test('propagates the sessionId a prior hello established', () async {
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+      await client.hello();
+
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-renotified.json'),
+      );
+      await client.requestPairingRenotify();
+
+      final JsonMap sentRequest = jsonDecode(transport.sent.last) as JsonMap;
+      expect(sentRequest['sessionId'], 'session-1');
+    });
+  });
+
+  group('cancelPairing', () {
+    test('reports cancelled from the real fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-cancelled.json'),
+      );
+
+      final PairingCancelOutcome outcome = await client.cancelPairing();
+
+      expect(outcome.status, PairingCancelStatus.cancelled);
+    });
+
+    test('reports alreadyIdle from the real fixture', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-already-idle.json'),
+      );
+
+      final PairingCancelOutcome outcome = await client.cancelPairing();
+
+      expect(outcome.status, PairingCancelStatus.alreadyIdle);
+    });
+
+    test(
+      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+
+        await expectLater(
+          client.cancelPairing(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              'malformed_message',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'sends an empty payload, matching the pairing_cancel fixture shape',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-cancelled.json'),
+        );
+
+        await client.cancelPairing();
+
+        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
+        expect(sent['messageType'], 'pairing_cancel');
+        expect(sent['payload'], <String, dynamic>{});
+      },
+    );
+
+    test('propagates the sessionId a prior hello established', () async {
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+      await client.hello();
+
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-cancelled.json'),
+      );
+      await client.cancelPairing();
+
+      final JsonMap sentRequest = jsonDecode(transport.sent.last) as JsonMap;
+      expect(sentRequest['sessionId'], 'session-1');
+    });
+  });
+
   group('confirmPairingCode', () {
     test(
       'returns the issued credential and persists it with CONFIRMING recovery',
@@ -843,7 +1049,8 @@ void main() {
     const Map<String, String> failureFixtures = <String, String>{
       'expired': 'pairing/pairing-outcome-expired.json',
       'invalid': 'pairing/pairing-outcome-invalid.json',
-      'rate_limited': 'pairing/pairing-outcome-rate-limited.json',
+      'pacing_limited': 'pairing/pairing-outcome-pacing-limited.json',
+      'hard_limit_reached': 'pairing/pairing-outcome-hard-limit-reached.json',
     };
     for (final MapEntry<String, String> entry in failureFixtures.entries) {
       test(

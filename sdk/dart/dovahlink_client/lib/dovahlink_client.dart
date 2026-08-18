@@ -12,8 +12,13 @@ export 'src/shared/enums.dart'
         CredentialRejectionReason,
         DovahLinkConnectionState,
         DovahLinkTrustState,
-        PairingAvailability;
+        PairingAvailability,
+        PairingCancelStatus,
+        PairingRenotifyStatus;
 export 'src/hello_result.dart' show HelloResult;
+export 'src/pairing_cancel_outcome.dart' show PairingCancelOutcome;
+export 'src/pairing_challenge_status.dart' show PairingChallengeStatus;
+export 'src/pairing_renotify_result.dart' show PairingRenotifyResult;
 export 'src/dovahlink_client_exception.dart'
     show
         DovahLinkConnectionException,
