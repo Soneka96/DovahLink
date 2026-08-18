@@ -101,7 +101,7 @@ void main() {
           transport
               .connect(Uri.parse('ws://127.0.0.1:1/'))
               .timeout(const Duration(seconds: 5)),
-          throwsA(isNot(isA<TimeoutException>())),
+          throwsA(isA<SocketException>()),
         );
       },
     );
