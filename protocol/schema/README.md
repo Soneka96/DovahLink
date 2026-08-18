@@ -223,6 +223,34 @@ upgrades the session to full trust in place on the same connection — no reconn
 
 Required payload field: `credential`.
 
+### `pairing_renotify`
+
+Client request to redisplay the active pairing challenge's code. Sent on a Restricted session only.
+Never generates a new code and never sends the code itself over the wire — redisplay occurs through
+the in-game notification, not the connection.
+
+```json
+{}
+```
+
+No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+(`"renotified"` on success, `"renotify_cooldown"` with remaining wait, or `"already_idle"` when no
+challenge is owned).
+
+### `pairing_cancel`
+
+Client request to give up an owned active challenge or pending credential. Sent on a Restricted
+session only. Never touches persisted trust or any already-committed credentials — only clears
+in-memory challenge/pending state and frees the slot for a fresh `pairing_request`.
+
+```json
+{}
+```
+
+No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+(`"cancelled"` if something was cleared, or `"already_idle"` if nothing was owned). Idempotent without
+pretending work occurred — repeating it truthfully reports `"already_idle"`, not `"cancelled"`.
+
 ### `pairing_outcome`
 
 Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished by `outcome`:
@@ -238,16 +266,23 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 ```
 
 `outcome` is one of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
-`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, or `"pending_not_found"`. `"pacing_limited"`
-and `"hard_limit_reached"` replace the single undifferentiated `"rate_limited"` earlier phases used:
-pacing rejects an evaluated `pairing_confirm` attempt made too soon after the previous one, without
-counting it as wrong, while the hard limit is the terminal count of wrong evaluated attempts that
-cancels the challenge outright and requires a fresh `pairing_request`. `credential` is present only
-for `"credential_issued"`, `"trusted"`, and `"already_trusted"`. `shortId` (an administration-only
-identifier, not a trust credential) is present only for `"trusted"` and `"already_trusted"`.
-`displayName` echoes the client-supplied label and is present only alongside `credential`/`shortId`
-when the client supplied one. `retryAfterSeconds` is the remaining wait before another evaluated
-`pairing_confirm` attempt is accepted, present only for `"pacing_limited"`.
+`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`, `"renotified"`,
+`"renotify_cooldown"`, `"cancelled"`, or `"already_idle"`. Outcomes are grouped by originating message:
+- From `pairing_confirm`: `"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
+  `"hard_limit_reached"`. `"pacing_limited"` and `"hard_limit_reached"` replace the single
+  undifferentiated `"rate_limited"` earlier phases used: pacing rejects an attempt made too soon
+  after the previous one, without counting it as wrong, while the hard limit is the terminal count
+  of wrong attempts that cancels the challenge outright.
+- From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`.
+- From `pairing_renotify`: `"renotified"`, `"renotify_cooldown"`, `"already_idle"`.
+- From `pairing_cancel`: `"cancelled"`, `"already_idle"`.
+
+`credential` is present only for `"credential_issued"`, `"trusted"`, and `"already_trusted"`.
+`shortId` (an administration-only identifier, not a trust credential) is present only for `"trusted"`
+and `"already_trusted"`. `displayName` echoes the client-supplied label and is present only alongside
+`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the remaining wait, present
+for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and `"renotify_cooldown"` (next
+manual `pairing_renotify`).
 
 Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
 are always present in the payload as `null` unless the note above says otherwise.
