@@ -1,4 +1,4 @@
-name: tooling-ci
+name: Repository
 
 on:
   push:
@@ -21,23 +21,6 @@ on:
       - "sdk/**"
       - "tooling/**"
   pull_request:
-    paths:
-      - "AGENTS.md"
-      - "README.md"
-      - "PRODUCT.md"
-      - "ARCHITECTURE.md"
-      - "ROADMAP.md"
-      - "CONTRIBUTING.md"
-      - "CHANGELOG.md"
-      - ".github/workflows/**"
-      - ".vscode/**"
-      - "ai/context/**"
-      - "app/**"
-      - "bridge/**"
-      - "integration/**"
-      - "protocol/**"
-      - "sdk/**"
-      - "tooling/**"
   workflow_dispatch:
 
 concurrency:
@@ -49,6 +32,7 @@ permissions:
 
 jobs:
   repository-checks:
+    name: Repository Tooling Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:

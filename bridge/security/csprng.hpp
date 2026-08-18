@@ -16,4 +16,10 @@ namespace dovahlink::security {
 /// Generates a 128-bit cryptographically random opaque identifier as hex text.
 [[nodiscard]] std::optional<std::string> GenerateOpaqueId();
 
+/// Generates a candidate numeric code of exactly `digits` decimal digits, using the system CSPRNG
+/// and zero-padding on the left. `digits` must be between 1 and 9 inclusive -- the underlying
+/// 32-bit value cannot represent a wider range; this is a precondition on trusted internal
+/// callers, not validated against external input.
+[[nodiscard]] std::optional<std::string> GenerateNumericCode(std::size_t digits);
+
 }  // namespace dovahlink::security

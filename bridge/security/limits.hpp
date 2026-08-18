@@ -48,4 +48,9 @@ inline constexpr std::size_t kMaxProtocolViolations = 3;
 /// Sliding window for protocol violations.
 inline constexpr std::chrono::seconds kProtocolViolationWindow{30};
 
+/// Maximum length of a trusted client's optional presentation-only display name.
+inline constexpr std::size_t kMaxDisplayNameLengthBytes = 64;
+/// Maximum attempts to generate a unique trusted-client `shortId` before failing closed.
+inline constexpr std::size_t kMaxShortIdGenerationAttempts = 20;
+
 }  // namespace dovahlink::security

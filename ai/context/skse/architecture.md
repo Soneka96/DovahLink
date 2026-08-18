@@ -6,7 +6,12 @@ These conventions apply to the native Skyrim bridge. The bridge is a boundary ad
 
 - The native SKSE plugin is C++ code built for the supported Skyrim runtime through the approved SKSE/CommonLib toolchain.
 - Keep the runtime choice, CommonLib version, compiler, and build system documented when the first bridge feature is started.
-- Do not introduce Papyrus into the core bridge unless a capability genuinely requires Skyrim scripting.
+- Do not introduce Papyrus into the core bridge unless a capability genuinely requires Skyrim
+  scripting. The trust-administration console adapter
+  (`ai/context/protocol/security.md`'s "Trust administration surface") is the approved exception: a
+  small Papyrus glue script living outside `bridge/`, calling native functions the plugin registers.
+  The Papyrus surface carries no application/business logic of its own -- only forwarding and output
+  formatting.
 - Do not copy game-runtime types into DovahLink protocol or client code.
 
 ## Internal shape

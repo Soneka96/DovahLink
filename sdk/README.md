@@ -33,8 +33,9 @@ the SDK's first production consumer, not a privileged one — see
 
 ## Status
 
-Planned. This directory currently contains only this README; no Dart package exists yet. The real
-package is created when `ROADMAP.md`'s Phase 5, "Dart Client SDK Foundation," begins, at:
+Partially implemented, pulled forward from `ROADMAP.md`'s Phase 5 ("Dart Client SDK Foundation")
+ahead of that phase's formal start, because Phase 3 (Local Device Pairing and Reconnection) needed
+the SDK's persistence boundary to avoid a larger later migration. The real package exists at:
 
 ```text
 sdk/
@@ -42,7 +43,17 @@ sdk/
     dovahlink_client/
 ```
 
-Until that phase, the app-side Dart client documented in
-[`ai/context/flutter/`](../ai/context/flutter/) remains the active Dart consumer for the identity,
-pairing, and live-synchronization foundations already in progress; see
+It currently provides the connect/hello/pairing/disconnect protocol client, proven against the real
+bridge harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-recovery persistence
+behind the `ClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
+see `ai/context/sdk/persistence.md`. The official Flutter app depends on it
+(`dovahlink_client_sdk` in `app/pubspec.yaml`), but nothing in the app consumes it yet; the
+production pairing UI is a later, separate build. Phase 5's remaining scope -- Bridge-version
+compatibility detection, reconnect, revisions, subscriptions, snapshots, and retiring the app's
+separate `features/connection/` Redux protocol code -- is undone, so this pull-forward does not
+close Phase 5.
+
+Until the pairing UI and the rest of Phase 5 land, the app-side Redux `features/connection/` code
+documented in [`ai/context/flutter/`](../ai/context/flutter/) remains a separate, not-yet-retired
+implementation for the identity and live-synchronization foundations already in progress; see
 [`app/README.md`](../app/README.md).

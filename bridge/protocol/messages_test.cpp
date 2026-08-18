@@ -8,6 +8,7 @@
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,8 @@ TEST_CASE("hello fixture decodes to the expected HelloPayload", "[protocol][mess
     REQUIRE(hello.has_value());
     CHECK(hello->endpoint == "client");
     CHECK(hello->authMethod == "one_time_local_token");
-    CHECK_FALSE(hello->authToken.empty());
+    REQUIRE(hello->authToken.has_value());
+    CHECK_FALSE(hello->authToken->empty());
     CHECK(hello->clientId == "client-1");
 }
 
@@ -44,6 +46,66 @@ TEST_CASE("hello is rejected when clientId is missing", "[protocol][messages]") 
     boost::json::object payload = boost::json::parse(
                                       R"({"endpoint": "client",
             "auth": {"method": "one_time_local_token", "token": "t"}})")
+                                      .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello-unpaired fixture decodes with no authToken", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("connection/hello-unpaired.json");
+    auto hello = dovahlink::protocol::DecodeHelloPayload(envelope.payload);
+    REQUIRE(hello.has_value());
+    CHECK(hello->authMethod == "unpaired");
+    CHECK_FALSE(hello->authToken.has_value());
+    CHECK(hello->clientId == "client-1");
+}
+
+TEST_CASE("hello-trusted-device-credential fixture decodes with an authToken",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("connection/hello-trusted-device-credential.json");
+    auto hello = dovahlink::protocol::DecodeHelloPayload(envelope.payload);
+    REQUIRE(hello.has_value());
+    CHECK(hello->authMethod == "trusted_device_credential");
+    REQUIRE(hello->authToken.has_value());
+    CHECK_FALSE(hello->authToken->empty());
+}
+
+TEST_CASE("hello is rejected when auth.method is unrecognized", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+                                      R"({"endpoint": "client", "clientId": "client-1",
+            "auth": {"method": "smoke-signal", "token": "t"}})")
+                                      .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello is rejected when auth.method is unpaired but a token is present",
+          "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+                                      R"({"endpoint": "client", "clientId": "client-1",
+            "auth": {"method": "unpaired", "token": "t"}})")
+                                      .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello is rejected when auth.method is unpaired but token is present as JSON null",
+          "[protocol][messages]") {
+    // A present-but-null key is a distinct wire case from an absent key: if_contains finds it
+    // either way, so the rejection must not depend on the key being entirely missing.
+    boost::json::object payload = boost::json::parse(
+                                      R"({"endpoint": "client", "clientId": "client-1",
+            "auth": {"method": "unpaired", "token": null}})")
+                                      .get_object();
+    auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
+    REQUIRE_FALSE(hello.has_value());
+}
+
+TEST_CASE("hello is rejected when auth.method is trusted_device_credential but no token is present",
+          "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(
+                                      R"({"endpoint": "client", "clientId": "client-1",
+            "auth": {"method": "trusted_device_credential"}})")
                                       .get_object();
     auto hello = dovahlink::protocol::DecodeHelloPayload(payload);
     REQUIRE_FALSE(hello.has_value());
@@ -586,4 +648,232 @@ TEST_CASE("error decodes non-null details when present", "[protocol][messages]")
     REQUIRE(error.has_value());
     REQUIRE(error->details.has_value());
     CHECK(error->details->is_object());
+}
+
+TEST_CASE("pairing-status-available fixture decodes to the expected PairingStatusPayload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-status-available.json");
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
+    REQUIRE(status.has_value());
+    CHECK(status->state == "available");
+}
+
+TEST_CASE("pairing-status-in-progress fixture decodes to the expected PairingStatusPayload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-status-in-progress.json");
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
+    REQUIRE(status.has_value());
+    CHECK(status->state == "in_progress");
+}
+
+TEST_CASE("pairing-status-unavailable fixture decodes to the expected PairingStatusPayload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-status-unavailable.json");
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
+    REQUIRE(status.has_value());
+    CHECK(status->state == "unavailable");
+}
+
+TEST_CASE("PairingStatusPayload round-trips through encode then decode", "[protocol][messages]") {
+    dovahlink::protocol::PairingStatusPayload original{.state = "available"};
+    auto decoded = dovahlink::protocol::DecodePairingStatusPayload(
+        dovahlink::protocol::EncodePairingStatusPayload(original));
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->state == original.state);
+}
+
+TEST_CASE("pairing_status is rejected when state is not a registered value", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"state": "sideways"})").get_object();
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(payload);
+    REQUIRE_FALSE(status.has_value());
+}
+
+TEST_CASE("pairing_status is rejected when state has the wrong type", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"state": 1})").get_object();
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(payload);
+    REQUIRE_FALSE(status.has_value());
+}
+
+TEST_CASE("EncodePairingStatusPayload writes the state field directly", "[protocol][messages]") {
+    auto encoded = dovahlink::protocol::EncodePairingStatusPayload(
+        dovahlink::protocol::PairingStatusPayload{.state = "in_progress"});
+
+    const boost::json::value* state = encoded.if_contains("state");
+    REQUIRE(state != nullptr);
+    REQUIRE(state->is_string());
+    CHECK(state->get_string() == "in_progress");
+}
+
+TEST_CASE("pairing-confirm fixture decodes to the expected PairingConfirmPayload",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-confirm.json");
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(envelope.payload);
+    REQUIRE(confirm.has_value());
+    CHECK(confirm->code == "123456");
+    REQUIRE(confirm->displayName.has_value());
+    CHECK(*confirm->displayName == "My PC");
+}
+
+TEST_CASE("pairing_confirm decodes a null displayName as absent", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"code": "123456", "displayName": null})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE(confirm.has_value());
+    CHECK_FALSE(confirm->displayName.has_value());
+}
+
+TEST_CASE("pairing_confirm decodes a missing displayName as absent", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"code": "123456"})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE(confirm.has_value());
+    CHECK_FALSE(confirm->displayName.has_value());
+}
+
+TEST_CASE("pairing_confirm is rejected when code is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"displayName": "My PC"})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE_FALSE(confirm.has_value());
+}
+
+TEST_CASE("pairing_confirm is rejected when code is an empty string", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"code": ""})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE_FALSE(confirm.has_value());
+}
+
+TEST_CASE("pairing_confirm is rejected when code has the wrong type", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"code": 123456})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE_FALSE(confirm.has_value());
+}
+
+TEST_CASE("pairing_confirm is rejected when displayName has the wrong type", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"code": "123456", "displayName": 42})").get_object();
+    auto confirm = dovahlink::protocol::DecodePairingConfirmPayload(payload);
+    REQUIRE_FALSE(confirm.has_value());
+}
+
+TEST_CASE("pairing-ack fixture decodes to the expected PairingAckPayload", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-ack.json");
+    auto ack = dovahlink::protocol::DecodePairingAckPayload(envelope.payload);
+    REQUIRE(ack.has_value());
+    CHECK(ack->credential == "a1b2c3d4e5f6");
+}
+
+TEST_CASE("pairing_ack is rejected when credential is missing", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({})").get_object();
+    auto ack = dovahlink::protocol::DecodePairingAckPayload(payload);
+    REQUIRE_FALSE(ack.has_value());
+}
+
+TEST_CASE("pairing_ack is rejected when credential is an empty string", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"credential": ""})").get_object();
+    auto ack = dovahlink::protocol::DecodePairingAckPayload(payload);
+    REQUIRE_FALSE(ack.has_value());
+}
+
+TEST_CASE("pairing_ack is rejected when credential has the wrong type", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"credential": 12345})").get_object();
+    auto ack = dovahlink::protocol::DecodePairingAckPayload(payload);
+    REQUIRE_FALSE(ack.has_value());
+}
+
+TEST_CASE("pairing-outcome-credential-issued fixture decodes with a credential and displayName, "
+          "no shortId",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-credential-issued.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "credential_issued");
+    REQUIRE(outcome->credential.has_value());
+    CHECK(*outcome->credential == "a1b2c3d4e5f6");
+    CHECK_FALSE(outcome->shortId.has_value());
+    REQUIRE(outcome->displayName.has_value());
+    CHECK(*outcome->displayName == "My PC");
+}
+
+TEST_CASE("pairing-outcome-trusted fixture decodes with a credential and shortId",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-trusted.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "trusted");
+    REQUIRE(outcome->credential.has_value());
+    REQUIRE(outcome->shortId.has_value());
+    CHECK(*outcome->shortId == "12345");
+}
+
+TEST_CASE("pairing-outcome-already-trusted fixture decodes with a credential and shortId",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-already-trusted.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_trusted");
+    REQUIRE(outcome->credential.has_value());
+    REQUIRE(outcome->shortId.has_value());
+}
+
+TEST_CASE("pairing-outcome-expired fixture decodes with no credential", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-expired.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "expired");
+    CHECK_FALSE(outcome->credential.has_value());
+    CHECK_FALSE(outcome->shortId.has_value());
+    CHECK_FALSE(outcome->displayName.has_value());
+}
+
+TEST_CASE("pairing-outcome-invalid fixture decodes with no credential", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-invalid.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "invalid");
+}
+
+TEST_CASE("pairing-outcome-rate-limited fixture decodes with no credential", "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-rate-limited.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "rate_limited");
+}
+
+TEST_CASE("pairing-outcome-pending-not-found fixture decodes with no credential",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-pending-not-found.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "pending_not_found");
+}
+
+TEST_CASE("PairingOutcomePayload round-trips through encode then decode", "[protocol][messages]") {
+    dovahlink::protocol::PairingOutcomePayload original{
+        .outcome = "trusted",
+        .credential = std::string("a1b2c3"),
+        .shortId = std::string("12345"),
+        .displayName = std::nullopt,
+    };
+    auto decoded = dovahlink::protocol::DecodePairingOutcomePayload(
+        dovahlink::protocol::EncodePairingOutcomePayload(original));
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->outcome == original.outcome);
+    CHECK(decoded->credential == original.credential);
+    CHECK(decoded->shortId == original.shortId);
+    CHECK(decoded->displayName == original.displayName);
+}
+
+TEST_CASE("pairing_outcome is rejected when outcome is not a registered value", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"outcome": "vibes", "credential": null, "shortId": null, "displayName": null})")
+            .get_object();
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(payload);
+    REQUIRE_FALSE(outcome.has_value());
+}
+
+TEST_CASE("pairing_outcome is rejected when credential is present but not a string",
+          "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"outcome": "trusted", "credential": 42, "shortId": null, "displayName": null})")
+            .get_object();
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(payload);
+    REQUIRE_FALSE(outcome.has_value());
 }

@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/connection_
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connection_status_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -60,6 +61,7 @@ void main() {
               session: null,
               error: null,
             ),
+            pairing: PairingState.initial(),
           ),
           distinct: true,
         );

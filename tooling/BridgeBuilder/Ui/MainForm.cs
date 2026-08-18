@@ -47,7 +47,10 @@ public sealed class MainForm : Form
     public MainForm(string repositoryRoot)
     {
         this.repositoryRoot = repositoryRoot;
-        coordinator = new BridgeBuildCoordinator(new ProcessCommandRunner(), VisualStudioToolchainLocator.Find);
+        coordinator = new BridgeBuildCoordinator(
+            new ProcessCommandRunner(),
+            VisualStudioToolchainLocator.Find,
+            PapyrusToolchainLocator.Find);
 
         Text = "DovahLink Bridge Builder";
         StartPosition = FormStartPosition.CenterScreen;

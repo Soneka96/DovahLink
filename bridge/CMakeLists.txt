@@ -28,33 +28,41 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
+    application/game_behavior_config.cpp
     application/game_lifecycle_tracker.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
+    application/pairing_handler.cpp
     application/play_context.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
     application/subscription_handler.cpp
     application/timestamp.cpp
+    application/trust_admin_service.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
     protocol/envelope.cpp
     protocol/json_field_decoders.cpp
     protocol/messages.cpp
+    security/constant_time_compare.cpp
     security/csprng.cpp
+    security/dpapi.cpp
     security/hex.cpp
+    security/pairing_session.cpp
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
+    security/trust_store.cpp
+    security/windows_trust_store_persistence.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
     transport/websocket_session.cpp
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
-target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt)
+target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt crypt32)
 
 # CommonLib-dependent game-state adapters. Kept in a separate target from
 # dovahlink_bridge_core so dovahlink_bridge_tests never needs to link
@@ -64,9 +72,12 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 # target is linked into the real SKSE plugin binary, added in a later step.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
+    game_state/commonlib_game_behavior_compatibility.cpp
     game_state/commonlib_game_lifecycle_sink.cpp
     game_state/commonlib_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
+    game_state/commonlib_pairing_notification_sink.cpp
+    game_state/commonlib_trust_admin_papyrus_adapter.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
@@ -108,10 +119,13 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
+    application/game_behavior_config_test.cpp
     application/game_lifecycle_tracker_test.cpp
     application/handshake_handler_test.cpp
     application/level_event_sink_test.cpp
     application/message_dispatcher_test.cpp
+    application/pairing_handler_test.cpp
+    application/pairing_notification_sink_test.cpp
     application/play_context_test.cpp
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
@@ -119,18 +133,25 @@ add_executable(dovahlink_bridge_tests
     application/session_test.cpp
     application/subscription_handler_test.cpp
     application/timestamp_test.cpp
+    application/trust_admin_service_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
+    plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
     plugin/dovahlink_bridge_plugin_registration_test.cpp
     security/limits_test.cpp
+    security/constant_time_compare_test.cpp
     security/csprng_test.cpp
+    security/dpapi_test.cpp
     security/hex_test.cpp
+    security/pairing_session_test.cpp
     security/throttle_test.cpp
     security/token_provider_test.cpp
     security/token_store_test.cpp
+    security/trust_store_test.cpp
+    security/windows_trust_store_persistence_test.cpp
     protocol/bounded_json_test.cpp
     protocol/envelope_test.cpp
     protocol/json_field_decoders_test.cpp

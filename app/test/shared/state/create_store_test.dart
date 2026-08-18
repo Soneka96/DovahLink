@@ -28,4 +28,37 @@ void main() {
       expect(store.state.connection.phase, ConnectionPhase.connecting);
     });
   });
+
+  group('CreateStore — middleware', () {
+    test('defaults to no middleware', () {
+      final List<String> calls = [];
+      final Store<AppState> store = const CreateStore()();
+
+      store.dispatch(const ConnectionStartedAction());
+
+      expect(calls, isEmpty);
+      expect(store.state.connection.phase, ConnectionPhase.connecting);
+    });
+
+    test('wires provided middleware into the store', () {
+      final List<String> calls = [];
+      final Middleware<AppState> middleware =
+          TypedMiddleware<AppState, ConnectionStartedAction>((
+            Store<AppState> store,
+            ConnectionStartedAction action,
+            NextDispatcher next,
+          ) {
+            calls.add('called');
+            next(action);
+          }).call;
+      final Store<AppState> store = const CreateStore()(
+        middleware: [middleware],
+      );
+
+      store.dispatch(const ConnectionStartedAction());
+
+      expect(calls, ['called']);
+      expect(store.state.connection.phase, ConnectionPhase.connecting);
+    });
+  });
 }

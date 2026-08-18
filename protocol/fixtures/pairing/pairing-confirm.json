@@ -1,0 +1,13 @@
+{
+  "messageType": "pairing_confirm",
+  "messageId": "message-pairing-confirm-1",
+  "sessionId": "session-1",
+  "correlationId": null,
+  "payload": {
+    "code": "123456",
+    "displayName": "My PC"
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
+}

@@ -101,13 +101,18 @@ configuration value that changes only the port, never the listening address (`12
 private range (49152-65535) to avoid collision with common local dev-tool ports (3000, 5173,
 8000, 8080, 9000) and any Skyrim-related tooling's default ports.
 
-## One-time token supply
+## Developer-token authentication (optional)
 
-The bridge reads its expected one-time token from the `DOVAHLINK_BRIDGE_TOKEN` environment
-variable at plugin load, hex-encoded (64 lowercase-or-uppercase hex characters, no
-`0x` prefix, no separators). Hex was chosen over base64 to avoid pulling in an encoding dependency
-this codebase does not otherwise need and to keep the value trivially assembled by a developer
-launch script using a cryptographically secure generator:
+`DOVAHLINK_BRIDGE_TOKEN` is a developer-only authentication path, per
+[`ai/context/protocol/security.md`](../ai/context/protocol/security.md)'s "Developer authentication".
+**Normal users never set this variable.** They authenticate through the in-game pairing flow instead,
+and pairing works identically whether or not this variable is set -- it exists only so a developer can
+open a `one_time_local_token` session without going through pairing.
+
+When present, the bridge reads it from the environment at plugin load, hex-encoded (exactly 64
+lowercase-or-uppercase hex characters, no `0x` prefix, no separators). Hex was chosen over base64 to
+avoid pulling in an encoding dependency this codebase does not otherwise need and to keep the value
+trivially assembled by a developer launch script using a cryptographically secure generator:
 
 ```powershell
 $tokenBytes = [byte[]]::new(32)
@@ -122,11 +127,21 @@ finally {
 }
 ```
 
-A variable that is unset, empty, not valid hex, or does not decode to exactly 32
-bytes is treated identically to "no token available" -- never a partial or best-effort value. The
-decoded bytes are handed directly to `security::TokenStore` (`bridge/security/token_store.hpp`),
-which owns clearing them after consumption or expiry. The required token length, source, and
-failure behavior are defined in [`ai/context/protocol/security.md`](../ai/context/protocol/security.md).
+Plugin startup never fails because of this variable; it only affects whether developer-token
+authentication is available:
+
+- **Unset (the normal case):** the bridge loads normally, logs that developer-token authentication is
+  disabled, and pairing is unaffected.
+- **Set but malformed** (empty, not valid hex, or not exactly 32 decoded bytes): the bridge loads
+  normally, logs a warning naming the required format, and disables only developer-token
+  authentication. Pairing is unaffected.
+- **Set and valid:** developer-token authentication is enabled for the bridge's lifetime.
+
+The bridge never logs the token's value in any of these cases. The decoded bytes are handed directly
+to `security::TokenStore` (`bridge/security/token_store.hpp`), which owns clearing them after
+consumption or expiry; a missing or malformed value hands it an empty token, which `TokenStore` treats
+as permanently unavailable. The required token length, source, and failure behavior are defined in
+[`ai/context/protocol/security.md`](../ai/context/protocol/security.md).
 
 ### Known limitation: no reconnect after a successful session, within one bridge lifetime
 
@@ -223,6 +238,52 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
   protocol-limit change replaces it. How Phase 4 divides that bound among its three categories
   follows profiling once the real delivery mechanism exists, not advance estimation.
 
+## Optional trust-administration console adapter
+
+The bridge always registers native Papyrus functions for listing, revoking, and resetting trusted
+clients (`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`). Reaching them from
+Skyrim's in-game console requires a separate, optional integration
+([`console-admin/README.md`](../console-admin/README.md)) with a third-party plugin, ConsoleUtil
+Extended — not part of this bridge's own dependency baseline above, and not required for any other
+bridge behavior.
+
+## Runtime compatibility options
+
+The bridge reads an optional `Data/SKSE/Plugins/DovahLinkBridge.ini` at startup for two independent
+compatibility toggles, both enabled by default:
+
+```ini
+[DovahLink]
+bAlwaysActive=1
+bAchievementCompat=1
+```
+
+A missing file, a missing key, or a value other than `0`/`1` falls back to that key's own default
+rather than failing plugin load; see `bridge/application/game_behavior_config.hpp`.
+
+**`bAlwaysActive`** forces Skyrim's own `bAlwaysActive:General` setting on at startup
+(`RE::INISettingCollection`), so the game keeps running while the DovahLink window has focus instead
+of pausing -- required so the pairing code and the companion app stay usable while Skyrim is
+unfocused. This replaces the third-party "Skyrim Always Active" mod workaround previously documented
+in `TROUBLESHOOTING.md`.
+
+**`bAchievementCompat`** installs a runtime patch making achievements eligible with SKSE plugins
+loaded. This is a deliberate, maintainer-approved exception to `ai/context/skse/cpp-style.md`'s
+"minimize hooks" guidance and to this bridge's read-only-first default: it restores an engine-level
+eligibility flag, not a companion feature, and does not touch the DovahLink protocol, transport, or
+any state exposed to a client. The technique -- filling the target function with `REL::INT3`, then
+overwriting its start with an `xor rax, rax; ret` patch generated via Xbyak -- and its two Address
+Library IDs (SE `13647`, AE/current-runtime `441528`) are adapted from
+[`aers/EngineFixesSkyrim64`](https://github.com/aers/EngineFixesSkyrim64), translated to this pinned
+CommonLibSSE-NG's `REL::safe_fill`/`REL::safe_write` free functions, which take the place of that
+reference's `Relocation::write_fill`/`write` member functions:
+
+- Resolved commit: `c37a8041ffc0a5859e78a19c71b877327773455d`
+- License: MIT. Any adopted or adapted source retains its original MIT notice.
+
+Both toggles are applied once, early in `SKSEPluginLoad`, before `kDataLoaded`; see
+`bridge/game_state/commonlib_game_behavior_compatibility.cpp`.
+
 ## Manual verification record template
 
 Use this template to record real Skyrim verification for a release. Nothing here can substitute for
@@ -245,6 +306,13 @@ Installation and launch steps taken:
 
 Expected plugin startup behavior:
 Observed plugin startup behavior:
+
+Always-active behavior with bAlwaysActive=1 (expected: Skyrim keeps running while unfocused;
+observed):
+Achievement compatibility with bAchievementCompat=1 (expected: achievements remain eligible with
+SKSE plugins loaded, verified via Steam; observed):
+Both toggles disabled via DovahLinkBridge.ini (expected: prior default Skyrim behavior for both;
+observed):
 
 Initial level snapshot result (expected vs. observed):
 

@@ -11,20 +11,21 @@ void main() {
     test(
       'keeps session, revision, timestamp, and complete character state',
       () {
-        expect(testSnapshot.session.sessionId, 'session-1');
-        expect(testSnapshot.revision, 4);
-        expect(testSnapshot.occurredAt, DateTime.utc(2026, 8, 11, 12));
-        expect(testSnapshot.character.level, 12);
-        expect(testSnapshot.character.health?.current, 180);
-        expect(testSnapshot.character.health?.maximum, 220);
-        expect(testSnapshot.character.magicka?.current, 90);
-        expect(testSnapshot.character.stamina?.maximum, 160);
+        final CharacterSnapshotEntity snapshot = buildCharacterSnapshotEntity();
+
+        expect(snapshot.session.sessionId, 'session-1');
+        expect(snapshot.revision, 4);
+        expect(snapshot.occurredAt, DateTime.utc(2026, 8, 11, 12));
+        expect(snapshot.character.level, 12);
+        expect(snapshot.character.health?.current, 180);
+        expect(snapshot.character.health?.maximum, 220);
+        expect(snapshot.character.magicka?.current, 90);
+        expect(snapshot.character.stamina?.maximum, 160);
       },
     );
 
     test('preserves explicitly unavailable character values', () {
-      final CharacterSnapshotEntity snapshot = CharacterSnapshotEntity(
-        session: testSession,
+      final CharacterSnapshotEntity snapshot = buildCharacterSnapshotEntity(
         revision: 5,
         occurredAt: DateTime.utc(2026, 8, 11, 12, 1),
         character: const CharacterStateEntity(

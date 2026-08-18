@@ -10,4 +10,17 @@ inline constexpr std::uint16_t kBridgePort = 58231;
 /// Environment variable containing the development connection token.
 inline constexpr const char* kTokenEnvVar = "DOVAHLINK_BRIDGE_TOKEN";
 
+/// Path to the optional runtime-compatibility INI file, relative to the
+/// Skyrim installation's working directory.
+inline constexpr const char* kGameBehaviorConfigPath = "Data/SKSE/Plugins/DovahLinkBridge.ini";
+
+/// INI section `game_behavior_config.cpp` reads compatibility keys from.
+inline constexpr const char* kGameBehaviorConfigSection = "DovahLink";
+
+/// INI key controlling `GameBehaviorConfig::alwaysActive`.
+inline constexpr const char* kAlwaysActiveKey = "bAlwaysActive";
+
+/// INI key controlling `GameBehaviorConfig::achievementCompat`.
+inline constexpr const char* kAchievementCompatKey = "bAchievementCompat";
+
 }  // namespace dovahlink::application

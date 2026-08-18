@@ -54,6 +54,8 @@ public sealed class PackagingTests
                 "boost_json-vc143-mt-x64-1_91.dll",
                 "fmt.dll",
                 "spdlog.dll",
+                "DovahLinkAdmin.pex",
+                "dovahlink.yaml",
             ],
             plan.Files.Select(file => file.SourceName));
         Assert.Equal(
@@ -62,6 +64,8 @@ public sealed class PackagingTests
                 Path.Combine("Data", "SKSE", "Plugins", "boost_json-vc143-mt-x64-1_91.dll"),
                 Path.Combine("Data", "SKSE", "Plugins", "fmt.dll"),
                 Path.Combine("Data", "SKSE", "Plugins", "spdlog.dll"),
+                Path.Combine("Data", "Scripts", "DovahLinkAdmin.pex"),
+                Path.Combine("Data", "SKSE", "CustomConsole", "dovahlink.yaml"),
             ],
             plan.Files.Select(file => file.ArchivePath));
     }
@@ -73,6 +77,9 @@ public sealed class PackagingTests
         ArtifactPlan plan = ArtifactPlan.Create(new BridgeVersion(0, 1, 0), PackageChannel.Release);
 
         Assert.Equal("DovahLink-Bridge-0.1.0.zip", plan.ArchiveName);
+        Assert.Equal(6, plan.Files.Count);
+        Assert.Contains(plan.Files, file => file.SourceName == "DovahLinkAdmin.pex");
+        Assert.Contains(plan.Files, file => file.SourceName == "dovahlink.yaml");
         Assert.All(plan.Files, file => Assert.Equal(Path.GetFileName(file.ArchivePath), file.SourceName));
     }
 

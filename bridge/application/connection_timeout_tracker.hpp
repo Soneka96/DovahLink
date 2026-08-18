@@ -25,6 +25,12 @@ public:
     /// @return `true` when the connection has timed out.
     [[nodiscard]] bool IsTimedOut(std::chrono::steady_clock::time_point now) const;
 
+    /// Reports the current handshake-or-idle deadline, for a caller that must race its own
+    /// operation against it (for example a transport-level read watchdog) rather than only
+    /// polling `IsTimedOut` after the fact.
+    /// @return The absolute time at which this connection is considered timed out.
+    [[nodiscard]] std::chrono::steady_clock::time_point Deadline() const;
+
 private:
     /// Whether authentication has completed.
     bool authenticated_ = false;

@@ -1,7 +1,8 @@
 # DovahLink Bridge Builder
 
 This Windows GUI builds the native bridge with the repository's pinned Release
-CMake preset and creates a Vortex-ready ZIP. It never copies files into Skyrim.
+CMake preset, compiles the optional trust-administration console script, and
+creates a Vortex-ready ZIP. It never copies files into Skyrim.
 
 ## Use the published builder
 
@@ -23,6 +24,14 @@ The builder uses Visual Studio 2022's bundled x64 toolchain and vcpkg. The
 first build can take longer while vcpkg verifies or installs pinned packages;
 later builds normally reuse them.
 
+The builder also compiles `console-admin/DovahLinkAdmin.psc` with Creation
+Kit's Papyrus Compiler and packages `console-admin/dovahlink.yaml` alongside
+it (see [`console-admin/README.md`](../../console-admin/README.md)). This
+requires a Skyrim Special Edition installation containing
+`Papyrus Compiler\PapyrusCompiler.exe`; the builder checks the
+`SKYRIM_INSTALL_DIR` environment variable first, for a non-standard install
+location, and falls back to the standard Steam install path.
+
 ## Install the generated bridge
 
 In Vortex, choose **Install From File**, select the generated ZIP, enable the
@@ -33,6 +42,8 @@ Data/SKSE/Plugins/dovahlink_bridge_plugin.dll
 Data/SKSE/Plugins/boost_json-vc143-mt-x64-1_91.dll
 Data/SKSE/Plugins/fmt.dll
 Data/SKSE/Plugins/spdlog.dll
+Data/Scripts/DovahLinkAdmin.pex
+Data/SKSE/CustomConsole/dovahlink.yaml
 ```
 
 Address Library remains a separate mod-manager dependency and is not bundled

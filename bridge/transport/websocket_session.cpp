@@ -4,12 +4,14 @@
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/post.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/websocket/error.hpp>
 #include <boost/beast/websocket/option.hpp>
 #include <boost/beast/websocket/rfc6455.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <chrono>
 #include <future>
@@ -99,7 +101,12 @@ void WebSocketSession::SetTimeoutPolicy(std::chrono::steady_clock::duration time
     boost::beast::websocket::stream_base::timeout timeoutOptions;
     timeoutOptions.handshake_timeout = security::kHandshakeTimeout;
     timeoutOptions.idle_timeout = timeout;
-    timeoutOptions.keep_alive_pings = false;
+    // Genuine WebSocket-level Ping/Pong (ai/context/protocol/security.md's "Connection liveness"):
+    // a peer that is actually alive but between application messages answers these automatically
+    // and stays connected; ReadMessage's own idleDeadline watchdog is what still bounds total idle
+    // time regardless, since ping/pong answers would otherwise let Beast's own per-operation
+    // timeout run indefinitely.
+    timeoutOptions.keep_alive_pings = true;
     socket_->stream_.set_option(timeoutOptions);
 }
 
@@ -141,15 +148,38 @@ void WebSocketSession::SwitchToIdleTimeout() {
     }
 }
 
-std::expected<std::string, SessionError> WebSocketSession::ReadMessage() {
+std::expected<std::string, SessionError> WebSocketSession::ReadMessage(
+    std::optional<std::chrono::steady_clock::time_point> idleDeadline) {
     if (IsShutdownRequested()) {
         return std::unexpected(SessionError::kReadFailed);
     }
     DisableWriteTimeout();
+
+    // Races this read against idleDeadline independent of Beast's own per-operation timeout: a
+    // peer that keeps answering WebSocket-level pings (keep_alive_pings above) would otherwise
+    // let that timeout run indefinitely without ever sending a real application message. Captures
+    // a copy of the shared socket handle, not `this`, so a fired-but-canceled watchdog stays safe
+    // even if this ReadMessage call (and its stack-local timer) has already returned.
+    boost::asio::steady_timer idleWatchdog(socket_->ioContext_);
+    if (idleDeadline.has_value()) {
+        idleWatchdog.expires_at(*idleDeadline);
+        idleWatchdog.async_wait([socket = socket_](boost::system::error_code ec) {
+            if (!ec) {
+                socket->Shutdown();
+            }
+        });
+    }
+
     boost::beast::flat_buffer buffer;
     auto ec = RunOperation(socket_->ioContext_, [this, &buffer](auto completion) {
         socket_->stream_.async_read(buffer, std::move(completion));
     });
+    idleWatchdog.cancel();
+    // Drains the watchdog's own now-canceled completion (a no-op, since it observes
+    // operation_aborted) so it never sits unprocessed on the io_context across calls -- RunOperation
+    // restarts this same io_context on every call and expects no leftover pending work.
+    socket_->ioContext_.poll();
+
     if (ec == boost::beast::websocket::error::message_too_big) {
         return std::unexpected(SessionError::kFrameTooLarge);
     }

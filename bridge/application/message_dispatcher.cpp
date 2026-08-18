@@ -1,6 +1,7 @@
 #include "application/message_dispatcher.hpp"
 
 #include "application/handshake_handler.hpp"
+#include "application/pairing_handler.hpp"
 #include "application/revision_tracker.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
@@ -50,18 +51,37 @@ namespace dovahlink::application {
 
 namespace {
 
-constexpr std::array<std::string_view, 4> kAllowedMessageTypes = {
+// A Restricted session is one that authenticated via hello's "unpaired" method (or has not yet
+// finished pairing); it may only exchange ping/capabilities and the pairing handshake itself.
+// Pairing messages are deliberately absent from the Full allowlist below: once a session is
+// already trusted, re-running pairing is pointless, and excluding it keeps a stray retry from a
+// confused already-paired client from reaching pairing_handler at all.
+constexpr std::array<std::string_view, 5> kRestrictedAllowedMessageTypes = {
+    protocol::message_type::kPing,
+    protocol::message_type::kCapabilities,
+    protocol::message_type::kPairingRequest,
+    protocol::message_type::kPairingConfirm,
+    protocol::message_type::kPairingAck,
+};
+
+constexpr std::array<std::string_view, 4> kFullAllowedMessageTypes = {
     protocol::message_type::kPing,
     protocol::message_type::kCapabilities,
     protocol::message_type::kSubscribe,
     protocol::message_type::kSnapshotRequest,
 };
 
-/// Reports whether an inbound message type is allowed after authentication.
+/// Reports whether an inbound message type is allowed after authentication, given the
+/// authenticated session's trust tier.
 /// @param messageType Canonical message-type identifier.
-/// @return `true` when a handler exists for the type.
-bool IsAllowedMessageType(std::string_view messageType) {
-    return std::ranges::find(kAllowedMessageTypes, messageType) != kAllowedMessageTypes.end();
+/// @param trustTier The connection's current session trust tier.
+/// @return `true` when a handler exists for the type at this trust tier.
+bool IsAllowedMessageType(std::string_view messageType, SessionTrustTier trustTier) {
+    if (trustTier == SessionTrustTier::kRestricted) {
+        return std::ranges::find(kRestrictedAllowedMessageTypes, messageType) !=
+               kRestrictedAllowedMessageTypes.end();
+    }
+    return std::ranges::find(kFullAllowedMessageTypes, messageType) != kFullAllowedMessageTypes.end();
 }
 
 /// Builds a protocol error and records the rejection as a violation.
@@ -162,6 +182,8 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const ActivePlayContext& activePlayContext,
                                       SubscriptionState& subscriptionState,
+                                      security::PairingSession& pairingSession, security::TrustStore& trustStore,
+                                      PairingNotificationSink& pairingNotificationSink,
                                       const std::optional<std::string>& bridgeInstanceId,
                                       std::chrono::steady_clock::time_point steadyNow,
                                       std::chrono::system_clock::time_point wallNow) {
@@ -204,7 +226,15 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                        violations, steadyNow, bridgeInstanceId, currentContextId);
     }
 
-    if (!IsAllowedMessageType(envelope->messageType)) {
+    // Depends only on `connection`, not on anything in the not-yet-validated envelope -- safe to
+    // resolve this early. A connection with no active session at all (already invalidated, or
+    // never authenticated) reads as Restricted here, same as a genuinely unpaired one; the
+    // IsValidForConnection check below rejects it as stale_session regardless of which allowlist
+    // this resolves to.
+    SessionTrustTier trustTier =
+        sessionManager.IsFullyTrusted(connection) ? SessionTrustTier::kFull : SessionTrustTier::kRestricted;
+
+    if (!IsAllowedMessageType(envelope->messageType, trustTier)) {
         return Reject(envelope->messageId, sessionId, "malformed_message",
                        "Unexpected message type: " + envelope->messageType, false, violations, steadyNow,
                        bridgeInstanceId, currentContextId);
@@ -212,7 +242,8 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
 
     // Every allowed messageType requires a non-empty string sessionId at
     // decode time (protocol/envelope.cpp); only hello/error (neither
-    // allowed here, see kAllowedMessageTypes above) permit anything else.
+    // allowed here, see kRestrictedAllowedMessageTypes/kFullAllowedMessageTypes above) permit
+    // anything else.
     // Asserted rather than left as a comment-only invariant: a future
     // change to kAllowedMessageTypes or to the check ordering above would
     // otherwise reintroduce a silent nullopt dereference here.
@@ -282,8 +313,26 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         for (auto& snapshot : subscribeResult.snapshots) {
             result.responses.push_back(std::move(snapshot));
         }
+    } else if (envelope->messageType == protocol::message_type::kPairingRequest) {
+        result = FromHandlerResponse(HandlePairingRequest(*envelope, sessionId, pairingSession, pairingNotificationSink),
+                                     violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingConfirm) {
+        // Restricted-only (kRestrictedAllowedMessageTypes above): the session passed
+        // IsValidForConnection above, so it is this connection's active session and always has a
+        // clientId (SessionManager::TryCreateSession never admits one without it).
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession, steadyNow),
+                                     violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingAck) {
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(
+            HandlePairingAck(*envelope, sessionId, *clientId, connection, pairingSession, trustStore, sessionManager),
+            violations, steadyNow);
     } else {
-        // Only kSnapshotRequest remains, per kAllowedMessageTypes.
+        // Only kSnapshotRequest remains, per kFullAllowedMessageTypes -- unreachable for a
+        // Restricted session, since every Restricted-allowed type is handled explicitly above.
         auto response = HandleSnapshotRequest(*envelope, sessionId, effectiveProvider, effectiveRevisions, wallNow);
         result = FromHandlerResponse(std::move(response), violations, steadyNow);
     }

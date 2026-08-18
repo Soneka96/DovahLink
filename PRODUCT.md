@@ -37,6 +37,14 @@ The first milestone is successful when a player can:
 - A public hosted service or account system
 - A large plugin ecosystem
 
+## Runtime compatibility
+
+Skyrim Special Edition 1.6.1170 pauses the game whenever its window loses focus, which would make the
+pairing code and the companion app unusable the moment a player switches to it. The Bridge forces
+Skyrim's always-active setting on by default (`bridge/README.md`'s "Runtime compatibility options") so
+the game keeps running while DovahLink has focus; this is a runtime compatibility fix, not a gameplay
+feature, and can be disabled per-player through the Bridge's own configuration.
+
 ## Open questions
 
 - Which Skyrim editions should be supported first?

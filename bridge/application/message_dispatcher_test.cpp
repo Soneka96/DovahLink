@@ -10,15 +10,23 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
+using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionManager;
+using dovahlink::application::SessionTrustTier;
 using dovahlink::application::SubscriptionState;
 using dovahlink::security::InboundMessageRateLimiter;
+using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::PairingSession;
+using dovahlink::security::TrustStore;
+using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::ViolationTracker;
 
 namespace {
@@ -28,6 +36,30 @@ using SteadyClock = std::chrono::steady_clock;
 
 constexpr dovahlink::application::ConnectionId kConnection = 1;
 constexpr const char* kSessionId = "session-1";
+constexpr const char* kClientId = "client-1";
+
+/// `ITrustStorePersistence` double that always loads an empty snapshot -- these tests build their
+/// own trust records directly through `TrustStore`'s API rather than seeding a snapshot.
+class EmptyPersistence : public ITrustStorePersistence {
+public:
+    /// Always reports a valid, empty snapshot.
+    std::optional<TrustStoreSnapshot> Load() override { return TrustStoreSnapshot{}; }
+
+    /// Always succeeds without recording anything.
+    bool Save(const TrustStoreSnapshot&) override { return true; }
+};
+
+/// `PairingNotificationSink` double that records every code it is given.
+class RecordingPairingNotificationSink : public PairingNotificationSink {
+public:
+    /// Appends `sixDigitCode` to `codes`.
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        codes.emplace_back(sixDigitCode);
+    }
+
+    /// Every code this sink has been given, in order.
+    std::vector<std::string> codes;
+};
 
 /// Bundles an authenticated dispatcher session and its production collaborators.
 struct Fixture {
@@ -49,11 +81,20 @@ struct Fixture {
     ActivePlayContext activePlayContext;
     /// Per-connection subscription bookkeeping driving the resync mechanism.
     SubscriptionState subscriptionState;
+    /// Backing store for `trustStore`, empty at fixture construction.
+    EmptyPersistence persistence;
+    /// Persistent trust store, for pairing_ack's idempotent-retry check and commit.
+    TrustStore trustStore = TrustStore::Load(persistence);
+    /// Pairing challenge/pending-credential state machine.
+    PairingSession pairingSession;
+    /// Records pairing codes displayed to the user.
+    RecordingPairingNotificationSink pairingNotificationSink;
     /// This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId = "bridge-1";
 
-    /// Creates the fixture with its test session already authenticated.
-    Fixture() : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, "client-1")) {
+    /// Creates the fixture with its test session already authenticated at the given trust tier.
+    explicit Fixture(SessionTrustTier trustTier = SessionTrustTier::kFull)
+        : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, kClientId, trustTier)) {
         REQUIRE(sessionLease.has_value());
     }
 
@@ -61,8 +102,8 @@ struct Fixture {
     DispatchResult Process(const std::string& rawMessage, SteadyClock::time_point steadyNow = SteadyClock::now()) {
         return ProcessInboundMessage(rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
                                      replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                     subscriptionState, bridgeInstanceId, steadyNow,
-                                     std::chrono::system_clock::now());
+                                     subscriptionState, pairingSession, trustStore, pairingNotificationSink,
+                                     bridgeInstanceId, steadyNow, std::chrono::system_clock::now());
     }
 };
 
@@ -84,6 +125,27 @@ std::string SubscribeMessage(std::string messageId = "message-sub-1") {
 std::string SnapshotRequestMessage(std::string messageId = "message-snap-req-1") {
     return R"({"messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" +
            kSessionId + R"(", "correlationId": null, "payload": {"stateArea": "character"}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a pairing_request envelope (no payload).
+std::string PairingRequestMessage(std::string messageId = "message-pairing-request-1") {
+    return R"({"messageType": "pairing_request", "messageId": ")" + messageId + R"(", "sessionId": ")" +
+           kSessionId + R"(", "correlationId": null, "payload": {}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a pairing_confirm envelope with the given code.
+std::string PairingConfirmMessage(const std::string& code, std::string messageId = "message-pairing-confirm-1") {
+    return R"({"messageType": "pairing_confirm", "messageId": ")" + messageId + R"(", "sessionId": ")" +
+           kSessionId + R"(", "correlationId": null, "payload": {"code": ")" + code + R"(", "displayName": null}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a pairing_ack envelope echoing the given hex-encoded credential.
+std::string PairingAckMessage(const std::string& hexCredential, std::string messageId = "message-pairing-ack-1") {
+    return R"({"messageType": "pairing_ack", "messageId": ")" + messageId + R"(", "sessionId": ")" + kSessionId +
+           R"(", "correlationId": null, "payload": {"credential": ")" + hexCredential + R"("}, )"
            R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
@@ -769,6 +831,50 @@ TEST_CASE("ProcessInboundMessage closes with no response once the connection's t
     CHECK(fixture.replayGuard.Count() == 0);
 }
 
+TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed and replayed "
+          "messages: neither counts as activity",
+          "[application][message_dispatcher]") {
+    // Distinct from the two tests above: this proves WHY the idle deadline needs its own
+    // application-level tracking at all, not just a transport-level "was there any I/O" timer. A
+    // client spamming malformed or replayed traffic keeps a raw I/O-activity timer perpetually
+    // reset without ever doing anything genuine; RecordActivity's placement after the replay/rate/
+    // allowlist checks in ProcessInboundMessage (not before) is what stops that from working here.
+    Fixture fixture;
+    auto start = SteadyClock::now();
+    fixture.timeout = ConnectionTimeoutTracker(start);
+    fixture.timeout.MarkAuthenticated(start);
+
+    // The only genuinely accepted message in this whole test: sets the idle deadline to
+    // start+20s+60s = start+80s.
+    auto ping = fixture.Process(PingMessage("message-ping-1"), start + std::chrono::seconds(20));
+    REQUIRE_FALSE(ping.closeConnection);
+    REQUIRE(ping.responses.size() == 1);
+    CHECK(ping.responses[0].messageType == "pong");
+
+    // A replay of that same message: rejected before RecordActivity ever runs.
+    auto replayed = fixture.Process(PingMessage("message-ping-1"), start + std::chrono::seconds(30));
+    CHECK_FALSE(replayed.closeConnection);
+    REQUIRE(replayed.responses.size() == 1);
+    auto replayedError = dovahlink::protocol::DecodeErrorPayload(replayed.responses[0].payload);
+    REQUIRE(replayedError.has_value());
+    CHECK(replayedError->code == "replayed_message");
+
+    // Malformed JSON: rejected even earlier, before envelope decoding.
+    auto malformed = fixture.Process("not json at all {{{", start + std::chrono::seconds(70));
+    CHECK_FALSE(malformed.closeConnection);
+    REQUIRE(malformed.responses.size() == 1);
+    auto malformedError = dovahlink::protocol::DecodeErrorPayload(malformed.responses[0].payload);
+    REQUIRE(malformedError.has_value());
+    CHECK(malformedError->code == "malformed_message");
+
+    // start+81s is past start+80s -- the deadline set by the one genuinely accepted message above,
+    // unmoved by the replayed or malformed traffic in between -- even though an otherwise-valid
+    // ping arrives here.
+    auto finalPing = fixture.Process(PingMessage("message-ping-2"), start + std::chrono::seconds(81));
+    CHECK(finalPing.closeConnection);
+    CHECK(finalPing.responses.empty());
+}
+
 TEST_CASE("ProcessInboundMessage still processes an otherwise-valid message just before the "
           "timeout deadline",
           "[application][message_dispatcher]") {
@@ -814,4 +920,111 @@ TEST_CASE("ProcessInboundMessage counts a handler-produced error as a protocol v
     CHECK_FALSE(first.closeConnection);
     CHECK_FALSE(second.closeConnection);
     CHECK(third.closeConnection);
+}
+
+TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing messages but rejects "
+          "subscribe and snapshot_request",
+          "[application][message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kRestricted);
+
+    auto pairingRequest = fixture.Process(PairingRequestMessage());
+    REQUIRE(pairingRequest.responses.size() == 1);
+    CHECK(pairingRequest.responses[0].messageType == "pairing_status");
+
+    auto subscribe = fixture.Process(SubscribeMessage());
+    REQUIRE(subscribe.responses.size() == 1);
+    auto subscribeError = dovahlink::protocol::DecodeErrorPayload(subscribe.responses[0].payload);
+    REQUIRE(subscribeError.has_value());
+    CHECK(subscribeError->code == "malformed_message");
+
+    auto snapshotRequest = fixture.Process(SnapshotRequestMessage());
+    REQUIRE(snapshotRequest.responses.size() == 1);
+    auto snapshotError = dovahlink::protocol::DecodeErrorPayload(snapshotRequest.responses[0].payload);
+    REQUIRE(snapshotError.has_value());
+    CHECK(snapshotError->code == "malformed_message");
+}
+
+TEST_CASE("ProcessInboundMessage lets a Full session subscribe but rejects all three pairing message "
+          "types",
+          "[application][message_dispatcher]") {
+    Fixture fixture;  // Defaults to SessionTrustTier::kFull.
+
+    auto subscribe = fixture.Process(SubscribeMessage());
+    REQUIRE(subscribe.responses.size() == 2);
+    CHECK(subscribe.responses[0].messageType == "subscription_ack");
+
+    auto pairingRequest = fixture.Process(PairingRequestMessage());
+    REQUIRE(pairingRequest.responses.size() == 1);
+    auto requestError = dovahlink::protocol::DecodeErrorPayload(pairingRequest.responses[0].payload);
+    REQUIRE(requestError.has_value());
+    CHECK(requestError->code == "malformed_message");
+
+    auto pairingConfirm = fixture.Process(PairingConfirmMessage("123456"));
+    REQUIRE(pairingConfirm.responses.size() == 1);
+    auto confirmError = dovahlink::protocol::DecodeErrorPayload(pairingConfirm.responses[0].payload);
+    REQUIRE(confirmError.has_value());
+    CHECK(confirmError->code == "malformed_message");
+
+    auto pairingAck = fixture.Process(PairingAckMessage("aabbcc"));
+    REQUIRE(pairingAck.responses.size() == 1);
+    auto ackError = dovahlink::protocol::DecodeErrorPayload(pairingAck.responses[0].payload);
+    REQUIRE(ackError.has_value());
+    CHECK(ackError->code == "malformed_message");
+}
+
+TEST_CASE("ProcessInboundMessage lets a session upgraded to full trust by a successful pairing_ack "
+          "subscribe on its very next message, with no reconnect",
+          "[application][message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kRestricted);
+
+    auto pairingRequest = fixture.Process(PairingRequestMessage());
+    REQUIRE(pairingRequest.responses.size() == 1);
+    REQUIRE(fixture.pairingNotificationSink.codes.size() == 1);
+    std::string code = fixture.pairingNotificationSink.codes[0];
+
+    auto pairingConfirm = fixture.Process(PairingConfirmMessage(code));
+    REQUIRE(pairingConfirm.responses.size() == 1);
+    auto confirmOutcome = dovahlink::protocol::DecodePairingOutcomePayload(pairingConfirm.responses[0].payload);
+    REQUIRE(confirmOutcome.has_value());
+    REQUIRE(confirmOutcome->outcome == "credential_issued");
+    REQUIRE(confirmOutcome->credential.has_value());
+
+    auto pairingAck = fixture.Process(PairingAckMessage(*confirmOutcome->credential));
+    REQUIRE(pairingAck.responses.size() == 1);
+    auto ackOutcome = dovahlink::protocol::DecodePairingOutcomePayload(pairingAck.responses[0].payload);
+    REQUIRE(ackOutcome.has_value());
+    REQUIRE(ackOutcome->outcome == "trusted");
+
+    // Restricted before the ack; this proves the upgrade landed without a reconnect, since the
+    // fixture's SessionManager/connection/sessionId are unchanged from the pairing exchange above.
+    auto subscribe = fixture.Process(SubscribeMessage());
+    REQUIRE(subscribe.responses.size() == 2);
+    CHECK(subscribe.responses[0].messageType == "subscription_ack");
+
+    // The allowlist re-evaluates on every message, not just once at session creation: the same
+    // connection that just became Full can no longer reach pairing_handler.
+    auto pairingRequestAfterUpgrade = fixture.Process(PairingRequestMessage("message-pairing-request-2"));
+    REQUIRE(pairingRequestAfterUpgrade.responses.size() == 1);
+    auto afterUpgradeError =
+        dovahlink::protocol::DecodeErrorPayload(pairingRequestAfterUpgrade.responses[0].payload);
+    REQUIRE(afterUpgradeError.has_value());
+    CHECK(afterUpgradeError->code == "malformed_message");
+}
+
+TEST_CASE("ProcessInboundMessage checks the trust-tier allowlist before session validity: a "
+          "disallowed-for-tier message with a foreign sessionId is malformed_message, not "
+          "stale_session",
+          "[application][message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kRestricted);
+    std::string message =
+        R"({"messageType": "subscribe", "messageId": "message-sub-1", "sessionId": "some-other-session", )"
+        R"("correlationId": null, "payload": {"stateAreas": ["character"]}, )"
+        R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+
+    auto result = fixture.Process(message);
+
+    REQUIRE(result.responses.size() == 1);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "malformed_message");
 }

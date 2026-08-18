@@ -6,6 +6,8 @@
 #include <boost/json/object.hpp>
 #include <boost/json/value.hpp>
 
+#include <algorithm>
+#include <array>
 #include <utility>
 
 namespace dovahlink::protocol {
@@ -62,13 +64,24 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     if (!authMethod) {
         return std::unexpected(authMethod.error());
     }
-    if (*authMethod != "one_time_local_token") {
-        return Fail("auth.method must be 'one_time_local_token'");
+    if (*authMethod != "one_time_local_token" && *authMethod != "unpaired" &&
+        *authMethod != "trusted_device_credential") {
+        return Fail("auth.method must be one of: one_time_local_token, unpaired, trusted_device_credential");
     }
 
-    auto authToken = DecodeNonEmptyString(RequireField(authObj, "token"), "auth.token");
-    if (!authToken) {
-        return std::unexpected(authToken.error());
+    // "unpaired" bootstraps a session with no credential to present yet; the other two methods
+    // both require one (security.md's "Hello authentication and session trust tiers").
+    std::optional<std::string> authToken;
+    if (*authMethod == "unpaired") {
+        if (RequireField(authObj, "token")) {
+            return Fail("auth.token must be absent for auth.method 'unpaired'");
+        }
+    } else {
+        auto decodedToken = DecodeNonEmptyString(RequireField(authObj, "token"), "auth.token");
+        if (!decodedToken) {
+            return std::unexpected(decodedToken.error());
+        }
+        authToken = std::move(*decodedToken);
     }
 
     auto clientId = DecodeNonEmptyString(RequireField(payload, "clientId"), "clientId");
@@ -79,7 +92,7 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     return HelloPayload{
         .endpoint = std::move(*endpoint),
         .authMethod = std::move(*authMethod),
-        .authToken = std::move(*authToken),
+        .authToken = std::move(authToken),
         .clientId = std::move(*clientId),
     };
 }
@@ -340,6 +353,93 @@ std::expected<CharacterState, MessageError> DecodeCharacterState(const boost::js
         .magicka = *magicka,
         .stamina = *stamina,
     };
+}
+
+std::expected<PairingStatusPayload, MessageError> DecodePairingStatusPayload(const boost::json::object& payload) {
+    auto state = DecodeNonEmptyString(RequireField(payload, "state"), "state");
+    if (!state) {
+        return std::unexpected(state.error());
+    }
+    if (*state != "unavailable" && *state != "available" && *state != "in_progress") {
+        return Fail("state must be one of: unavailable, available, in_progress");
+    }
+    return PairingStatusPayload{.state = std::move(*state)};
+}
+
+boost::json::object EncodePairingStatusPayload(const PairingStatusPayload& payload) {
+    boost::json::object obj;
+    obj["state"] = payload.state;
+    return obj;
+}
+
+std::expected<PairingConfirmPayload, MessageError> DecodePairingConfirmPayload(const boost::json::object& payload) {
+    auto code = DecodeNonEmptyString(RequireField(payload, "code"), "code");
+    if (!code) {
+        return std::unexpected(code.error());
+    }
+    auto displayName = DecodeOptionalString(RequireField(payload, "displayName"), "displayName");
+    if (!displayName) {
+        return std::unexpected(displayName.error());
+    }
+    return PairingConfirmPayload{.code = std::move(*code), .displayName = std::move(*displayName)};
+}
+
+std::expected<PairingAckPayload, MessageError> DecodePairingAckPayload(const boost::json::object& payload) {
+    auto credential = DecodeNonEmptyString(RequireField(payload, "credential"), "credential");
+    if (!credential) {
+        return std::unexpected(credential.error());
+    }
+    return PairingAckPayload{.credential = std::move(*credential)};
+}
+
+namespace {
+
+/// Registered `pairing_outcome.outcome` values.
+constexpr std::array<std::string_view, 7> kValidPairingOutcomes = {
+    "credential_issued", "trusted", "already_trusted", "expired", "invalid", "rate_limited", "pending_not_found",
+};
+
+}  // namespace
+
+std::expected<PairingOutcomePayload, MessageError> DecodePairingOutcomePayload(const boost::json::object& payload) {
+    auto outcome = DecodeNonEmptyString(RequireField(payload, "outcome"), "outcome");
+    if (!outcome) {
+        return std::unexpected(outcome.error());
+    }
+    if (std::ranges::find(kValidPairingOutcomes, *outcome) == kValidPairingOutcomes.end()) {
+        return Fail("outcome must be one of the registered pairing outcomes");
+    }
+
+    auto credential = DecodeOptionalString(RequireField(payload, "credential"), "credential");
+    if (!credential) {
+        return std::unexpected(credential.error());
+    }
+    auto shortId = DecodeOptionalString(RequireField(payload, "shortId"), "shortId");
+    if (!shortId) {
+        return std::unexpected(shortId.error());
+    }
+    auto displayName = DecodeOptionalString(RequireField(payload, "displayName"), "displayName");
+    if (!displayName) {
+        return std::unexpected(displayName.error());
+    }
+
+    return PairingOutcomePayload{
+        .outcome = std::move(*outcome),
+        .credential = std::move(*credential),
+        .shortId = std::move(*shortId),
+        .displayName = std::move(*displayName),
+    };
+}
+
+boost::json::object EncodePairingOutcomePayload(const PairingOutcomePayload& payload) {
+    boost::json::object obj;
+    obj["outcome"] = payload.outcome;
+    obj["credential"] =
+        payload.credential.has_value() ? boost::json::value(*payload.credential) : boost::json::value(nullptr);
+    obj["shortId"] = payload.shortId.has_value() ? boost::json::value(*payload.shortId) : boost::json::value(nullptr);
+    obj["displayName"] =
+        payload.displayName.has_value() ? boost::json::value(*payload.displayName) : boost::json::value(nullptr);
+    return obj;
 }
 
 std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::object& payload) {

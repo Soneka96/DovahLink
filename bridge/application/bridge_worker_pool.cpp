@@ -9,12 +9,16 @@ namespace dovahlink::application {
 
 BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4, transport::LoopbackListener& listenerV6,
                                    transport::ConnectionSlot& slot, security::TokenStore& tokenStore,
-                                   security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
-                                   const ActivePlayContext& activePlayContext,
+                                   security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
+                                   security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
+                                   const ActivePlayContext& activePlayContext, security::PairingSession& pairingSession,
+                                   PairingNotificationSink& pairingNotificationSink,
                                    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot), tokenStore_(tokenStore),
-      tokenThrottle_(tokenThrottle), sessionManager_(sessionManager), activePlayContext_(activePlayContext),
-      bridgeInstanceId_(std::move(bridgeInstanceId)), bridgeVersion_(std::move(bridgeVersion)) {}
+      tokenThrottle_(tokenThrottle), trustStore_(trustStore), credentialThrottle_(credentialThrottle),
+      sessionManager_(sessionManager), activePlayContext_(activePlayContext), pairingSession_(pairingSession),
+      pairingNotificationSink_(pairingNotificationSink), bridgeInstanceId_(std::move(bridgeInstanceId)),
+      bridgeVersion_(std::move(bridgeVersion)) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
@@ -53,6 +57,7 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
             {
                 std::lock_guard<std::mutex> lock(activeSocketMutex_);
                 activeSocket_ = socketHandle;
+                activeConnectionId_ = connection;
             }
             if (stopping_.load(std::memory_order_acquire)) {
                 socketHandle->Shutdown();
@@ -60,8 +65,9 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
             }
 
             transport::WebSocketSession session(std::move(socketHandle));
-            RunConnectionSession(session, tokenStore_, tokenThrottle_, sessionManager_, connection,
-                                 activePlayContext_, bridgeInstanceId_, bridgeVersion_);
+            RunConnectionSession(session, tokenStore_, tokenThrottle_, trustStore_, credentialThrottle_,
+                                 sessionManager_, connection, activePlayContext_, pairingSession_,
+                                 pairingNotificationSink_, bridgeInstanceId_, bridgeVersion_);
         });
     }
 }
@@ -78,7 +84,34 @@ void BridgeWorkerPool::Stop() {
     boost::system::error_code ec;
     listenerV4_.Acceptor().close(ec);
     listenerV6_.Acceptor().close(ec);
+    ShutdownActiveSocket();
+}
 
+void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
+    transport::WebSocketSession::SocketHandle activeSocket;
+    {
+        // Holding activeSocketMutex_ across both the identity check and the socket read makes
+        // this atomic: no new connection can publish itself as activeSocket_/activeConnectionId_
+        // while this decides whether the *current* one belongs to clientId.
+        std::lock_guard<std::mutex> lock(activeSocketMutex_);
+        auto socket = activeSocket_.lock();
+        if (!socket) {
+            return;
+        }
+        auto activeClientId = sessionManager_.ClientIdForConnection(activeConnectionId_);
+        if (!activeClientId.has_value() || *activeClientId != clientId) {
+            return;
+        }
+        activeSocket = std::move(socket);
+    }
+    activeSocket->Shutdown();
+}
+
+void BridgeWorkerPool::DisconnectActive() {
+    ShutdownActiveSocket();
+}
+
+void BridgeWorkerPool::ShutdownActiveSocket() {
     transport::WebSocketSession::SocketHandle activeSocket;
     {
         std::lock_guard<std::mutex> lock(activeSocketMutex_);

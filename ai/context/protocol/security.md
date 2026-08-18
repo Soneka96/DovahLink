@@ -48,11 +48,45 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
   credential and returns to unpaired.
+- This state machine maps to five canonical messages, all Connection-category per
+  `ai/context/protocol/conventions.md`: `pairing_request` (client, on an `unpaired`-tier session per
+  "Hello authentication and session trust tiers" below — starts or queries a challenge, no payload),
+  `pairing_status` (bridge reply to `pairing_request`: `unavailable`/`available`/`in_progress`, never
+  the code itself), `pairing_confirm` (client, carries the user-entered code plus an optional
+  `displayName` — `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`: on a valid code the bridge generates the
+  credential, holds it in memory only, and returns it), `pairing_ack` (client, echoes back the
+  credential it just durably saved -- this is the wire form of "final confirmation";
+  `PENDING_CREDENTIAL -> TRUSTED` via `TrustStore::Persist`, only once this arrives), and
+  `pairing_outcome` (bridge reply to both `pairing_confirm` and `pairing_ack`, one shared message
+  type distinguished by its `outcome` field: `credential_issued` carries the pending credential;
+  `trusted` carries the committed credential's `shortId`; `already_trusted` is `pairing_ack`'s
+  idempotent-retry success case; `expired`/`invalid`/`rate_limited` carry no credential;
+  `pending_not_found` is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory
+  pending credential, per "the pending credential as no longer known/valid" above). The in-memory
+  pending-credential record is keyed to the single active connection (this phase's single-connected-
+  client limit makes a second concurrent claimant structurally impossible) and never persists past a
+  Bridge restart, matching "Incomplete pending pairing does not need to survive a bridge restart."
 - Persist completed trust outside the Skyrim/modpack files, scoped to the Windows user profile
   running the client and the Bridge — not to the modpack, the Skyrim installation, a particular
   Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user
   secure-storage mechanism for the platform. Do not invent cryptography. Loopback TCP itself does not
   establish this scoping; see "Local-OS-user threat boundary" below.
+- The Bridge's approved per-user secure-storage mechanism for the current (Windows) platform is
+  DPAPI (`CryptProtectData`/`CryptUnprotectData`) in its default per-user scope —
+  `CRYPTPROTECT_LOCAL_MACHINE` is never set — so the OS itself ties the encrypted material to the
+  logged-in Windows user, matching the user-profile scoping above; DPAPI is Windows' standard
+  per-user secret-protection primitive, not invented cryptography. The trust snapshot is serialized
+  as JSON, reusing the project's existing `boost::json` dependency rather than a second
+  serialization format, before encryption, and stored as one file under the current user's local
+  application-data directory. Any DPAPI failure, missing/malformed file structure, or JSON-shape
+  mismatch on load is corruption per the trust-store's fail-closed contract, never a silent partial
+  trust; a missing file is a valid empty store, not corruption. Saves write to a temporary file and
+  atomically replace the previous one, so a crash mid-write cannot leave a partially written trust
+  file. This decision binds only the Windows persistence adapter; the `TrustStore` domain object
+  stays platform-independent, and a future non-Windows platform implements the same
+  `ITrustStorePersistence` port against its own per-user secure-storage primitive (for example
+  Linux Secret Service/keyring, or macOS Keychain) without this document's trust semantics
+  changing.
 - Scope `clientId` to the client installation and the Windows user profile running it; the official
   client must not share one `clientId`/credential between different Windows user profiles merely
   because the executable is installed system-wide. No Windows username, SID, hostname, or other
@@ -83,6 +117,52 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   use a minimal revocation tombstone containing no credential; re-pairing an intentionally revoked
   `clientId` may remove or replace that tombstone and establish a new credential.
 
+## Trust administration surface
+
+- Trust administration (list trusted clients, revoke one, reset all) is implemented once, as a
+  reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
+  load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
+  developer tooling -- duplicates trust-store logic; each only formats input and output around the
+  same calls.
+- The five-digit `shortId` (never `clientId`, never a credential) is the identifier every
+  administration surface accepts for "which trusted client" -- matching "Persistent local trust"'s
+  own stated purpose for `shortId`: human-readable administration only.
+- Native Skyrim has no supported API for registering a genuinely new console command. Confirmed by
+  inspecting the vendored CommonLibSSE-NG headers: `RE::SCRIPT_FUNCTION` is a fixed, pre-populated
+  table with no `AddCommand`, and intercepting the console's own script-compile call site requires
+  disassembling the exact pinned game binary to find an undocumented call-site offset -- not
+  something this project can determine safely or repeatably from source headers alone, and rejected
+  for that reason (2026-08-16). The approved integration is instead a small, explicitly optional
+  Papyrus console adapter, not a new native console-command mechanism:
+  - **ConsoleUtil Extended** (a third-party SKSE plugin, `github.com/KrisV-777/ConsoleUtil-Extended`)
+    parses in-game console text into named commands/subcommands/arguments from a YAML config and
+    calls a matching Papyrus `global` function per subcommand. Its documented syntax
+    (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
+    `dovahlink revoke -id <shortId>`, and `dovahlink reset` directly.
+  - DovahLink Bridge registers a small set of native Papyrus functions
+    (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
+    memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
+    The glue script and ConsoleUtil Extended's YAML config are kept outside `bridge/`: they are not
+    part of the native DovahLink core, only an optional way to reach it. Each native function does
+    nothing but call `TrustAdminService` and return a formatted string; it owns no trust logic of its
+    own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
+    introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
+  - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
+    DovahLink Bridge itself. The bridge's native Papyrus-function registration succeeds
+    unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
+    to version-check at bridge startup); every other bridge behavior -- connection, pairing, trust
+    persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
+    config are absent. Without them, `dovahlink list`/`revoke`/`reset` are simply unrecognized
+    console commands, exactly like any other unknown input; there is no error path and no degraded
+    core behavior to account for.
+- Scope boundary, recorded explicitly rather than left implicit: this surface's `Revoke`/`Reset`
+  call `TrustStore::Revoke`/`TrustStore::Reset` directly, which removes persisted trust and (for
+  `Revoke`) tombstones the `clientId` -- a revoked client's *next* reconnect attempt with the old
+  credential fails cleanly. Forcing an *already-connected* session using the just-revoked credential
+  to disconnect immediately (the "revoke-while-connected" behavior this document's "Persistent local
+  trust" section and `ROADMAP.md`'s acceptance criteria both name) is proven end-to-end as its own
+  stage (`PLAN.md`'s stage J); this surface does not yet wire that disconnect itself.
+
 ## Developer authentication
 
 - The long-token capability from "Phase 1 exposure" becomes explicit developer authentication once
@@ -95,6 +175,42 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 - A developer-authenticated connection still obeys every applicable rule in this document: loopback
   restriction, input limits, protocol validation, a fresh `sessionId`, and the single-connected-client
   limit. Developer authentication is not a switch that disables security.
+
+## Hello authentication and session trust tiers
+
+`protocol/schema/README.md` intentionally left `hello`'s `auth.method` set and `hello_ack`'s
+`clientIdentityKind` values open for "a future pairing phase" to fill in without changing the
+message shape. This phase is that phase; this section is the filled-in decision.
+
+- `hello.auth.method` accepts three values once pairing exists: `one_time_local_token` (developer
+  authentication, unchanged from "Developer authentication" above), `unpaired` (bootstrap — no
+  token; the client has no persisted credential yet and wants a session solely to run the pairing
+  flow), and `trusted_device_credential` (the persisted credential a completed pairing issued,
+  presented the same way `one_time_local_token` presents its token: hex text in `auth.token`).
+  `unpaired` carries no `auth.token` field at all — there is nothing to present yet.
+- A session admitted via `unpaired` is a real, fully authenticated `sessionId` (it still obeys
+  loopback, input-limit, protocol-validation, and single-connected-client rules), but it is
+  trust-restricted: until pairing succeeds on that connection, the message dispatcher accepts only
+  `ping`, `capabilities`, `pairing_request`, and `pairing_confirm` from it — `subscribe` and
+  `snapshot_request` are rejected the same way any other message outside the allowlist is,
+  `malformed_message`, not a distinct error code. This mirrors `IsAllowedMessageType`'s existing
+  allowlist mechanism in `bridge/application/message_dispatcher.cpp`; a session's trust tier is a
+  second, narrower allowlist selector alongside "authenticated at all", not a parallel dispatch
+  path.
+- `hello_ack.clientIdentityKind` is `"unpaired"` for both developer-authenticated and
+  bootstrap-`unpaired` sessions (no wire-visible difference; a developer-authenticated session is
+  simply never trust-restricted, since developer authentication already implies full access per
+  "Developer authentication" above) and becomes `"paired"` once a session is trusted — either
+  immediately, in place, on that same connection, the moment its `pairing_confirm` resolves to a
+  `trusted` or `already_trusted` outcome, or from the first message onward for a session admitted
+  via `trusted_device_credential`. A client does not need to reconnect after pairing succeeds to
+  start using the connection normally; reconnecting later without a code (`trusted_device_credential`)
+  is a separate, subsequent event, per "Persistent local trust" above.
+- Trust-tier upgrade happens exactly once, on the pairing state machine's own success, is never
+  triggered by any other message, and is never downgraded except by the "Connection liveness"
+  teardown path invalidating the session entirely (revocation of a *different* session's trust does
+  not touch this one). There is no partially-trusted state beyond "restricted" and "full": a session
+  is never allowed a third, intermediate message-type set.
 
 ## Connection liveness
 

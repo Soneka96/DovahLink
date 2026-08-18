@@ -38,6 +38,46 @@ public sealed class BuildTests
             });
     }
 
+    /// <summary>Builds a direct Papyrus compiler command with named arguments and the compiler's own directory.</summary>
+    [Fact]
+    public void BuildsStructuredPapyrusCompileCommand()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain toolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        string scriptPath = Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc");
+        string outputDirectory = Path.Combine(temporaryDirectory.Path, "out");
+
+        BuildCommand command = BuildCommand.CreatePapyrusCompile(scriptPath, toolchain, outputDirectory);
+
+        Assert.Equal(toolchain.CompilerPath, command.ExecutablePath);
+        Assert.Equal(
+            [
+                Path.GetFullPath(scriptPath),
+                $"-i={Path.GetDirectoryName(Path.GetFullPath(scriptPath))};{toolchain.ImportDirectory}",
+                $"-f={toolchain.FlagsFilePath}",
+                $"-o={Path.GetFullPath(outputDirectory)}",
+            ],
+            command.Arguments);
+        Assert.Equal(Path.GetDirectoryName(toolchain.CompilerPath), command.WorkingDirectory);
+        Assert.Empty(command.EnvironmentVariables);
+    }
+
+    /// <summary>Normalizes a non-canonical script and output path into their full, canonical forms.</summary>
+    [Fact]
+    public void NormalizesTheScriptAndOutputPathsToFullPaths()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        PapyrusToolchain toolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        string scriptPath = Path.Combine(temporaryDirectory.Path, "console-admin", "..", "console-admin", "DovahLinkAdmin.psc");
+        string outputDirectory = Path.Combine(temporaryDirectory.Path, "out", "..", "out");
+
+        BuildCommand command = BuildCommand.CreatePapyrusCompile(scriptPath, toolchain, outputDirectory);
+
+        Assert.DoesNotContain("..", command.Arguments[0]);
+        Assert.Equal(Path.GetFullPath(scriptPath), command.Arguments[0]);
+        Assert.Equal($"-o={Path.GetFullPath(outputDirectory)}", command.Arguments[3]);
+    }
+
     /// <summary>Imports a validated batch path containing spaces and shell metacharacters as environment data.</summary>
     [Fact]
     public async Task ImportsToolchainPathsWithoutInterpolatingThemIntoTheShellScript()
@@ -222,7 +262,8 @@ public sealed class BuildTests
         var runner = new FakeCommandRunner();
         var coordinator = new BridgeBuildCoordinator(
             runner,
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         BridgeBuildResult result = await coordinator.BuildAsync(new BridgeBuildRequest(
             temporaryDirectory.Path,
@@ -234,7 +275,7 @@ public sealed class BuildTests
             Path.Combine(temporaryDirectory.Path, "tooling", "out"),
             result.ArchivePath,
             StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(3, runner.Commands.Count);
+        Assert.Equal(4, runner.Commands.Count);
         Assert.EndsWith("cmd.exe", runner.Commands[0].ExecutablePath, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("cmake", runner.Commands[1].ExecutablePath);
         Assert.Equal(["--preset", "windows-x64-release"], runner.Commands[1].Arguments);
@@ -242,9 +283,20 @@ public sealed class BuildTests
         Assert.Equal(
             ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_bridge_plugin"],
             runner.Commands[2].Arguments);
+        PapyrusToolchain papyrusToolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        Assert.Equal(papyrusToolchain.CompilerPath, runner.Commands[3].ExecutablePath);
+        Assert.Equal(
+            [
+                Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc")),
+                $"-i={Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "console-admin"))};{papyrusToolchain.ImportDirectory}",
+                $"-f={papyrusToolchain.FlagsFilePath}",
+                $"-o={Path.GetFullPath(Path.Combine(temporaryDirectory.Path, "bridge", "build", "windows-x64-release"))}",
+            ],
+            runner.Commands[3].Arguments);
+        Assert.Equal(Path.GetDirectoryName(papyrusToolchain.CompilerPath), runner.Commands[3].WorkingDirectory);
         Assert.Equal(Path.GetDirectoryName(CreateToolchain(temporaryDirectory.Path).VcvarsallPath), runner.Commands[0].WorkingDirectory);
         Assert.All(
-            runner.Commands.Skip(1),
+            runner.Commands.Skip(1).Take(2),
             command => Assert.Equal(Path.Combine(temporaryDirectory.Path, "bridge"), command.WorkingDirectory));
         Assert.Equal(runner.Commands[1].EnvironmentVariables, runner.Commands[2].EnvironmentVariables);
         Assert.Equal(CreateToolchain(temporaryDirectory.Path).VcpkgRoot, runner.Commands[1].EnvironmentVariables["VCPKG_ROOT"]);
@@ -258,6 +310,8 @@ public sealed class BuildTests
                 "Data/SKSE/Plugins/boost_json-vc143-mt-x64-1_91.dll",
                 "Data/SKSE/Plugins/fmt.dll",
                 "Data/SKSE/Plugins/spdlog.dll",
+                "Data/Scripts/DovahLinkAdmin.pex",
+                "Data/SKSE/CustomConsole/dovahlink.yaml",
             }.OrderBy(path => path),
             archive.Entries.Select(entry => entry.FullName.Replace('\\', '/')).OrderBy(path => path));
     }
@@ -270,7 +324,8 @@ public sealed class BuildTests
         CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
         var coordinator = new BridgeBuildCoordinator(
             new FakeCommandRunner(),
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         BridgeBuildResult result = await coordinator.BuildAsync(new BridgeBuildRequest(
             temporaryDirectory.Path,
@@ -287,7 +342,8 @@ public sealed class BuildTests
         CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: false);
         var coordinator = new BridgeBuildCoordinator(
             new FakeCommandRunner(),
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
             temporaryDirectory.Path,
@@ -309,7 +365,8 @@ public sealed class BuildTests
         var runner = new FakeCommandRunner { FailingInvocation = failingInvocation };
         var coordinator = new BridgeBuildCoordinator(
             runner,
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
             temporaryDirectory.Path,
@@ -317,6 +374,116 @@ public sealed class BuildTests
 
         Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
         Assert.Equal(failingInvocation + 1, runner.Commands.Count);
+    }
+
+    /// <summary>Fails without packaging when the Papyrus compile returns an error.</summary>
+    [Fact]
+    public async Task FailsWithoutPackagingWhenThePapyrusCompileFails()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        var runner = new FakeCommandRunner { FailingInvocation = 3 };
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+        Assert.Equal(4, runner.Commands.Count);
+    }
+
+    /// <summary>
+    /// Fails before any build command runs when the console-admin YAML config source is missing.
+    /// </summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheConsoleAdminYamlIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        File.Delete(Path.Combine(temporaryDirectory.Path, "console-admin", "dovahlink.yaml"));
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>
+    /// Fails before any build command runs when the console-admin Papyrus script source is missing.
+    /// </summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheConsoleAdminScriptIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        File.Delete(Path.Combine(temporaryDirectory.Path, "console-admin", "DovahLinkAdmin.psc"));
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>Fails before any build command runs when the Papyrus compiler cannot be found.</summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenThePapyrusCompilerIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        PapyrusToolchain papyrusToolchain = CreatePapyrusToolchain(temporaryDirectory.Path);
+        File.Delete(papyrusToolchain.CompilerPath);
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => papyrusToolchain);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
+    }
+
+    /// <summary>Fails before any build command runs when the Visual Studio toolchain cannot be found.</summary>
+    [Fact]
+    public async Task FailsBeforeAnyBuildCommandWhenTheVisualStudioToolchainIsMissing()
+    {
+        using var temporaryDirectory = new TemporaryDirectory();
+        CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
+        VisualStudioToolchain toolchain = CreateToolchain(temporaryDirectory.Path);
+        File.Delete(toolchain.VcvarsallPath);
+        var runner = new FakeCommandRunner();
+        var coordinator = new BridgeBuildCoordinator(
+            runner,
+            () => toolchain,
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
+            temporaryDirectory.Path,
+            PackageChannel.Release)));
+
+        Assert.Empty(runner.Commands);
+        Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
     }
 
     /// <summary>Fails before CMake when Visual Studio environment initialization returns an error.</summary>
@@ -328,7 +495,8 @@ public sealed class BuildTests
         var runner = new FakeCommandRunner { FailingInvocation = 0 };
         var coordinator = new BridgeBuildCoordinator(
             runner,
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.BuildAsync(new BridgeBuildRequest(
             temporaryDirectory.Path,
@@ -348,13 +516,15 @@ public sealed class BuildTests
         var output = new List<string>();
         var coordinator = new BridgeBuildCoordinator(
             new FakeCommandRunner(),
-            () => CreateToolchain(temporaryDirectory.Path));
+            () => CreateToolchain(temporaryDirectory.Path),
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         await coordinator.BuildAsync(
             new BridgeBuildRequest(temporaryDirectory.Path, PackageChannel.Release),
             output.Add);
 
         Assert.Contains("Building the DovahLink bridge Release target...", output);
+        Assert.Contains("Compiling the DovahLink admin console script...", output);
         Assert.Contains("fake build output", output);
         Assert.Contains(output, line => line.StartsWith("Created ", StringComparison.Ordinal));
     }
@@ -367,7 +537,8 @@ public sealed class BuildTests
         VisualStudioToolchain toolchain = CreateToolchain(temporaryDirectory.Path);
         var coordinator = new BridgeBuildCoordinator(
             new FakeCommandRunner(),
-            () => toolchain);
+            () => toolchain,
+            () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
         await Assert.ThrowsAsync<FileNotFoundException>(() => coordinator.BuildAsync(
             new BridgeBuildRequest(temporaryDirectory.Path, PackageChannel.Release)));
@@ -383,12 +554,18 @@ public sealed class BuildTests
         Directory.CreateDirectory(buildOutputRoot);
         File.WriteAllText(Path.Combine(bridgeRoot, "vcpkg.json"), "{\"version-string\":\"0.1.0\"}");
 
+        string consoleAdminRoot = Path.Combine(repositoryRoot, "console-admin");
+        Directory.CreateDirectory(consoleAdminRoot);
+        File.WriteAllText(Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc"), "Scriptname DovahLinkAdmin Hidden");
+        File.WriteAllText(Path.Combine(consoleAdminRoot, "dovahlink.yaml"), "name: dovahlink");
+
         string[] artifactNames =
         [
             "dovahlink_bridge_plugin.dll",
             "boost_json-vc143-mt-x64-1_91.dll",
             "fmt.dll",
             "spdlog.dll",
+            "DovahLinkAdmin.pex",
         ];
         foreach (string artifactName in artifactNames.Take(includeAllArtifacts ? artifactNames.Length : artifactNames.Length - 1))
         {
@@ -411,6 +588,22 @@ public sealed class BuildTests
         Directory.CreateDirectory(vcpkgRoot);
         File.WriteAllText(vcvarsallPath, "@echo off\n");
         return new VisualStudioToolchain(vcvarsallPath, vcpkgRoot);
+    }
+
+    /// <summary>Creates the validated Papyrus toolchain files used by compile-command tests.</summary>
+    /// <param name="repositoryRoot">The temporary root under which to create the installation.</param>
+    /// <returns>The created compiler, import directory, and flags file paths.</returns>
+    private static PapyrusToolchain CreatePapyrusToolchain(string repositoryRoot)
+    {
+        string installationRoot = Path.Combine(repositoryRoot, "Skyrim Special Edition");
+        string compilerPath = Path.Combine(installationRoot, "Papyrus Compiler", "PapyrusCompiler.exe");
+        string importDirectory = Path.Combine(installationRoot, "Data", "Scripts", "Source");
+        string flagsFilePath = Path.Combine(importDirectory, "TESV_Papyrus_Flags.flg");
+        Directory.CreateDirectory(Path.GetDirectoryName(compilerPath)!);
+        Directory.CreateDirectory(importDirectory);
+        File.WriteAllText(compilerPath, "compiler");
+        File.WriteAllText(flagsFilePath, "flags");
+        return new PapyrusToolchain(compilerPath, importDirectory, flagsFilePath);
     }
 
     /// <summary>Records command-runner inputs and returns a configured exit code.</summary>

@@ -19,16 +19,23 @@
 
 #include <chrono>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 using dovahlink::application::ActivePlayContext;
+using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
+using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
+using dovahlink::security::TrustStore;
+using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::WebSocketSession;
 
@@ -45,6 +52,31 @@ namespace {
 
 constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 constexpr const char* kBridgeVersion = "0.2.0";
+
+/// `ITrustStorePersistence` double that always loads an empty snapshot -- these tests only
+/// exercise the one_time_local_token auth path and never touch the trust store.
+class EmptyPersistence : public ITrustStorePersistence {
+public:
+    /// Always reports a valid, empty snapshot.
+    std::optional<TrustStoreSnapshot> Load() override { return TrustStoreSnapshot{}; }
+
+    /// Always succeeds without recording anything.
+    bool Save(const TrustStoreSnapshot&) override { return true; }
+};
+
+/// `PairingNotificationSink` double that records every code it is given. These tests only need a
+/// working sink to satisfy `RunConnectionSession`'s signature -- pairing behavior itself is
+/// exercised in message_dispatcher_test.cpp and pairing_handler_test.cpp.
+class RecordingPairingNotificationSink : public PairingNotificationSink {
+public:
+    /// Appends `sixDigitCode` to `codes`.
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        codes.emplace_back(sixDigitCode);
+    }
+
+    /// Every code this sink has been given, in order.
+    std::vector<std::string> codes;
+};
 
 /// Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {
@@ -109,6 +141,11 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
@@ -136,8 +173,8 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and subscri
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -195,6 +232,11 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
@@ -206,8 +248,8 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not j
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             bridgeInstanceId, kBridgeVersion);
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -298,6 +340,11 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     activePlayContext.Begin("context-1");
@@ -310,8 +357,8 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a re
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             bridgeInstanceId, kBridgeVersion);
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -362,10 +409,15 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // authenticates, which is unbuilt and irrelevant to that question.
     TokenStore firstTokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle firstTokenThrottle;
+    EmptyPersistence firstPersistence;
+    auto firstTrustStore = TrustStore::Load(firstPersistence);
+    FailedTokenThrottle firstCredentialThrottle;
     // SessionManager and ActivePlayContext are shared across both
     // connections below, matching how BridgeWorkerPool actually owns them at
     // pool lifetime rather than per-connection.
     SessionManager sessionManager;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     ActivePlayContext activePlayContext;
     auto context = activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(5);
@@ -379,8 +431,8 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, firstTokenStore, firstTokenThrottle, sessionManager, /*connection=*/1,
-                             activePlayContext, bridgeInstanceId, kBridgeVersion);
+        RunConnectionSession(session, firstTokenStore, firstTokenThrottle, firstTrustStore, firstCredentialThrottle, sessionManager, /*connection=*/1,
+                             activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket firstClientSocket(ioc);
@@ -431,6 +483,9 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // activePlayContext stay the same shared instances.
     TokenStore secondTokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle secondTokenThrottle;
+    EmptyPersistence secondPersistence;
+    auto secondTrustStore = TrustStore::Load(secondPersistence);
+    FailedTokenThrottle secondCredentialThrottle;
     boost::system::error_code secondAcceptEc;
     std::thread secondServerThread([&] {
         boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(secondAcceptEc);
@@ -438,8 +493,8 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, secondTokenStore, secondTokenThrottle, sessionManager, /*connection=*/2,
-                             activePlayContext, bridgeInstanceId, kBridgeVersion);
+        RunConnectionSession(session, secondTokenStore, secondTokenThrottle, secondTrustStore, secondCredentialThrottle, sessionManager, /*connection=*/2,
+                             activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket secondClientSocket(ioc);
@@ -499,6 +554,11 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
@@ -518,8 +578,8 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -558,6 +618,151 @@ TEST_CASE("RunConnectionSession closes without creating a session when the token
     CHECK(tokenThrottle.IsBlocked(start + std::chrono::seconds(63)));
 }
 
+TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
+          "ConnectionTimeoutTracker's deadline has already elapsed, without waiting out any "
+          "WebSocket-level timeout",
+          "[application][connection_session]") {
+    // Proves the wiring added in this step: timeout.Deadline() actually reaches
+    // WebSocketSession::ReadMessage's own idleDeadline watchdog inside the message loop, not just
+    // the initial hello read. A client that kept answering WebSocket-level pings (now enabled via
+    // keep_alive_pings) would otherwise let Beast's own per-operation timeout run indefinitely;
+    // that mechanism itself is proven directly at transport/websocket_session_test.cpp's level.
+    // Here, an artificially already-elapsed idle deadline (manufactured via steadyNow, not a real
+    // 60-second wait) proves the connection still closes through this real session loop.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+    auto start = std::chrono::steady_clock::now();
+    int clockCalls = 0;
+    // The hello read itself must not be rejected as late (postReadNow must stay before the
+    // handshake deadline, start+5s), but authenticating at start-100s leaves the resulting idle
+    // deadline (postReadNow+60s = start-40s) already 40s in the past relative to real time by the
+    // time the loop's read arms its watchdog moments later.
+    auto steadyNow = [&] {
+        ++clockCalls;
+        return clockCalls == 1 ? start : start - std::chrono::seconds(100);
+    };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    REQUIRE(helloAck.sessionId.has_value());
+    std::string sessionId = *helloAck.sessionId;
+
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    // The client deliberately sends nothing else and does not close -- only the watchdog, racing
+    // the already-elapsed deadline, should end this connection.
+    auto readStart = std::chrono::steady_clock::now();
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    auto readDuration = std::chrono::steady_clock::now() - readStart;
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(readEc);
+    // Well under the real 60s idle timeout the watchdog exists to bound, proving the already-past
+    // deadline -- not eventually waiting out Beast's own longer timer -- is what closed this.
+    CHECK(readDuration < std::chrono::seconds(10));
+    CHECK_FALSE(sessionManager.IsValidForConnection(sessionId, /*connection=*/1));
+}
+
+TEST_CASE("RunConnectionSession's initial hello read closes the connection once "
+          "ConnectionTimeoutTracker's handshake deadline has already elapsed, without waiting out "
+          "any WebSocket-level timeout",
+          "[application][connection_session]") {
+    // Symmetric with the idle-loop watchdog test above, but for the *other* ws.ReadMessage() call
+    // site this step changed: the very first hello read, before any session exists.
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+    // The handshake deadline (constructor time + 5s) is already 5s in the past the moment the
+    // tracker is built, so the very first ReadMessage's watchdog has nothing to wait out.
+    auto steadyNow = [] { return std::chrono::steady_clock::now() - std::chrono::seconds(10); };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    // The client deliberately never sends hello -- only the watchdog, racing the already-elapsed
+    // handshake deadline, should end this connection.
+
+    auto readStart = std::chrono::steady_clock::now();
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    auto readDuration = std::chrono::steady_clock::now() - readStart;
+
+    serverThread.join();
+
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(readEc);
+    // Well under the real 5s handshake timeout the watchdog exists to bound.
+    CHECK(readDuration < std::chrono::seconds(3));
+}
+
 TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives after the handshake "
           "deadline, even though no single socket read ever timed out",
           "[application][connection_session]") {
@@ -568,6 +773,11 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
 
     TokenStore tokenStore(*DecodeHex(kValidHexToken));
     FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     ActivePlayContext activePlayContext;
 
@@ -578,8 +788,8 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
             return;
         }
         WebSocketSession session(std::move(serverSocket));
-        RunConnectionSession(session, tokenStore, tokenThrottle, sessionManager, /*connection=*/1, activePlayContext,
-                             /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
     });
 
     boost::asio::ip::tcp::socket clientSocket(ioc);

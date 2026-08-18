@@ -25,17 +25,23 @@ public sealed class BridgeBuildCoordinator
     /// <summary>Provides the Visual Studio toolchain used by the build.</summary>
     private readonly Func<VisualStudioToolchain> toolchainProvider;
 
+    /// <summary>Provides the Papyrus compiler toolchain used to compile the console-admin script.</summary>
+    private readonly Func<PapyrusToolchain> papyrusToolchainProvider;
+
     /// <summary>
     /// Initializes a coordinator for building and packaging the bridge.
     /// </summary>
     /// <param name="commandRunner">The command runner used to execute the build.</param>
     /// <param name="toolchainProvider">The provider used to obtain the Visual Studio toolchain.</param>
+    /// <param name="papyrusToolchainProvider">The provider used to obtain the Papyrus compiler toolchain.</param>
     public BridgeBuildCoordinator(
         ICommandRunner commandRunner,
-        Func<VisualStudioToolchain> toolchainProvider)
+        Func<VisualStudioToolchain> toolchainProvider,
+        Func<PapyrusToolchain> papyrusToolchainProvider)
     {
         this.commandRunner = commandRunner;
         this.toolchainProvider = toolchainProvider;
+        this.papyrusToolchainProvider = papyrusToolchainProvider;
     }
 
     /// <summary>
@@ -45,8 +51,13 @@ public sealed class BridgeBuildCoordinator
     /// <param name="onOutput">An optional callback for build and packaging progress messages.</param>
     /// <param name="cancellationToken">A token that can cancel manifest reading or the build command.</param>
     /// <returns>The generated artifact plan and path to the created archive.</returns>
-    /// <exception cref="FileNotFoundException">Thrown when the bridge manifest or a required build artifact is missing.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the bridge build fails.</exception>
+    /// <exception cref="FileNotFoundException">
+    /// Thrown when the bridge manifest, the console-admin script or YAML configuration, or a
+    /// required build artifact is missing.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the Visual Studio or Papyrus toolchain cannot be validated, or the bridge build fails.
+    /// </exception>
     public async Task<BridgeBuildResult> BuildAsync(
         BridgeBuildRequest request,
         Action<string>? onOutput = null,
@@ -60,10 +71,26 @@ public sealed class BridgeBuildCoordinator
             throw new FileNotFoundException("Could not find the bridge vcpkg manifest.", manifestPath);
         }
 
+        // Every prerequisite this build needs is validated here, before any build command runs --
+        // a missing compiler, script, or config file fails immediately instead of after the
+        // multi-minute Release CMake build below.
+        string consoleAdminRoot = Path.Combine(repositoryRoot, "console-admin");
+        string consoleAdminScriptPath = Path.Combine(consoleAdminRoot, "DovahLinkAdmin.psc");
+        if (!File.Exists(consoleAdminScriptPath))
+        {
+            throw new FileNotFoundException("Could not find the console-admin Papyrus script.", consoleAdminScriptPath);
+        }
+        string consoleAdminYamlPath = Path.Combine(consoleAdminRoot, "dovahlink.yaml");
+        if (!File.Exists(consoleAdminYamlPath))
+        {
+            throw new FileNotFoundException("Could not find the console-admin YAML configuration.", consoleAdminYamlPath);
+        }
+
         ArtifactPlan plan = ArtifactPlan.Create(
             BridgeVersion.FromVcpkgManifest(await File.ReadAllTextAsync(manifestPath, cancellationToken)),
             request.Channel);
         VisualStudioToolchain toolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
+        PapyrusToolchain papyrusToolchain = PapyrusToolchainLocator.Validate(papyrusToolchainProvider());
 
         onOutput?.Invoke("Building the DovahLink bridge Release target...");
         var environmentLines = new List<string>();
@@ -89,6 +116,16 @@ public sealed class BridgeBuildCoordinator
         }
 
         string buildOutputRoot = Path.Combine(bridgeRoot, "build", ReleaseBuildDirectory);
+
+        onOutput?.Invoke("Compiling the DovahLink admin console script...");
+        BuildCommand papyrusCommand = BuildCommand.CreatePapyrusCompile(consoleAdminScriptPath, papyrusToolchain, buildOutputRoot);
+        int papyrusExitCode = await commandRunner.RunAsync(papyrusCommand, onOutput, onOutput, cancellationToken);
+        if (papyrusExitCode != 0)
+        {
+            throw new InvalidOperationException($"The Papyrus compile failed with exit code {papyrusExitCode}.");
+        }
+        File.Copy(consoleAdminYamlPath, Path.Combine(buildOutputRoot, "dovahlink.yaml"), overwrite: true);
+
         string outputRoot = Path.Combine(repositoryRoot, "tooling", "out");
         Directory.CreateDirectory(outputRoot);
 

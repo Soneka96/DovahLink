@@ -12,6 +12,7 @@
 using dovahlink::security::EnvironmentReader;
 using dovahlink::security::kTokenBytes;
 using dovahlink::security::ReadTokenFromEnvironment;
+using dovahlink::security::TokenReadOutcome;
 using dovahlink::security::WindowsEnvironmentReader;
 
 namespace {
@@ -74,61 +75,86 @@ TEST_CASE("ReadTokenFromEnvironment decodes a valid 64-character hex token to 32
     FakeEnvironmentReader env;
     env.Set(kVarName, kValidHexToken);
 
-    auto token = ReadTokenFromEnvironment(env, kVarName);
+    auto result = ReadTokenFromEnvironment(env, kVarName);
 
-    REQUIRE(token.has_value());
-    CHECK(token->size() == kTokenBytes);
-    CHECK((*token)[0] == 0x01);
-    CHECK((*token)[1] == 0x23);
-    CHECK((*token)[8] == 0xAB);  // from the uppercase "AB" pair
-    CHECK((*token)[31] == 0x44);
+    CHECK(result.outcome == TokenReadOutcome::kValid);
+    REQUIRE(result.bytes.size() == kTokenBytes);
+    CHECK(result.bytes[0] == 0x01);
+    CHECK(result.bytes[1] == 0x23);
+    CHECK(result.bytes[8] == 0xAB);  // from the uppercase "AB" pair
+    CHECK(result.bytes[31] == 0x44);
 }
 
-TEST_CASE("ReadTokenFromEnvironment returns nullopt when the variable is unset",
+TEST_CASE("ReadTokenFromEnvironment treats an unset variable as Missing", "[security][token_provider]") {
+    FakeEnvironmentReader env;
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMissing);
+    CHECK(result.bytes.empty());
+}
+
+TEST_CASE("ReadTokenFromEnvironment treats an empty value as Missing, not Malformed",
           "[security][token_provider]") {
     FakeEnvironmentReader env;
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
-}
-
-TEST_CASE("ReadTokenFromEnvironment returns nullopt for an empty value", "[security][token_provider]") {
-    FakeEnvironmentReader env;
     env.Set(kVarName, "");
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMissing);
+    CHECK(result.bytes.empty());
 }
 
-TEST_CASE("ReadTokenFromEnvironment returns nullopt for odd-length hex", "[security][token_provider]") {
+TEST_CASE("ReadTokenFromEnvironment treats odd-length hex as Malformed", "[security][token_provider]") {
     FakeEnvironmentReader env;
     env.Set(kVarName, "abc");
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMalformed);
+    CHECK(result.bytes.empty());
 }
 
-TEST_CASE("ReadTokenFromEnvironment returns nullopt for a non-hex character",
+TEST_CASE("ReadTokenFromEnvironment treats a non-hex character as Malformed",
           "[security][token_provider]") {
     FakeEnvironmentReader env;
     // 64 characters, but "zz" at the start is not valid hex.
     env.Set(kVarName, std::string("zz") + std::string(62, '0'));
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMalformed);
+    CHECK(result.bytes.empty());
 }
 
-TEST_CASE("ReadTokenFromEnvironment returns nullopt for a token that is too short",
+TEST_CASE("ReadTokenFromEnvironment treats a too-short token as Malformed",
           "[security][token_provider]") {
     FakeEnvironmentReader env;
     // 62 hex characters decodes to 31 bytes, one short of the required 32.
     env.Set(kVarName, std::string(62, '0'));
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMalformed);
+    CHECK(result.bytes.empty());
 }
 
-TEST_CASE("ReadTokenFromEnvironment returns nullopt for a token that is too long",
+TEST_CASE("ReadTokenFromEnvironment treats a too-long token as Malformed",
           "[security][token_provider]") {
     FakeEnvironmentReader env;
     // 66 hex characters decodes to 33 bytes, one over the required 32.
     env.Set(kVarName, std::string(66, '0'));
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    auto result = ReadTokenFromEnvironment(env, kVarName);
+    CHECK(result.outcome == TokenReadOutcome::kMalformed);
+    CHECK(result.bytes.empty());
 }
 
 TEST_CASE("ReadTokenFromEnvironment only reads the variable it is asked for",
           "[security][token_provider]") {
     FakeEnvironmentReader env;
     env.Set("SOME_OTHER_VARIABLE", kValidHexToken);
-    CHECK_FALSE(ReadTokenFromEnvironment(env, kVarName).has_value());
+    CHECK(ReadTokenFromEnvironment(env, kVarName).outcome == TokenReadOutcome::kMissing);
+}
+
+TEST_CASE("ReadTokenFromEnvironment isolates variables for the Malformed and Valid outcomes too",
+          "[security][token_provider]") {
+    FakeEnvironmentReader env;
+    env.Set(kVarName, "not-hex");
+    env.Set("SOME_OTHER_VARIABLE", kValidHexToken);
+    CHECK(ReadTokenFromEnvironment(env, kVarName).outcome == TokenReadOutcome::kMalformed);
+
+    FakeEnvironmentReader env2;
+    env2.Set(kVarName, kValidHexToken);
+    env2.Set("SOME_OTHER_VARIABLE", "not-hex");
+    CHECK(ReadTokenFromEnvironment(env2, kVarName).outcome == TokenReadOutcome::kValid);
 }

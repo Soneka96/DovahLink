@@ -129,6 +129,16 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList
 Write-Host "=== app-ci ==="
 $appDirectory = Join-Path $repoRoot "app"
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")
+
+# build_runner's incremental cache in .dart_tool/build can go stale across branch switches and
+# refactors (for example a moved/renamed source file it still remembers under the old path). The
+# hosted CI runner never hits this since it always starts from a fresh checkout; clearing it here
+# keeps this local preflight from failing on stale local state instead of a real problem.
+$appBuildCache = Join-Path $appDirectory ".dart_tool\build"
+if (Test-Path -LiteralPath $appBuildCache) {
+    Remove-Item -LiteralPath $appBuildCache -Recurse -Force
+}
+
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")

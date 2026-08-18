@@ -2,19 +2,23 @@
 // deterministic character level, accepts the same authentication token as the
 // plugin, prints READY followed by its generated bridge instance ID after
 // startup, and handles increase_level, new_game, load_game, load_game_fail,
-// revert, and quit commands on standard input.
+// revert, revoke <clientId>, and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
+#include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -22,9 +26,11 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace {
@@ -34,6 +40,8 @@ using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
+constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
+constexpr std::string_view kRevokeCommandPrefix = "revoke ";
 
 // Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
 // bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
@@ -47,6 +55,18 @@ public:
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
     /// @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
+};
+
+/// Displays a freshly generated pairing code by printing it to stdout, matching the harness's
+/// existing "print an observable signal for the test driver" convention (READY, BRIDGE_INSTANCE,
+/// LEVEL, PLAY_CONTEXT above). Stands in for the real Skyrim notification (stage G); a .NET
+/// validation-client scenario reads this line the same way it already reads the others.
+class StdoutPairingNotificationSink : public dovahlink::application::PairingNotificationSink {
+public:
+    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
+    void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
+        std::cout << "PAIRING_CODE " << sixDigitCode << std::endl;
+    }
 };
 
 /// Processes one lifecycle event through the tracker and applies its
@@ -94,12 +114,23 @@ std::optional<std::string> ReadPlayContextIdOverride(const dovahlink::security::
     return raw;
 }
 
+/// Reads a harness-only trust-store path override from the environment, so each test run can
+/// isolate its trust store instead of every invocation sharing the real per-user production file
+/// (`security::ResolveDefaultTrustStorePath`) across runs.
+std::optional<std::filesystem::path> ReadTrustStorePathOverride(const dovahlink::security::EnvironmentReader& env) {
+    auto raw = env.Read(kTrustStorePathOverrideEnvVar);
+    if (!raw.has_value() || raw->empty()) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(*raw);
+}
+
 }  // namespace
 /// Runs the standalone bridge integration harness.
 int main() {
     dovahlink::security::WindowsEnvironmentReader environmentReader;
-    auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
-    if (!tokenBytes.has_value()) {
+    auto tokenRead = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
+    if (tokenRead.outcome != dovahlink::security::TokenReadOutcome::kValid) {
         std::cerr << "DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded "
                      "256-bit token; the harness cannot authenticate a client without it.\n";
         return 1;
@@ -123,8 +154,24 @@ int main() {
 
     dovahlink::transport::ConnectionSlot connectionSlot;
     auto tokenTtl = ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
-    dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes), tokenTtl);
+    dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes), tokenTtl);
     dovahlink::security::FailedTokenThrottle tokenThrottle;
+
+    auto trustStorePath = ReadTrustStorePathOverride(environmentReader);
+    if (!trustStorePath.has_value()) {
+        trustStorePath = dovahlink::security::ResolveDefaultTrustStorePath();
+    }
+    if (!trustStorePath.has_value()) {
+        std::cerr << "Could not resolve a trust-store path (LOCALAPPDATA unset and no "
+                     "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE given).\n";
+        return 1;
+    }
+    dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
+    auto trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
+    dovahlink::security::FailedTokenThrottle credentialThrottle;
+    dovahlink::security::PairingSession pairingSession;
+    StdoutPairingNotificationSink pairingNotificationSink;
+
     dovahlink::application::SessionManager sessionManager;
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
     dovahlink::application::GameLifecycleTracker lifecycleTracker(
@@ -152,8 +199,10 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(listenerV4, listenerV6, connectionSlot, tokenStore,
-                                                              tokenThrottle, sessionManager, activePlayContext,
-                                                              bridgeInstanceId, kBridgeVersion);
+                                                              tokenThrottle, trustStore, credentialThrottle,
+                                                              sessionManager, activePlayContext, pairingSession,
+                                                              pairingNotificationSink, bridgeInstanceId,
+                                                              kBridgeVersion);
     dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
     coordinator.Start();
@@ -197,6 +246,21 @@ int main() {
             auto transition =
                 ProcessLifecycleEvent(lifecycleTracker, activePlayContext, dovahlink::application::LifecycleEvent::kRevert);
             std::cout << "PLAY_CONTEXT " << transition.newPlayContextId.value_or("(none)") << std::endl;
+        } else if (line.starts_with(kRevokeCommandPrefix)) {
+            // Test-only shortcut straight to TrustStore::Revoke: a real deployment only reaches
+            // revocation through TrustAdminService (security.md's "Trust administration surface"),
+            // but the harness already knows the clientId a scenario paired, so it skips the
+            // shortId lookup that surface exists for. Still exercises the same
+            // ActiveSessionDisconnector force-close primitive TrustAdminService::RevokeByShortId
+            // itself calls, so a scenario can prove revoke-while-connected disconnects the live
+            // session immediately, not just the next reconnect attempt.
+            std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
+            if (trustStore.Revoke(revokedClientId)) {
+                bridgeWorkerPool.DisconnectIfClientActive(revokedClientId);
+                std::cout << "REVOKED " << revokedClientId << std::endl;
+            } else {
+                std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;
+            }
         } else if (line == "quit") {
             break;
         }

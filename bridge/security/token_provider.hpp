@@ -28,10 +28,26 @@ public:
     [[nodiscard]] std::optional<std::string> Read(std::string_view name) const override;
 };
 
-/// Reads and hex-decodes a 256-bit one-time token from an environment value.
-/// Invalid, empty, unset, or incorrectly sized values return `std::nullopt`;
-/// intermediate plaintext is cleared on every normal and exceptional exit.
-[[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadTokenFromEnvironment(
-    const EnvironmentReader& env, std::string_view variableName);
+/// Outcome of reading the developer-authentication token from the environment.
+enum class TokenReadOutcome {
+    kMissing,    ///< The variable is unset or empty.
+    kMalformed,  ///< The variable is set but is not valid 64-character hex token data.
+    kValid,      ///< The variable decoded to a well-formed 32-byte token.
+};
+
+/// Result of reading and hex-decoding the developer-authentication token from an environment value.
+struct TokenReadResult {
+    /// Which of the three documented outcomes occurred.
+    TokenReadOutcome outcome;
+    /// Decoded token bytes; empty unless `outcome == TokenReadOutcome::kValid`.
+    std::vector<std::uint8_t> bytes;
+};
+
+/// Reads and hex-decodes a 256-bit one-time token from an environment value,
+/// distinguishing a missing variable from a malformed one so callers can log
+/// and react to each differently. Intermediate plaintext is cleared on every
+/// normal and exceptional exit.
+[[nodiscard]] TokenReadResult ReadTokenFromEnvironment(const EnvironmentReader& env,
+                                                        std::string_view variableName);
 
 }  // namespace dovahlink::security

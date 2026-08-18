@@ -27,13 +27,13 @@ void main() {
     test('returns Right when repository succeeds', () async {
       when(
         () => mockRepository.connect(token: 'token-1', clientId: 'client-1'),
-      ).thenAnswer((_) async => const Right(testSession));
+      ).thenAnswer((_) async => Right(buildConnectionSessionEntity()));
 
       final Either<Failure, ConnectionSessionEntity> result = await useCase(
         const ConnectParams(token: 'token-1', clientId: 'client-1'),
       );
 
-      expect(result, const Right(testSession));
+      expect(result, Right(buildConnectionSessionEntity()));
       verify(
         () => mockRepository.connect(token: 'token-1', clientId: 'client-1'),
       ).called(1);

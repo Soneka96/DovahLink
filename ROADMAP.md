@@ -151,7 +151,7 @@ canonical contract tests.
 
 ## 3. Local Device Pairing and Reconnection
 
-**Status:** Planned
+**Status:** Complete
 
 ### Outcome
 
@@ -192,7 +192,12 @@ seeing another pairing code unless trust was actually removed.
   not yet consider trusted must not authenticate an ordinary session. An incomplete pending pairing
   does not need to survive a bridge restart; when the client retries confirmation against a bridge
   that no longer recognizes the pending credential, it discards the incomplete local credential and
-  returns to unpaired.
+  returns to unpaired. The client-side half of this requirement -- durable `clientId`/credential
+  persistence, `confirming` recovery state, and relaunch recovery -- is implemented ahead of
+  schedule in the pulled-forward `sdk/dart/dovahlink_client/` package described by Phase 5 below;
+  see `ai/context/sdk/persistence.md`. This does not close Phase 3, whose remaining scope (the
+  six-digit code, Skyrim notification, trust store, revocation, and administration surface) is
+  Bridge-side work this pull-forward does not touch.
 - After successful confirmation, bind a strong, device-scoped credential to the approved `clientId`
   and issue it to the pairing client; that credential is the only credential used for that client's
   later reconnects, and each reconnect still creates a fresh authenticated `sessionId`.
@@ -346,6 +351,269 @@ selecting among Bridge processes.
 - Pairing secrets, credentials, and developer tokens are absent from normal logs, errors, fixtures,
   and user-facing diagnostics.
 
+## 3.1 Live Pairing Challenge UX
+
+**Status:** Planned
+
+### Outcome
+
+A person pairing a device can see how much time their code has left, can bring the code back to
+the screen on demand or automatically after a mistake, and can cancel a pairing attempt in
+progress -- all without changing what a completed pairing means or how durable trust is stored.
+This phase completes and hardens the live, ephemeral pairing-challenge experience Phase 3
+established; it does not touch the durable trust model, which remains Phase 3.2's job.
+
+### Scope and behavior
+
+- The pairing challenge keeps its existing overall expiry; this phase changes how that expiry and
+  the code are surfaced and protected, not how long a challenge lasts.
+- The Bridge remains the sole authority over challenge expiration. It exposes remaining duration
+  (conceptually `expiresInSeconds`) rather than an absolute wall-clock timestamp, so the SDK/app
+  renders a local countdown and refreshes authoritative pairing state as expiry approaches. Flutter
+  must not own expiry semantics itself.
+- The active challenge is owned by the requesting `clientId`, not by a WebSocket/session. Only one
+  device may be actively pairing at a time; a second device attempting to pair while a challenge is
+  active is rejected with an explicit, generic outcome distinct from `pairing_status`'s existing
+  `in_progress` (which today only ever means the *requesting* client's own challenge is still
+  active) -- conceptually `other_device_pairing` -- that reveals nothing about the owning device or
+  its code. The owning device may reconnect and resume its existing challenge.
+- A disconnect while a challenge is owned (normal close, network loss, or connection timeout)
+  preserves the challenge for a 10-second reconnect grace period: the same `clientId` reconnecting
+  within that window regains its existing code, expiry, and remaining-attempt count without an
+  automatic Skyrim re-notification. If the grace period elapses first, the challenge is cancelled
+  outright, its code destroyed, and the slot freed for another device. A challenge never transfers
+  to a different device. This grace period does not apply when the challenge ended because of
+  explicit cancellation, a protocol/security-driven termination, or an administrative trust action
+  that deliberately ends it -- revocation, or a block/trust-reset/factory-reset once Phase 3.2 adds
+  them -- since those are deliberate endings, not connectivity hiccups.
+- "Show code again" is a dedicated operation (conceptually `pairing_renotify`), not a repurposing of
+  ordinary `pairing_request` -- a repeated `pairing_request` still must not spam Skyrim
+  notifications, exactly as today. Only the owning `clientId` may invoke it, and it re-displays the
+  same active code; the code itself never reaches the app. It carries its own 5-second Bridge-owned
+  cooldown, represented in the UI as a loading/cooldown state rather than an error. A request during
+  the cooldown is neither queued nor silently ignored: it returns an explicit cooldown/rate-limited
+  result carrying enough remaining-duration information for the UI to render correctly. The Bridge
+  does not add invasive Skyrim UI hooks to detect exactly when `RE::DebugNotification` visually
+  decays; the fixed cooldown is the source of truth.
+- An incorrect confirmation automatically re-displays the code in Skyrim (unless the hard attempt
+  limit below has just been reached), using wording that distinguishes a wrong attempt from the
+  original display. This automatic re-notification has its own independent rate limit and must not
+  affect or reset the manual "show again" cooldown -- the two are intentionally separate paths, and
+  neither may spam notifications.
+- Confirmation attempts are protected two ways: a pacing limit permits at most one evaluated code
+  validation per second (an earlier attempt gets an explicit rate-limited/cooldown response,
+  consumes no failed attempt, and the UI stays in a loading state until validation is allowed
+  again), and a hard limit permits at most 5 evaluated wrong codes per challenge. The fifth wrong
+  code cancels the challenge immediately, destroys the code, requires an entirely new pairing
+  request, and displays a distinct too-many-attempts notification; the now-invalid code is never
+  shown again.
+- An explicit cancellation operation (conceptually `pairing_cancel`) may be invoked by the owning
+  `clientId` or an appropriate Skyrim/admin command, and works whether the challenge is still active
+  or already holding a credential pending acknowledgement. Cancelling a pending credential destroys
+  it, returns pairing to idle, and requires the client to discard any uncommitted local credential
+  state. Cancellation is idempotent without pretending work occurred: it reports `cancelled` when it
+  actually ended something, and a distinct `already_idle` when there was nothing to cancel. It never
+  revokes an already-trusted device, creates a revocation record, or alters any unrelated persisted
+  trust.
+- A credential issued after a correct code no longer stays pending indefinitely: the
+  pending-credential state expires after 5 minutes. The 10-second disconnect grace period no longer
+  applies once a challenge reaches this state -- existing recovery semantics may still let the
+  owning client reconnect within the 5 minutes to complete acknowledgement. Expiry destroys the
+  pending credential, returns pairing to idle, and requires starting a new pairing process.
+
+### Dependencies and boundaries
+
+This phase depends on Phase 3's completed pairing state machine, trust store, and session
+infrastructure, and extends the existing pairing wire messages without changing what a completed
+pairing means or how trust is persisted -- durable trust identity and administration belong to
+Phase 3.2, not here. It does not add a new Skyrim UI or mod dependency; the in-game side remains
+native `RE::DebugNotification` text.
+
+### Acceptance criteria
+
+- A person pairing a device can see remaining time on the active code and can bring the code back
+  to the screen on demand, without generating a new challenge or resetting/extending its expiry.
+- A wrong code leaves the same challenge, code, and expiry in place (short of the hard attempt
+  limit) and automatically redisplays the code in Skyrim with wording distinguishing the mistake.
+- Only one device pairs at a time; a competing device gets a generic busy result with no
+  information about the owner or the active code, and the owning device can reconnect and resume.
+- A short disconnect (normal close, network loss, timeout) does not cost the owning device its
+  challenge, code, expiry, or attempt count within the 10-second grace period, and does not trigger
+  an automatic re-notification on that reconnect; a longer disconnect cleanly cancels the challenge
+  and frees the slot for another device.
+- "Show code again" and automatic wrong-code re-notification are independently rate-limited and
+  neither affects the other's cooldown; a request during a cooldown returns an explicit
+  rate-limited result with remaining-duration information, never a silent no-op or a queued retry.
+- At most one code validation is evaluated per second, and at most 5 wrong evaluated codes are
+  allowed per challenge; the sixth attempt cannot occur because the fifth already cancelled the
+  challenge, destroyed the code, and required a fresh pairing request.
+- Cancellation works both while a challenge is active and while a credential is pending
+  acknowledgement, reports `cancelled` or `already_idle` truthfully, and never revokes trust,
+  creates a revocation record, or touches unrelated persisted trust.
+- Once a credential is pending, the 10-second disconnect grace period no longer applies; the owning
+  client may still reconnect within the pending credential's own 5-minute window to complete
+  acknowledgement, and a pending credential that is never acknowledged within that window expires,
+  returning pairing to idle and requiring a fresh pairing process.
+
+## 3.2 Known Device & Trust Administration
+
+**Status:** Planned
+
+### Outcome
+
+The durable trust model gains an explicit, unified device identity and a full administrative
+lifecycle around it -- rename, revoke, block, unblock, forget, reset, and factory reset -- so an
+already-paired device can be managed deliberately instead of only ever being trusted or gone. This
+is a real security/trust-model change, kept deliberately separate from Phase 3.1's live-challenge
+UX work.
+
+### Scope and behavior
+
+- A unified, durable Known Device model replaces the current conceptual split of independent
+  trusted records, revocation tombstones, and (new) block records. A device becomes a persistent
+  Known Device only on its first *successful* pairing; merely requesting or attempting pairing
+  creates no persistent record.
+- Each Known Device carries durable identity metadata: `clientId`, a stable `shortId`, an optional
+  `displayName`, and `createdAt`. There is no `lastSeenAt`; `createdAt` is the authoritative field
+  for device age and ordering. A Known Device is always in exactly one of four durable states --
+  `Trusted`, `Revoked`, `Blocked`, or `Unpaired` -- and only `Trusted` carries a usable credential.
+  `Blocked` additionally persists `blockedAt`, administrative metadata only; blocks never expire on
+  their own.
+- A Known Device's `shortId` is allocated once, at creation, and stays stable across every
+  transition it can go through (`Trusted -> Revoked -> Trusted`; `Trusted -> Blocked -> Unblocked ->
+  Unpaired -> Trusted`), including while `Blocked`. This is a deliberate change from the trust
+  model's current behavior, where a `shortId` becomes reusable as soon as its client is no longer
+  trusted (`ai/context/protocol/security.md`'s "Persistent local trust"); under the Known Device
+  model a `shortId` is reserved for as long as the Known Device record exists, and becomes reusable
+  only once that device is explicitly forgotten or removed by a factory reset.
+- `displayName` stays presentation-only metadata, never security identity, and duplicate names
+  across different devices are allowed. A `Trusted` device may rename itself while authenticated; an
+  empty rename clears the name. Re-pairing without supplying a new name preserves the existing one;
+  supplying a valid new name replaces it. When a display name is shared by more than one listed
+  device, the admin listing disambiguates it only in presentation -- suffixed `#1`, `#2`, `#3`...,
+  numbered oldest-to-newest by `createdAt`, recomputed whenever the list is rendered (so forgetting
+  the oldest duplicate shifts the remaining suffixes). This suffix is never persisted, never part of
+  identity, and never accepted in place of `shortId`, which remains the one stable administrative
+  identifier.
+- Revocation keeps its existing meaning: it removes current trust and invalidates the credential but
+  permits future pairing. It immediately disconnects every active session belonging to the device,
+  invalidates its credential, transitions it to `Revoked`, and preserves its `clientId`, `shortId`,
+  `displayName`, and `createdAt`. Re-pairing a `Revoked` Known Device restores `Trusted` while
+  keeping the same Known Device identity.
+- Blocking is strictly stronger than revocation: it prevents a known device identity from
+  authenticating *or* entering pairing again until explicitly unblocked. Only `Trusted` and
+  `Revoked` Known Devices can be blocked in this phase -- an arbitrary, never-authorized `clientId`
+  cannot be blocked, since blocking targets an existing Known Device record, not a bare identity
+  string. Blocking atomically destroys any trusted credential, cancels any pairing the identity owns
+  (active or pending), immediately disconnects every active session for that device, transitions it
+  to `Blocked`, and records `blockedAt`. A blocked device is rejected as early as `hello`: it
+  receives neither a normal authenticated session nor an unpaired/restricted pairing session, and
+  is never issued a new Skyrim pairing code. The rejection uses an explicit, canonical `blocked`
+  outcome, distinct from `revoked` -- the two must not be conflated -- and discloses no stored
+  `shortId`, `displayName`, or other administrative metadata to the unauthenticated connection.
+  Blocked connection attempts update no persistent metadata and produce no Skyrim notification.
+- "Device," for this phase's blocking scope, means the persistent DovahLink client installation
+  identity carried by `clientId`. A reinstall or local reset that mints a new `clientId` can present
+  as an unrelated new device; this phase adds no hardware fingerprinting, OS-machine fingerprinting,
+  other invasive platform identifiers, or physical-device attestation to close that gap. A stronger,
+  reinstall-resistant device-identity capability -- potentially including physical-device
+  attestation -- is recorded as a deferred possibility below, to be reconsidered alongside the
+  later LAN/mobile security phases, and is explicitly not committed scope here.
+- Unblocking removes the block, transitions the device to `Unpaired`, and requires a completely
+  fresh pairing flow -- it does not restore the old credential, though it preserves `clientId`,
+  `shortId`, `displayName`, and `createdAt`.
+- Administration exposes both a general Known Device list (carrying each device's state) and a
+  filtered blocklist view; a `Blocked` device appears in both. User-facing/admin commands normally
+  target `shortId`; internal domain/security APIs continue to use `clientId` as the canonical
+  security identity. Block and unblock are safely retryable: repeating either operation returns a
+  meaningful, truthful outcome for the device's current state rather than silently no-opping or
+  falsely claiming a transition occurred.
+- An explicit "forget" operation (conceptually `forget <shortId>`) is allowed only for Known Devices
+  in `Revoked` or `Unpaired` -- a `Trusted` device must be revoked first, and a `Blocked` device
+  must be explicitly unblocked first; forgetting never implicitly lifts a block. Forgetting deletes
+  the Known Device record entirely (its `clientId`/`shortId` association, display name, `createdAt`,
+  and revocation history) and frees its `shortId` for future allocation. Any credential or client
+  identity presented afterward is unknown/unauthenticated; if that same installation later pairs
+  again, it is treated as a completely new Known Device with a new `shortId` and `createdAt`.
+- A recoverable Reset Trust operation, distinct from Factory Reset, immediately disconnects every
+  trusted session, cancels active/pending pairing, invalidates every trusted credential, and
+  transitions every formerly `Trusted` Known Device to `Revoked` -- while preserving every Known
+  Device record, its `shortId`, `displayName`, `createdAt`, and every existing block. It executes
+  immediately and does not require Factory Reset's stronger confirmation flow.
+- Factory Reset is the destructive first-run reset: it removes trusted credentials, every Known
+  Device record, revocations, the blocklist and its timestamps, display names, creation timestamps,
+  and `shortId` reservations, cancels all active/pending pairing, and disconnects every active
+  session -- afterward, trust/pairing state is indistinguishable from a first run. Because it is
+  destructive, the initial factory-reset request performs no mutation, disconnects no one, and
+  alters no trust; Skyrim instead generates and displays a short confirmation code, and the
+  destructive reset executes only once that code is supplied back through the appropriate admin
+  command. A simple repeated command or a literal "confirm" is not an acceptable confirmation model.
+- Developer-token authentication (`ai/context/protocol/security.md`'s "Developer authentication")
+  stays a separate, explicit provider; normal Known Device blocking semantics do not redefine a
+  developer-token session as a paired device, and developer-token authentication is not folded into
+  the Known Device lifecycle merely to reuse block/unblock.
+- Administrative operations that invalidate access take effect immediately, with no window where an
+  already-authenticated connection keeps operating until its next reconnect. This extends Phase 3's
+  existing "Revocation is immediate" guarantee (`security.md`'s "Persistent local trust") to apply
+  uniformly across Block, Revoke, Reset Trust, and Factory Reset alike.
+
+### Dependencies and boundaries
+
+This phase depends on Phase 3's trust store, trust administration surface, and session
+infrastructure, and on Phase 3.1 only insofar as both extend the same pairing challenge; it does
+not depend on Phase 3.1's specific UX behavior. It changes the durable trust model's shape (a
+unified Known Device record replacing independent trusted/tombstone/block concepts) and the
+`shortId` reuse rule described above, so it must not be implemented as a purely additive change
+without accounting for that shift. It does not implement hardware/OS/platform device fingerprinting
+or physical-device attestation; that remains a deferred possibility. It does not change developer-
+token authentication's separate provider status.
+
+This phase also redefines what "reset" means, and that redefinition must be handled deliberately,
+not as a rename in place. Phase 3's already-shipped `TrustAdminService::Reset()` today performs the
+full, unconditional wipe (every trusted record and revocation tombstone removed, no confirmation
+step) that this document now calls **Factory Reset**. The new, narrower **Reset Trust** operation
+-- which preserves Known Device records and only revokes sessions/credentials -- is genuinely new
+behavior with no existing implementation. A future implementer must not assume today's `Reset()`
+call site can simply be renamed to mean "Reset Trust"; its existing behavior maps to Factory Reset
+(which additionally needs the new confirmation-code gate), and Reset Trust needs to be built as a
+distinct operation alongside it.
+
+### Acceptance criteria
+
+- A device becomes a persistent Known Device only after a successful pairing, never merely from a
+  pairing attempt or request.
+- Revoking a Known Device disconnects its active sessions immediately, invalidates its credential,
+  and leaves it able to re-pair back to `Trusted` under the same Known Device identity.
+- Blocking a `Trusted` or `Revoked` Known Device destroys its credential, cancels any pairing it
+  owns, disconnects its active sessions immediately, and thereafter rejects it at `hello` with a
+  distinct `blocked` outcome that exposes no stored metadata -- without producing a Skyrim
+  notification or updating persisted metadata for the rejected attempt.
+- Unblocking returns a device to `Unpaired` without restoring its old credential, requiring a fresh
+  pairing flow, while its `clientId`, `shortId`, `displayName`, and `createdAt` all survive
+  unchanged.
+- An authenticated `Trusted` device can rename itself, an empty rename clears the display name, and
+  re-pairing without supplying a new name preserves the existing one; when two or more listed
+  devices share a display name, the admin listing disambiguates them in presentation only, numbered
+  oldest-to-newest by `createdAt`, without ever persisting the suffix or accepting it in place of
+  `shortId`.
+- Administration exposes both a general Known Device list carrying each device's state and a
+  filtered blocklist view, with every `Blocked` device appearing in both.
+- A Known Device's `shortId` never changes and never becomes available for reuse while that Known
+  Device record exists, across every state transition it can undergo.
+- Repeated block/unblock operations against the same device return truthful, meaningful outcomes
+  reflecting its actual current state rather than a silent no-op or a false claim of transition.
+- Forgetting a device is possible only from `Revoked` or `Unpaired`, deletes its record completely,
+  frees its `shortId`, and never implicitly lifts a block.
+- Reset Trust immediately revokes every trusted session and credential while preserving every Known
+  Device record (including blocks), and requires no destructive-confirmation flow; Factory Reset
+  removes all trust/pairing state entirely, requires a Skyrim-displayed confirmation code before its
+  destructive mutation runs, and leaves the system indistinguishable from first run afterward.
+- Block, Revoke, Reset Trust, and Factory Reset all disconnect every affected active session
+  immediately, with no already-authenticated connection able to keep operating until its next
+  reconnect.
+- Developer-token sessions are never treated as Known Devices and are unaffected by Known Device
+  block/unblock semantics.
+
 ## 4. Live State Synchronization Foundation
 
 **Status:** Planned
@@ -387,7 +655,12 @@ without stalling Skyrim.
 
 ## 5. Dart Client SDK Foundation
 
-**Status:** Planned
+**Status:** Planned. The package scaffold, protocol/transport layer, and persistence boundary
+(`clientId`, credential, `CONFIRMING` pairing-recovery state, behind a Windows DPAPI-backed
+`ClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
+`ai/context/sdk/persistence.md`. Bridge-version compatibility detection, reconnect, revisions,
+subscriptions, snapshots, and retiring the app's separate `features/connection/` Redux protocol
+code remain undone, so this phase is not complete.
 
 ### Outcome
 
@@ -1119,3 +1392,6 @@ decisions before entering the ordered roadmap:
 - Internet or hosted remote connectivity
 - Accounts, cloud storage, or cross-device cloud synchronization
 - Broad compatibility promises for unsupported mods, UI themes, or Skyrim editions
+- A device-identity capability resistant to reinstall/identity reset, potentially including
+  physical-device attestation, reconsidered alongside the LAN/mobile security phases (22-23); not
+  committed scope for Phase 3.2's device-blocking work, which targets `clientId` identity only

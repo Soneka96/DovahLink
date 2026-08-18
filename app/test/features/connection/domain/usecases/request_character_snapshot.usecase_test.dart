@@ -29,13 +29,13 @@ void main() {
       test('returns Right and forwards knownRevision when it is set', () async {
         when(
           () => mockRepository.requestCharacterSnapshot(knownRevision: 3),
-        ).thenAnswer((_) async => Right(testSnapshot));
+        ).thenAnswer((_) async => Right(buildCharacterSnapshotEntity()));
 
         final Either<Failure, CharacterSnapshotEntity> result = await useCase(
           const RequestCharacterSnapshotParams(knownRevision: 3),
         );
 
-        expect(result, Right(testSnapshot));
+        expect(result, Right(buildCharacterSnapshotEntity()));
         verify(
           () => mockRepository.requestCharacterSnapshot(knownRevision: 3),
         ).called(1);
@@ -47,13 +47,13 @@ void main() {
         () async {
           when(
             () => mockRepository.requestCharacterSnapshot(),
-          ).thenAnswer((_) async => Right(testSnapshot));
+          ).thenAnswer((_) async => Right(buildCharacterSnapshotEntity()));
 
           final Either<Failure, CharacterSnapshotEntity> result = await useCase(
             const RequestCharacterSnapshotParams(),
           );
 
-          expect(result, Right(testSnapshot));
+          expect(result, Right(buildCharacterSnapshotEntity()));
           verify(() => mockRepository.requestCharacterSnapshot()).called(1);
           verifyNoMoreInteractions(mockRepository);
         },

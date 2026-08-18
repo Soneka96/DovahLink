@@ -10,6 +10,20 @@
 
 Use explicit seams for runtime-dependent code: a fake callback registry for registration and unregistration, a fake queue or controllable executor for handoff, and a fake transport for connection lifecycle. Lifecycle tests must not need Skyrim to prove ordering.
 
+## Test data construction
+
+- Build representative test values through the type's own aggregate/designated-initializer syntax
+  (`CharacterSnapshot snapshot{.level = 12};`) when its default member initializers already supply
+  sensible values for every other field. This is the default: most game-state and application value
+  types in this codebase are plain aggregates for exactly this reason.
+- When a representative value is needed in more than one test file, or the type is not a plain
+  aggregate (it has invariants, computed state, or a non-trivial constructor), extract a
+  `Build<Type>` free function with default parameter values instead of duplicating the value inline.
+  Place it in that module's own test-support header (for example a new
+  `<module>/<module>_test_support.hpp`), mirroring `bridge/protocol/fixture_test_support.hpp`'s role
+  as the protocol module's test-only helper header.
+- Do not introduce a mutable global or static test value; each call constructs a fresh instance.
+
 ## Required behavior
 
 Cover:

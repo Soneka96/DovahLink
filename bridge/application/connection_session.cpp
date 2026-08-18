@@ -25,8 +25,10 @@ void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& e
 }  // namespace
 
 void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
-                          security::FailedTokenThrottle& tokenThrottle, SessionManager& sessionManager,
+                          security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
+                          security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
                           ConnectionId connection, const ActivePlayContext& activePlayContext,
+                          security::PairingSession& pairingSession, PairingNotificationSink& pairingNotificationSink,
                           const std::optional<std::string>& bridgeInstanceId, const std::string& bridgeVersion,
                           SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
@@ -35,7 +37,7 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
     ConnectionTimeoutTracker timeout(steadyNow());
 
-    auto rawHello = ws.ReadMessage();
+    auto rawHello = ws.ReadMessage(timeout.Deadline());
     if (!rawHello.has_value()) {
         ws.Close();
         return;
@@ -62,8 +64,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         return;
     }
 
-    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, sessionManager, connection, timeout,
-                                 postReadNow, bridgeInstanceId, activePlayContext, bridgeVersion);
+    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+                                 sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
+                                 activePlayContext, bridgeVersion);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
@@ -107,15 +110,15 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     std::size_t receivedMessageCount = 0;
 
     while (true) {
-        auto raw = ws.ReadMessage();
+        auto raw = ws.ReadMessage(timeout.Deadline());
         if (!raw.has_value()) {
             break;
         }
 
         auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager,
                                              replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                             subscriptionState, bridgeInstanceId, steadyNow(),
-                                             std::chrono::system_clock::now());
+                                             subscriptionState, pairingSession, trustStore, pairingNotificationSink,
+                                             bridgeInstanceId, steadyNow(), std::chrono::system_clock::now());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

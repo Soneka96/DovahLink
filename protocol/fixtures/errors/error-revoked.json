@@ -1,0 +1,15 @@
+{
+  "messageType": "error",
+  "messageId": "message-error-revoked-1",
+  "sessionId": null,
+  "correlationId": "message-hello-1",
+  "payload": {
+    "code": "revoked",
+    "message": "This device's trust was revoked",
+    "retryable": false,
+    "details": null
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
+}

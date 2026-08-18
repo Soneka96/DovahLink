@@ -26,4 +26,8 @@ bool ConnectionTimeoutTracker::IsTimedOut(std::chrono::steady_clock::time_point 
     return now >= deadline_;
 }
 
+std::chrono::steady_clock::time_point ConnectionTimeoutTracker::Deadline() const {
+    return deadline_;
+}
+
 }  // namespace dovahlink::application

@@ -6,6 +6,7 @@
 #include "protocol/envelope.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
 
 #include <chrono>
 #include <optional>
@@ -25,11 +26,21 @@ struct HandshakeResult {
     bool closeConnection = false;
 };
 
-/// Validates one decoded hello and consumes the token only after session admission succeeds.
-/// Successful handshakes bind a new session to `connection`; failures close the connection.
+/// Validates one decoded hello and consumes the presented credential only after session admission
+/// succeeds. Successful handshakes bind a new session to `connection`; failures close the
+/// connection. Branches on `hello.auth.method`: `one_time_local_token` (developer authentication,
+/// admits `kFull`) and `trusted_device_credential` (a persisted pairing credential checked via
+/// `trustStore.Authenticate`, admits `kFull`) both require a matching secret; `unpaired` requires
+/// none and admits `kRestricted`. `hello_ack.clientIdentityKind` is `"paired"` only for
+/// `trusted_device_credential`; both other methods report `"unpaired"`, per `security.md`'s "Hello
+/// authentication and session trust tiers".
 /// @param helloEnvelope Decoded client hello envelope.
-/// @param tokenStore One-time token store.
-/// @param tokenThrottle Global failed-token throttle.
+/// @param tokenStore One-time token store, consulted for `auth.method: "one_time_local_token"`.
+/// @param tokenThrottle Global failed one-time-token attempt throttle.
+/// @param trustStore Persistent trust store, consulted for `auth.method:
+///     "trusted_device_credential"`.
+/// @param credentialThrottle Global failed device-credential attempt throttle, separate from
+///     `tokenThrottle` so guessing one cannot block or be blocked by the other.
 /// @param sessionManager Session registry.
 /// @param connection Transport connection identifier.
 /// @param timeoutTracker Connection timeout tracker.
@@ -46,6 +57,8 @@ struct HandshakeResult {
 [[nodiscard]] HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                                            security::TokenStore& tokenStore,
                                            security::FailedTokenThrottle& tokenThrottle,
+                                           security::TrustStore& trustStore,
+                                           security::FailedTokenThrottle& credentialThrottle,
                                            SessionManager& sessionManager, ConnectionId connection,
                                            ConnectionTimeoutTracker& timeoutTracker,
                                            std::chrono::steady_clock::time_point now,

@@ -9,18 +9,27 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
+#include "application/game_behavior_config.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
+#include "application/trust_admin_service.hpp"
+#include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
+#include "game_state/commonlib_pairing_notification_sink.hpp"
+#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
+#include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_store.hpp"
+#include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -35,6 +44,7 @@
 namespace {
 
 using dovahlink::application::kBridgePort;
+using dovahlink::application::kGameBehaviorConfigPath;
 using dovahlink::application::kTokenEnvVar;
 
 // Minimal file logging to the SKSE log directory.
@@ -141,14 +151,53 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         return false;
     }
 
-    // A missing or malformed launch token is fatal because no client could
-    // authenticate without it.
+    // Runtime compatibility toggles (both default enabled): keeping Skyrim
+    // active while unfocused so the pairing code stays visible while the
+    // player is in the DovahLink app, and patching achievement eligibility
+    // back on for a modded load order. Read once, early, so both outcomes
+    // are logged before any other setup and can be disabled independently
+    // through Data/SKSE/Plugins/DovahLinkBridge.ini.
+    static dovahlink::application::FilesystemGameBehaviorConfigFileReader gameBehaviorConfigReader;
+    dovahlink::application::GameBehaviorConfig behaviorConfig =
+        dovahlink::application::ReadGameBehaviorConfig(gameBehaviorConfigReader, kGameBehaviorConfigPath);
+    SKSE::log::info("Always-active mode: {}", behaviorConfig.alwaysActive ? "enabled" : "disabled");
+    SKSE::log::info("Achievement compatibility: {}", behaviorConfig.achievementCompat ? "enabled" : "disabled");
+    if (behaviorConfig.alwaysActive) {
+        dovahlink::game_state::ApplyAlwaysActiveSetting();
+    }
+    if (behaviorConfig.achievementCompat) {
+        dovahlink::game_state::InstallAchievementCompatibilityPatch();
+    }
+
+    // The developer token is optional, per ai/context/protocol/security.md's
+    // "Developer authentication": normal users never set it and authenticate
+    // through pairing instead, so a missing or malformed value must never
+    // fail plugin load (that would surface to the user only as SKSE's
+    // generic "incompatible plugin" failure, with no indication of the real
+    // cause). A missing or malformed value disables only the separate
+    // one_time_local_token auth path; TokenStore below already treats an
+    // empty token as permanently unavailable, so passing it an empty vector
+    // is sufficient -- no other component needs to know why it is empty.
+    // The token's own value is never logged in any branch.
     static dovahlink::security::WindowsEnvironmentReader environmentReader;
-    auto tokenBytes = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
-    if (!tokenBytes.has_value()) {
-        SKSE::log::error("DOVAHLINK_BRIDGE_TOKEN is not set to a valid 64-character hex-encoded 256-bit token; "
-                          "the bridge cannot authenticate a client without it.");
-        return false;
+    auto tokenRead = dovahlink::security::ReadTokenFromEnvironment(environmentReader, kTokenEnvVar);
+    switch (tokenRead.outcome) {
+        case dovahlink::security::TokenReadOutcome::kMissing:
+            SKSE::log::info(
+                "{} is not set; developer-token authentication is disabled. Normal users do not need "
+                "it -- pair through the in-game pairing flow instead.",
+                kTokenEnvVar);
+            break;
+        case dovahlink::security::TokenReadOutcome::kMalformed:
+            SKSE::log::warn(
+                "{} is set but is not a valid token; developer-token authentication is disabled. "
+                "Expected exactly 64 hexadecimal characters, with no \"0x\" prefix and no separators. "
+                "Pairing is unaffected.",
+                kTokenEnvVar);
+            break;
+        case dovahlink::security::TokenReadOutcome::kValid:
+            SKSE::log::info("{} is set; developer-token authentication is enabled.", kTokenEnvVar);
+            break;
     }
 
     // Both IPv4 and IPv6 loopback listeners are required; only the port is
@@ -187,8 +236,26 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // ordering is exactly the construction order, without needing a
     // hand-rolled aggregate to express the same dependency graph.
     static dovahlink::transport::ConnectionSlot connectionSlot;
-    static dovahlink::security::TokenStore tokenStore(std::move(*tokenBytes));
+    static dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
+
+    // The persistent per-user trust store's backing file cannot be resolved
+    // without LOCALAPPDATA, which every interactive Windows user session sets.
+    // Unlike the optional developer token above, this is fatal: the only
+    // alternative is an in-memory-only store that would silently forget every
+    // paired client on the next restart, which is worse than refusing to load.
+    auto trustStorePath = dovahlink::security::ResolveDefaultTrustStorePath();
+    if (!trustStorePath.has_value()) {
+        SKSE::log::error("Could not resolve the per-user trust-store path (LOCALAPPDATA unset).");
+        return false;
+    }
+    static dovahlink::security::WindowsTrustStorePersistence trustStorePersistence(*trustStorePath);
+    static dovahlink::security::TrustStore trustStore = dovahlink::security::TrustStore::Load(trustStorePersistence);
+
+    static dovahlink::security::FailedTokenThrottle credentialThrottle;
+    static dovahlink::security::PairingSession pairingSession;
+    static dovahlink::game_state::CommonLibPairingNotificationSink pairingNotificationSink;
+
     static dovahlink::application::SessionManager sessionManager;
 
     // The authoritative, play-context-owned identity and state per
@@ -210,8 +277,19 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4, listenerV6);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, sessionManager, activePlayContext,
-        bridgeInstanceId, kBridgeVersion);
+        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, pairingSession, pairingNotificationSink, bridgeInstanceId,
+        kBridgeVersion);
+
+    // Registers the optional trust-administration console adapter
+    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
+    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
+    // Papyrus glue script are not installed. Constructed after bridgeWorkerPool, which it depends on
+    // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
+    // (security.md's "Persistent local trust") against an already-connected session, not just the
+    // persisted trust record.
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool);
+    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

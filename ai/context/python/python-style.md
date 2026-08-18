@@ -2,6 +2,15 @@
 
 These conventions apply to handwritten Python repository tooling and its tests.
 
+## Files and organization
+
+One primary public class or top-level function group per file, per `ai/context/common.md`'s shared
+file-organization rule. Its two exceptions apply per tool/script (each standalone `tooling/*.py`
+script or package gets its own, never shared across scripts): every enum belongs in that tool's
+`enums.py`, and every small cross-cutting constant value (timeouts, limits, and similar) belongs in
+that tool's `constants.py`. Within either file, group entries by the area they belong to, each
+preceded by a `# ---- <Area> ----` comment banner.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md` and PEP 257 placement.

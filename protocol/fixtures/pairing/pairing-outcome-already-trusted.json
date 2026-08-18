@@ -1,0 +1,15 @@
+{
+  "messageType": "pairing_outcome",
+  "messageId": "message-pairing-outcome-3",
+  "sessionId": "session-1",
+  "correlationId": "message-pairing-ack-1",
+  "payload": {
+    "outcome": "already_trusted",
+    "credential": "a1b2c3d4e5f6",
+    "shortId": "12345",
+    "displayName": "My PC"
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

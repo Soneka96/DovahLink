@@ -6,6 +6,9 @@
 
 #include <bcrypt.h>
 
+#include <cassert>
+#include <format>
+
 namespace dovahlink::security {
 
 std::optional<std::vector<std::uint8_t>> GenerateRandomBytes(std::size_t size) {
@@ -29,6 +32,30 @@ std::optional<std::string> GenerateOpaqueId() {
         return std::nullopt;
     }
     return EncodeHex(*bytes);
+}
+
+std::optional<std::string> GenerateNumericCode(std::size_t digits) {
+    assert(digits >= 1 && digits <= 9);
+
+    auto bytes = GenerateRandomBytes(sizeof(std::uint32_t));
+    if (!bytes.has_value()) {
+        return std::nullopt;
+    }
+    std::uint32_t value = 0;
+    for (auto byte : *bytes) {
+        value = (value << 8) | byte;
+    }
+
+    // ponytail: value % range is mildly non-uniform (low residues occur one extra time each once
+    // range doesn't evenly divide 2^32) -- irrelevant at this usage scale: current callers only
+    // request 5-6 digit administrative/UX codes, brute-force-limited by throttling rather than
+    // relying on perfect distribution. Revisit with rejection sampling if a caller ever needs a
+    // uniformity guarantee.
+    std::uint32_t range = 1;
+    for (std::size_t i = 0; i < digits; ++i) {
+        range *= 10;
+    }
+    return std::format("{:0{}}", value % range, digits);
 }
 
 }  // namespace dovahlink::security

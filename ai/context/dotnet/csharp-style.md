@@ -2,6 +2,16 @@
 
 These conventions apply to handwritten C# in integration clients, tests, and repository tooling.
 
+## Files and types
+
+One primary public class, record, struct, or interface per file, per `ai/context/common.md`'s
+shared file-organization rule. Its two exceptions apply per project (`DovahLinkValidationClient`,
+`DovahLinkValidationClient.Tests`, and `tooling/BridgeBuilder` each get their own, never shared
+across a project boundary): every enum for that project belongs in that project's `Enums.cs`, and
+every small cross-cutting constant value (timeouts, limits, and similar) belongs in that project's
+`Constants.cs`. Within either file, group entries by the area they belong to, each preceded by a
+`// ---- <Area> ----` comment banner.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.
@@ -19,6 +29,19 @@ Follow the shared documentation rules in `ai/context/common.md`.
   remain attached to that declaration.
 - Use ordinary `//` comments inside a method for implementation reasoning. Do not mix `//` comments
   into an XML documentation block.
+
+## Test fixtures
+
+- Build representative test values through a static `Build<Type>` method with C# optional
+  parameters defaulting to one representative value per parameter; a test that wants the default
+  calls it with no arguments, and a test that needs one field different overrides only that
+  parameter (`BuildPairingHandshake(trusted: false)`).
+- Do not export a fixture as a bare `static readonly`/`const` field: a constant cannot be varied per
+  test case without either duplicating the whole value under a second name or mutating a shared
+  instance, and the builder's own job is to make that variation cheap.
+- Group builders in a `Fixtures` class per test project, mirroring this file's `Enums.cs`/
+  `Constants.cs` grouping exception above: organized by area with a `// ---- <Area> ----` banner per
+  group, rather than scattering ad-hoc test-data construction across individual test files.
 
 ## Process execution
 

@@ -27,13 +27,13 @@ void main() {
     test('returns Right when repository succeeds', () async {
       when(
         mockRepository.subscribeToCharacter,
-      ).thenAnswer((_) async => Right(testSnapshot));
+      ).thenAnswer((_) async => Right(buildCharacterSnapshotEntity()));
 
       final Either<Failure, CharacterSnapshotEntity> result = await useCase(
         NoParams(),
       );
 
-      expect(result, Right(testSnapshot));
+      expect(result, Right(buildCharacterSnapshotEntity()));
       verify(mockRepository.subscribeToCharacter).called(1);
       verifyNoMoreInteractions(mockRepository);
     });

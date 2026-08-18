@@ -13,6 +13,13 @@
 ## Files and types
 
 - Keep one primary class or component per file unless the types are inseparable declarations and definitions.
+- Two narrow exceptions to that rule, per `ai/context/common.md`'s shared file-organization rule,
+  apply per module directory (`bridge/application/`, `bridge/game_state/`, `bridge/protocol/`,
+  `bridge/security/`, `bridge/transport/`, `bridge/plugin/`) -- never shared across module
+  directories: every enum for that module belongs in that module's `enums.hpp`, and every small
+  cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
+  `constants.hpp`. Within either file, group entries by the area they belong to, each preceded by a
+  `// ---- <Area> ----` comment banner.
 - Keep game-runtime types out of neutral application and protocol headers.
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.

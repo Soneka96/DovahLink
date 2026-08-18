@@ -82,13 +82,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/bridge-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
@@ -188,15 +193,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/app-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
@@ -245,15 +254,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- ".github/workflows/integration-ci.yml"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         self.assertEqual(
             self._yaml_block(workflow, "permissions:"),
@@ -375,15 +388,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "tooling/**"',
         }
 
-        for trigger in ("push", "pull_request"):
-            trigger_block = self._yaml_block(workflow, f"  {trigger}:")
-            if trigger == "push":
-                self.assertIn("    branches: [main]", trigger_block)
-            paths_block = self._yaml_block(trigger_block, "    paths:")
-            self.assertEqual(
-                {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
-                expected_paths,
-            )
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+
+        # Pull-request CI must always post a status regardless of changed files: a path filter here
+        # would let a PR outside these paths skip this workflow entirely while it is still a
+        # required branch-protection check, leaving the PR stuck waiting on a status that never
+        # arrives.
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
 
         self.assertEqual(
             self._yaml_block(workflow, "permissions:"),
@@ -506,6 +523,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"pub\", \"get\")',
+            '$appBuildCache = Join-Path $appDirectory ".dart_tool',
+            'if (Test-Path -LiteralPath $appBuildCache) {',
+            'Remove-Item -LiteralPath $appBuildCache -Recurse -Force',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @(\"run\", \"build_runner\", \"build\")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"analyze\")',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"test\")',
@@ -533,6 +553,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         command_positions = [
             script.index('Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'),
+            script.index('Remove-Item -LiteralPath $appBuildCache -Recurse -Force'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")'),
             script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")'),
@@ -651,6 +672,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "1. Skyrim Bridge Foundation",
             "2. Bridge Identity and Authoritative State Foundation",
             "3. Local Device Pairing and Reconnection",
+            "3.1 Live Pairing Challenge UX",
+            "3.2 Known Device & Trust Administration",
             "4. Live State Synchronization Foundation",
             "5. Dart Client SDK Foundation",
             "6. PC / Second-Screen Baseline",
@@ -685,14 +708,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 4)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 5)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
+        # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
+        # "Status" section records the same decision); its status line carries that explanation
+        # instead of the plain "Planned" every other undone phase uses.
+        phase_5_status = (
+            "**Status:** Planned. The package scaffold, protocol/transport layer, and "
+            "persistence boundary"
+        )
+        self.assertEqual(roadmap.count(phase_5_status), 1)
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ")):
                 expected_status = "**Status:** Complete"
+            elif heading.startswith("5. "):
+                expected_status = phase_5_status
             elif heading.startswith("28. "):
                 expected_status = "**Status:** Planned after read-only product validation"
             else:
@@ -1001,8 +1034,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             architecture,
         )
 
-    def test_sdk_readme_documents_planned_status_without_an_implementation_skeleton(self) -> None:
-        """Guard sdk/README.md's content and the absence of a real Dart package."""
+    def test_sdk_readme_documents_the_phase_5_pull_forward_and_the_real_package(self) -> None:
+        """Guard sdk/README.md's content and the real, partially-implemented Dart package."""
         sdk_readme = self._read("sdk/README.md")
 
         for required_phrase in (
@@ -1018,24 +1051,31 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "the SDK implements\nthat contract for Dart consumers and is not a second protocol "
             "authority",
             "the SDK's first production consumer, not a privileged one — see",
-            "Planned. This directory currently contains only this README; no Dart package exists "
-            "yet.",
-            "The real\npackage is created when `ROADMAP.md`'s Phase 5, \"Dart Client SDK "
-            "Foundation,\" begins, at:",
+            "Partially implemented, pulled forward from `ROADMAP.md`'s Phase 5 (\"Dart Client "
+            "SDK Foundation\")\nahead of that phase's formal start, because Phase 3 (Local "
+            "Device Pairing and Reconnection) needed\nthe SDK's persistence boundary to avoid a "
+            "larger later migration.",
             "sdk/\n  dart/\n    dovahlink_client/",
-            "the app-side Dart client documented in",
-            "remains the active Dart consumer for the identity,\npairing, and live-synchronization "
-            "foundations already in progress",
+            "It currently provides the connect/hello/pairing/disconnect protocol client, proven "
+            "against the real\nbridge harness, plus SDK-owned `clientId`, credential, and "
+            "`CONFIRMING` pairing-recovery persistence",
+            "Phase 5's remaining scope -- Bridge-version\ncompatibility detection, reconnect, "
+            "revisions, subscriptions, snapshots, and retiring the app's\nseparate "
+            "`features/connection/` Redux protocol code -- is undone, so this pull-forward does "
+            "not\nclose Phase 5.",
+            "the app-side Redux `features/connection/` code\ndocumented in "
+            "[`ai/context/flutter/`](../ai/context/flutter/) remains a separate, not-yet-retired\n"
+            "implementation for the identity and live-synchronization foundations already in "
+            "progress",
         ):
             self.assertIn(required_phrase, sdk_readme)
 
-        # No implementation skeleton: the future package's own directory must not exist yet.
-        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart").exists())
-        self.assertFalse((REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client").exists())
-        for filename in ("pubspec.yaml", "pubspec.lock"):
-            self.assertFalse((REPOSITORY_ROOT / "sdk" / filename).exists())
-        for stray_path in ("lib", ".dart_tool"):
-            self.assertFalse((REPOSITORY_ROOT / "sdk" / stray_path).exists())
+        # Phase 5 was pulled forward: the real package now exists, replacing the old
+        # "no implementation skeleton yet" invariant this test used to guard.
+        real_package = REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client"
+        self.assertTrue(real_package.is_dir())
+        self.assertTrue((real_package / "pubspec.yaml").is_file())
+        self.assertTrue((real_package / "lib").is_dir())
 
     def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
         """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""

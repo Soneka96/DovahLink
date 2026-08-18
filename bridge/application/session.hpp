@@ -10,6 +10,17 @@ namespace dovahlink::application {
 /// Opaque identifier for one transport-level connection.
 using ConnectionId = std::uint64_t;
 
+/// A session's message-type allowlist, per `ai/context/protocol/security.md`'s "Hello
+/// authentication and session trust tiers".
+enum class SessionTrustTier {
+    /// Admitted without a trust credential (the `unpaired` hello auth method); allowed only the
+    /// pairing-flow messages until pairing succeeds.
+    kRestricted,
+    /// Ordinary authenticated access (developer token or a trusted device credential), or a
+    /// restricted session upgraded in place by a successful pairing confirmation.
+    kFull,
+};
+
 /// Binds one authenticated session to one connection.
 /// The manager is thread-safe and enforces the one-client limit.
 class SessionManager {
@@ -61,9 +72,12 @@ public:
     /// @param sessionId Fresh server-issued session identifier.
     /// @param clientId The authenticated client's identity, presented at `hello` and now owned by
     ///     this session for its lifetime.
+    /// @param trustTier The session's initial message-type allowlist; defaults to `kFull` for
+    ///     every caller that predates trust tiers (developer-token authentication).
     /// @return An ownership lease when no active session existed.
     [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection, const std::string& sessionId,
-                                                        std::string clientId);
+                                                        std::string clientId,
+                                                        SessionTrustTier trustTier = SessionTrustTier::kFull);
 
     /// Checks whether a session belongs to a connection.
     /// @param sessionId Session identifier presented by the client.
@@ -77,6 +91,28 @@ public:
     /// @param connection Connection to query.
     /// @return The client identity, or no value when `connection` holds no active session.
     [[nodiscard]] std::optional<std::string> ClientIdForConnection(ConnectionId connection) const;
+
+    /// Reports whether `connection` holds the active session and it is `kFull` tier.
+    /// @param connection Connection to query.
+    /// @return `false` for `kRestricted`, for a connection with no active session, and for a
+    ///     connection that does not own the active session.
+    [[nodiscard]] bool IsFullyTrusted(ConnectionId connection) const;
+
+    /// Returns the authenticated client identity of the active session, independent of which
+    /// connection owns it. Unlike @ref ClientIdForConnection, this does not require the caller to
+    /// already know a `ConnectionId` -- needed by a caller (trust administration) that only knows a
+    /// `clientId` and must find out whether it is the one currently connected.
+    /// @return The active session's client identity, or no value when no session is active.
+    [[nodiscard]] std::optional<std::string> ActiveClientId() const;
+
+    /// Upgrades the active session to `kFull` tier, if `connection` and `sessionId` both match the
+    /// active session -- the same stale-caller guard `InvalidateSession` uses, so a delayed
+    /// upgrade call arriving after `connection`'s session was invalidated and replaced cannot
+    /// promote the unrelated replacement session. A no-op for a mismatched connection or session
+    /// ID, and for a session already `kFull`.
+    /// @param connection Connection whose session is upgraded.
+    /// @param sessionId Session identifier the caller validated its request against.
+    void UpgradeToFullTrust(ConnectionId connection, const std::string& sessionId);
 
     /// Invalidates the active session regardless of its connection.
     void InvalidateAll();
@@ -96,6 +132,9 @@ private:
 
     /// Authenticated client identity owned by the active session.
     std::optional<std::string> activeClientId_;
+
+    /// Message-type allowlist of the active session.
+    std::optional<SessionTrustTier> activeTrustTier_;
 };
 
 }  // namespace dovahlink::application

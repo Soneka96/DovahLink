@@ -1,4 +1,4 @@
-name: app-ci
+name: App
 
 on:
   push:
@@ -8,10 +8,6 @@ on:
       - "protocol/**"
       - ".github/workflows/app-ci.yml"
   pull_request:
-    paths:
-      - "app/**"
-      - "protocol/**"
-      - ".github/workflows/app-ci.yml"
   workflow_dispatch:
 
 concurrency:
@@ -23,6 +19,7 @@ permissions:
 
 jobs:
   build-and-test:
+    name: App Build & Test
     runs-on: windows-2022
     timeout-minutes: 20
     defaults:
