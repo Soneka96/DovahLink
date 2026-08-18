@@ -95,4 +95,12 @@ bool TokenStore::IsAvailable() {
     return IsAvailableLocked();
 }
 
+std::optional<std::chrono::seconds> TokenStore::RemainingSeconds() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!IsAvailableLocked()) {
+        return std::nullopt;
+    }
+    return std::chrono::duration_cast<std::chrono::seconds>(expiresAt_ - std::chrono::steady_clock::now());
+}
+
 }  // namespace dovahlink::security

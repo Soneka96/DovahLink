@@ -1,5 +1,7 @@
 #pragma once
 
+#include "security/enums.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -26,13 +28,6 @@ class WindowsEnvironmentReader : public EnvironmentReader {
 public:
     /// @copydoc EnvironmentReader::Read
     [[nodiscard]] std::optional<std::string> Read(std::string_view name) const override;
-};
-
-/// Outcome of reading the developer-authentication token from the environment.
-enum class TokenReadOutcome {
-    kMissing,    ///< The variable is unset or empty.
-    kMalformed,  ///< The variable is set but is not valid 64-character hex token data.
-    kValid,      ///< The variable decoded to a well-formed 32-byte token.
 };
 
 /// Result of reading and hex-decoding the developer-authentication token from an environment value.

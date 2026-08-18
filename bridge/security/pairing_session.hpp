@@ -1,5 +1,6 @@
 #pragma once
 
+#include "security/enums.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
 
@@ -48,24 +49,9 @@ public:
     /// Generates one six-digit pairing code using the system CSPRNG.
     [[nodiscard]] static std::optional<std::string> DefaultCodeGenerator();
 
-    /// Outcome of `TryStartChallenge`. Kept distinct from a plain `optional<string>` because
-    /// "already in progress" and "the code generator failed" need different caller behavior: the
-    /// former reports the existing in-progress state, the latter must report pairing as
-    /// unavailable rather than leaving the caller waiting on a code that will never arrive.
-    enum class StartChallengeOutcome {
-        /// A new challenge was started; `StartChallengeResult::code` holds the six-digit code to
-        /// display.
-        kStarted,
-        /// A challenge or a pending credential was already active; the caller must not generate
-        /// or display a second code.
-        kAlreadyInProgress,
-        /// The code generator itself failed.
-        kGeneratorFailed,
-    };
-
     /// Result of a `TryStartChallenge` call.
     struct StartChallengeResult {
-        /// Which of the three outcomes occurred.
+        /// Which of the four outcomes occurred.
         StartChallengeOutcome outcome;
         /// The six-digit code to display, populated only when `outcome ==
         /// StartChallengeOutcome::kStarted`.
@@ -73,36 +59,52 @@ public:
     };
 
     /// Starts a new challenge (`NONE -> CHALLENGE_ACTIVE`) if none is active and no credential is
-    /// currently pending finalization.
-    /// @return `kStarted` with the six-digit code to display; `kAlreadyInProgress` when a
-    ///     challenge or a pending credential is already active (the caller must not generate or
-    ///     display a second code); or `kGeneratorFailed` when the underlying random source fails.
-    [[nodiscard]] StartChallengeResult TryStartChallenge();
+    /// currently pending finalization, or reports the existing challenge/pending credential's
+    /// ownership per `ai/context/protocol/security.md`'s Phase 3.1 ownership model. Applies the
+    /// reconnect-grace lazy-expiry check (see `ExpireOwnerIfGraceElapsedLocked`) before deciding.
+    /// @param clientId The requesting client's identity.
+    /// @param now Current monotonic time, for the reconnect-grace lazy-expiry check.
+    /// @return `kStarted` with the six-digit code to display; `kResumed` when `clientId` already
+    ///     owns the active challenge or pending credential; `kOtherDeviceActive` when a different
+    ///     `clientId` owns it; or `kGeneratorFailed` when the underlying random source fails.
+    [[nodiscard]] StartChallengeResult TryStartChallenge(const std::string& clientId,
+                                                          std::chrono::steady_clock::time_point now);
 
-    /// Outcome of `TryConfirmCode`. `kExpired` and `kInvalid` are reported separately (unlike
-    /// `TokenStore`'s deliberately undifferentiated hello-token failures) because knowing which one
-    /// happened is genuine UX information for a human re-entering a code ("get a new code" vs.
-    /// "check what you typed"), not a security-relevant distinction: neither case reveals anything
-    /// that helps guess the code faster.
-    enum class ConfirmResult {
-        /// The code matched; a credential is now pending finalization.
-        kConfirmed,
-        /// `codeAttemptThrottle_` currently blocks attempts.
-        kRateLimited,
-        /// A challenge existed but is no longer available (its code expired, or was already
-        /// consumed by an earlier successful attempt).
-        kExpired,
-        /// No challenge was ever active, or the presented code did not match the active one.
-        kInvalid,
-    };
+    /// Returns the active challenge's remaining code validity, applying the same reconnect-grace
+    /// lazy-expiry check as `TryStartChallenge`.
+    /// @param now Current monotonic time, for the reconnect-grace lazy-expiry check.
+    /// @return The remaining duration, or `std::nullopt` when no challenge is active (including a
+    ///     `PENDING_CREDENTIAL` state, which has no code left to redisplay).
+    [[nodiscard]] std::optional<std::chrono::seconds> RemainingSeconds(
+        std::chrono::steady_clock::time_point now);
+
+    /// Records that `clientId`'s connection has just disconnected, starting the reconnect-grace
+    /// countdown, if and only if `clientId` currently owns an active challenge (`CHALLENGE_ACTIVE`).
+    /// A no-op for a non-owner, or once the challenge has reached `PENDING_CREDENTIAL` -- the grace
+    /// period does not apply there; a pending credential's own 5-minute expiry governs instead.
+    /// @param clientId The disconnecting client's identity.
+    /// @param now Current monotonic time, stamped as the disconnect moment.
+    void NotifyDisconnected(const std::string& clientId, std::chrono::steady_clock::time_point now);
+
+    /// Clears a pending reconnect-grace countdown for `clientId`, if it owns the active challenge
+    /// and was mid-countdown. Applies the lazy-expiry check first, so a reconnect arriving after
+    /// the grace period already elapsed correctly finds no ownership left to resume.
+    /// @param clientId The reconnecting client's identity.
+    /// @param now Current monotonic time, for the reconnect-grace lazy-expiry check.
+    void NotifyReconnected(const std::string& clientId, std::chrono::steady_clock::time_point now);
 
     /// Validates `presentedCode` against the active challenge (constant-time, single-use,
-    /// attempt-limited against a throttle owned by and scoped to this session). On a match,
-    /// transitions `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`, holding `clientId`, `credential`, and
+    /// attempt-limited against a throttle owned by and scoped to this session). Applies the
+    /// reconnect-grace lazy-expiry check first, then rejects as `kInvalid` -- indistinguishable
+    /// from a wrong code -- when a different `clientId` owns the active challenge, so a non-owner
+    /// cannot blind-guess a code that is not theirs. On a match, transitions
+    /// `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`, holding `clientId`, `credential`, and
     /// `displayName` for a later `TryFinalize`.
     /// @param presentedCode The code the client submitted.
-    /// @param now Current monotonic time, used only for attempt-limit accounting.
-    /// @param clientId The pairing client's identity, to hold pending.
+    /// @param now Current monotonic time, used for the reconnect-grace lazy-expiry check and
+    ///     attempt-limit accounting.
+    /// @param clientId The pairing client's identity, checked against the challenge owner and
+    ///     held pending.
     /// @param credential The credential the caller generated for this attempt, to hold pending.
     /// @param displayName The client-supplied optional label, to hold pending.
     [[nodiscard]] ConfirmResult TryConfirmCode(const std::string& presentedCode,
@@ -127,6 +129,14 @@ public:
     [[nodiscard]] bool CommitPending(const std::string& clientId, const std::vector<std::uint8_t>& credential);
 
 private:
+    /// Clears `activeChallenge_` and `ownerClientId_` once `disconnectedAt_` is set and
+    /// `now - *disconnectedAt_ >= kPairingReconnectGracePeriod`, per
+    /// `ai/context/protocol/security.md`'s reconnect-grace lazy-expiry model -- evaluated on next
+    /// access rather than by an active timer. A no-op when no disconnect is pending. Call while
+    /// holding `mutex_`.
+    /// @param now Current monotonic time.
+    void ExpireOwnerIfGraceElapsedLocked(std::chrono::steady_clock::time_point now);
+
     /// Serializes access to challenge and pending-credential state.
     std::mutex mutex_;
 
@@ -138,6 +148,18 @@ private:
 
     /// The active challenge's single-use, expiring code, or no value when `NONE`.
     std::optional<TokenStore> activeChallenge_;
+
+    /// The `clientId` that owns `activeChallenge_`, or no value when it does not exist (`NONE` or
+    /// `PENDING_CREDENTIAL` -- cleared together with `activeChallenge_` on every exit from
+    /// `CHALLENGE_ACTIVE`). Pending-credential ownership is tracked separately by
+    /// `PendingCredential::clientId`.
+    std::optional<std::string> ownerClientId_;
+
+    /// When `ownerClientId_`'s connection disconnected while owning `activeChallenge_`, or no
+    /// value while it is connected or no challenge is owned. Cleared by `NotifyReconnected` or by
+    /// `ExpireOwnerIfGraceElapsedLocked` once the grace period elapses. Never set while the
+    /// challenge is `PENDING_CREDENTIAL` -- the grace period does not apply there.
+    std::optional<std::chrono::steady_clock::time_point> disconnectedAt_;
 
     /// Attempt-limits wrong `TryConfirmCode` guesses, scoped to this session only -- distinct from
     /// `hello`'s own token throttle, so guessing a pairing code cannot block or be blocked by an
