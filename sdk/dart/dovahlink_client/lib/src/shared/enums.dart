@@ -57,4 +57,28 @@ enum PairingAvailability {
 
   /// A challenge is already active; no new code was generated.
   inProgress,
+
+  /// A different clientId currently owns the active challenge or pending credential.
+  otherDevicePairing,
+}
+
+/// The outcome of `DovahLinkClient.requestPairingRenotify`.
+enum PairingRenotifyStatus {
+  /// The active challenge's code was redisplayed in Skyrim.
+  renotified,
+
+  /// Redisplay was rejected; the renotify cooldown has not elapsed yet.
+  cooldown,
+
+  /// No challenge or pending credential is owned by this client.
+  alreadyIdle,
+}
+
+/// The outcome of `DovahLinkClient.cancelPairing`.
+enum PairingCancelStatus {
+  /// An owned active challenge or pending credential was cleared.
+  cancelled,
+
+  /// Nothing was owned; cancellation was a no-op.
+  alreadyIdle,
 }

@@ -741,7 +741,10 @@ void main() {
             'messageId': 'message-1',
             'sessionId': null,
             'correlationId': null,
-            'payload': <String, dynamic>{'state': 'not-a-real-state'},
+            'payload': <String, dynamic>{
+              'state': 'not-a-real-state',
+              'expiresInSeconds': null,
+            },
             'bridgeInstanceId': 'bridge-1',
             'playContextId': null,
             'clientId': null,
