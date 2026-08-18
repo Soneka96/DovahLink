@@ -449,6 +449,87 @@ public class PairingScenarioTests
         await harness.WaitForExitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies the 10-second grace-period expiry: after a client disconnects mid-challenge
+    /// and the grace period elapses without reconnect, the challenge slot is freed. A new client
+    /// can then start a fresh pairing with a newly generated code, not "other_device_pairing".
+    /// </summary>
+    [Fact]
+    public async Task GracePeriodExpiryFreesSlotForNewPairing()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection1, string sessionId1, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection1 = connection1;
+
+        // Client-1 initiates pairing.
+        await connection1.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId1, null, new JsonObject()));
+        Envelope status1 = await connection1.ReceiveAsync();
+        Assert.Equal("pairing_status", status1.MessageType);
+        Assert.Equal("message-request-1", status1.CorrelationId);
+        Assert.Equal("available", status1.Payload["state"]!.GetValue<string>());
+        Assert.True(status1.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+
+        string code1 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Client-1 disconnects mid-challenge (no confirm).
+        connection1.Abort();
+
+        // Wait for the grace period to elapse (kPairingReconnectGracePeriod = 10 seconds).
+        // This is a genuine, full-duration timeout proof (per ai/context/integration/testing.md
+        // and integration/README.md, we only use these for periods that aren't proven elsewhere
+        // at the C++ unit-test level). The hard-limit and other decision points are already
+        // covered by pairing_session_test.cpp; this integration layer proves the full
+        // end-to-end wire behavior, including the real socket delays.
+        await Task.Delay(TimeSpan.FromSeconds(11));
+
+        // Client-2 connects and requests pairing: should get "available" with a fresh code
+        // (slot was freed by grace-period expiry), not "other_device_pairing".
+        await using BridgeConnection connection2 = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await connection2.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope helloAck2 = await connection2.ReceiveAsync();
+        Assert.Equal("hello_ack", helloAck2.MessageType);
+        string sessionId2 = helloAck2.SessionId!;
+
+        await connection2.ReceiveAsync(); // capabilities (ignored)
+
+        await connection2.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId2, null, new JsonObject()));
+        Envelope status2 = await connection2.ReceiveAsync();
+        Assert.Equal("pairing_status", status2.MessageType);
+        Assert.Equal("message-request-2", status2.CorrelationId);
+        // Slot is freed: client-2 gets "available" (not "other_device_pairing") with fresh expiry.
+        Assert.Equal("available", status2.Payload["state"]!.GetValue<string>());
+        Assert.True(status2.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+
+        string code2 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Codes must be different (fresh challenge generated for client-2, not client-1's expired code).
+        Assert.NotEqual(code1, code2);
+
+        // Client-2 can complete pairing with the fresh code.
+        await connection2.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", sessionId2, null,
+            new JsonObject { ["code"] = code2, ["displayName"] = "Device 2" }));
+        Envelope confirmOutcome = await connection2.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection2.SendAsync(new Envelope("pairing_ack", "message-ack-2", sessionId2, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection2.ReceiveAsync();
+        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Session upgrade lands on the same connection; subscription succeeds.
+        await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        Envelope subscriptionAck = await connection2.ReceiveAsync();
+        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection2);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
