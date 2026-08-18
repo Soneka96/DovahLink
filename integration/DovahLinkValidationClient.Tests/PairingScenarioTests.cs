@@ -370,6 +370,85 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, credentialVerify);
     }
 
+    /// <summary>
+    /// Verifies the single-connected-client model (Phase 9 deferred): when client-1 owns an active
+    /// challenge, client-2's pairing_request returns "other_device_pairing" state, disclosing nothing
+    /// about the owning device or code. Client-2 cannot proceed; client-1 completes pairing and upgrades.
+    /// </summary>
+    [Fact]
+    public async Task OtherDeviceBusyReturnsOtherDevicePairingState()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection1, string sessionId1, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection1 = connection1;
+
+        // Client-1 initiates pairing.
+        await connection1.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId1, null, new JsonObject()));
+        Envelope status1 = await connection1.ReceiveAsync();
+        Assert.Equal("pairing_status", status1.MessageType);
+        Assert.Equal("message-request-1", status1.CorrelationId);
+        Assert.Equal("available", status1.Payload["state"]!.GetValue<string>());
+
+        // Synchronization point: the harness has printed the code to stdout; challenge is now stable.
+        // Client-2's request below will find the active challenge still owned by client-1.
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Client-2 attempts pairing while client-1 owns the active challenge.
+        await using BridgeConnection connection2 = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await connection2.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope helloAck2 = await connection2.ReceiveAsync();
+        Assert.Equal("hello_ack", helloAck2.MessageType);
+        string sessionId2 = helloAck2.SessionId!;
+
+        await connection2.ReceiveAsync(); // capabilities (ignored)
+
+        await connection2.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId2, null, new JsonObject()));
+        Envelope status2 = await connection2.ReceiveAsync();
+        Assert.Equal("pairing_status", status2.MessageType);
+        Assert.Equal("message-request-2", status2.CorrelationId);
+        // "other_device_pairing" means a different clientId owns the active challenge; expiresInSeconds is never present.
+        Assert.Equal("other_device_pairing", status2.Payload["state"]!.GetValue<string>());
+        Assert.False(status2.Payload.ContainsKey("expiresInSeconds"), "expiresInSeconds must not be present for other_device_pairing state");
+
+        // Client-2 cannot proceed without a code; any confirm attempt should fail (no code to send).
+        // Rather than speculate on the bridge's behavior (confirm with empty/fake code), we simply verify
+        // client-1 can complete pairing unimpeded while client-2 observes the blocked state.
+
+        // Client-1 confirms the original code and completes pairing.
+        await connection1.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId1, null,
+            new JsonObject { ["code"] = code, ["displayName"] = "Device 1" }));
+        Envelope confirmOutcome = await connection1.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection1.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId1, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection1.ReceiveAsync();
+        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Client-1's session is now Full (paired); subscription succeeds.
+        await connection1.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId1, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        Envelope subscriptionAck = await connection1.ReceiveAsync();
+        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+
+        // Client-2 remains Restricted (unpaired): subscription is rejected.
+        await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        Envelope error2 = await connection2.ReceiveAsync();
+        Assert.Equal("error", error2.MessageType);
+        Assert.Equal("malformed_message", error2.Payload["code"]!.GetValue<string>());
+
+        await connection1.CloseAsync();
+        await connection2.CloseAsync();
+        await harness.WriteLineAsync("quit");
+        await harness.WaitForExitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
