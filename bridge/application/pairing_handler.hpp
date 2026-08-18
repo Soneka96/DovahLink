@@ -18,7 +18,8 @@ namespace dovahlink::application {
 /// @param sessionId Authenticated session identifier.
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param notificationSink Displays a freshly generated code to the user.
-/// @return `pairing_status` envelope reporting `"available"` or `"in_progress"`.
+/// @return `pairing_status` envelope reporting `"available"`, `"in_progress"`, or
+///     `"unavailable"` when the underlying code generator fails.
 [[nodiscard]] protocol::Envelope HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
                                                         const std::string& sessionId,
                                                         security::PairingSession& pairingSession,

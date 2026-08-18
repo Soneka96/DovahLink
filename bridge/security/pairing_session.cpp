@@ -15,23 +15,23 @@ std::optional<std::string> PairingSession::DefaultCodeGenerator() {
     return GenerateNumericCode(kPairingCodeDigits);
 }
 
-std::optional<std::string> PairingSession::TryStartChallenge() {
+PairingSession::StartChallengeResult PairingSession::TryStartChallenge() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (pendingCredential_.has_value()) {
-        return std::nullopt;
+        return {.outcome = StartChallengeOutcome::kAlreadyInProgress, .code = std::nullopt};
     }
     if (activeChallenge_.has_value() && activeChallenge_->IsAvailable()) {
-        return std::nullopt;
+        return {.outcome = StartChallengeOutcome::kAlreadyInProgress, .code = std::nullopt};
     }
 
     auto code = codeGenerator_();
     if (!code.has_value()) {
-        return std::nullopt;
+        return {.outcome = StartChallengeOutcome::kGeneratorFailed, .code = std::nullopt};
     }
 
     std::vector<std::uint8_t> codeBytes(code->begin(), code->end());
     activeChallenge_.emplace(std::move(codeBytes), codeTimeToLive_);
-    return code;
+    return {.outcome = StartChallengeOutcome::kStarted, .code = code};
 }
 
 PairingSession::ConfirmResult PairingSession::TryConfirmCode(const std::string& presentedCode,

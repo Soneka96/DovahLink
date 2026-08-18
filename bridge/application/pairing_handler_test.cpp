@@ -171,6 +171,22 @@ TEST_CASE("a second pairing_request while a challenge is active reports in_progr
     CHECK(sink.codes.size() == 1);
 }
 
+TEST_CASE("HandlePairingRequest reports unavailable when the code generator fails, distinct from "
+          "in_progress",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::nullopt; });
+    RecordingPairingNotificationSink sink;
+
+    auto response = HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, pairingSession, sink);
+
+    CHECK(response.messageType == "pairing_status");
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(response.payload);
+    REQUIRE(status.has_value());
+    CHECK(status->state == "unavailable");
+    // Nothing was generated to display -- the sink must never be notified with no code.
+    CHECK(sink.codes.empty());
+}
+
 TEST_CASE("HandlePairingConfirm reports expired for an expired code", "[application][pairing_handler]") {
     PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); },
                                    std::chrono::seconds(0));

@@ -35,15 +35,21 @@ protocol::Envelope BuildPairingOutcome(const std::string& sessionId, std::option
 protocol::Envelope HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
                                           const std::string& sessionId, security::PairingSession& pairingSession,
                                           PairingNotificationSink& notificationSink) {
-    auto code = pairingSession.TryStartChallenge();
+    auto result = pairingSession.TryStartChallenge();
     std::string state;
-    if (code.has_value()) {
-        notificationSink.NotifyPairingCodeAvailable(*code);
-        state = "available";
-    } else {
-        // Already in progress: a challenge or a pending credential is active. Never a second code,
-        // never a second notification.
-        state = "in_progress";
+    switch (result.outcome) {
+        case security::PairingSession::StartChallengeOutcome::kStarted:
+            notificationSink.NotifyPairingCodeAvailable(*result.code);
+            state = "available";
+            break;
+        case security::PairingSession::StartChallengeOutcome::kAlreadyInProgress:
+            // A challenge or a pending credential is active. Never a second code, never a second
+            // notification.
+            state = "in_progress";
+            break;
+        case security::PairingSession::StartChallengeOutcome::kGeneratorFailed:
+            state = "unavailable";
+            break;
     }
 
     auto envelope = protocol::BuildEnvelope(std::string(protocol::message_type::kPairingStatus), sessionId,

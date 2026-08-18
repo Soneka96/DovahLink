@@ -48,12 +48,36 @@ public:
     /// Generates one six-digit pairing code using the system CSPRNG.
     [[nodiscard]] static std::optional<std::string> DefaultCodeGenerator();
 
+    /// Outcome of `TryStartChallenge`. Kept distinct from a plain `optional<string>` because
+    /// "already in progress" and "the code generator failed" need different caller behavior: the
+    /// former reports the existing in-progress state, the latter must report pairing as
+    /// unavailable rather than leaving the caller waiting on a code that will never arrive.
+    enum class StartChallengeOutcome {
+        /// A new challenge was started; `StartChallengeResult::code` holds the six-digit code to
+        /// display.
+        kStarted,
+        /// A challenge or a pending credential was already active; the caller must not generate
+        /// or display a second code.
+        kAlreadyInProgress,
+        /// The code generator itself failed.
+        kGeneratorFailed,
+    };
+
+    /// Result of a `TryStartChallenge` call.
+    struct StartChallengeResult {
+        /// Which of the three outcomes occurred.
+        StartChallengeOutcome outcome;
+        /// The six-digit code to display, populated only when `outcome ==
+        /// StartChallengeOutcome::kStarted`.
+        std::optional<std::string> code;
+    };
+
     /// Starts a new challenge (`NONE -> CHALLENGE_ACTIVE`) if none is active and no credential is
     /// currently pending finalization.
-    /// @return The six-digit code to display, or `std::nullopt` when a challenge or a pending
-    ///     credential is already active ("already in progress" -- the caller must not generate or
-    ///     display a second code) or the code generator itself fails.
-    [[nodiscard]] std::optional<std::string> TryStartChallenge();
+    /// @return `kStarted` with the six-digit code to display; `kAlreadyInProgress` when a
+    ///     challenge or a pending credential is already active (the caller must not generate or
+    ///     display a second code); or `kGeneratorFailed` when the underlying random source fails.
+    [[nodiscard]] StartChallengeResult TryStartChallenge();
 
     /// Outcome of `TryConfirmCode`. `kExpired` and `kInvalid` are reported separately (unlike
     /// `TokenStore`'s deliberately undifferentiated hello-token failures) because knowing which one
