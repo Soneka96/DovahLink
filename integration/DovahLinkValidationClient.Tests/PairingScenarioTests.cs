@@ -883,6 +883,48 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, reconnectWithFresh);
     }
 
+    /// <summary>
+    /// Verifies pairing_cancel when idle (PLAN.md Stage D): the owning client can cancel
+    /// even when no active challenge or pending credential exists. The outcome is "already_idle"
+    /// (idempotent, no error), proving cancel is safe to retry and doesn't treat absence as a fault.
+    /// </summary>
+    [Fact]
+    public async Task CancelWhenIdleReturnsAlreadyIdle()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Session is connected but no pairing activity yet: idle state.
+        // Send cancel: should return "already_idle", not an error.
+        await connection.SendAsync(BridgeScenario.CancelEnvelope(sessionId, "message-cancel-idle"));
+        Envelope alreadyIdleOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", alreadyIdleOutcome.MessageType);
+        Assert.Equal("message-cancel-idle", alreadyIdleOutcome.CorrelationId);
+        Assert.Equal("already_idle", alreadyIdleOutcome.Payload["outcome"]!.GetValue<string>());
+        // already_idle carries no credential, expiry, or retry info (idempotent, no state change).
+        Assert.Null(alreadyIdleOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(alreadyIdleOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.False(alreadyIdleOutcome.Payload.ContainsKey("expiresInSeconds"));
+
+        // Idempotent: send cancel again, should still return "already_idle".
+        await connection.SendAsync(BridgeScenario.CancelEnvelope(sessionId, "message-cancel-idle-2"));
+        Envelope secondIdleOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", secondIdleOutcome.MessageType);
+        Assert.Equal("message-cancel-idle-2", secondIdleOutcome.CorrelationId);
+        Assert.Equal("already_idle", secondIdleOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Session remains functional: pairing_request works normally.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
