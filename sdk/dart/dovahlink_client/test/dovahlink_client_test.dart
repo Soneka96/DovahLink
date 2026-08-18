@@ -549,30 +549,27 @@ void main() {
       },
     );
 
-    test(
-      "rethrows the retry's own rejection without retrying again",
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
-        transport.queueResponse(_rawFixture('errors/error-rate-limited.json'));
+    test("rethrows the retry's own rejection without retrying again", () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'deadbeef',
+        ),
+      );
+      transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+      transport.queueResponse(_rawFixture('errors/error-rate-limited.json'));
 
-        await expectLater(
-          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'rate_limited',
-            ),
+      await expectLater(
+        client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (DovahLinkProtocolException e) => e.code,
+            'code',
+            'rate_limited',
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
 
     test(
       'does not retry a second time when the retry is rejected with the same recoverable code',
@@ -650,22 +647,19 @@ void main() {
       },
     );
 
-    test(
-      'reconnects when already connected but still unpaired',
-      () async {
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        final HelloResult first = await client.authenticate(uri);
-        expect(first.trustState, DovahLinkTrustState.unpaired);
+    test('reconnects when already connected but still unpaired', () async {
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+      final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+      final HelloResult first = await client.authenticate(uri);
+      expect(first.trustState, DovahLinkTrustState.unpaired);
 
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
-        await client.authenticate(uri);
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(_rawCapabilities());
+      await client.authenticate(uri);
 
-        expect(transport.connectCalls, hasLength(2));
-      },
-    );
+      expect(transport.connectCalls, hasLength(2));
+    });
 
     test(
       'reconnects after disconnect even though the client was last trusted',
@@ -754,15 +748,18 @@ void main() {
       expect(status.expiresInSeconds, 187);
     });
 
-    test('reports expiresInSeconds as null for an unavailable fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-status-unavailable.json'),
-      );
+    test(
+      'reports expiresInSeconds as null for an unavailable fixture',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-status-unavailable.json'),
+        );
 
-      final PairingChallengeStatus status = await client.requestPairing();
+        final PairingChallengeStatus status = await client.requestPairing();
 
-      expect(status.expiresInSeconds, isNull);
-    });
+        expect(status.expiresInSeconds, isNull);
+      },
+    );
 
     test(
       'reports expiresInSeconds as null for an other_device_pairing fixture',
@@ -1124,26 +1121,23 @@ void main() {
       },
     );
 
-    test(
-      'sets trustState to trusted on an already_trusted outcome',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-already-trusted.json'),
-        );
+    test('sets trustState to trusted on an already_trusted outcome', () async {
+      await storage.save(
+        const PersistedClientState(
+          credential: 'a1b2c3d4e5f6',
+          recoveryState: PairingRecoveryState.confirming,
+        ),
+      );
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-already-trusted.json'),
+      );
 
-        await client.acknowledgeTrustedCredential('a1b2c3d4e5f6');
+      await client.acknowledgeTrustedCredential('a1b2c3d4e5f6');
 
-        expect(client.trustState, DovahLinkTrustState.trusted);
-        final PersistedClientState stored = await storage.load();
-        expect(stored.recoveryState, PairingRecoveryState.none);
-      },
-    );
+      expect(client.trustState, DovahLinkTrustState.trusted);
+      final PersistedClientState stored = await storage.load();
+      expect(stored.recoveryState, PairingRecoveryState.none);
+    });
 
     test(
       'throws DovahLinkPairingException on pending_not_found without changing trustState or storage',
@@ -1223,17 +1217,14 @@ void main() {
   });
 
   group('recoverPendingPairing', () {
-    test(
-      'is a no-op returning unpaired when recovery is none',
-      () async {
-        await storage.save(const PersistedClientState(clientId: 'client-1'));
+    test('is a no-op returning unpaired when recovery is none', () async {
+      await storage.save(const PersistedClientState(clientId: 'client-1'));
 
-        final DovahLinkTrustState result = await client.recoverPendingPairing();
+      final DovahLinkTrustState result = await client.recoverPendingPairing();
 
-        expect(result, DovahLinkTrustState.unpaired);
-        expect(transport.sent, isEmpty);
-      },
-    );
+      expect(result, DovahLinkTrustState.unpaired);
+      expect(transport.sent, isEmpty);
+    });
 
     test(
       'is a no-op returning unpaired when CONFIRMING but no credential is stored',
@@ -1408,22 +1399,25 @@ void main() {
   });
 
   group('forgetCredential', () {
-    test('preserves clientId while clearing the credential and recovery state', () async {
-      await storage.save(
-        const PersistedClientState(
-          clientId: 'client-1',
-          credential: 'a1b2c3d4e5f6',
-          recoveryState: PairingRecoveryState.confirming,
-        ),
-      );
+    test(
+      'preserves clientId while clearing the credential and recovery state',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
 
-      await client.forgetCredential();
+        await client.forgetCredential();
 
-      final PersistedClientState stored = await storage.load();
-      expect(stored.clientId, 'client-1');
-      expect(stored.credential, isNull);
-      expect(stored.recoveryState, PairingRecoveryState.none);
-    });
+        final PersistedClientState stored = await storage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.credential, isNull);
+        expect(stored.recoveryState, PairingRecoveryState.none);
+      },
+    );
 
     test('is safe to call with nothing persisted yet', () async {
       await expectLater(client.forgetCredential(), completes);
@@ -1446,7 +1440,10 @@ void main() {
 
     test('is idempotent: calling it twice does not throw', () async {
       await storage.save(
-        const PersistedClientState(clientId: 'client-1', credential: 'a1b2c3d4e5f6'),
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'a1b2c3d4e5f6',
+        ),
       );
 
       await client.forgetCredential();
@@ -1454,32 +1451,42 @@ void main() {
       await expectLater(client.forgetCredential(), completes);
     });
 
-    test('does not touch the transport or in-memory connection state', () async {
-      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
+    test(
+      'does not touch the transport or in-memory connection state',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+        await client.hello();
 
-      await client.forgetCredential();
+        await client.forgetCredential();
 
-      expect(transport.closeCalled, isFalse);
-      expect(client.connectionState, DovahLinkConnectionState.connected);
-    });
+        expect(transport.closeCalled, isFalse);
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+      },
+    );
 
-    test('a later hello presents unpaired instead of the forgotten credential', () async {
-      await storage.save(
-        const PersistedClientState(clientId: 'client-1', credential: 'a1b2c3d4e5f6'),
-      );
-      await client.forgetCredential();
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
+    test(
+      'a later hello presents unpaired instead of the forgotten credential',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+          ),
+        );
+        await client.forgetCredential();
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
 
-      await client.hello();
+        await client.hello();
 
-      final JsonMap sentPayload =
-          (jsonDecode(transport.sent.single) as JsonMap)['payload'] as JsonMap;
-      expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
-    });
+        final JsonMap sentPayload =
+            (jsonDecode(transport.sent.single) as JsonMap)['payload']
+                as JsonMap;
+        expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
+      },
+    );
   });
 
   group('protocol violations', () {

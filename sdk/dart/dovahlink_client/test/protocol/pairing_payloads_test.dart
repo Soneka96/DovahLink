@@ -72,27 +72,21 @@ void main() {
         });
       }
 
-      test(
-        'fromJson decodes expiresInSeconds for an available fixture',
-        () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-            _readPayload('pairing/pairing-status-available.json'),
-          );
+      test('fromJson decodes expiresInSeconds for an available fixture', () {
+        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          _readPayload('pairing/pairing-status-available.json'),
+        );
 
-          expect(payload.expiresInSeconds, 300);
-        },
-      );
+        expect(payload.expiresInSeconds, 300);
+      });
 
-      test(
-        'fromJson decodes expiresInSeconds for an in_progress fixture',
-        () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-            _readPayload('pairing/pairing-status-in-progress.json'),
-          );
+      test('fromJson decodes expiresInSeconds for an in_progress fixture', () {
+        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          _readPayload('pairing/pairing-status-in-progress.json'),
+        );
 
-          expect(payload.expiresInSeconds, 187);
-        },
-      );
+        expect(payload.expiresInSeconds, 187);
+      });
 
       test(
         'fromJson decodes expiresInSeconds as null for an unavailable fixture',

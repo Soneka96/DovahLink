@@ -55,9 +55,7 @@ Future<HarnessProcess> _startHarness() async {
 /// Registers teardown for the client immediately after construction, before anything that can
 /// throw, so a failure partway through this setup (e.g. `hello` rejecting) still cleans up rather
 /// than leaking the socket.
-Future<DovahLinkClient> _startUnpairedSession(
-  ClientStorage storage,
-) async {
+Future<DovahLinkClient> _startUnpairedSession(ClientStorage storage) async {
   final DovahLinkClient client = DovahLinkClient(storage: storage);
   addTearDown(client.disconnect);
   await client.connect(_bridgeUri);
@@ -75,8 +73,9 @@ void main() {
         final ClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(storage);
 
-        final PairingAvailability availability = await client.requestPairing();
-        expect(availability, PairingAvailability.available);
+        final PairingChallengeStatus status = await client.requestPairing();
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, greaterThan(0));
 
         final String code = await _readPairingCode(harness);
         final String credential = await client.confirmPairingCode(
@@ -109,8 +108,9 @@ void main() {
           InMemoryClientStorage(),
         );
 
-        final PairingAvailability availability = await client.requestPairing();
-        expect(availability, PairingAvailability.available);
+        final PairingChallengeStatus status = await client.requestPairing();
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, greaterThan(0));
 
         final String realCode = await _readPairingCode(harness);
         final String wrongDigit = realCode[realCode.length - 1] == '0'
@@ -144,15 +144,19 @@ void main() {
         final ClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(storage);
 
-        final PairingAvailability availability = await client.requestPairing();
-        expect(availability, PairingAvailability.available);
+        final PairingChallengeStatus status = await client.requestPairing();
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, greaterThan(0));
 
         final String code = await _readPairingCode(harness);
         // Durably persists the credential with CONFIRMING recovery, per
         // `ai/context/protocol/security.md`. Deliberately never calls
         // acknowledgeTrustedCredential -- this leaves the gap between issuing the credential and
         // confirming it that `recoverPendingPairing` exists to close.
-        await client.confirmPairingCode(code: code, displayName: 'Relaunch Test');
+        await client.confirmPairingCode(
+          code: code,
+          displayName: 'Relaunch Test',
+        );
         await client.disconnect();
 
         // A new DovahLinkClient instance sharing the same storage simulates the app relaunching
@@ -182,11 +186,15 @@ void main() {
         final ClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(storage);
 
-        final PairingAvailability availability = await client.requestPairing();
-        expect(availability, PairingAvailability.available);
+        final PairingChallengeStatus status = await client.requestPairing();
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, greaterThan(0));
 
         final String code = await _readPairingCode(firstHarness);
-        await client.confirmPairingCode(code: code, displayName: 'Bridge Restart Test');
+        await client.confirmPairingCode(
+          code: code,
+          displayName: 'Bridge Restart Test',
+        );
         await client.disconnect();
 
         // The in-memory pending-credential record never persists past a Bridge restart, per

@@ -28,9 +28,11 @@ class DovahLinkClient {
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
-  DovahLinkClient({DovahLinkTransport? transport, required ClientStorage storage})
-    : _transport = transport ?? WebSocketTransport(),
-      _storage = storage;
+  DovahLinkClient({
+    DovahLinkTransport? transport,
+    required ClientStorage storage,
+  }) : _transport = transport ?? WebSocketTransport(),
+       _storage = storage;
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
   /// [DpapiClientStorage] persisting to this Windows user's default per-user location.
@@ -309,7 +311,9 @@ class DovahLinkClient {
     _trustState = DovahLinkTrustState.trusted;
 
     final PersistedClientState state = await _storage.load();
-    await _storage.save(state.copyWith(recoveryState: PairingRecoveryState.none));
+    await _storage.save(
+      state.copyWith(recoveryState: PairingRecoveryState.none),
+    );
   }
 
   /// Resumes an interrupted pairing confirmation after a crash or relaunch, per
@@ -498,16 +502,17 @@ class DovahLinkClient {
 
   /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to
   /// `pairing_renotify`.
-  PairingRenotifyStatus _parsePairingRenotifyStatus(String raw) => switch (raw) {
-    'renotified' => PairingRenotifyStatus.renotified,
-    'renotify_cooldown' => PairingRenotifyStatus.cooldown,
-    'already_idle' => PairingRenotifyStatus.alreadyIdle,
-    _ => throw DovahLinkProtocolException(
-      code: 'malformed_message',
-      message: 'Unrecognized pairing_renotify outcome: $raw',
-      retryable: false,
-    ),
-  };
+  PairingRenotifyStatus _parsePairingRenotifyStatus(String raw) =>
+      switch (raw) {
+        'renotified' => PairingRenotifyStatus.renotified,
+        'renotify_cooldown' => PairingRenotifyStatus.cooldown,
+        'already_idle' => PairingRenotifyStatus.alreadyIdle,
+        _ => throw DovahLinkProtocolException(
+          code: 'malformed_message',
+          message: 'Unrecognized pairing_renotify outcome: $raw',
+          retryable: false,
+        ),
+      };
 
   /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to `pairing_cancel`.
   PairingCancelStatus _parsePairingCancelStatus(String raw) => switch (raw) {
