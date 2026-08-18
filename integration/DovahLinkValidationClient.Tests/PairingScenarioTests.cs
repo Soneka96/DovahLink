@@ -291,6 +291,85 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>
+    /// Verifies the 10-second reconnect grace period: an owning client that disconnects mid-challenge
+    /// and reconnects quickly gets "in_progress" with the existing code re-displayed, not "other_device_pairing",
+    /// and can complete the pairing with that same code. Session upgrade lands on the reconnected socket.
+    /// </summary>
+    [Fact]
+    public async Task ResumeAfterReconnectWithinGracePeriodReturnsInProgressWithExpirySeconds()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        int? expiresInSecondsFirst = status.Payload["expiresInSeconds"]?.GetValue<int>();
+        Assert.NotNull(expiresInSecondsFirst);
+        Assert.True(expiresInSecondsFirst > 0);
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // Disconnect mid-challenge without sending pairing_confirm, simulating a network drop.
+        connection.Abort();
+
+        // Rapid reconnect within the 10-second grace period.
+        await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnect.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-1"));
+        Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
+        Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
+        string newSessionId = reconnectHelloAck.SessionId!;
+        Assert.NotNull(newSessionId);
+
+        // Query pairing status on the reconnected session: should resume the existing challenge, not start fresh.
+        await reconnect.SendAsync(new Envelope("pairing_request", "message-request-2", newSessionId, null, new JsonObject()));
+        Envelope resumeStatus = await reconnect.ReceiveAsync();
+        Assert.Equal("pairing_status", resumeStatus.MessageType);
+        // "in_progress" means same client already owns an active challenge; no new code, same code re-displayed.
+        Assert.Equal("in_progress", resumeStatus.Payload["state"]!.GetValue<string>());
+        int? expiresInSecondsResumed = resumeStatus.Payload["expiresInSeconds"]?.GetValue<int>();
+        Assert.NotNull(expiresInSecondsResumed);
+        Assert.True(expiresInSecondsResumed > 0);
+        Assert.True(expiresInSecondsResumed <= 287, $"Resume expiry {expiresInSecondsResumed} exceeds 287s (5min initial minus reconnect latency)");
+
+        // Confirm with the original code on the reconnected session: should succeed.
+        await reconnect.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", newSessionId, null,
+            new JsonObject { ["code"] = code, ["displayName"] = "Resume Test" }));
+        Envelope confirmOutcome = await reconnect.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        // Complete the pairing handshake on the reconnected socket.
+        await reconnect.SendAsync(new Envelope("pairing_ack", "message-ack-1", newSessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await reconnect.ReceiveAsync();
+        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Session upgrade lands on the reconnected socket; subscribe succeeds immediately without a fresh reconnect.
+        await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", newSessionId, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        Envelope subscriptionAck = await reconnect.ReceiveAsync();
+        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+
+        // Verify the credential issued during grace-period pairing is actually persisted and works on a new connection,
+        // not just an in-memory upgrade of this connection's session (matching FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe).
+        await reconnect.CloseAsync();
+        await using BridgeConnection credentialVerify = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await credentialVerify.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential, clientId: "client-1"));
+        Envelope verifyHelloAck = await credentialVerify.ReceiveAsync();
+        Assert.Equal("hello_ack", verifyHelloAck.MessageType);
+        Assert.Equal("paired", verifyHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, credentialVerify);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
