@@ -20,7 +20,7 @@ class CancelButtonWidget extends StatelessWidget {
   /// Optional button style override.
   final ButtonStyle? style;
 
-  static const ButtonStyle _defaultButtonStyle = null;
+  static const ButtonStyle? _defaultButtonStyle = null;
 
   @override
   Widget build(BuildContext context) {

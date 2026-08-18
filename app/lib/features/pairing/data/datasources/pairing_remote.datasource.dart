@@ -103,7 +103,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   @override
   Future<Either<Failure, Unit>> requestPairingCode() async {
     try {
-      final PairingAvailability availability = await _client.requestPairing();
+      final PairingAvailability availability =
+          (await _client.requestPairing()).availability;
       if (availability == PairingAvailability.unavailable) {
         return const Left(
           PairingFailure(

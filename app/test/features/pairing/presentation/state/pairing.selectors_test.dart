@@ -16,6 +16,8 @@ void main() {
           phase: PairingPhase.awaitingCode,
           bridgeVersion: null,
           error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
         ),
       );
 
@@ -30,6 +32,8 @@ void main() {
           phase: PairingPhase.failed,
           bridgeVersion: '1.2.3',
           error: 'Bridge unavailable',
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
         ),
       );
 
@@ -44,7 +48,10 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
           codeExpiresAt: null,
+          renotifyAvailableAt: null,
         ),
       );
 
@@ -58,7 +65,10 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
           codeExpiresAt: expiresIn10Seconds,
+          renotifyAvailableAt: null,
         ),
       );
 
@@ -75,7 +85,10 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
           codeExpiresAt: expiredInPast,
+          renotifyAvailableAt: null,
         ),
       );
 
@@ -89,6 +102,9 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: const PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
+          codeExpiresAt: null,
           renotifyAvailableAt: null,
         ),
       );
@@ -106,6 +122,9 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
+          codeExpiresAt: null,
           renotifyAvailableAt: availableIn5Seconds,
         ),
       );
@@ -124,6 +143,9 @@ void main() {
         connection: ConnectionState.initial(),
         pairing: PairingState(
           phase: PairingPhase.awaitingCode,
+          bridgeVersion: null,
+          error: null,
+          codeExpiresAt: null,
           renotifyAvailableAt: elapsedInPast,
         ),
       );

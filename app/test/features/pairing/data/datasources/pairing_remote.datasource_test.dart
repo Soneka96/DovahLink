@@ -229,7 +229,10 @@ void main() {
     test('returns Right when a fresh code is shown', () async {
       when(
         () => mockClient.requestPairing(),
-      ).thenAnswer((_) async => PairingAvailability.available);
+      ).thenAnswer(
+        (_) async =>
+            const PairingChallengeStatus(availability: PairingAvailability.available),
+      );
 
       final Either<Failure, Unit> result = await dataSource
           .requestPairingCode();
@@ -240,7 +243,10 @@ void main() {
     test('returns Right when a challenge is already in progress', () async {
       when(
         () => mockClient.requestPairing(),
-      ).thenAnswer((_) async => PairingAvailability.inProgress);
+      ).thenAnswer(
+        (_) async =>
+            const PairingChallengeStatus(availability: PairingAvailability.inProgress),
+      );
 
       final Either<Failure, Unit> result = await dataSource
           .requestPairingCode();
@@ -251,7 +257,10 @@ void main() {
     test('returns a PairingFailure when pairing is unavailable', () async {
       when(
         () => mockClient.requestPairing(),
-      ).thenAnswer((_) async => PairingAvailability.unavailable);
+      ).thenAnswer(
+        (_) async =>
+            const PairingChallengeStatus(availability: PairingAvailability.unavailable),
+      );
 
       final Either<Failure, Unit> result = await dataSource
           .requestPairingCode();

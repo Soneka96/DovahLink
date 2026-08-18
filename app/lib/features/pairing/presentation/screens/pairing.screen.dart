@@ -92,14 +92,14 @@ class PairingScreen extends StatelessWidget {
                                   onSubmit: viewModel.onSubmitCode,
                                 ),
                                 const SizedBox(height: 16),
-                                Row(
+                                const Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
                                     Expanded(
                                       child: RenotifyButtonWidget(),
                                     ),
-                                    const SizedBox(width: 8),
+                                    SizedBox(width: 8),
                                     Expanded(
                                       child: CancelButtonWidget(),
                                     ),

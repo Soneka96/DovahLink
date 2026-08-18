@@ -12,8 +12,8 @@ class CountdownWidget extends StatefulWidget {
   const CountdownWidget({
     this.textStyle,
     this.formatSeconds = _defaultFormatSeconds,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   /// Optional text style for the countdown display.
   final TextStyle? textStyle;

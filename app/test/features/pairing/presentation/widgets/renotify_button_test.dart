@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
@@ -16,11 +16,14 @@ void main() {
     testWidgets('displays enabled button when renotify is available',
         (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: null,
           ),
         ),
@@ -48,11 +51,14 @@ void main() {
       final now = DateTime.now();
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: availableIn5Seconds,
           ),
         ),
@@ -77,11 +83,14 @@ void main() {
       final now = DateTime.now();
       final availableIn3Seconds = now.add(const Duration(seconds: 3));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: availableIn3Seconds,
           ),
         ),
@@ -106,11 +115,14 @@ void main() {
       final now = DateTime.now();
       final alreadyElapsed = now.subtract(const Duration(seconds: 1));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: alreadyElapsed,
           ),
         ),
@@ -138,11 +150,14 @@ void main() {
       final now = DateTime.now();
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: availableIn5Seconds,
           ),
         ),
@@ -169,14 +184,17 @@ void main() {
         (WidgetTester tester) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           actions.add(action);
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: null,
           ),
         ),
@@ -203,14 +221,17 @@ void main() {
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final actions = <dynamic>[];
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           actions.add(action);
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: availableIn5Seconds,
           ),
         ),
@@ -244,22 +265,28 @@ void main() {
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
 
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           if (action is _TransitionCooldownAction) {
             return AppState(
               connection: ConnectionState.initial(),
               pairing: const PairingState(
                 phase: PairingPhase.awaitingCode,
+                bridgeVersion: null,
+                error: null,
+                codeExpiresAt: null,
                 renotifyAvailableAt: null,
               ),
             );
           }
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
             renotifyAvailableAt: availableIn5Seconds,
           ),
         ),

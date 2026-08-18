@@ -366,6 +366,8 @@ void main() {
               phase: PairingPhase.trusted,
               bridgeVersion: '1.2.3',
               error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
             ),
           ),
         );

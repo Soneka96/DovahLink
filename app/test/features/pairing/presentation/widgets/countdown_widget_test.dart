@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
@@ -9,20 +9,20 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/countdown
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Mocks the Redux store for [CountdownWidget] tests.
-class MockStore extends Mock implements Store<AppState> {}
-
 /// Exercises [CountdownWidget] countdown display and periodic updates.
 void main() {
   group('CountdownWidget', () {
     testWidgets('renders nothing when countdown is null', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -44,14 +44,20 @@ void main() {
     testWidgets('displays formatted countdown when seconds remain',
         (WidgetTester tester) async {
       final now = DateTime.now();
-      final expiresIn125Seconds = now.add(const Duration(seconds: 125));
+      // A small margin absorbs the wall-clock time pumpWidget takes, so the
+      // truncating-to-whole-seconds selector doesn't flake across a second boundary.
+      final expiresIn125Seconds =
+          now.add(const Duration(seconds: 125, milliseconds: 500));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiresIn125Seconds,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -77,12 +83,15 @@ void main() {
       final now = DateTime.now();
       final expiredInPast = now.subtract(const Duration(seconds: 10));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiredInPast,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -109,12 +118,15 @@ void main() {
       final expiresIn10Seconds = now.add(const Duration(seconds: 10));
       const customStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold);
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiresIn10Seconds,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -140,12 +152,15 @@ void main() {
       final now = DateTime.now();
       final expiresIn90Seconds = now.add(const Duration(seconds: 90));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiresIn90Seconds,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -171,27 +186,35 @@ void main() {
 
     testWidgets('updates countdown when store state changes', (WidgetTester tester) async {
       final now = DateTime.now();
-      final expiresIn60Seconds = now.add(const Duration(seconds: 60));
-      final expiresIn30Seconds = now.add(const Duration(seconds: 30));
+      final expiresIn60Seconds =
+          now.add(const Duration(seconds: 60, milliseconds: 500));
+      final expiresIn30Seconds =
+          now.add(const Duration(seconds: 30, milliseconds: 500));
 
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           if (action is _UpdateCountdownAction) {
             return AppState(
               connection: ConnectionState.initial(),
               pairing: PairingState(
                 phase: PairingPhase.awaitingCode,
+                bridgeVersion: null,
+                error: null,
                 codeExpiresAt: action.newExpiry,
+                renotifyAvailableAt: null,
               ),
             );
           }
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiresIn60Seconds,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -219,14 +242,18 @@ void main() {
 
     testWidgets('maintains timer during widget rebuild', (WidgetTester tester) async {
       final now = DateTime.now();
-      final expiresIn60Seconds = now.add(const Duration(seconds: 60));
+      final expiresIn60Seconds =
+          now.add(const Duration(seconds: 60, milliseconds: 500));
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
             codeExpiresAt: expiresIn60Seconds,
+            renotifyAvailableAt: null,
           ),
         ),
       );

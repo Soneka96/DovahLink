@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
@@ -16,11 +16,15 @@ void main() {
     testWidgets('displays enabled button during awaiting-code phase',
         (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -46,11 +50,15 @@ void main() {
     testWidgets('displays disabled button in disconnected phase',
         (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.disconnected,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -72,12 +80,15 @@ void main() {
 
     testWidgets('displays disabled button in failed phase', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.failed,
+            bridgeVersion: null,
             error: 'Challenge cancelled',
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -99,11 +110,15 @@ void main() {
 
     testWidgets('displays disabled button in succeeded phase', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
-            phase: PairingPhase.succeeded,
+            phase: PairingPhase.trusted,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -127,14 +142,18 @@ void main() {
         (WidgetTester tester) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           actions.add(action);
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -158,14 +177,18 @@ void main() {
     testWidgets('does not dispatch action when disabled', (WidgetTester tester) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           actions.add(action);
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.disconnected,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -194,11 +217,15 @@ void main() {
 
     testWidgets('uses custom label when provided', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -220,21 +247,29 @@ void main() {
 
     testWidgets('updates when phase changes', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           if (action is _TransitionPhaseAction) {
             return AppState(
               connection: ConnectionState.initial(),
               pairing: const PairingState(
                 phase: PairingPhase.disconnected,
+                bridgeVersion: null,
+                error: null,
+                codeExpiresAt: null,
+                renotifyAvailableAt: null,
               ),
             );
           }
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -253,7 +288,7 @@ void main() {
       var button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
       expect(button.onPressed, isNotNull);
 
-      store.dispatch(_TransitionPhaseAction());
+      store.dispatch(_TransitionPhaseAction(PairingPhase.disconnected));
       await tester.pump();
 
       button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
@@ -262,13 +297,17 @@ void main() {
 
     testWidgets('re-enables when phase returns to awaiting-code', (WidgetTester tester) async {
       final store = Store<AppState>(
-        (dynamic action) {
+        (AppState state, dynamic action) {
           if (action is _TransitionPhaseAction) {
             if (action.toPhase == PairingPhase.awaitingCode) {
               return AppState(
                 connection: ConnectionState.initial(),
                 pairing: const PairingState(
                   phase: PairingPhase.awaitingCode,
+                  bridgeVersion: null,
+                  error: null,
+                  codeExpiresAt: null,
+                  renotifyAvailableAt: null,
                 ),
               );
             } else {
@@ -276,16 +315,24 @@ void main() {
                 connection: ConnectionState.initial(),
                 pairing: PairingState(
                   phase: action.toPhase,
+                  bridgeVersion: null,
+                  error: null,
+                  codeExpiresAt: null,
+                  renotifyAvailableAt: null,
                 ),
               );
             }
           }
-          return store.state;
+          return state;
         },
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
@@ -319,14 +366,18 @@ void main() {
 
     testWidgets('applies custom style when provided', (WidgetTester tester) async {
       const customStyle = ButtonStyle(
-        backgroundColor: MaterialStatePropertyAll<Color>(Colors.red),
+        backgroundColor: WidgetStatePropertyAll<Color>(Colors.red),
       );
       final store = Store<AppState>(
-        (_) {},
+        (AppState state, dynamic action) => state,
         initialState: AppState(
           connection: ConnectionState.initial(),
           pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
           ),
         ),
       );
