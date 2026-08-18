@@ -15,12 +15,13 @@ namespace dovahlink::protocol {
 struct PairingOutcomePayload {
     /// One of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`, `"invalid"`,
     /// `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`, `"renotified"`,
-    /// `"renotify_cooldown"`, `"already_idle"`. `"pacing_limited"` and `"hard_limit_reached"`
-    /// replace the single undifferentiated `"rate_limited"` earlier phases used: pacing blocks an
-    /// attempt without counting against the wrong-attempt budget, while the hard limit is the
-    /// terminal count of wrong attempts that destroys the challenge. `"already_idle"` reports a
-    /// manual renotify request that finds no active challenge or pending credential owned by the
-    /// requester.
+    /// `"renotify_cooldown"`, `"cancelled"`, `"already_idle"`. `"pacing_limited"` and
+    /// `"hard_limit_reached"` replace the single undifferentiated `"rate_limited"` earlier phases
+    /// used: pacing blocks an attempt without counting against the wrong-attempt budget, while
+    /// the hard limit is the terminal count of wrong attempts that destroys the challenge.
+    /// `"already_idle"` is shared by a manual renotify or cancel request that finds no active
+    /// challenge or pending credential owned by the requester -- the same "nothing to act on"
+    /// meaning either way.
     std::string outcome;
     /// Hex-encoded credential; present only for `"credential_issued"`, `"trusted"`, and
     /// `"already_trusted"`.

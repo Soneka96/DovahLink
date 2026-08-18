@@ -92,4 +92,21 @@ namespace dovahlink::application {
                                                           PairingNotificationSink& notificationSink,
                                                           std::chrono::steady_clock::time_point now);
 
+/// Handles a `pairing_cancel`: `clientId` gives up its owned active challenge or pending
+/// credential, whichever is currently held. Never touches `TrustStore` or any already-committed
+/// trust; only ever clears in-memory challenge/pending state, freeing the slot for a fresh
+/// `pairing_request` immediately.
+/// @param pairingCancelEnvelope Decoded client `pairing_cancel` (no payload beyond the standard
+///     envelope).
+/// @param sessionId Authenticated session identifier.
+/// @param clientId The connection's authenticated client identity (session-owned state).
+/// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
+/// @param now Current monotonic time, for the lazy-expiry checks.
+/// @return `pairing_outcome` envelope: `"cancelled"` when `clientId` owned something and it was
+///     cleared, or `"already_idle"` when it owned no active challenge or pending credential.
+[[nodiscard]] protocol::Envelope HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope,
+                                                        const std::string& sessionId, const std::string& clientId,
+                                                        security::PairingSession& pairingSession,
+                                                        std::chrono::steady_clock::time_point now);
+
 }  // namespace dovahlink::application

@@ -235,4 +235,21 @@ protocol::Envelope HandlePairingRenotify(const protocol::Envelope& pairingRenoti
                                 protocol::PairingOutcomePayload{.outcome = "already_idle"});
 }
 
+protocol::Envelope HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope, const std::string& sessionId,
+                                         const std::string& clientId, security::PairingSession& pairingSession,
+                                         std::chrono::steady_clock::time_point now) {
+    auto outcome = pairingSession.TryCancel(clientId, now);
+    switch (outcome) {
+        case security::CancelOutcome::kCancelled:
+            return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "cancelled"});
+        case security::CancelOutcome::kAlreadyIdle:
+            return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "already_idle"});
+    }
+    // Unreachable: every enumerator is handled above.
+    return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                protocol::PairingOutcomePayload{.outcome = "already_idle"});
+}
+
 }  // namespace dovahlink::application

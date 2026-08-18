@@ -14,6 +14,7 @@
 
 using dovahlink::application::ConnectionId;
 using dovahlink::application::HandlePairingAck;
+using dovahlink::application::HandlePairingCancel;
 using dovahlink::application::HandlePairingConfirm;
 using dovahlink::application::HandlePairingRenotify;
 using dovahlink::application::HandlePairingRequest;
@@ -118,6 +119,17 @@ Envelope BuildPairingConfirmEnvelope(const std::string& code, std::optional<std:
 Envelope BuildPairingRenotifyEnvelope(std::string messageId = "message-renotify-1") {
     return Envelope{
         .messageType = "pairing_renotify",
+        .messageId = std::move(messageId),
+        .sessionId = kSessionId,
+        .correlationId = std::nullopt,
+        .payload = boost::json::object{},
+    };
+}
+
+/// Builds a `pairing_cancel` envelope (no payload).
+Envelope BuildPairingCancelEnvelope(std::string messageId = "message-cancel-1") {
+    return Envelope{
+        .messageType = "pairing_cancel",
         .messageId = std::move(messageId),
         .sessionId = kSessionId,
         .correlationId = std::nullopt,
@@ -800,4 +812,119 @@ TEST_CASE("HandlePairingRenotify reports already_idle for a non-owner without di
     auto ownerOutcome = dovahlink::protocol::DecodePairingOutcomePayload(ownerResponse.payload);
     REQUIRE(ownerOutcome.has_value());
     CHECK(ownerOutcome->outcome == "renotified");
+}
+
+TEST_CASE("HandlePairingCancel clears an owned active challenge and frees it for a fresh "
+          "pairing_request",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+
+    auto response = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId, kClientId, pairingSession, now);
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "cancelled");
+
+    auto fresh = HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"), kSessionId, kClientId,
+                                       pairingSession, sink, now);
+    auto freshStatus = dovahlink::protocol::DecodePairingStatusPayload(fresh.payload);
+    REQUIRE(freshStatus.has_value());
+    CHECK(freshStatus->state == "available");
+}
+
+TEST_CASE("HandlePairingCancel clears an owned pending credential, leaving it unreachable by a "
+          "later pairing_ack",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+    auto confirmResponse =
+        HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, sink, now);
+    auto confirmOutcome = dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
+    REQUIRE(confirmOutcome.has_value());
+    std::string credentialHex = *confirmOutcome->credential;
+
+    auto response = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId, kClientId, pairingSession, now);
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "cancelled");
+
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted);
+    REQUIRE(sessionLease.has_value());
+    auto ackResponse = HandlePairingAck(BuildPairingAckEnvelope(credentialHex), kSessionId, kClientId, kConnection,
+                                         pairingSession, trustStore, sessions, now);
+    auto ackOutcome = dovahlink::protocol::DecodePairingOutcomePayload(ackResponse.payload);
+    REQUIRE(ackOutcome.has_value());
+    CHECK(ackOutcome->outcome == "pending_not_found");
+
+    // The slot is freed too, not just unreachable by the stale credential.
+    auto fresh = HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"), kSessionId, kClientId,
+                                       pairingSession, sink, now);
+    auto freshStatus = dovahlink::protocol::DecodePairingStatusPayload(fresh.payload);
+    REQUIRE(freshStatus.has_value());
+    CHECK(freshStatus->state == "available");
+}
+
+TEST_CASE("HandlePairingCancel is idempotent: repeating it reports already_idle truthfully",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+    auto first = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId, kClientId, pairingSession, now);
+    auto firstOutcome = dovahlink::protocol::DecodePairingOutcomePayload(first.payload);
+    REQUIRE(firstOutcome.has_value());
+    REQUIRE(firstOutcome->outcome == "cancelled");
+
+    auto second =
+        HandlePairingCancel(BuildPairingCancelEnvelope("message-cancel-2"), kSessionId, kClientId, pairingSession, now);
+
+    auto secondOutcome = dovahlink::protocol::DecodePairingOutcomePayload(second.payload);
+    REQUIRE(secondOutcome.has_value());
+    CHECK(secondOutcome->outcome == "already_idle");
+}
+
+TEST_CASE("HandlePairingCancel reports already_idle with nothing owned",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+
+    auto response = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId, kClientId, pairingSession,
+                                         std::chrono::steady_clock::now());
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+}
+
+TEST_CASE("HandlePairingCancel reports already_idle for a non-owner without disturbing the real "
+          "owner's challenge",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+
+    auto response = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId, kOtherClientId, pairingSession, now);
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+
+    // The real owner's challenge survives the non-owner's cancel attempt untouched.
+    auto ownerResponse = HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
+                                               pairingSession, sink, now);
+    auto ownerOutcome = dovahlink::protocol::DecodePairingOutcomePayload(ownerResponse.payload);
+    REQUIRE(ownerOutcome.has_value());
+    CHECK(ownerOutcome->outcome == "credential_issued");
 }

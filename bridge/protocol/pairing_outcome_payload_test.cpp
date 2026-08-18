@@ -134,6 +134,15 @@ TEST_CASE("pairing-outcome-already-idle fixture decodes with no credential",
     CHECK_FALSE(outcome->credential.has_value());
 }
 
+TEST_CASE("pairing-outcome-cancelled fixture decodes with no credential",
+          "[protocol][pairing_outcome_payload]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-cancelled.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "cancelled");
+    CHECK_FALSE(outcome->credential.has_value());
+}
+
 TEST_CASE("PairingOutcomePayload round-trips through encode then decode", "[protocol][pairing_outcome_payload]") {
     dovahlink::protocol::PairingOutcomePayload original{
         .outcome = "trusted",
