@@ -61,4 +61,16 @@ std::expected<std::optional<std::string>, DecodeError> DecodeOptionalString(cons
     return std::optional<std::string>(std::string(value->get_string()));
 }
 
+std::expected<std::optional<std::int64_t>, DecodeError> DecodeOptionalNonNegativeInt(
+    const boost::json::value* value, std::string_view fieldName) {
+    if (!value || value->is_null()) {
+        return std::optional<std::int64_t>{};
+    }
+    auto decoded = DecodeNonNegativeInt(value, fieldName);
+    if (!decoded) {
+        return std::unexpected(decoded.error());
+    }
+    return std::optional<std::int64_t>(*decoded);
+}
+
 }  // namespace dovahlink::protocol

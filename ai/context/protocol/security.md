@@ -60,7 +60,9 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   `pairing_outcome` (bridge reply to both `pairing_confirm` and `pairing_ack`, one shared message
   type distinguished by its `outcome` field: `credential_issued` carries the pending credential;
   `trusted` carries the committed credential's `shortId`; `already_trusted` is `pairing_ack`'s
-  idempotent-retry success case; `expired`/`invalid`/`rate_limited` carry no credential;
+  idempotent-retry success case; `expired`/`invalid`/`pacing_limited`/`hard_limit_reached` carry no
+  credential (Phase 3.1 replaced the single undifferentiated `rate_limited` outcome with these two,
+  per `ROADMAP.md`'s "3.1 Live Pairing Challenge UX");
   `pending_not_found` is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory
   pending credential, per "the pending credential as no longer known/valid" above). The in-memory
   pending-credential record is keyed to the single active connection (this phase's single-connected-

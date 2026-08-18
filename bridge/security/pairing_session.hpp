@@ -74,6 +74,15 @@ public:
     [[nodiscard]] std::optional<std::chrono::seconds> RemainingSeconds(
         std::chrono::steady_clock::time_point now);
 
+    /// Returns the active challenge's own six-digit code, applying the same reconnect-grace
+    /// lazy-expiry check as `TryStartChallenge`. Exists so the pairing handler can redisplay the
+    /// same code through the notification sink -- for a wrong-attempt auto-renotify or a manual
+    /// `TryRenotify` -- without `PairingSession` itself touching Skyrim or the wire; this is not a
+    /// wire-exposed value, and the code is never sent to the client over the connection.
+    /// @param now Current monotonic time, for the reconnect-grace lazy-expiry check.
+    /// @return The six-digit code, or `std::nullopt` when no challenge is active.
+    [[nodiscard]] std::optional<std::string> CurrentCode(std::chrono::steady_clock::time_point now);
+
     /// Records that `clientId`'s connection has just disconnected, starting the reconnect-grace
     /// countdown, if and only if `clientId` currently owns an active challenge (`CHALLENGE_ACTIVE`).
     /// A no-op for a non-owner, or once the challenge has reached `PENDING_CREDENTIAL` -- the grace
@@ -172,9 +181,9 @@ private:
     void ExpirePendingIfElapsedLocked(std::chrono::steady_clock::time_point now);
 
     /// Resets every field scoped to one active challenge's lifetime (`activeChallenge_`,
-    /// `ownerClientId_`, `disconnectedAt_`, the wrong-attempt/pacing counters, and both renotify
-    /// cooldowns) back to their `NONE` state together, so no field can accidentally carry stale
-    /// data into the next challenge. Call while holding `mutex_`. Never touches
+    /// `activeCode_`, `ownerClientId_`, `disconnectedAt_`, the wrong-attempt/pacing counters, and
+    /// both renotify cooldowns) back to their `NONE` state together, so no field can accidentally
+    /// carry stale data into the next challenge. Call while holding `mutex_`. Never touches
     /// `pendingCredential_`, which has its own independent lifetime.
     void ClearChallengeLocked();
 
@@ -189,6 +198,11 @@ private:
 
     /// The active challenge's single-use, expiring code, or no value when `NONE`.
     std::optional<TokenStore> activeChallenge_;
+
+    /// The same code `activeChallenge_` validates against, kept in plaintext for `CurrentCode`'s
+    /// redisplay use. Retained for exactly `activeChallenge_`'s own lifetime -- no longer-lived
+    /// than the plaintext this handler already returns once from `TryStartChallenge` itself.
+    std::optional<std::string> activeCode_;
 
     /// The `clientId` that owns `activeChallenge_`, or no value when it does not exist (`NONE` or
     /// `PENDING_CREDENTIAL` -- cleared together with `activeChallenge_` on every exit from

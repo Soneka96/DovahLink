@@ -36,6 +36,7 @@ void PairingSession::ExpirePendingIfElapsedLocked(std::chrono::steady_clock::tim
 
 void PairingSession::ClearChallengeLocked() {
     activeChallenge_.reset();
+    activeCode_.reset();
     ownerClientId_.reset();
     disconnectedAt_.reset();
     wrongAttempts_ = 0;
@@ -73,6 +74,7 @@ StartChallengeResult PairingSession::TryStartChallenge(const std::string& client
     ClearChallengeLocked();
     std::vector<std::uint8_t> codeBytes(code->begin(), code->end());
     activeChallenge_.emplace(std::move(codeBytes), codeTimeToLive_);
+    activeCode_ = code;
     ownerClientId_ = clientId;
     return {.outcome = StartChallengeOutcome::kStarted, .code = code};
 }
@@ -85,6 +87,15 @@ std::optional<std::chrono::seconds> PairingSession::RemainingSeconds(
         return std::nullopt;
     }
     return activeChallenge_->RemainingSeconds();
+}
+
+std::optional<std::string> PairingSession::CurrentCode(std::chrono::steady_clock::time_point now) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ExpireOwnerIfGraceElapsedLocked(now);
+    if (!activeChallenge_.has_value()) {
+        return std::nullopt;
+    }
+    return activeCode_;
 }
 
 void PairingSession::NotifyDisconnected(const std::string& clientId,

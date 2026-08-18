@@ -57,8 +57,22 @@ public:
         codes.emplace_back(sixDigitCode);
     }
 
+    /// Appends `sixDigitCode` to `incorrectCodes`.
+    void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
+        incorrectCodes.emplace_back(sixDigitCode);
+    }
+
+    /// Increments `attemptsExhaustedCount`.
+    void NotifyPairingAttemptsExhausted() override { ++attemptsExhaustedCount; }
+
     /// Every code this sink has been given, in order.
     std::vector<std::string> codes;
+
+    /// Every code this sink was asked to redisplay after a wrong attempt, in order.
+    std::vector<std::string> incorrectCodes;
+
+    /// Number of times the wrong-attempt hard limit was reached.
+    int attemptsExhaustedCount = 0;
 };
 
 /// Bundles an authenticated dispatcher session and its production collaborators.

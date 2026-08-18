@@ -67,6 +67,14 @@ public:
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
         std::cout << "PAIRING_CODE " << sixDigitCode << std::endl;
     }
+
+    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingCodeIncorrect
+    void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
+        std::cout << "PAIRING_CODE_INCORRECT " << sixDigitCode << std::endl;
+    }
+
+    /// @copydoc dovahlink::application::PairingNotificationSink::NotifyPairingAttemptsExhausted
+    void NotifyPairingAttemptsExhausted() override { std::cout << "PAIRING_ATTEMPTS_EXHAUSTED" << std::endl; }
 };
 
 /// Processes one lifecycle event through the tracker and applies its

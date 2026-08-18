@@ -236,6 +236,42 @@ TEST_CASE("RemainingSeconds reports no value with no active challenge", "[securi
     CHECK_FALSE(session.RemainingSeconds(std::chrono::steady_clock::now()).has_value());
 }
 
+TEST_CASE("CurrentCode returns the active challenge's own code", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    auto code = session.CurrentCode(now);
+    REQUIRE(code.has_value());
+    CHECK(*code == "111111");
+}
+
+TEST_CASE("CurrentCode reports no value with no active challenge", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+
+    CHECK_FALSE(session.CurrentCode(std::chrono::steady_clock::now()).has_value());
+}
+
+TEST_CASE("CurrentCode reports no value once the challenge reaches PENDING_CREDENTIAL",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt).outcome ==
+            ConfirmResult::kConfirmed);
+
+    CHECK_FALSE(session.CurrentCode(now).has_value());
+}
+
+TEST_CASE("CurrentCode respects the reconnect-grace lazy-expiry check", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    session.NotifyDisconnected("client-1", now);
+    CHECK_FALSE(session.CurrentCode(now + std::chrono::seconds(11)).has_value());
+}
+
 TEST_CASE("NotifyReconnected from a non-owner does not clear the real owner's grace countdown",
           "[security][pairing_session]") {
     PairingSession session(FixedCode("111111"));

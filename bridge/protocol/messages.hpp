@@ -220,8 +220,13 @@ std::expected<CharacterState, MessageError> DecodeCharacterState(
 
 /// Bridge report of pairing availability, sent in reply to `pairing_request`.
 struct PairingStatusPayload {
-    /// One of `"unavailable"`, `"available"`, `"in_progress"`.
+    /// One of `"unavailable"`, `"available"`, `"in_progress"`, `"other_device_pairing"`.
     std::string state;
+    /// The active challenge's remaining code validity in seconds; present for `"available"` (a
+    /// freshly started challenge) and `"in_progress"` (the caller's own challenge, resumed).
+    /// Never present for `"unavailable"` or `"other_device_pairing"` -- the latter reveals nothing
+    /// about the owning device's code or its remaining time.
+    std::optional<std::int64_t> expiresInSeconds;
 };
 
 /// Decodes a pairing status payload.
@@ -258,7 +263,10 @@ std::expected<PairingAckPayload, MessageError> DecodePairingAckPayload(
 /// Bridge reply to `pairing_confirm` or `pairing_ack`, distinguished by `outcome`.
 struct PairingOutcomePayload {
     /// One of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`, `"invalid"`,
-    /// `"rate_limited"`, `"pending_not_found"`.
+    /// `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`. `"pacing_limited"` and
+    /// `"hard_limit_reached"` replace the single undifferentiated `"rate_limited"` earlier phases
+    /// used: pacing blocks an attempt without counting against the wrong-attempt budget, while
+    /// the hard limit is the terminal count of wrong attempts that destroys the challenge.
     std::string outcome;
     /// Hex-encoded credential; present only for `"credential_issued"`, `"trusted"`, and
     /// `"already_trusted"`.
@@ -268,6 +276,9 @@ struct PairingOutcomePayload {
     /// Echoed presentation-only label; present only alongside `credential`/`shortId` when the
     /// client supplied one.
     std::optional<std::string> displayName;
+    /// Remaining wait in seconds before another evaluated `pairing_confirm` attempt is accepted;
+    /// present only for `"pacing_limited"`.
+    std::optional<std::int64_t> retryAfterSeconds;
 };
 
 /// Decodes a pairing outcome payload.

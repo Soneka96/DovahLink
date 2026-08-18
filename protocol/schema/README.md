@@ -167,16 +167,25 @@ Bridge report of pairing availability, sent in reply to `pairing_request`:
 
 ```json
 {
-  "state": "available"
+  "state": "available",
+  "expiresInSeconds": 287
 }
 ```
 
-`state` is one of `"unavailable"`, `"available"`, or `"in_progress"`. `"available"` means a fresh
-six-digit code was just generated and displayed to the user in Skyrim; a repeated `pairing_request`
-while that code is still active reports `"in_progress"` instead, without generating or displaying a
-second code.
+`state` is one of `"unavailable"`, `"available"`, `"in_progress"`, or `"other_device_pairing"`.
+`"available"` means a fresh six-digit code was just generated and displayed to the user in Skyrim; a
+repeated `pairing_request` from the same `clientId` while that code is still active reports
+`"in_progress"` instead, without generating or displaying a second code. `"other_device_pairing"`
+means a *different* `clientId` currently owns the active challenge or pending credential; it
+discloses nothing else about the owning device or its code, and `expiresInSeconds` is never present
+alongside it.
 
-Required payload field: `state`.
+`expiresInSeconds` is the active challenge's remaining code validity, present for `"available"` and
+`"in_progress"` and `null` otherwise. The SDK/app renders a local countdown from it and refreshes
+authoritative pairing state as expiry approaches rather than owning expiry semantics itself.
+
+Required payload field: `state`. `expiresInSeconds` is always present as `null` unless the note
+above says otherwise.
 
 `pairing_status.correlationId` is the `messageId` of the `pairing_request` it answers.
 
@@ -193,7 +202,7 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 
 `code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
 client; send `null` when omitted. The bridge responds with `pairing_outcome`
-(`"credential_issued"`, `"expired"`, `"invalid"`, or `"rate_limited"`).
+(`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or `"hard_limit_reached"`).
 
 Required payload field: `code`.
 
@@ -223,19 +232,25 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
   "outcome": "trusted",
   "credential": "redacted-in-documentation",
   "shortId": "12345",
-  "displayName": "My PC"
+  "displayName": "My PC",
+  "retryAfterSeconds": null
 }
 ```
 
 `outcome` is one of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
-`"invalid"`, `"rate_limited"`, or `"pending_not_found"`. `credential` is present only for
-`"credential_issued"`, `"trusted"`, and `"already_trusted"`. `shortId` (an administration-only
+`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, or `"pending_not_found"`. `"pacing_limited"`
+and `"hard_limit_reached"` replace the single undifferentiated `"rate_limited"` earlier phases used:
+pacing rejects an evaluated `pairing_confirm` attempt made too soon after the previous one, without
+counting it as wrong, while the hard limit is the terminal count of wrong evaluated attempts that
+cancels the challenge outright and requires a fresh `pairing_request`. `credential` is present only
+for `"credential_issued"`, `"trusted"`, and `"already_trusted"`. `shortId` (an administration-only
 identifier, not a trust credential) is present only for `"trusted"` and `"already_trusted"`.
 `displayName` echoes the client-supplied label and is present only alongside `credential`/`shortId`
-when the client supplied one.
+when the client supplied one. `retryAfterSeconds` is the remaining wait before another evaluated
+`pairing_confirm` attempt is accepted, present only for `"pacing_limited"`.
 
-Required payload field: `outcome`. `credential`, `shortId`, and `displayName` are always present in
-the payload as `null` unless the note above says otherwise.
+Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
+are always present in the payload as `null` unless the note above says otherwise.
 
 `pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
 answers.

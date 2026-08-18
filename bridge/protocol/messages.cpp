@@ -360,15 +360,23 @@ std::expected<PairingStatusPayload, MessageError> DecodePairingStatusPayload(con
     if (!state) {
         return std::unexpected(state.error());
     }
-    if (*state != "unavailable" && *state != "available" && *state != "in_progress") {
-        return Fail("state must be one of: unavailable, available, in_progress");
+    if (*state != "unavailable" && *state != "available" && *state != "in_progress" &&
+        *state != "other_device_pairing") {
+        return Fail("state must be one of: unavailable, available, in_progress, other_device_pairing");
     }
-    return PairingStatusPayload{.state = std::move(*state)};
+    auto expiresInSeconds = DecodeOptionalNonNegativeInt(RequireField(payload, "expiresInSeconds"),
+                                                          "expiresInSeconds");
+    if (!expiresInSeconds) {
+        return std::unexpected(expiresInSeconds.error());
+    }
+    return PairingStatusPayload{.state = std::move(*state), .expiresInSeconds = *expiresInSeconds};
 }
 
 boost::json::object EncodePairingStatusPayload(const PairingStatusPayload& payload) {
     boost::json::object obj;
     obj["state"] = payload.state;
+    obj["expiresInSeconds"] = payload.expiresInSeconds.has_value() ? boost::json::value(*payload.expiresInSeconds)
+                                                                     : boost::json::value(nullptr);
     return obj;
 }
 
@@ -395,8 +403,9 @@ std::expected<PairingAckPayload, MessageError> DecodePairingAckPayload(const boo
 namespace {
 
 /// Registered `pairing_outcome.outcome` values.
-constexpr std::array<std::string_view, 7> kValidPairingOutcomes = {
-    "credential_issued", "trusted", "already_trusted", "expired", "invalid", "rate_limited", "pending_not_found",
+constexpr std::array<std::string_view, 8> kValidPairingOutcomes = {
+    "credential_issued", "trusted",       "already_trusted",    "expired",
+    "invalid",           "pacing_limited", "hard_limit_reached", "pending_not_found",
 };
 
 }  // namespace
@@ -422,12 +431,18 @@ std::expected<PairingOutcomePayload, MessageError> DecodePairingOutcomePayload(c
     if (!displayName) {
         return std::unexpected(displayName.error());
     }
+    auto retryAfterSeconds = DecodeOptionalNonNegativeInt(RequireField(payload, "retryAfterSeconds"),
+                                                           "retryAfterSeconds");
+    if (!retryAfterSeconds) {
+        return std::unexpected(retryAfterSeconds.error());
+    }
 
     return PairingOutcomePayload{
         .outcome = std::move(*outcome),
         .credential = std::move(*credential),
         .shortId = std::move(*shortId),
         .displayName = std::move(*displayName),
+        .retryAfterSeconds = *retryAfterSeconds,
     };
 }
 
@@ -439,6 +454,8 @@ boost::json::object EncodePairingOutcomePayload(const PairingOutcomePayload& pay
     obj["shortId"] = payload.shortId.has_value() ? boost::json::value(*payload.shortId) : boost::json::value(nullptr);
     obj["displayName"] =
         payload.displayName.has_value() ? boost::json::value(*payload.displayName) : boost::json::value(nullptr);
+    obj["retryAfterSeconds"] = payload.retryAfterSeconds.has_value() ? boost::json::value(*payload.retryAfterSeconds)
+                                                                       : boost::json::value(nullptr);
     return obj;
 }
 

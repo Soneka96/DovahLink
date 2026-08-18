@@ -15,6 +15,12 @@ class CommonLibPairingNotificationSink : public application::PairingNotification
 public:
     /// @copydoc application::PairingNotificationSink::NotifyPairingCodeAvailable
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override;
+
+    /// @copydoc application::PairingNotificationSink::NotifyPairingCodeIncorrect
+    void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override;
+
+    /// @copydoc application::PairingNotificationSink::NotifyPairingAttemptsExhausted
+    void NotifyPairingAttemptsExhausted() override;
 };
 
 }  // namespace dovahlink::game_state

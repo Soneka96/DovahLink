@@ -75,6 +75,12 @@ public:
         codes.emplace_back(sixDigitCode);
     }
 
+    /// No-op: satisfies the interface only, matching this fake's existing minimal-footprint intent.
+    void NotifyPairingCodeIncorrect(std::string_view) override {}
+
+    /// No-op: satisfies the interface only, matching this fake's existing minimal-footprint intent.
+    void NotifyPairingAttemptsExhausted() override {}
+
     /// Every code this sink has been given, in order.
     std::vector<std::string> codes;
 };

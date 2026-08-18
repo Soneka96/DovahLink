@@ -656,6 +656,8 @@ TEST_CASE("pairing-status-available fixture decodes to the expected PairingStatu
     auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
     REQUIRE(status.has_value());
     CHECK(status->state == "available");
+    REQUIRE(status->expiresInSeconds.has_value());
+    CHECK(*status->expiresInSeconds == 300);
 }
 
 TEST_CASE("pairing-status-in-progress fixture decodes to the expected PairingStatusPayload",
@@ -664,6 +666,8 @@ TEST_CASE("pairing-status-in-progress fixture decodes to the expected PairingSta
     auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
     REQUIRE(status.has_value());
     CHECK(status->state == "in_progress");
+    REQUIRE(status->expiresInSeconds.has_value());
+    CHECK(*status->expiresInSeconds == 187);
 }
 
 TEST_CASE("pairing-status-unavailable fixture decodes to the expected PairingStatusPayload",
@@ -672,14 +676,37 @@ TEST_CASE("pairing-status-unavailable fixture decodes to the expected PairingSta
     auto status = dovahlink::protocol::DecodePairingStatusPayload(envelope.payload);
     REQUIRE(status.has_value());
     CHECK(status->state == "unavailable");
+    CHECK_FALSE(status->expiresInSeconds.has_value());
+}
+
+TEST_CASE("pairing_status decodes a missing expiresInSeconds as absent", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"state": "unavailable"})").get_object();
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(payload);
+    REQUIRE(status.has_value());
+    CHECK_FALSE(status->expiresInSeconds.has_value());
+}
+
+TEST_CASE("pairing_status accepts the other_device_pairing state", "[protocol][messages]") {
+    boost::json::object payload = boost::json::parse(R"({"state": "other_device_pairing"})").get_object();
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(payload);
+    REQUIRE(status.has_value());
+    CHECK(status->state == "other_device_pairing");
+}
+
+TEST_CASE("pairing_status is rejected when expiresInSeconds is negative", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"state": "available", "expiresInSeconds": -1})").get_object();
+    auto status = dovahlink::protocol::DecodePairingStatusPayload(payload);
+    REQUIRE_FALSE(status.has_value());
 }
 
 TEST_CASE("PairingStatusPayload round-trips through encode then decode", "[protocol][messages]") {
-    dovahlink::protocol::PairingStatusPayload original{.state = "available"};
+    dovahlink::protocol::PairingStatusPayload original{.state = "available", .expiresInSeconds = 42};
     auto decoded = dovahlink::protocol::DecodePairingStatusPayload(
         dovahlink::protocol::EncodePairingStatusPayload(original));
     REQUIRE(decoded.has_value());
     CHECK(decoded->state == original.state);
+    CHECK(decoded->expiresInSeconds == original.expiresInSeconds);
 }
 
 TEST_CASE("pairing_status is rejected when state is not a registered value", "[protocol][messages]") {
@@ -702,6 +729,9 @@ TEST_CASE("EncodePairingStatusPayload writes the state field directly", "[protoc
     REQUIRE(state != nullptr);
     REQUIRE(state->is_string());
     CHECK(state->get_string() == "in_progress");
+    const boost::json::value* expiresInSeconds = encoded.if_contains("expiresInSeconds");
+    REQUIRE(expiresInSeconds != nullptr);
+    CHECK(expiresInSeconds->is_null());
 }
 
 TEST_CASE("pairing-confirm fixture decodes to the expected PairingConfirmPayload",
@@ -830,11 +860,35 @@ TEST_CASE("pairing-outcome-invalid fixture decodes with no credential", "[protoc
     CHECK(outcome->outcome == "invalid");
 }
 
-TEST_CASE("pairing-outcome-rate-limited fixture decodes with no credential", "[protocol][messages]") {
-    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-rate-limited.json");
+TEST_CASE("pairing-outcome-pacing-limited fixture decodes with a retryAfterSeconds and no credential",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-pacing-limited.json");
     auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
     REQUIRE(outcome.has_value());
-    CHECK(outcome->outcome == "rate_limited");
+    CHECK(outcome->outcome == "pacing_limited");
+    CHECK_FALSE(outcome->credential.has_value());
+    REQUIRE(outcome->retryAfterSeconds.has_value());
+    CHECK(*outcome->retryAfterSeconds == 1);
+}
+
+TEST_CASE("pairing-outcome-hard-limit-reached fixture decodes with no credential and no "
+          "retryAfterSeconds",
+          "[protocol][messages]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-hard-limit-reached.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "hard_limit_reached");
+    CHECK_FALSE(outcome->credential.has_value());
+    CHECK_FALSE(outcome->retryAfterSeconds.has_value());
+}
+
+TEST_CASE("pairing_outcome no longer accepts the retired rate_limited value", "[protocol][messages]") {
+    boost::json::object payload =
+        boost::json::parse(R"({"outcome": "rate_limited", "credential": null, "shortId": null, )"
+                            R"("displayName": null})")
+            .get_object();
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(payload);
+    REQUIRE_FALSE(outcome.has_value());
 }
 
 TEST_CASE("pairing-outcome-pending-not-found fixture decodes with no credential",
@@ -851,6 +905,7 @@ TEST_CASE("PairingOutcomePayload round-trips through encode then decode", "[prot
         .credential = std::string("a1b2c3"),
         .shortId = std::string("12345"),
         .displayName = std::nullopt,
+        .retryAfterSeconds = std::nullopt,
     };
     auto decoded = dovahlink::protocol::DecodePairingOutcomePayload(
         dovahlink::protocol::EncodePairingOutcomePayload(original));
@@ -859,6 +914,23 @@ TEST_CASE("PairingOutcomePayload round-trips through encode then decode", "[prot
     CHECK(decoded->credential == original.credential);
     CHECK(decoded->shortId == original.shortId);
     CHECK(decoded->displayName == original.displayName);
+    CHECK(decoded->retryAfterSeconds == original.retryAfterSeconds);
+}
+
+TEST_CASE("PairingOutcomePayload round-trips a present retryAfterSeconds through encode then decode",
+          "[protocol][messages]") {
+    dovahlink::protocol::PairingOutcomePayload original{
+        .outcome = "pacing_limited",
+        .credential = std::nullopt,
+        .shortId = std::nullopt,
+        .displayName = std::nullopt,
+        .retryAfterSeconds = 1,
+    };
+    auto decoded = dovahlink::protocol::DecodePairingOutcomePayload(
+        dovahlink::protocol::EncodePairingOutcomePayload(original));
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded->retryAfterSeconds.has_value());
+    CHECK(*decoded->retryAfterSeconds == 1);
 }
 
 TEST_CASE("pairing_outcome is rejected when outcome is not a registered value", "[protocol][messages]") {
