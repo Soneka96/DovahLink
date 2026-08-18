@@ -52,11 +52,18 @@ Before a pull request is considered ready, verify all of the following:
 - No secrets, credentials, generated artifacts, unrelated cleanup, or unowned abstractions were added.
 - The maintainer has reviewed and explicitly approved the final diff. A pull request is merge-ready only after this approval and all checks pass; the maintainer performs the merge manually.
 
-Suggested branch names:
+Branch names:
+
+- When a branch implements a `ROADMAP.md` phase (or sub-phase), name it
+  `feature/<phase-number>-<phase-name-slug>`, using that phase's exact heading number and a
+  kebab-case slug of its name, so the branch and its PR are traceable to the phase they implement at
+  a glance: `ROADMAP.md`'s "## 3.1 Live Pairing Challenge UX" becomes
+  `feature/3.1-live-pairing-challenge-ux`.
+- For a fix or a change with no corresponding roadmap phase, use a short kebab-case description
+  instead:
 
 ```text
-feature/connection-proof
-feature/minimal-client
+feature/3.1-live-pairing-challenge-ux
 fix/reconnect-state
 docs/protocol-notes
 ```
