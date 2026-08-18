@@ -6,8 +6,8 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import 'package:dovahlink_client/shared/usecase/usecase.dart';
 
 /// Requests redisplay of the active pairing code through
-/// [IPairingRepository].
-class RequestPairingRenotifyUseCase extends UseCase<Either<Failure, Unit>, NoParams> {
+/// [IPairingRepository]. Returns cooldown seconds if in cooldown, null if succeeded.
+class RequestPairingRenotifyUseCase extends UseCase<Either<Failure, int?>, NoParams> {
   /// Creates a use case backed by [IPairingRepository].
   RequestPairingRenotifyUseCase(this._repository);
 
@@ -16,7 +16,7 @@ class RequestPairingRenotifyUseCase extends UseCase<Either<Failure, Unit>, NoPar
 
   /// See [UseCase.call].
   @override
-  Future<Either<Failure, Unit>> call(NoParams params) {
+  Future<Either<Failure, int?>> call(NoParams params) {
     return _repository.requestPairingRenotify();
   }
 }

@@ -21,25 +21,37 @@ void main() {
   });
 
   group('Usecase RequestPairingRenotifyUseCase returns the correct value', () {
-    test('returns Right when repository succeeds', () async {
+    test('returns Right with null when renotify succeeds', () async {
       when(
         () => mockRepository.requestPairingRenotify(),
-      ).thenAnswer((_) async => const Right(unit));
+      ).thenAnswer((_) async => const Right(null));
 
-      final Either<Failure, Unit> result = await useCase(NoParams());
+      final Either<Failure, int?> result = await useCase(NoParams());
 
-      expect(result, const Right(unit));
+      expect(result, const Right(null));
+      verify(() => mockRepository.requestPairingRenotify()).called(1);
+      verifyNoMoreInteractions(mockRepository);
+    });
+
+    test('returns Right with cooldown seconds when in cooldown', () async {
+      when(
+        () => mockRepository.requestPairingRenotify(),
+      ).thenAnswer((_) async => const Right(5));
+
+      final Either<Failure, int?> result = await useCase(NoParams());
+
+      expect(result, const Right(5));
       verify(() => mockRepository.requestPairingRenotify()).called(1);
       verifyNoMoreInteractions(mockRepository);
     });
 
     test('returns Left with PairingFailure when repository fails', () async {
-      const PairingFailure failure = PairingFailure('cooldown');
+      const PairingFailure failure = PairingFailure('no challenge active');
       when(
         () => mockRepository.requestPairingRenotify(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, Unit> result = await useCase(NoParams());
+      final Either<Failure, int?> result = await useCase(NoParams());
 
       expect(result, const Left(failure));
       verify(() => mockRepository.requestPairingRenotify()).called(1);
@@ -52,7 +64,7 @@ void main() {
         () => mockRepository.requestPairingRenotify(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, Unit> result = await useCase(NoParams());
+      final Either<Failure, int?> result = await useCase(NoParams());
 
       expect(result, const Left(failure));
       verify(() => mockRepository.requestPairingRenotify()).called(1);

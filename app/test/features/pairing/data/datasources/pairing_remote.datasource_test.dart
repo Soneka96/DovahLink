@@ -525,7 +525,7 @@ void main() {
   });
 
   group('PairingRemoteDataSourceImpl.requestPairingRenotify', () {
-    test('returns Right when the code was redisplayed', () async {
+    test('returns Right with null when the code was redisplayed', () async {
       when(
         () => mockClient.requestPairingRenotify(),
       ).thenAnswer(
@@ -534,13 +534,13 @@ void main() {
         ),
       );
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
-      expect(result, const Right<Failure, Unit>(unit));
+      expect(result, const Right<Failure, int?>(null));
     });
 
-    test('returns a PairingFailure when cooldown is active', () async {
+    test('returns Right with cooldown seconds when cooldown is active', () async {
       when(
         () => mockClient.requestPairingRenotify(),
       ).thenAnswer(
@@ -550,18 +550,13 @@ void main() {
         ),
       );
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
-      expect(
-        result,
-        const Left<Failure, Unit>(
-          PairingFailure('Too many requests. Wait before trying again.'),
-        ),
-      );
+      expect(result, const Right<Failure, int?>(3));
     });
 
-    test('returns a PairingFailure when nothing is owned', () async {
+    test('returns Left with PairingFailure when nothing is owned', () async {
       when(
         () => mockClient.requestPairingRenotify(),
       ).thenAnswer(
@@ -570,12 +565,12 @@ void main() {
         ),
       );
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
       expect(
         result,
-        const Left<Failure, Unit>(
+        const Left<Failure, int?>(
           PairingFailure('No pairing is currently active.'),
         ),
       );
@@ -586,10 +581,10 @@ void main() {
         () => mockClient.requestPairingRenotify(),
       ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
-      expect(result, const Left<Failure, Unit>(NetworkFailure('socket failed')));
+      expect(result, const Left<Failure, int?>(NetworkFailure('socket failed')));
     });
 
     test('maps a protocol failure to NetworkFailure', () async {
@@ -603,10 +598,10 @@ void main() {
         ),
       );
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
-      expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
+      expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
     });
 
     test('maps an expired pairing outcome to a user-safe PairingFailure', () async {
@@ -614,12 +609,12 @@ void main() {
         () => mockClient.requestPairingRenotify(),
       ).thenThrow(const DovahLinkPairingException('expired'));
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
       expect(
         result,
-        const Left<Failure, Unit>(
+        const Left<Failure, int?>(
           PairingFailure('That pairing code has expired. Request a new one.'),
         ),
       );
@@ -630,12 +625,12 @@ void main() {
         () => mockClient.requestPairingRenotify(),
       ).thenThrow(const DovahLinkPairingException('invalid'));
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
       expect(
         result,
-        const Left<Failure, Unit>(
+        const Left<Failure, int?>(
           PairingFailure("That code isn't correct. Check Skyrim and try again."),
         ),
       );
@@ -646,12 +641,12 @@ void main() {
         () => mockClient.requestPairingRenotify(),
       ).thenThrow(const DovahLinkPairingException('unknown_outcome'));
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
       expect(
         result,
-        const Left<Failure, Unit>(
+        const Left<Failure, int?>(
           PairingFailure('Pairing could not be completed. Please try again.'),
         ),
       );
@@ -660,12 +655,12 @@ void main() {
     test('maps an unexpected exception to a user-safe PairingFailure', () async {
       when(() => mockClient.requestPairingRenotify()).thenThrow(StateError('boom'));
 
-      final Either<Failure, Unit> result = await dataSource
+      final Either<Failure, int?> result = await dataSource
           .requestPairingRenotify();
 
       expect(
         result,
-        const Left<Failure, Unit>(
+        const Left<Failure, int?>(
           PairingFailure('Pairing could not be completed. Please try again.'),
         ),
       );

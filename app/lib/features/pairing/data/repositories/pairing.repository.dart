@@ -39,7 +39,7 @@ class PairingRepositoryImpl implements IPairingRepository {
 
   /// See [IPairingRepository.requestPairingRenotify].
   @override
-  Future<Either<Failure, Unit>> requestPairingRenotify() =>
+  Future<Either<Failure, int?>> requestPairingRenotify() =>
       _remoteDataSource.requestPairingRenotify();
 
   /// See [IPairingRepository.cancelPairing].

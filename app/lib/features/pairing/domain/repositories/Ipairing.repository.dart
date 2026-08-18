@@ -26,8 +26,8 @@ abstract interface class IPairingRepository {
   Future<Either<Failure, Unit>> disconnect();
 
   /// Requests redisplay of the active pairing code in Skyrim, or reports
-  /// cooldown or idle status.
-  Future<Either<Failure, Unit>> requestPairingRenotify();
+  /// cooldown or idle status. Returns cooldown seconds if in cooldown.
+  Future<Either<Failure, int?>> requestPairingRenotify();
 
   /// Cancels the owned active pairing challenge or pending credential, or
   /// reports idle status.

@@ -165,29 +165,42 @@ void main() {
   });
 
   group('PairingRepositoryImpl.requestPairingRenotify', () {
-    test('returns Right when the data source succeeds', () async {
+    test('returns Right with null when renotify succeeds', () async {
       when(
         () => mockDataSource.requestPairingRenotify(),
-      ).thenAnswer((_) async => const Right(unit));
+      ).thenAnswer((_) async => const Right(null));
 
-      final Either<Failure, Unit> result = await repository
+      final Either<Failure, int?> result = await repository
           .requestPairingRenotify();
 
-      expect(result, const Right<Failure, Unit>(unit));
+      expect(result, const Right<Failure, int?>(null));
+      verify(() => mockDataSource.requestPairingRenotify()).called(1);
+      verifyNoMoreInteractions(mockDataSource);
+    });
+
+    test('returns Right with cooldown seconds when in cooldown', () async {
+      when(
+        () => mockDataSource.requestPairingRenotify(),
+      ).thenAnswer((_) async => const Right(5));
+
+      final Either<Failure, int?> result = await repository
+          .requestPairingRenotify();
+
+      expect(result, const Right<Failure, int?>(5));
       verify(() => mockDataSource.requestPairingRenotify()).called(1);
       verifyNoMoreInteractions(mockDataSource);
     });
 
     test('returns Left when the data source fails', () async {
-      const PairingFailure failure = PairingFailure('cooldown');
+      const PairingFailure failure = PairingFailure('no challenge active');
       when(
         () => mockDataSource.requestPairingRenotify(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, Unit> result = await repository
+      final Either<Failure, int?> result = await repository
           .requestPairingRenotify();
 
-      expect(result, const Left<Failure, Unit>(failure));
+      expect(result, const Left<Failure, int?>(failure));
       verify(() => mockDataSource.requestPairingRenotify()).called(1);
       verifyNoMoreInteractions(mockDataSource);
     });

@@ -2,10 +2,12 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -39,6 +41,10 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         _pairingCodeRequested(store, action);
       case PairingCodeSubmittedAction _:
         _pairingCodeSubmitted(store, action);
+      case PairingRenotifyRequestedAction _:
+        _pairingRenotifyRequested(store, action);
+      case PairingCancelRequestedAction _:
+        _pairingCancelRequested(store, action);
       case PairingDisposedAction _:
         _pairingDisposed(store, action);
       case PairingBackRequestedAction _:
@@ -69,6 +75,45 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
             credentialRejectedMessage: handshake.credentialRejectedMessage,
           ),
         );
+      },
+    );
+  }
+
+  /// Handles [PairingRenotifyRequestedAction] by requesting redisplay through
+  /// [RequestPairingRenotifyUseCase]. Dispatches success, cooldown with
+  /// remaining seconds, or failure accordingly.
+  Future<void> _pairingRenotifyRequested(
+    Store<AppState> store,
+    PairingRenotifyRequestedAction action,
+  ) async {
+    (await sl<RequestPairingRenotifyUseCase>()(NoParams())).fold(
+      (Failure failure) {
+        store.dispatch(PairingFailedAction(failure.message));
+      },
+      (int? cooldownSeconds) {
+        if (cooldownSeconds == null) {
+          store.dispatch(const PairingRenotifySucceededAction());
+        } else {
+          store.dispatch(PairingRenotifyCooldownAction(
+            retryAfterSeconds: cooldownSeconds,
+          ));
+        }
+      },
+    );
+  }
+
+  /// Handles [PairingCancelRequestedAction] by cancelling the active challenge
+  /// through [CancelPairingUseCase]. Dispatches success or failure.
+  Future<void> _pairingCancelRequested(
+    Store<AppState> store,
+    PairingCancelRequestedAction action,
+  ) async {
+    (await sl<CancelPairingUseCase>()(NoParams())).fold(
+      (Failure failure) {
+        store.dispatch(PairingFailedAction(failure.message));
+      },
+      (_) {
+        store.dispatch(const PairingCancelSucceededAction());
       },
     );
   }
