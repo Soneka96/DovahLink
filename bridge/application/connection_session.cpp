@@ -83,6 +83,13 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     auto sessionLease = std::move(handshake.sessionLease);
 
     std::string sessionId = *handshake.response.sessionId;
+    // Always present on this success path (echoed from the decoded hello's own required field);
+    // guarded defensively so a hypothetically absent value degrades to skipping notification
+    // rather than dereferencing nothing.
+    std::optional<std::string> clientId = handshake.response.clientId;
+    if (clientId.has_value()) {
+        pairingSession.NotifyReconnected(*clientId, postReadNow);
+    }
 
     ws.SwitchToIdleTimeout();
 
@@ -127,6 +134,9 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
         }
     }
 
+    if (clientId.has_value()) {
+        pairingSession.NotifyDisconnected(*clientId, steadyNow());
+    }
     sessionLease.reset();
     ws.Close();
 }

@@ -19,7 +19,12 @@ namespace dovahlink::application {
 using SteadyNowProvider = std::function<std::chrono::steady_clock::time_point()>;
 
 /// Runs one accepted connection through authentication, message handling, and cleanup.
-/// Session ownership is scope-bound so every exit after authentication invalidates it.
+/// Session ownership is scope-bound so every exit after authentication invalidates it. Notifies
+/// `pairingSession` of this connection's own `clientId` reconnecting (right after a successful
+/// hello) and disconnecting (at the same scope-bound teardown point), so a challenge or pending
+/// credential it owns can apply the reconnect-grace lazy-expiry rules in
+/// `ai/context/protocol/security.md`'s Phase 3.1 ownership model. A harmless no-op when `clientId`
+/// owns nothing.
 /// @param ws Accepted WebSocket session.
 /// @param tokenStore Plugin-lifetime one-time token store.
 /// @param tokenThrottle Plugin-lifetime failed-token throttle.
