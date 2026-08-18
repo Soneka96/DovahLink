@@ -530,6 +530,76 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection2);
     }
 
+    /// <summary>
+    /// Verifies the renotify mechanics (PLAN.md Stage D): the owning client can manually
+    /// redisplay the active challenge's code via pairing_renotify, up to a per-renotify cooldown.
+    /// Successful renotify returns updated expiresInSeconds. Immediate repeat hits cooldown
+    /// with retryAfterSeconds; after cooldown elapses, renotify succeeds again.
+    /// </summary>
+    [Fact]
+    public async Task RenotifyRedisplaysCodeAndEnforcesCooldown()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        // Start pairing.
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("pairing_status", status.MessageType);
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        int initialExpiry = status.Payload["expiresInSeconds"]!.GetValue<int>();
+        Assert.True(initialExpiry > 0);
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        // First renotify: should succeed. The code is redisplayed via in-game notification,
+        // not sent over the wire; expiresInSeconds is not in renotified outcome (protocol/schema/README.md line 277).
+        await connection.SendAsync(BridgeScenario.RenotifyEnvelope(sessionId, "message-renotify-1"));
+        Envelope renotifyOutcome1 = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", renotifyOutcome1.MessageType);
+        Assert.Equal("message-renotify-1", renotifyOutcome1.CorrelationId);
+        Assert.Equal("renotified", renotifyOutcome1.Payload["outcome"]!.GetValue<string>());
+        // renotified outcome carries no expiry, code, or error info (code is redisplayed in-game, not over wire).
+        Assert.Null(renotifyOutcome1.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.False(renotifyOutcome1.Payload.ContainsKey("expiresInSeconds"));
+
+        // Immediate second renotify: hits the 5-second cooldown, returns remaining wait.
+        // renotify_cooldown carries retryAfterSeconds but not expiresInSeconds (protocol/schema/README.md lines 277-285).
+        await connection.SendAsync(BridgeScenario.RenotifyEnvelope(sessionId, "message-renotify-2"));
+        Envelope renotifyCooldown = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", renotifyCooldown.MessageType);
+        Assert.Equal("message-renotify-2", renotifyCooldown.CorrelationId);
+        Assert.Equal("renotify_cooldown", renotifyCooldown.Payload["outcome"]!.GetValue<string>());
+        int retryAfter = renotifyCooldown.Payload["retryAfterSeconds"]!.GetValue<int>();
+        Assert.True(retryAfter > 0);
+        Assert.True(retryAfter <= 5, $"Cooldown {retryAfter}s should not exceed kPairingRenotifyCooldown (5s)");
+        Assert.False(renotifyCooldown.Payload.ContainsKey("expiresInSeconds"), "expiresInSeconds should not be in renotify_cooldown outcome");
+
+        // Wait for the cooldown to elapse.
+        await Task.Delay(TimeSpan.FromSeconds(retryAfter + 1));
+
+        // Third renotify (after cooldown expires): should succeed again.
+        await connection.SendAsync(BridgeScenario.RenotifyEnvelope(sessionId, "message-renotify-3"));
+        Envelope renotifyOutcome3 = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", renotifyOutcome3.MessageType);
+        Assert.Equal("message-renotify-3", renotifyOutcome3.CorrelationId);
+        Assert.Equal("renotified", renotifyOutcome3.Payload["outcome"]!.GetValue<string>());
+        Assert.Null(renotifyOutcome3.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.False(renotifyOutcome3.Payload.ContainsKey("expiresInSeconds"));
+
+        // Confirm the original code: should succeed (code remained valid through renotifies).
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, connection);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)
