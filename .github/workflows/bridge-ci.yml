@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build-and-test:
-    name: Build & Test
+    name: Bridge Build & Test
     # Pinned toolchain and dependency baselines are recorded in bridge/README.md.
     runs-on: windows-2022
     timeout-minutes: 30

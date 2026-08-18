@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build-and-test:
-    name: Build & Test
+    name: App Build & Test
     runs-on: windows-2022
     timeout-minutes: 20
     defaults:

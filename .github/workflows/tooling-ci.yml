@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   repository-checks:
-    name: Tooling Checks
+    name: Repository Tooling Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
