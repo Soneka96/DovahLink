@@ -53,4 +53,16 @@ inline constexpr std::size_t kMaxDisplayNameLengthBytes = 64;
 /// Maximum attempts to generate a unique trusted-client `shortId` before failing closed.
 inline constexpr std::size_t kMaxShortIdGenerationAttempts = 20;
 
+/// How long an active pairing challenge survives its owning client's disconnect before it is
+/// cancelled outright and freed for another device.
+inline constexpr std::chrono::seconds kPairingReconnectGracePeriod{10};
+/// Minimum interval between successful "show code again" redisplays of the same active code.
+inline constexpr std::chrono::seconds kPairingRenotifyCooldown{5};
+/// Minimum interval between evaluated `pairing_confirm` code validations.
+inline constexpr std::chrono::seconds kPairingConfirmPacingInterval{1};
+/// Wrong evaluated codes allowed per challenge before it is cancelled outright.
+inline constexpr std::size_t kPairingMaxWrongAttempts = 5;
+/// How long a credential may remain pending finalization before it expires.
+inline constexpr std::chrono::minutes kPairingPendingCredentialTtl{5};
+
 }  // namespace dovahlink::security
