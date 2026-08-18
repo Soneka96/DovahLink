@@ -4,15 +4,13 @@
             "name": "DovahLink",
             "configurationProvider": "ms-vscode.cmake-tools",
             "compileCommands": [
-                "${workspaceFolder}/bridge/build/windows-x64-debug/compile_commands.json",
                 "${workspaceFolder}/bridge/build/windows-x64-release/compile_commands.json"
             ],
             "browse": {
                 "limitSymbolsToIncludedHeaders": true
             },
             "includePath": [
-                "${default}",
-                "${workspaceFolder}/bridge"
+                "${default}"
             ]
         }
     ],

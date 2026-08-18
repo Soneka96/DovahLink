@@ -1,18 +1,20 @@
 #include "protocol/json_field_decoders.hpp"
 
+#include <boost/json/array.hpp>
+
 #include <limits>
 #include <utility>
 
 namespace dovahlink::protocol {
 
-namespace {
-
-/// Creates an unexpected result containing a field-decode error.
 std::unexpected<DecodeError> Fail(std::string reason) {
     return std::unexpected(DecodeError{std::move(reason)});
 }
 
+const boost::json::value* RequireField(const boost::json::object& obj, std::string_view key) {
+    return obj.if_contains(key);
 }
+
 std::expected<std::string, DecodeError> DecodeNonEmptyString(const boost::json::value* value,
                                                                std::string_view fieldName) {
     if (!value) {
@@ -71,6 +73,25 @@ std::expected<std::optional<std::int64_t>, DecodeError> DecodeOptionalNonNegativ
         return std::unexpected(decoded.error());
     }
     return std::optional<std::int64_t>(*decoded);
+}
+
+std::expected<std::vector<std::string>, DecodeError> DecodeStringArray(const boost::json::value* value,
+                                                                        std::string_view fieldName) {
+    if (!value) {
+        return Fail("missing required field: " + std::string(fieldName));
+    }
+    if (!value->is_array()) {
+        return Fail(std::string(fieldName) + " must be an array");
+    }
+    std::vector<std::string> result;
+    result.reserve(value->get_array().size());
+    for (const boost::json::value& item : value->get_array()) {
+        if (!item.is_string() || item.get_string().empty()) {
+            return Fail(std::string(fieldName) + " items must be non-empty strings");
+        }
+        result.emplace_back(item.get_string());
+    }
+    return result;
 }
 
 }  // namespace dovahlink::protocol

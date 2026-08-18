@@ -13,11 +13,6 @@ namespace dovahlink::protocol {
 
 namespace {
 
-/// Creates an unexpected result containing an envelope error.
-std::unexpected<EnvelopeError> Fail(std::string reason) {
-    return std::unexpected(EnvelopeError{std::move(reason)});
-}
-
 /// Encodes an optional string as its value or JSON `null`, never omitted.
 /// Used for envelope fields that are always present once emitted at all.
 boost::json::value EncodeNullableString(const std::optional<std::string>& value) {
