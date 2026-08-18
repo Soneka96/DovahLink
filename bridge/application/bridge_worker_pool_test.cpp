@@ -32,6 +32,7 @@ using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
 using dovahlink::security::DecodeHex;
+using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::PairingSession;
@@ -478,6 +479,137 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves the active session r
     REQUIRE(pong.has_value());
     CHECK(pong->messageType == "pong");
     CHECK(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new connection using a "
+          "stale clientId from a previous, already-ended connection",
+          "[application][bridge_worker_pool]") {
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    // First connection: authenticates as "client-1" using the fixture's one-time token, then
+    // closes cleanly, freeing the slot for a second, different connection.
+    {
+        boost::asio::io_context clientIoc;
+        boost::asio::ip::tcp::socket clientSocket(clientIoc);
+        boost::system::error_code connectEc;
+        clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+        REQUIRE_FALSE(connectEc);
+
+        boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+        boost::system::error_code handshakeEc;
+        clientWs.handshake("127.0.0.1", "/", handshakeEc);
+        REQUIRE_FALSE(handshakeEc);
+
+        clientWs.text(true);
+        boost::system::error_code writeEc;
+        clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+        REQUIRE_FALSE(writeEc);
+
+        boost::beast::flat_buffer helloBuffer;
+        boost::system::error_code helloReadEc;
+        clientWs.read(helloBuffer, helloReadEc);
+        REQUIRE_FALSE(helloReadEc);
+
+        boost::beast::flat_buffer capabilitiesBuffer;
+        boost::system::error_code capabilitiesReadEc;
+        clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+        REQUIRE_FALSE(capabilitiesReadEc);
+
+        boost::system::error_code closeEc;
+        clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    }
+
+    auto slotFreedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (fixture.slot.IsOccupied() && std::chrono::steady_clock::now() < slotFreedDeadline) {
+        std::this_thread::yield();
+    }
+    REQUIRE_FALSE(fixture.slot.IsOccupied());
+
+    // Second connection: a different client, authenticated by a persisted trust credential --
+    // the fixture's one-time token was already consumed above, so it cannot authenticate a
+    // second session as "client-1" again even if this test wanted it to.
+    std::vector<std::uint8_t> credential{1, 2, 3, 4, 5, 6, 7, 8};
+    REQUIRE(fixture.trustStore.Persist("client-2", credential, std::nullopt).has_value());
+
+    boost::asio::io_context secondClientIoc;
+    boost::asio::ip::tcp::socket secondClientSocket(secondClientIoc);
+    boost::system::error_code secondConnectEc;
+    secondClientSocket.connect(fixture.listenerV4.LocalEndpoint(), secondConnectEc);
+    REQUIRE_FALSE(secondConnectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> secondClientWs(std::move(secondClientSocket));
+    boost::system::error_code secondHandshakeEc;
+    secondClientWs.handshake("127.0.0.1", "/", secondHandshakeEc);
+    REQUIRE_FALSE(secondHandshakeEc);
+
+    std::string secondHello = R"({"messageType": "hello", "messageId": "message-hello-2", )"
+                              R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
+                              R"("clientId": "client-2", "auth": {"method": "trusted_device_credential", )"
+                              R"("token": ")" +
+                              EncodeHex(credential) + R"("}}, )"
+                              R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    secondClientWs.text(true);
+    boost::system::error_code secondWriteEc;
+    secondClientWs.write(boost::asio::buffer(secondHello), secondWriteEc);
+    REQUIRE_FALSE(secondWriteEc);
+
+    boost::beast::flat_buffer secondHelloBuffer;
+    boost::system::error_code secondHelloReadEc;
+    secondClientWs.read(secondHelloBuffer, secondHelloReadEc);
+    REQUIRE_FALSE(secondHelloReadEc);
+    auto secondParsedHello =
+        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(secondHelloBuffer.data()));
+    REQUIRE(secondParsedHello.has_value());
+    auto secondHelloAck = dovahlink::protocol::DecodeEnvelope(*secondParsedHello);
+    REQUIRE(secondHelloAck.has_value());
+    REQUIRE(secondHelloAck->messageType == "hello_ack");
+    REQUIRE(secondHelloAck->sessionId.has_value());
+    std::string secondSessionId = *secondHelloAck->sessionId;
+
+    boost::beast::flat_buffer secondCapabilitiesBuffer;
+    boost::system::error_code secondCapabilitiesReadEc;
+    secondClientWs.read(secondCapabilitiesBuffer, secondCapabilitiesReadEc);
+    REQUIRE_FALSE(secondCapabilitiesReadEc);
+
+    // The stale identity from the connection that already ended above must not match the
+    // connection now active, even though both connections were published as activeSocket_ in turn.
+    fixture.pool.DisconnectIfClientActive("client-1");
+
+    // Proves the mismatch genuinely left the session alone, rather than merely not yet having torn
+    // it down: a ping sent afterward still round-trips over the same connection.
+    std::string ping = R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": ")" +
+                       secondSessionId +
+                       R"(", "correlationId": null, "payload": {}, )"
+                       R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    boost::system::error_code pingWriteEc;
+    secondClientWs.write(boost::asio::buffer(ping), pingWriteEc);
+    REQUIRE_FALSE(pingWriteEc);
+
+    boost::beast::flat_buffer pongBuffer;
+    boost::system::error_code pongReadEc;
+    secondClientWs.read(pongBuffer, pongReadEc);
+    REQUIRE_FALSE(pongReadEc);
+    auto parsedPong = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(pongBuffer.data()));
+    REQUIRE(parsedPong.has_value());
+    auto pong = dovahlink::protocol::DecodeEnvelope(*parsedPong);
+    REQUIRE(pong.has_value());
+    CHECK(pong->messageType == "pong");
+    CHECK(fixture.sessionManager.IsValidForConnection(secondSessionId, 2));
+
+    // The negative result above isn't proof activeConnectionId_ tracks the new connection at all --
+    // confirm the matching id, "client-2", still tears the session down correctly.
+    fixture.pool.DisconnectIfClientActive("client-2");
+
+    auto revokedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (fixture.sessionManager.IsValidForConnection(secondSessionId, 2) &&
+           std::chrono::steady_clock::now() < revokedDeadline) {
+        std::this_thread::yield();
+    }
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 2));
 
     fixture.pool.Stop();
     fixture.pool.Join();

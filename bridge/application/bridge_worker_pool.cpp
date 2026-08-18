@@ -57,6 +57,7 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
             {
                 std::lock_guard<std::mutex> lock(activeSocketMutex_);
                 activeSocket_ = socketHandle;
+                activeConnectionId_ = connection;
             }
             if (stopping_.load(std::memory_order_acquire)) {
                 socketHandle->Shutdown();
@@ -87,10 +88,23 @@ void BridgeWorkerPool::Stop() {
 }
 
 void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
-    auto activeClientId = sessionManager_.ActiveClientId();
-    if (activeClientId.has_value() && *activeClientId == clientId) {
-        ShutdownActiveSocket();
+    transport::WebSocketSession::SocketHandle activeSocket;
+    {
+        // Holding activeSocketMutex_ across both the identity check and the socket read makes
+        // this atomic: no new connection can publish itself as activeSocket_/activeConnectionId_
+        // while this decides whether the *current* one belongs to clientId.
+        std::lock_guard<std::mutex> lock(activeSocketMutex_);
+        auto socket = activeSocket_.lock();
+        if (!socket) {
+            return;
+        }
+        auto activeClientId = sessionManager_.ClientIdForConnection(activeConnectionId_);
+        if (!activeClientId.has_value() || *activeClientId != clientId) {
+            return;
+        }
+        activeSocket = std::move(socket);
     }
+    activeSocket->Shutdown();
 }
 
 void BridgeWorkerPool::DisconnectActive() {

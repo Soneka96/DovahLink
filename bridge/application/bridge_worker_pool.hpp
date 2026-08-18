@@ -141,6 +141,16 @@ private:
     /// Non-owning handle to the active session socket, when one exists.
     std::weak_ptr<transport::WebSocketSession::Socket> activeSocket_;
 
+    /// Connection identifier `activeSocket_` was published for, read together with it under
+    /// `activeSocketMutex_`. `DisconnectIfClientActive` asks `sessionManager_` "who owns *this*
+    /// connection" instead of "who is active right now" (`SessionManager::ActiveClientId()`,
+    /// unscoped): the latter can change between an unsynchronized read and the shutdown call,
+    /// letting a stale revoke for a just-ended session hit a new connection that raced into its
+    /// place. Meaningless while `activeSocket_.lock()` is null; the single-connected-client limit
+    /// means this can stay one field instead of a registry -- see ROADMAP.md Phase 9 for
+    /// generalizing it once that limit is lifted.
+    ConnectionId activeConnectionId_{};
+
     /// IPv4 accept worker.
     std::thread threadV4_;
 
