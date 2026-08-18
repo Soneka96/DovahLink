@@ -63,9 +63,16 @@ class Dpapi {
   }
 
   /// Decrypts [encrypted] with DPAPI.
-  /// @throws DovahLinkStorageException if DPAPI reports failure -- undecryptable, tampered, or
-  ///     produced under a different Windows user's DPAPI master key.
+  /// @throws DovahLinkStorageException if [encrypted] is empty (DPAPI never produces a zero-length
+  ///     blob, so this cannot be genuine ciphertext this SDK wrote) or DPAPI reports failure --
+  ///     undecryptable, tampered, or produced under a different Windows user's DPAPI master key.
   static Uint8List unprotect(Uint8List encrypted) {
+    if (encrypted.isEmpty) {
+      throw const DovahLinkStorageException(
+        'Cannot unprotect an empty buffer: DPAPI never produces one, so this is not '
+        'ciphertext this SDK wrote.',
+      );
+    }
     final Pointer<CRYPT_INTEGER_BLOB> dataIn = calloc<CRYPT_INTEGER_BLOB>();
     final Pointer<CRYPT_INTEGER_BLOB> dataOut = calloc<CRYPT_INTEGER_BLOB>();
     final Pointer<Uint8> encryptedPtr = calloc<Uint8>(encrypted.length);
