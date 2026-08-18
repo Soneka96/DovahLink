@@ -1,0 +1,16 @@
+{
+  "messageType": "pairing_outcome",
+  "messageId": "message-pairing-outcome-9",
+  "sessionId": "session-1",
+  "correlationId": "message-pairing-renotify-3",
+  "payload": {
+    "outcome": "already_idle",
+    "credential": null,
+    "shortId": null,
+    "displayName": null,
+    "retryAfterSeconds": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

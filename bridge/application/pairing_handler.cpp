@@ -206,4 +206,33 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
                                 });
 }
 
+protocol::Envelope HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
+                                           const std::string& sessionId, const std::string& clientId,
+                                           security::PairingSession& pairingSession,
+                                           PairingNotificationSink& notificationSink,
+                                           std::chrono::steady_clock::time_point now) {
+    auto result = pairingSession.TryRenotify(clientId, now);
+    switch (result.outcome) {
+        case security::RenotifyOutcome::kRenotified: {
+            auto code = pairingSession.CurrentCode(now);
+            if (code.has_value()) {
+                notificationSink.NotifyPairingCodeAvailable(*code);
+            }
+            return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "renotified"});
+        }
+        case security::RenotifyOutcome::kCooldown:
+            return BuildPairingOutcome(
+                sessionId, pairingRenotifyEnvelope.messageId,
+                protocol::PairingOutcomePayload{.outcome = "renotify_cooldown",
+                                                 .retryAfterSeconds = ToWireSeconds(result.retryAfterSeconds)});
+        case security::RenotifyOutcome::kNotActive:
+            return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "already_idle"});
+    }
+    // Unreachable: every enumerator is handled above.
+    return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                protocol::PairingOutcomePayload{.outcome = "already_idle"});
+}
+
 }  // namespace dovahlink::application

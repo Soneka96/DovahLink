@@ -14,10 +14,13 @@ namespace dovahlink::protocol {
 /// Bridge reply to `pairing_confirm` or `pairing_ack`, distinguished by `outcome`.
 struct PairingOutcomePayload {
     /// One of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`, `"invalid"`,
-    /// `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`. `"pacing_limited"` and
-    /// `"hard_limit_reached"` replace the single undifferentiated `"rate_limited"` earlier phases
-    /// used: pacing blocks an attempt without counting against the wrong-attempt budget, while
-    /// the hard limit is the terminal count of wrong attempts that destroys the challenge.
+    /// `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`, `"renotified"`,
+    /// `"renotify_cooldown"`, `"already_idle"`. `"pacing_limited"` and `"hard_limit_reached"`
+    /// replace the single undifferentiated `"rate_limited"` earlier phases used: pacing blocks an
+    /// attempt without counting against the wrong-attempt budget, while the hard limit is the
+    /// terminal count of wrong attempts that destroys the challenge. `"already_idle"` reports a
+    /// manual renotify request that finds no active challenge or pending credential owned by the
+    /// requester.
     std::string outcome;
     /// Hex-encoded credential; present only for `"credential_issued"`, `"trusted"`, and
     /// `"already_trusted"`.
@@ -27,8 +30,9 @@ struct PairingOutcomePayload {
     /// Echoed presentation-only label; present only alongside `credential`/`shortId` when the
     /// client supplied one.
     std::optional<std::string> displayName;
-    /// Remaining wait in seconds before another evaluated `pairing_confirm` attempt is accepted;
-    /// present only for `"pacing_limited"`.
+    /// Remaining wait in seconds before another attempt is accepted; present for
+    /// `"pacing_limited"` (next evaluated `pairing_confirm`) and `"renotify_cooldown"` (next
+    /// manual `pairing_renotify`).
     std::optional<std::int64_t> retryAfterSeconds;
 };
 

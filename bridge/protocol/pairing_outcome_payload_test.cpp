@@ -104,6 +104,36 @@ TEST_CASE("pairing-outcome-pending-not-found fixture decodes with no credential"
     CHECK(outcome->outcome == "pending_not_found");
 }
 
+TEST_CASE("pairing-outcome-renotified fixture decodes with no credential and no retryAfterSeconds",
+          "[protocol][pairing_outcome_payload]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-renotified.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renotified");
+    CHECK_FALSE(outcome->credential.has_value());
+    CHECK_FALSE(outcome->retryAfterSeconds.has_value());
+}
+
+TEST_CASE("pairing-outcome-renotify-cooldown fixture decodes with a retryAfterSeconds and no credential",
+          "[protocol][pairing_outcome_payload]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-renotify-cooldown.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renotify_cooldown");
+    CHECK_FALSE(outcome->credential.has_value());
+    REQUIRE(outcome->retryAfterSeconds.has_value());
+    CHECK(*outcome->retryAfterSeconds == 3);
+}
+
+TEST_CASE("pairing-outcome-already-idle fixture decodes with no credential",
+          "[protocol][pairing_outcome_payload]") {
+    auto envelope = DecodeFixtureEnvelope("pairing/pairing-outcome-already-idle.json");
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+    CHECK_FALSE(outcome->credential.has_value());
+}
+
 TEST_CASE("PairingOutcomePayload round-trips through encode then decode", "[protocol][pairing_outcome_payload]") {
     dovahlink::protocol::PairingOutcomePayload original{
         .outcome = "trusted",

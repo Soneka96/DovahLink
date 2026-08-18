@@ -15,6 +15,7 @@
 using dovahlink::application::ConnectionId;
 using dovahlink::application::HandlePairingAck;
 using dovahlink::application::HandlePairingConfirm;
+using dovahlink::application::HandlePairingRenotify;
 using dovahlink::application::HandlePairingRequest;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
@@ -110,6 +111,17 @@ Envelope BuildPairingConfirmEnvelope(const std::string& code, std::optional<std:
         .sessionId = kSessionId,
         .correlationId = std::nullopt,
         .payload = std::move(payload),
+    };
+}
+
+/// Builds a `pairing_renotify` envelope (no payload).
+Envelope BuildPairingRenotifyEnvelope(std::string messageId = "message-renotify-1") {
+    return Envelope{
+        .messageType = "pairing_renotify",
+        .messageId = std::move(messageId),
+        .sessionId = kSessionId,
+        .correlationId = std::nullopt,
+        .payload = boost::json::object{},
     };
 }
 
@@ -665,4 +677,127 @@ TEST_CASE("HandlePairingAck is rejected as malformed when the credential field i
     auto error = dovahlink::protocol::DecodeErrorPayload(response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "malformed_message");
+}
+
+TEST_CASE("HandlePairingRenotify redisplays the owner's code and reports renotified",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                           now);
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renotified");
+    // The original display plus this redisplay -- same code both times.
+    REQUIRE(sink.codes.size() == 2);
+    CHECK(sink.codes[1] == "123456");
+}
+
+TEST_CASE("HandlePairingRenotify reports renotify_cooldown with no redisplay while its own cooldown "
+          "is active",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+    static_cast<void>(
+        HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kClientId, pairingSession, sink, now));
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope("message-renotify-2"), kSessionId, kClientId,
+                                           pairingSession, sink, now + std::chrono::seconds(2));
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renotify_cooldown");
+    REQUIRE(outcome->retryAfterSeconds.has_value());
+    CHECK(*outcome->retryAfterSeconds == 3);
+    // Only the first renotify actually redisplayed.
+    REQUIRE(sink.codes.size() == 2);
+}
+
+TEST_CASE("HandlePairingRenotify reports already_idle for a client owning no challenge",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                           std::chrono::steady_clock::now());
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+    CHECK(sink.codes.empty());
+}
+
+TEST_CASE("HandlePairingRenotify succeeds again once its cooldown elapses",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+    static_cast<void>(
+        HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kClientId, pairingSession, sink, now));
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope("message-renotify-2"), kSessionId, kClientId,
+                                           pairingSession, sink, now + std::chrono::seconds(5));
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renotified");
+    // The original display, plus one redisplay per successful renotify.
+    REQUIRE(sink.codes.size() == 2);
+    CHECK(sink.codes[1] == "123456");
+}
+
+TEST_CASE("HandlePairingRenotify reports already_idle once the challenge reaches PENDING_CREDENTIAL",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+    static_cast<void>(
+        HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, sink, now));
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                           now);
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+    // Only the original display -- a pending credential has no code left to redisplay.
+    CHECK(sink.codes.size() == 1);
+}
+
+TEST_CASE("HandlePairingRenotify reports already_idle for a non-owner without disturbing the "
+          "real owner's challenge",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink,
+                                            now));
+
+    auto response = HandlePairingRenotify(BuildPairingRenotifyEnvelope(), kSessionId, kOtherClientId, pairingSession,
+                                           sink, now);
+
+    auto outcome = dovahlink::protocol::DecodePairingOutcomePayload(response.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "already_idle");
+    // Only the original display -- the non-owner's request never redisplayed anything.
+    CHECK(sink.codes.size() == 1);
+
+    auto ownerResponse =
+        HandlePairingRenotify(BuildPairingRenotifyEnvelope("message-renotify-2"), kSessionId, kClientId,
+                               pairingSession, sink, now);
+    auto ownerOutcome = dovahlink::protocol::DecodePairingOutcomePayload(ownerResponse.payload);
+    REQUIRE(ownerOutcome.has_value());
+    CHECK(ownerOutcome->outcome == "renotified");
 }
