@@ -84,14 +84,33 @@ std::string TrustAdminService::List(std::string_view scope) const {
 
 std::string TrustAdminService::Help() const {
     return "DovahLink commands:\n"
+           "\n"
            "dovahlink list\n"
+           "  Lists all known devices and their current state.\n"
+           "\n"
            "dovahlink list trust\n"
+           "  Lists trusted devices that can currently reconnect.\n"
+           "\n"
            "dovahlink list block\n"
+           "  Lists devices currently blocked from connecting.\n"
+           "\n"
            "dovahlink revoke -id <shortId>\n"
+           "  Revokes a trusted device. It must pair again afterward.\n"
+           "\n"
            "dovahlink reset\n"
+           "  Clears all known device records and requires them to pair again.\n"
+           "\n"
            "dovahlink block -id <shortId>\n"
+           "  Blocks a trusted or revoked device from connecting.\n"
+           "\n"
            "dovahlink unblock -id <shortId>\n"
-           "dovahlink forget -id <shortId>";
+           "  Unblocks a device and returns it to the unpaired state.\n"
+           "\n"
+           "dovahlink forget -id <shortId>\n"
+           "  Permanently removes a revoked or unpaired device record.\n"
+           "\n"
+           "dovahlink help\n"
+           "  Shows this command list.";
 }
 
 std::string TrustAdminService::ListTrusted() const {
