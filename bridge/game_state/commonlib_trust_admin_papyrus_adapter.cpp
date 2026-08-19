@@ -87,13 +87,26 @@ RE::BSFixedString Unblock(RE::StaticFunctionTag*, RE::BSFixedString akId) {
     }
 }
 
-/// Binds the five native functions above to their Papyrus declarations.
+/// Native implementation of the Papyrus `DovahLinkAdmin.Forget(String)` function.
+RE::BSFixedString Forget(RE::StaticFunctionTag*, RE::BSFixedString akId) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ForgetByShortId(std::string_view(akId)));
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Binds the six native functions above to their Papyrus declarations.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("List", "DovahLinkAdmin", List);
     vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
     vm->RegisterFunction("Reset", "DovahLinkAdmin", Reset);
     vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
     vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
+    vm->RegisterFunction("Forget", "DovahLinkAdmin", Forget);
     return true;
 }
 

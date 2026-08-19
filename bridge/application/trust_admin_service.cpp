@@ -97,4 +97,25 @@ std::string TrustAdminService::UnblockByShortId(std::string_view shortId) const 
     return "Failed to unblock device " + std::string(shortId) + ": unexpected outcome.";
 }
 
+std::string TrustAdminService::ForgetByShortId(std::string_view shortId) const {
+    auto device = trustStore_.FindByShortId(shortId);
+    if (!device.has_value()) {
+        return "No known device with id " + std::string(shortId) + ".";
+    }
+    std::string displayName = device->displayName.value_or("(no display name)");
+
+    switch (trustStore_.Forget(device->clientId)) {
+        case security::ForgetOutcome::kForgotten:
+            return "Forgot device " + std::string(shortId) + " (" + displayName + ").";
+        case security::ForgetOutcome::kNotEligible:
+            return "Device " + std::string(shortId) + " cannot be forgotten (revoke or unblock it first).";
+        case security::ForgetOutcome::kNotFound:
+            return "No known device with id " + std::string(shortId) + ".";
+        case security::ForgetOutcome::kSaveFailed:
+            return "Failed to forget device " + std::string(shortId) + ": trust-store save failed.";
+    }
+    // Unreachable: every enumerator is handled above.
+    return "Failed to forget device " + std::string(shortId) + ": unexpected outcome.";
+}
+
 }  // namespace dovahlink::application

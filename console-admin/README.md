@@ -21,6 +21,7 @@ dovahlink revoke -id <shortId>
 dovahlink reset
 dovahlink block -id <shortId>
 dovahlink unblock -id <shortId>
+dovahlink forget -id <shortId>
 ```
 
 `<shortId>` is the five-digit administration-only identifier `dovahlink list` prints next to each
@@ -28,6 +29,9 @@ trusted client — never the client's real (long) identity, and never a credenti
 target a known device by `<shortId>` regardless of its current state (trusted, revoked, or already
 blocked); `dovahlink list` itself still only lists currently-trusted clients as of this phase, so
 blocking a revoked device requires already knowing its `<shortId>` from before it was revoked.
+`forget` deletes a known device's record entirely and frees its `<shortId>` for future allocation,
+but only from revoked or unpaired — a trusted device must be revoked first, and a blocked device
+must be explicitly unblocked first; `forget` never implicitly lifts a block.
 
 ## Dependency
 
@@ -71,7 +75,8 @@ cannot exercise a live Papyrus VM or a third-party plugin
 relying on this adapter, confirm in-game that:
 
 - `dovahlink list`, `dovahlink revoke -id <shortId>`, `dovahlink reset`, `dovahlink block -id
-  <shortId>`, and `dovahlink unblock -id <shortId>` are recognized and produce the expected output.
+  <shortId>`, `dovahlink unblock -id <shortId>`, and `dovahlink forget -id <shortId>` are
+  recognized and produce the expected output.
 - ConsoleUtil Extended tolerates a `global native` Papyrus function body (its own documentation
   never states this explicitly, only that functions must be `global` — every other SKSE
   native-Papyrus-function integration works this way, but this specific combination is unconfirmed).

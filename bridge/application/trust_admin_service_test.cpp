@@ -17,10 +17,13 @@
 using dovahlink::application::ActiveSessionDisconnector;
 using dovahlink::application::TrustAdminService;
 using dovahlink::security::BlockOutcome;
+using dovahlink::security::ForgetOutcome;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::KnownDeviceState;
 using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using dovahlink::security::UnblockOutcome;
 
 namespace {
 
@@ -442,4 +445,124 @@ TEST_CASE("RevokeByShortId reports not-found for a blocked device, mirroring an 
 
     CHECK(store.IsBlocked("client-1"));
     CHECK(disconnector.disconnectedClientIds.empty());
+}
+
+TEST_CASE("ForgetByShortId reports not-found on an empty store", "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "No known device with id 11111.");
+}
+
+TEST_CASE("ForgetByShortId reports not-eligible for a trusted client and leaves it trusted",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "Device 11111 cannot be forgotten (revoke or unblock it first).");
+
+    CHECK(store.Query("client-1").has_value());
+}
+
+TEST_CASE("ForgetByShortId reports not-eligible for a blocked client without lifting the block",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "Device 11111 cannot be forgotten (revoke or unblock it first).");
+
+    CHECK(store.IsBlocked("client-1"));
+}
+
+TEST_CASE("ForgetByShortId forgets a revoked client and reports its display name",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Phone")).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "Forgot device 11111 (Phone).");
+
+    CHECK_FALSE(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("ForgetByShortId forgets an unpaired (unblocked) client", "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "Forgot device 11111 ((no display name)).");
+
+    CHECK_FALSE(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("ForgetByShortId surfaces a trust-store save failure and leaves the record intact",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    persistence.FailNextSave();
+    CHECK(service.ForgetByShortId("11111") == "Failed to forget device 11111: trust-store save failed.");
+
+    CHECK(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("ForgetByShortId only erases the targeted client when two share a display name, leaving "
+          "the other device untouched",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Shared Name")).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    REQUIRE(store.Persist("client-2", MakeCredential(2), std::string("Shared Name")).has_value());
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ForgetByShortId("11111") == "Forgot device 11111 (Shared Name).");
+
+    CHECK_FALSE(store.FindByShortId("11111").has_value());
+    auto remaining = store.FindByShortId("22222");
+    REQUIRE(remaining.has_value());
+    CHECK(remaining->clientId == "client-2");
+    CHECK(remaining->state == KnownDeviceState::kTrusted);
+}
+
+TEST_CASE("ForgetByShortId reports not-found when re-forgetting an already-forgotten shortId",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+    REQUIRE(service.ForgetByShortId("11111") == "Forgot device 11111 ((no display name)).");
+
+    CHECK(service.ForgetByShortId("11111") == "No known device with id 11111.");
 }

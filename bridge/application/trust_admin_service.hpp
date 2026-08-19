@@ -75,6 +75,14 @@ public:
     ///     persistence failure.
     [[nodiscard]] std::string UnblockByShortId(std::string_view shortId) const;
 
+    /// Forgets the known device identified by its five-digit `shortId`, deleting its record
+    /// entirely. Only a currently `kRevoked` or `kUnpaired` device is eligible -- a `kTrusted`
+    /// device must be revoked first, and a `kBlocked` device must be explicitly unblocked first.
+    /// @param shortId Administration-only identifier presented by the caller.
+    /// @return A human-readable result message: not-found, not-eligible, forgotten, or a
+    ///     persistence failure.
+    [[nodiscard]] std::string ForgetByShortId(std::string_view shortId) const;
+
 private:
     /// Trust store this service reads and mutates.
     security::TrustStore& trustStore_;
