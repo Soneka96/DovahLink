@@ -10,6 +10,13 @@ checks, session identity, Bridge identity, play-context identity, revision handl
 suppression, subscription state, snapshot recovery, reconnect, late-message handling, pairing
 client recovery, SDK persistence, and cache correctness.
 
+Phase 3.3 also requires SDK/client coverage for continuous observation of long-lived connection
+loss, distinction between ordinary transport failure and `session_invalidated(reason)`, typed
+`revoked`/`blocked`/`trustReset`/`factoryReset` state, reason-specific credential cleanup,
+`clientId` preservation, manual Retry recovery, and the absence of automatic re-pair or uncontrolled
+reconnect loops. Official Flutter tests own the intentionally identical presentation of those four
+administrative reasons; third-party SDK consumers may test their precise diagnostic exposure.
+
 App tests own: SDK state mapped into Redux/application state, application state mapped into UI,
 product recovery presentation, user-facing error presentation, compatibility-error presentation,
 loading/stale/unavailable UI, and navigation/interaction behavior.

@@ -325,7 +325,8 @@ UX work.
 - A unified, durable Known Device model replaces the current conceptual split of independent
   trusted records, revocation tombstones, and (new) block records. A device becomes a persistent
   Known Device only on its first *successful* pairing; merely requesting or attempting pairing
-  creates no persistent record.
+  creates no persistent record. The Bridge owns the authoritative administrative state, and the
+  Skyrim/admin surface may expose the full truth: `Trusted`, `Revoked`, `Blocked`, or `Unpaired`.
 - Each Known Device carries durable identity metadata: `clientId`, a stable `shortId`, an optional
   `displayName`, and `createdAt`. There is no `lastSeenAt`; `createdAt` is the authoritative field
   for device age and ordering. A Known Device is always in exactly one of four durable states --
@@ -334,7 +335,7 @@ UX work.
   their own.
 - A Known Device's `shortId` is allocated once, at creation, and stays stable across every
   transition it can go through (`Trusted -> Revoked -> Trusted`; `Trusted -> Blocked -> Unblocked ->
-  Unpaired -> Trusted`), including while `Blocked`. This is a deliberate change from the trust
+  Unpaired -> Trusted`; and `Unpaired -> Blocked`), including while `Blocked`. This is a deliberate change from the trust
   model's current behavior, where a `shortId` becomes reusable as soon as its client is no longer
   trusted (`ai/context/protocol/security.md`'s "Persistent local trust"); under the Known Device
   model a `shortId` is reserved for as long as the Known Device record exists, and becomes reusable
@@ -354,10 +355,13 @@ UX work.
   `displayName`, and `createdAt`. Re-pairing a `Revoked` Known Device restores `Trusted` while
   keeping the same Known Device identity.
 - Blocking is strictly stronger than revocation: it prevents a known device identity from
-  authenticating *or* entering pairing again until explicitly unblocked. Only `Trusted` and
-  `Revoked` Known Devices can be blocked in this phase -- an arbitrary, never-authorized `clientId`
+  authenticating *or* entering pairing again until explicitly unblocked. Any existing non-`Blocked`
+  Known Device (`Trusted`, `Revoked`, or `Unpaired`) may be blocked; an arbitrary, never-known
+  `clientId`
   cannot be blocked, since blocking targets an existing Known Device record, not a bare identity
-  string. Blocking atomically destroys any trusted credential, cancels any pairing the identity owns
+  identity string. Repeating Block for an already `Blocked` device returns the truthful
+  already-blocked outcome. Blocking atomically destroys any trusted credential, cancels any pairing
+  the identity owns
   (active or pending), immediately disconnects every active session for that device, transitions it
   to `Blocked`, and records `blockedAt`. A blocked device is rejected as early as `hello`: it
   receives neither a normal authenticated session nor an unpaired/restricted pairing session, and
@@ -388,27 +392,43 @@ UX work.
   and revocation history) and frees its `shortId` for future allocation. Any credential or client
   identity presented afterward is unknown/unauthenticated; if that same installation later pairs
   again, it is treated as a completely new Known Device with a new `shortId` and `createdAt`.
-- A recoverable Reset Trust operation, distinct from Factory Reset, immediately disconnects every
-  trusted session, cancels active/pending pairing, invalidates every trusted credential, and
-  transitions every formerly `Trusted` Known Device to `Revoked` -- while preserving every Known
-  Device record, its `shortId`, `displayName`, `createdAt`, and every existing block. It executes
-  immediately and does not require Factory Reset's stronger confirmation flow.
+- A recoverable Reset Trust operation, distinct from Factory Reset, applies only these state
+  transitions: `Trusted -> Revoked`; `Revoked`, `Blocked`, and `Unpaired` remain unchanged. For
+  every device transitioning from `Trusted` to `Revoked`, it immediately invalidates/destroys the
+  credential and active device-credential session while preserving the Known Device record,
+  `clientId`, `shortId`, `displayName`, `createdAt`, and other required identity metadata. It also
+  cancels every pending/in-progress pairing globally, leaves developer-token configuration
+  untouched, and leaves developer-token sessions unaffected. It executes immediately and does not
+  require Factory Reset's stronger confirmation flow.
 - Factory Reset is the destructive first-run reset: it removes trusted credentials, every Known
   Device record, revocations, the blocklist and its timestamps, display names, creation timestamps,
   and `shortId` reservations, cancels all active/pending pairing, and disconnects every active
-  session -- afterward, trust/pairing state is indistinguishable from a first run. Because it is
-  destructive, the initial factory-reset request performs no mutation, disconnects no one, and
-  alters no trust; Skyrim instead generates and displays a short confirmation code, and the
-  destructive reset executes only once that code is supplied back through the appropriate admin
-  command. A simple repeated command or a literal "confirm" is not an acceptable confirmation model.
+  session -- afterward, trust/pairing state is indistinguishable from a first run. Its confirmation
+  flow is independent from normal pairing: the initial local admin request performs no mutation,
+  Skyrim generates and displays a single-use six-digit numeric code, and the code is confirmed only
+  through the Skyrim/admin surface. The code expires after 60 seconds; one wrong code invalidates
+  the challenge immediately; an expired or wrong confirmation performs zero destructive changes;
+  remote clients cannot confirm it; and the normal `PairingSession`/pairing slot is not reused.
+  A simple repeated command or a literal "confirm" is not an acceptable confirmation model.
 - Developer-token authentication (`ai/context/protocol/security.md`'s "Developer authentication")
   stays a separate, explicit provider; normal Known Device blocking semantics do not redefine a
   developer-token session as a paired device, and developer-token authentication is not folded into
-  the Known Device lifecycle merely to reuse block/unblock.
+  the Known Device lifecycle merely to reuse block/unblock. Reset Trust leaves developer-token
+  configuration and sessions unaffected; Factory Reset terminates developer-token sessions but
+  leaves the configured developer token available for later authentication.
 - Administrative operations that invalidate access take effect immediately, with no window where an
   already-authenticated connection keeps operating until its next reconnect. This extends Phase 3's
   existing "Revocation is immediate" guarantee (`security.md`'s "Persistent local trust") to apply
   uniformly across Block, Revoke, Reset Trust, and Factory Reset alike.
+- All administrative invalidation uses one canonical authenticated-session event, conceptually
+  `session_invalidated { reason: revoked | blocked | trust_reset | factory_reset }`, rather than
+  separate operation-specific messages or a misleading `credential_invalidated` event. The logical
+  order is: apply the authoritative state change; invalidate/destroy affected credentials where
+  applicable; make future authentication and pairing obey the new state; best-effort send and flush
+  `session_invalidated(reason)`; then force-close the affected session. Delivery is never a security
+  dependency: no acknowledgement is required, and a hostile, broken, or stalled client cannot delay
+  its removal. Offline clients that later present stale credentials receive explicit `blocked` or
+  `revoked` handshake rejection as appropriate.
 
 ### Dependencies and boundaries
 
@@ -437,10 +457,12 @@ distinct operation alongside it.
   pairing attempt or request.
 - Revoking a Known Device disconnects its active sessions immediately, invalidates its credential,
   and leaves it able to re-pair back to `Trusted` under the same Known Device identity.
-- Blocking a `Trusted` or `Revoked` Known Device destroys its credential, cancels any pairing it
-  owns, disconnects its active sessions immediately, and thereafter rejects it at `hello` with a
-  distinct `blocked` outcome that exposes no stored metadata -- without producing a Skyrim
-  notification or updating persisted metadata for the rejected attempt.
+- Blocking a `Trusted`, `Revoked`, or `Unpaired` Known Device destroys any credential, cancels any
+  pairing it owns, disconnects its active sessions immediately, and thereafter rejects it at `hello`
+  with a distinct `blocked` outcome that exposes no stored metadata -- without producing a Skyrim
+  notification or updating persisted metadata for the rejected attempt. Unknown/random `clientId`
+  values cannot create Blocked records, and a concurrent authentication cannot establish a trusted
+  session after the authoritative Block transition completes.
 - Unblocking returns a device to `Unpaired` without restoring its old credential, requiring a fresh
   pairing flow, while its `clientId`, `shortId`, `displayName`, and `createdAt` all survive
   unchanged.
@@ -457,50 +479,73 @@ distinct operation alongside it.
   reflecting its actual current state rather than a silent no-op or a false claim of transition.
 - Forgetting a device is possible only from `Revoked` or `Unpaired`, deletes its record completely,
   frees its `shortId`, and never implicitly lifts a block.
-- Reset Trust immediately revokes every trusted session and credential while preserving every Known
-  Device record (including blocks), and requires no destructive-confirmation flow; Factory Reset
-  removes all trust/pairing state entirely, requires a Skyrim-displayed confirmation code before its
-  destructive mutation runs, and leaves the system indistinguishable from first run afterward.
+- Reset Trust converts only `Trusted -> Revoked`, destroys those credentials, invalidates their
+  active device sessions, cancels all pending pairing, preserves every Known Device identity field
+  and existing block, leaves `Revoked`/`Blocked`/`Unpaired` unchanged, and leaves developer-token
+  configuration and sessions unaffected.
 - Block, Revoke, Reset Trust, and Factory Reset all disconnect every affected active session
   immediately, with no already-authenticated connection able to keep operating until its next
-  reconnect.
+  reconnect. Each affected session receives best-effort `session_invalidated` with the typed reason
+  `blocked`, `revoked`, `trust_reset`, or `factory_reset` before force-close; security does not
+  depend on delivery or acknowledgement.
+- Offline stale credentials receive explicit `blocked` or `revoked` handshake outcomes. Factory
+  Reset requires the independent local six-digit, 60-second, single-use confirmation flow, with one
+  wrong code invalidating the challenge and no destructive change on wrong or expired confirmation;
+  it disconnects every active session, including developer-token sessions, but leaves the configured
+  developer token available for later authentication.
 - Developer-token sessions are never treated as Known Devices and are unaffected by Known Device
-  block/unblock semantics.
+  block/unblock or Revoke semantics; Reset Trust leaves them connected, while Factory Reset
+  terminates them and preserves their configuration.
 ## 3.3 Client Trust-State Integration
 
 **Status:** Planned
 
 ### Outcome
 
-The current Dart SDK and Flutter client understand authoritative trust changes as typed client state,
-recover through the correct credential and pairing paths, and present a truthful connection status
-when Bridge administration invalidates access. This phase integrates the completed Bridge-side trust
-authority from Phase 3.2; it does not become the full future Known Device administration UI or API.
+The current Dart SDK and existing Flutter connection experience correctly react, in real time, to
+authoritative trust and session changes introduced by Phase 3.2. The SDK exposes accurate typed
+reasons for developers and debugging, while the official Flutter UI intentionally presents all
+administrative invalidation reasons as the same generic unavailable/disconnected experience with a
+Retry action. This phase integrates the completed Bridge-side trust authority from Phase 3.2; it
+does not become the full future Known Device administration SDK/UI or API.
 
 ### Scope and behavior
 
-- Detect an active session that the Bridge invalidates through revocation, blocking, Reset Trust,
-  Factory Reset, or another authoritative trust action, rather than leaving the client in a generic
-  disconnected state until an arbitrary reconnect attempt.
-- Map canonical revoked, blocked, and related not-trusted outcomes into typed SDK connection,
-  authentication, and recovery state. The Flutter client consumes those meanings instead of parsing
-  raw transport errors or diagnostic strings.
-- Preserve the local clientId across revoke, unblock, reset, relaunch, and recovery. Credential
-  replacement and disposal follow the authoritative outcome: a revoked or reset credential is not
-  retried as trusted, a blocked client does not attempt pairing, and a fresh pairing after unblock
-  can reuse the preserved clientId when the canonical trust model permits it.
-- Prevent automatic reconnect, automatic pairing, and retry loops while the client is semantically
-  blocked. A deliberate user action or an authoritative state change that makes recovery valid may
-  leave the blocked state through the supported recovery path.
-- Recover correctly after revoke, unblock, Reset Trust, and Factory Reset, including discarding
-  invalid local credential state when required, returning to the appropriate unpaired/re-pairing
-  state, and establishing a fresh authenticated sessionId only after valid trust exists.
+- Observe the long-lived connection continuously. An established session ending must propagate
+  promptly through SDK state; the SDK must not discover a Bridge-side disconnect only when a later
+  request/response operation happens.
+- Distinguish ordinary transport loss -- normal game exit, crash, Bridge crash, local transport or
+  network disappearance -- from an authenticated `session_invalidated(reason)` event. Transport loss
+  preserves the existing device credential and `clientId`, enters the appropriate disconnected or
+  unavailable state, and may use normal bounded reconnect/backoff. Administrative invalidation is
+  terminal for the current session and exposes its authoritative reason.
+- Expose typed SDK-level reasons/states for `revoked`, `blocked`, `trustReset`, and `factoryReset`.
+  These are public semantic models/events/states consistent with the SDK architecture, not raw
+  protocol-string comparisons spread through consumers. Third-party SDK consumers may inspect or
+  display the precise reason; the official Flutter UI maps all four to the same generic
+  `Unable to connect to DovahLink`-style presentation and Retry action.
+- Preserve the local `clientId` across revoke, unblock, reset, relaunch, and recovery. Do not persist
+  `blocked`, `revoked`, `trustReset`, or `factoryReset` as durable authoritative trust state across
+  application restarts; the Bridge remains authoritative. Persist only the existing SDK-owned local
+  identity, credential, and recovery information.
+- For a device-credential session, delete the local credential on `revoked`, `blocked`,
+  `trustReset`, or `factoryReset` invalidation/rejection as applicable, preserve `clientId`, expose
+  the typed reason, do not automatically start pairing, and wait for explicit/manual Retry. A
+  `factoryReset` invalidation on a developer-token session ends that session but does not delete the
+  configured developer token.
+- Do not run aggressive reconnect or automatic re-pair loops after administrative invalidation.
+  Manual Retry is always available. After Retry, a previously Revoked device may enter normal
+  pairing, a still-Blocked device receives the typed blocked rejection without a pairing code, and a
+  now-Unpaired device may pair again using the same `clientId`; no new identity is generated merely
+  because it was previously Blocked or Revoked.
 - Keep the SDK responsible for reusable client authentication persistence, typed trust/recovery
-  semantics, and session handling; keep Flutter responsible for connection UI, wording, and
-  interaction. Do not add a competing app-private trust authority or a second transport stack.
-- Add SDK, client, and integration coverage for real-time invalidation, typed blocked/revoked state,
-  credential recovery, clientId preservation, blocked-loop prevention, and successful recovery
-  after the applicable administrative transition.
+  semantics, and session handling; keep Flutter responsible for connection UI wording and
+  interaction. Do not add a competing app-private trust authority, administration UI, or transport
+  stack. This is not the full Known Device administration SDK/UI phase.
+- Add SDK, client, and integration coverage for continuous invalidation observation, transport-loss
+  versus administrative-reason distinction, typed reasons, credential cleanup, clientId
+  preservation, manual Retry, no uncontrolled reconnect/pair loops, and identical official UI
+  presentation.
 
 ### Dependencies and boundaries
 
@@ -512,18 +557,25 @@ hardware/device attestation.
 
 ### Acceptance criteria
 
-- An active client detects authoritative session invalidation and exposes a typed semantic blocked,
-  revoked, or not-trusted state without requiring a failed reconnect to reveal the cause.
-- A blocked client does not automatically reconnect, request pairing, or enter a retry loop, and the
-  Flutter connection UI presents the blocked state with an actionable, truthful recovery path.
-- A revoked or reset credential is not reused as a trusted credential; the SDK preserves the local
-  clientId, returns to the correct unpaired/re-pairing state, and can establish a fresh session
-  after the Bridge permits recovery.
-- Unblocking requires the fresh pairing behavior defined by Phase 3.2, while preserving the local
-  clientId and applying the canonical Known Device identity rules.
-- Revoke, unblock, Reset Trust, and Factory Reset produce the correct client state and do not
-  conflate blocked, revoked, disconnected, or temporarily unavailable conditions.
-- SDK, client, and integration tests prove real-time invalidation, typed state, credential handling,
-  clientId preservation, blocked-loop prevention, and recovery after the applicable transition.
+- The SDK learns active administrative invalidation immediately from the canonical event, without
+  waiting for another normal request, and exposes typed `revoked`, `blocked`, `trustReset`, or
+  `factoryReset` state/reason information without parsing protocol strings.
+- Unexpected socket loss does not delete credentials; it preserves the existing credential and
+  `clientId` and follows ordinary disconnected/unavailable reconnect policy.
+- Administrative reasons are not persisted as authoritative local state across app restarts, and
+  relevant invalidation or stale-credential rejection removes obsolete Known Device credentials
+  while preserving `clientId`.
+- No automatic re-pair occurs after Revoke or Block, no uncontrolled reconnect loop exists, and
+  manual Retry is available. Revoke can recover into pairing after Retry; Blocked still denies
+  pairing; Unblocked can pair again with the same `clientId`.
+- The official Flutter connection UI intentionally presents `revoked`, `blocked`, `trustReset`, and
+  `factoryReset` identically as generic DovahLink unavailable/disconnected UI with Retry, while
+  third-party SDK consumers remain free to inspect or display the precise typed reason.
+- Revoke, unblock, Reset Trust, and Factory Reset produce the correct client state without
+  conflating blocked, revoked, disconnected, or temporarily unavailable conditions; developer-token
+  Factory Reset sessions end without deleting developer-token configuration.
+- SDK, client, and integration tests prove continuous observation, transport-loss versus
+  administrative invalidation, typed state, credential handling, `clientId` preservation,
+  manual-Retry recovery, no automatic re-pair/loop behavior, and the identical official UI policy.
 - The Flutter client reacts through SDK state and does not implement a parallel trust store,
-  authentication flow, or raw-error interpretation.
+  administration surface, authentication flow, or raw-error interpretation.

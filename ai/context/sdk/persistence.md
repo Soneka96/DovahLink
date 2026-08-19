@@ -11,6 +11,13 @@ reusable resource/cache metadata, cache-format version, and SDK persistence-form
 App-owned persistence includes product/UI preferences such as preferred Bridge selection, dashboard
 layout, map zoom, selected marker, and UI filters.
 
+Administrative invalidation reasons are not persisted as authoritative trust state: `blocked`,
+`revoked`, `trustReset`, and `factoryReset` may be exposed in the current SDK lifecycle state but
+must be re-established from the Bridge after an application restart. When an authoritative device
+credential invalidation is received, the SDK removes the obsolete local credential while preserving
+the stable local `clientId`; a Factory Reset ending a developer-token session does not delete the
+configured developer token.
+
 After SDK migration, the app must not persist a competing authoritative copy of SDK-owned protocol
 or client state: not the client credential, not pairing `CONFIRMING` recovery state, not actual
 subscription state, not reconnect state, not authoritative revision/recovery state, not SDK
