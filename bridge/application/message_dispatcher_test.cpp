@@ -177,6 +177,13 @@ std::string PairingCancelMessage(std::string messageId = "message-pairing-cancel
            R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
+/// Builds a `rename_request` envelope with the requested display name.
+std::string RenameRequestMessage(const std::string& displayName, std::string messageId = "message-rename-1") {
+    return R"({"messageType": "rename_request", "messageId": ")" + messageId + R"(", "sessionId": ")" +
+           kSessionId + R"(", "correlationId": null, "payload": {"displayName": ")" + displayName + R"("}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
 }  // namespace
 
 TEST_CASE("ProcessInboundMessage answers ping with pong and resets the idle timeout",
@@ -1087,6 +1094,37 @@ TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing_reno
     CHECK(cancelError->code == "malformed_message");
     REQUIRE(cancelFull.responses[0].bridgeInstanceId.has_value());
     CHECK(*cancelFull.responses[0].bridgeInstanceId == "bridge-1");
+}
+
+TEST_CASE("ProcessInboundMessage accepts rename_request on a Full session",
+          "[application][message_dispatcher]") {
+    Fixture fixture;
+    REQUIRE(fixture.trustStore.Persist(kClientId, std::vector<std::uint8_t>{1, 2, 3, 4}, "Old Name").has_value());
+
+    auto result = fixture.Process(RenameRequestMessage("New Name"));
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "rename_outcome");
+    auto outcome = dovahlink::protocol::DecodeRenameOutcomePayload(result.responses[0].payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "renamed");
+    REQUIRE(outcome->displayName.has_value());
+    CHECK(*outcome->displayName == "New Name");
+    REQUIRE(result.responses[0].bridgeInstanceId.has_value());
+    CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
+    CHECK_FALSE(result.responses[0].clientId.has_value());
+}
+
+TEST_CASE("ProcessInboundMessage rejects rename_request on a Restricted session",
+          "[application][message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kRestricted);
+
+    auto result = fixture.Process(RenameRequestMessage("New Name"));
+
+    REQUIRE(result.responses.size() == 1);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "malformed_message");
 }
 
 TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on pairing_renotify and "

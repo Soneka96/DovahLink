@@ -40,6 +40,7 @@ add_library(dovahlink_bridge_core STATIC
     application/subscription_handler.cpp
     application/timestamp.cpp
     application/trust_admin_service.cpp
+    application/rename_handler.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -149,6 +150,7 @@ add_executable(dovahlink_bridge_tests
     application/subscription_handler_test.cpp
     application/timestamp_test.cpp
     application/trust_admin_service_test.cpp
+    application/rename_handler_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
