@@ -775,8 +775,12 @@ public class PairingScenarioTests
         Assert.Null(invalidOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
 
         // Bridge auto-renotifies the code via in-game notification; harness signals this.
-        string autoRenotifySignal = await harness.ReadLineAsync();
-        Assert.NotNull(autoRenotifySignal);
+        string? autoRenotifySignal = await harness.ReadLineAsync();
+        if (autoRenotifySignal is null)
+        {
+            throw new InvalidOperationException(
+                $"Harness ended before the auto-renotify signal. Stderr: {harness.StandardError}");
+        }
         Assert.StartsWith("PAIRING_CODE_INCORRECT ", autoRenotifySignal);
         Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
 
@@ -913,7 +917,12 @@ public class PairingScenarioTests
             Assert.Equal("invalid", outcome.Payload["outcome"]!.GetValue<string>());
 
             // Each wrong attempt triggers auto-renotify: harness signals with PAIRING_CODE_INCORRECT.
-            string signal = await harness.ReadLineAsync();
+            string? signal = await harness.ReadLineAsync();
+            if (signal is null)
+            {
+                throw new InvalidOperationException(
+                    $"Harness ended before the auto-renotify signal for attempt {attempt}. Stderr: {harness.StandardError}");
+            }
             Assert.StartsWith("PAIRING_CODE_INCORRECT ", signal);
         }
 
@@ -938,7 +947,12 @@ public class PairingScenarioTests
         Assert.Null(hardLimitOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
 
         // Hard limit is signalled distinctly from per-attempt auto-renotify: harness prints PAIRING_ATTEMPTS_EXHAUSTED.
-        string exhaustedSignal = await harness.ReadLineAsync();
+        string? exhaustedSignal = await harness.ReadLineAsync();
+        if (exhaustedSignal is null)
+        {
+            throw new InvalidOperationException(
+                $"Harness ended before the attempts-exhausted signal. Stderr: {harness.StandardError}");
+        }
         Assert.Equal("PAIRING_ATTEMPTS_EXHAUSTED", exhaustedSignal);
 
         // Challenge is cleared by the hard limit: fresh pairing_request starts a new one with a fresh code.
