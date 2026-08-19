@@ -2,6 +2,7 @@
 
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
+#include "security/test_token.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -23,6 +24,7 @@ using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::kValidHexToken;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
@@ -41,10 +43,7 @@ public:
     bool Save(const TrustStoreSnapshot&) override { return true; }
 };
 
-// 32 bytes (64 hex characters) each, matching the production token shape
-// (security::kTokenBytes).
-constexpr const char* kValidHexToken =
-    "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
+// 32 bytes (64 hex characters), matching the production token shape (security::kTokenBytes).
 constexpr const char* kWrongHexToken =
     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 

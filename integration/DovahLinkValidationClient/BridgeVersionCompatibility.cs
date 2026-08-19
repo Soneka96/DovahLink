@@ -34,10 +34,10 @@ public static class BridgeVersionCompatibility
     /// or speculative span (see <c>bridge/README.md</c>: "Bridge version `0.2.0` supports exactly
     /// one runtime").
     /// </summary>
-    public static readonly Version MinimumSupportedVersion = new(0, 2, 0);
+    public static readonly Version MinimumSupportedVersion = new(0, 3, 1);
 
     /// <summary>The newest Bridge release this client understands.</summary>
-    public static readonly Version MaximumSupportedVersion = new(0, 2, 0);
+    public static readonly Version MaximumSupportedVersion = new(0, 3, 1);
 
     /// <summary>
     /// Evaluates a Bridge-reported version string against the declared supported range.

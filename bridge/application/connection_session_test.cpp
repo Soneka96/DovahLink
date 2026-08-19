@@ -1,9 +1,11 @@
 #include "application/connection_session.hpp"
 
+#include "application/bridge_config.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
+#include "security/test_token.hpp"
 #include "transport/listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -25,6 +27,7 @@
 #include <vector>
 
 using dovahlink::application::ActivePlayContext;
+using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
@@ -32,6 +35,7 @@ using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::kValidHexToken;
 using dovahlink::security::PairingSession;
 using dovahlink::security::StartChallengeOutcome;
 using dovahlink::security::TokenStore;
@@ -50,9 +54,6 @@ using dovahlink::transport::WebSocketSession;
 // matching transport/websocket_session_test.cpp's own precedent.
 
 namespace {
-
-constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
-constexpr const char* kBridgeVersion = "0.2.0";
 
 /// `ITrustStorePersistence` double that always loads an empty snapshot -- these tests only
 /// exercise the one_time_local_token auth path and never touch the trust store.

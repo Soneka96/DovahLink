@@ -44,6 +44,7 @@
 namespace {
 
 using dovahlink::application::kBridgePort;
+using dovahlink::application::kBridgeVersion;
 using dovahlink::application::kGameBehaviorConfigPath;
 using dovahlink::application::kTokenEnvVar;
 
@@ -96,20 +97,14 @@ private:
     dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
 };
 
-// The DovahLink Bridge/mod release version exposed to clients in
-// hello_ack.bridgeVersion (ai/context/protocol/compatibility.md), matching
-// bridge/vcpkg.json's version-string. Kept in sync with the plugin metadata
-// version below by convention; both describe the same release.
-constexpr const char* kBridgeVersion = "0.2.0";
-
 }  // namespace
 
 // Hand-written plugin metadata and address-library compatibility declaration.
 using namespace std::literals;
 SKSEPluginInfo(
-    .Version = REL::Version{0, 2, 0, 0},
+    .Version = REL::Version{0, 3, 1, 0},
     .Name = "DovahLink Bridge"sv,
-    .Author = "Goncalo"sv,
+    .Author = "Soneka96"sv,
     .SupportEmail = ""sv,
     .StructCompatibility = SKSE::StructCompatibility::Independent,
     .RuntimeCompatibility = SKSE::VersionIndependence::AddressLibrary,

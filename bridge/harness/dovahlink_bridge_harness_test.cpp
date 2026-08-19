@@ -2,6 +2,7 @@
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "protocol/messages.hpp"
+#include "security/test_token.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -27,10 +28,11 @@
 // Launches the harness as a real process, drives its protocol over a real
 // loopback socket, changes level through stdin, and verifies clean shutdown.
 
+using dovahlink::security::kValidHexToken;
+
 namespace {
 
 constexpr const char* kHarnessExePath = DOVAHLINK_HARNESS_EXE;
-constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
 // Builds an ANSI environment block from the test process environment, with
 // DOVAHLINK_BRIDGE_TOKEN replaced by

@@ -1,8 +1,10 @@
 #include "application/bridge_worker_pool.hpp"
 
+#include "application/bridge_config.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "security/hex.hpp"
+#include "security/test_token.hpp"
 #include "security/trust_store.hpp"
 #include "transport/loopback_test_support.hpp"
 
@@ -29,12 +31,14 @@ using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
+using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::kValidHexToken;
 using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
@@ -44,10 +48,6 @@ using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
 
 namespace {
-
-constexpr const char* kValidHexToken = "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
-/// Bridge version reported by the fixture's worker pool.
-constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {

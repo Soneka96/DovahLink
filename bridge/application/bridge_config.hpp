@@ -7,6 +7,11 @@ namespace dovahlink::application {
 /// Default loopback port used by the bridge and validation harness.
 inline constexpr std::uint16_t kBridgePort = 58231;
 
+/// The DovahLink Bridge/mod release version, exposed to clients in
+/// `hello_ack.bridgeVersion` (ai/context/protocol/compatibility.md). Must match
+/// bridge/vcpkg.json's version-string; `tooling/test_repository_consistency.py` guards that.
+inline constexpr const char* kBridgeVersion = "0.3.1";
+
 /// Environment variable containing the development connection token.
 inline constexpr const char* kTokenEnvVar = "DOVAHLINK_BRIDGE_TOKEN";
 

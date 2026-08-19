@@ -1,5 +1,7 @@
 #include "security/token_provider.hpp"
 
+#include "security/test_token.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <windows.h>
@@ -11,6 +13,7 @@
 
 using dovahlink::security::EnvironmentReader;
 using dovahlink::security::kTokenBytes;
+using dovahlink::security::kValidHexToken;
 using dovahlink::security::ReadTokenFromEnvironment;
 using dovahlink::security::TokenReadOutcome;
 using dovahlink::security::WindowsEnvironmentReader;
@@ -18,11 +21,6 @@ using dovahlink::security::WindowsEnvironmentReader;
 namespace {
 
 constexpr const char* kVarName = "DOVAHLINK_BRIDGE_TOKEN";
-
-// 32 bytes (64 hex characters) of a representative, obviously-fake value.
-// Mixed case on purpose, to prove both cases decode.
-constexpr const char* kValidHexToken =
-    "0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344";
 
 /// Stores named environment values for token-provider tests.
 class FakeEnvironmentReader : public EnvironmentReader {

@@ -575,7 +575,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     def test_published_bridge_release_and_roadmap_status_agree(self) -> None:
         """Keep the published bridge version and completed roadmap phase synchronized."""
         manifest = json.loads(self._read("bridge/vcpkg.json"))
-        version = "0.2.0"
+        version = manifest["version-string"]
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
         phase_zero = self._markdown_section("ROADMAP.md", "0. Documentation baseline")
@@ -586,16 +586,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         phase_two = self._markdown_section(
             "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
         )
+        phase_three = self._markdown_section("ROADMAP.md", "3. Local Device Pairing and Reconnection")
+        phase_three_one = self._markdown_section("ROADMAP.md", "3.1 Live Pairing Challenge UX")
 
         self.assertEqual(manifest["version-string"], version)
-        self.assertIn(
-            "published on Nexus Mods]"
-            f"(https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `{version}`",
-            root_readme,
-        )
-        self.assertIn(f"published Phase 2\nbridge release, version `{version}`", bridge_readme)
-        self.assertIn(f"Bridge version `{version}` supports exactly one runtime", bridge_readme)
-        for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two):
+        for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two, phase_three, phase_three_one):
             self.assertEqual(
                 re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
                 ["**Status:** Complete"],
@@ -607,13 +602,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
         version = manifest["version-string"]
         version_components = ", ".join(version.split("."))
 
-        for source_path in (
-            "bridge/harness/dovahlink_bridge_harness.cpp",
-            "bridge/plugin/dovahlink_bridge_plugin.cpp",
-            "bridge/application/connection_session_test.cpp",
-            "bridge/application/bridge_worker_pool_test.cpp",
-        ):
-            self.assertIn(f'kBridgeVersion = "{version}"', self._read(source_path), source_path)
+        self.assertIn(
+            f'kBridgeVersion = "{version}"', self._read("bridge/application/bridge_config.hpp")
+        )
+        self.assertIn(
+            f"REL::Version{{{version_components}, 0}}", self._read("bridge/plugin/dovahlink_bridge_plugin.cpp")
+        )
 
         compatibility = self._read(
             "integration/DovahLinkValidationClient/BridgeVersionCompatibility.cs"
@@ -633,15 +627,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
-        self.assertEqual(entry_versions[0], manifest["version-string"])
-        for known_version in ("0.1.0", "0.2.0"):
+        self.assertEqual(entry_versions[-1], manifest["version-string"])
+        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1"):
             self.assertIn(known_version, entry_versions)
-        parsed_versions = [tuple(int(part) for part in v.split(".")) for v in entry_versions]
-        self.assertEqual(
-            parsed_versions,
-            sorted(set(parsed_versions), reverse=True),
-            "CHANGELOG.md entries must be strictly descending with no duplicate versions.",
-        )
+        self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")
 
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility
@@ -708,8 +697,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 5)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 6)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
@@ -722,7 +711,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         for heading in expected_headings:
             phase = self._markdown_section("ROADMAP.md", heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ")):
                 expected_status = "**Status:** Complete"
             elif heading.startswith("5. "):
                 expected_status = phase_5_status

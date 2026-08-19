@@ -36,17 +36,13 @@
 namespace {
 
 using dovahlink::application::kBridgePort;
+using dovahlink::application::kBridgeVersion;
 using dovahlink::application::kTokenEnvVar;
 
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
 constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
 constexpr std::string_view kRevokeCommandPrefix = "revoke ";
-
-// Matches the plugin's own kBridgeVersion (dovahlink_bridge_plugin.cpp) and
-// bridge/vcpkg.json's version-string; this harness is a Skyrim-independent
-// stand-in for the real plugin, not an independent release.
-constexpr const char* kBridgeVersion = "0.2.0";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
