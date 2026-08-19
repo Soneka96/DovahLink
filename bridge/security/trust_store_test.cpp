@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -86,6 +87,55 @@ TEST_CASE("a freshly loaded empty store has no trusted clients", "[security][tru
     CHECK_FALSE(store.WasCorruptOnLoad());
     CHECK_FALSE(store.Query("client-1").has_value());
     CHECK(store.ListTrusted().empty());
+    CHECK(store.ListAll().empty());
+}
+
+TEST_CASE("ListAll returns known devices in every durable state", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(100));
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{
+        .devices = {KnownDeviceRecord{.clientId = "trusted-client",
+                                       .credential = MakeCredential(1),
+                                       .shortId = "00001",
+                                       .displayName = std::string("Trusted"),
+                                       .state = KnownDeviceState::kTrusted,
+                                       .createdAt = createdAt},
+                   KnownDeviceRecord{.clientId = "revoked-client",
+                                     .credential = {},
+                                     .shortId = "00002",
+                                     .displayName = std::nullopt,
+                                     .state = KnownDeviceState::kRevoked,
+                                     .createdAt = createdAt},
+                   KnownDeviceRecord{.clientId = "blocked-client",
+                                     .credential = {},
+                                     .shortId = "00003",
+                                     .displayName = std::string("Blocked"),
+                                     .state = KnownDeviceState::kBlocked,
+                                     .createdAt = createdAt},
+                   KnownDeviceRecord{.clientId = "unpaired-client",
+                                     .credential = {},
+                                     .shortId = "00004",
+                                     .displayName = std::nullopt,
+                                     .state = KnownDeviceState::kUnpaired,
+                                     .createdAt = createdAt}},
+    });
+
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    auto records = store.ListAll();
+
+    REQUIRE(records.size() == 4);
+    CHECK(std::any_of(records.begin(), records.end(), [](const KnownDeviceRecord& record) {
+        return record.state == KnownDeviceState::kTrusted;
+    }));
+    CHECK(std::any_of(records.begin(), records.end(), [](const KnownDeviceRecord& record) {
+        return record.state == KnownDeviceState::kRevoked;
+    }));
+    CHECK(std::any_of(records.begin(), records.end(), [](const KnownDeviceRecord& record) {
+        return record.state == KnownDeviceState::kBlocked;
+    }));
+    CHECK(std::any_of(records.begin(), records.end(), [](const KnownDeviceRecord& record) {
+        return record.state == KnownDeviceState::kUnpaired;
+    }));
 }
 
 TEST_CASE("loading an existing snapshot makes its records queryable", "[security][trust_store]") {

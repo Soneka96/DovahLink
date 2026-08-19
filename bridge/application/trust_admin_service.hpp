@@ -45,6 +45,15 @@ public:
     /// `shortId  displayName` line per client, or a clear "no trusted clients" message when empty.
     [[nodiscard]] std::string ListTrusted() const;
 
+    /// Lists every known device, regardless of state, sorted oldest-to-newest by `createdAt` and
+    /// including its `shortId`, display name, and current state. Repeated display names receive a
+    /// temporary oldest-to-newest `#1`, `#2`, ... suffix only in this returned presentation.
+    [[nodiscard]] std::string ListKnownDevices() const;
+
+    /// Lists only currently blocked known devices, using the same sorted, presentation-only name
+    /// disambiguation as `ListKnownDevices`.
+    [[nodiscard]] std::string ListBlocked() const;
+
     /// Revokes the trusted client identified by its five-digit `shortId` (never `clientId`, never a
     /// credential -- `security.md`'s own stated purpose for `shortId`).
     /// @param shortId Administration-only identifier presented by the caller.

@@ -49,6 +49,10 @@ public:
     /// Returns every currently trusted (`kTrusted`) device, for administration listings.
     [[nodiscard]] std::vector<KnownDeviceRecord> ListTrusted();
 
+    /// Returns every known device, regardless of its current durable state, for administration
+    /// listings.
+    [[nodiscard]] std::vector<KnownDeviceRecord> ListAll();
+
     /// Reports whether `clientId` is a known device currently in the `kRevoked` state.
     [[nodiscard]] bool IsRevoked(const std::string& clientId);
 

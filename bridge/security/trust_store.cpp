@@ -74,6 +74,16 @@ std::vector<KnownDeviceRecord> TrustStore::ListTrusted() {
     return result;
 }
 
+std::vector<KnownDeviceRecord> TrustStore::ListAll() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<KnownDeviceRecord> result;
+    result.reserve(devices_.size());
+    for (const auto& [clientId, device] : devices_) {
+        result.push_back(device);
+    }
+    return result;
+}
+
 bool TrustStore::IsRevoked(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = devices_.find(clientId);

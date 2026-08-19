@@ -2,9 +2,65 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <sstream>
 
 namespace dovahlink::application {
+
+namespace {
+
+/// Returns the stable, lower-case presentation label for a known-device state.
+std::string_view StateLabel(security::KnownDeviceState state) {
+    switch (state) {
+        case security::KnownDeviceState::kTrusted:
+            return "trusted";
+        case security::KnownDeviceState::kRevoked:
+            return "revoked";
+        case security::KnownDeviceState::kBlocked:
+            return "blocked";
+        case security::KnownDeviceState::kUnpaired:
+            return "unpaired";
+    }
+    return "unknown";
+}
+
+/// Formats a sorted known-device listing, numbering repeated display names only in the returned
+/// presentation and never mutating the durable records.
+std::string FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> records,
+                                     std::string_view deviceKind) {
+    if (records.empty()) {
+        return "No " + std::string(deviceKind) + "s.";
+    }
+
+    std::sort(records.begin(), records.end(), [](const security::KnownDeviceRecord& left,
+                                                 const security::KnownDeviceRecord& right) {
+        if (left.createdAt != right.createdAt) {
+            return left.createdAt < right.createdAt;
+        }
+        return left.shortId < right.shortId;
+    });
+
+    std::map<std::string, std::size_t> displayNameCounts;
+    for (const auto& record : records) {
+        if (record.displayName.has_value()) {
+            ++displayNameCounts[*record.displayName];
+        }
+    }
+
+    std::map<std::string, std::size_t> displayNameIndexes;
+    std::ostringstream out;
+    out << records.size() << ' ' << deviceKind << (records.size() == 1 ? "" : "s") << ':';
+    for (const auto& record : records) {
+        std::string displayName = record.displayName.value_or("(no display name)");
+        if (record.displayName.has_value() && displayNameCounts[displayName] > 1) {
+            displayName += " #" + std::to_string(++displayNameIndexes[displayName]);
+        }
+        out << '\n' << record.shortId << "  " << displayName << "  " << StateLabel(record.state);
+    }
+    return out.str();
+}
+
+}  // namespace
 
 TrustAdminService::TrustAdminService(security::TrustStore& trustStore, ActiveSessionDisconnector& sessionDisconnector,
                                       security::PairingSession& pairingSession)
@@ -22,6 +78,19 @@ std::string TrustAdminService::ListTrusted() const {
         out << '\n' << record.shortId << "  " << record.displayName.value_or("(no display name)");
     }
     return out.str();
+}
+
+std::string TrustAdminService::ListKnownDevices() const {
+    return FormatKnownDeviceListing(trustStore_.ListAll(), "known device");
+}
+
+std::string TrustAdminService::ListBlocked() const {
+    auto records = trustStore_.ListAll();
+    records.erase(std::remove_if(records.begin(), records.end(), [](const security::KnownDeviceRecord& record) {
+                      return record.state != security::KnownDeviceState::kBlocked;
+                  }),
+                  records.end());
+    return FormatKnownDeviceListing(std::move(records), "blocked device");
 }
 
 std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {

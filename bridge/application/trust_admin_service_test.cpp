@@ -20,6 +20,7 @@ using dovahlink::security::BlockOutcome;
 using dovahlink::security::ForgetOutcome;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceState;
+using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
@@ -55,7 +56,10 @@ public:
     /// Configures the next `Save()` call to fail.
     void FailNextSave() { failNextSave_ = true; }
 
-    std::optional<TrustStoreSnapshot> Load() override { return TrustStoreSnapshot{}; }
+    /// Configures the snapshot returned by `Load()`.
+    void SetSnapshotToLoad(TrustStoreSnapshot snapshot) { snapshotToLoad_ = std::move(snapshot); }
+
+    std::optional<TrustStoreSnapshot> Load() override { return snapshotToLoad_; }
 
     bool Save(const TrustStoreSnapshot&) override {
         if (failNextSave_) {
@@ -66,6 +70,7 @@ public:
     }
 
 private:
+    std::optional<TrustStoreSnapshot> snapshotToLoad_ = TrustStoreSnapshot{};
     bool failNextSave_ = false;
 };
 
@@ -85,6 +90,20 @@ TrustStore::ShortIdGenerator QueuedShortIds(std::deque<std::optional<std::string
 /// Builds a deterministic credential-sized byte sequence from a seed value.
 std::vector<std::uint8_t> MakeCredential(std::uint8_t seed) {
     return std::vector<std::uint8_t>{seed, static_cast<std::uint8_t>(seed + 1)};
+}
+
+/// Builds a known-device record with a deterministic creation time for ordering assertions.
+KnownDeviceRecord MakeKnownDevice(std::string clientId, std::string shortId,
+                                  std::optional<std::string> displayName, KnownDeviceState state,
+                                  int createdAtSeconds) {
+    return KnownDeviceRecord{.clientId = std::move(clientId),
+                             .credential = state == KnownDeviceState::kTrusted ? MakeCredential(1)
+                                                                                 : std::vector<std::uint8_t>{},
+                             .shortId = std::move(shortId),
+                             .displayName = std::move(displayName),
+                             .state = state,
+                             .createdAt = std::chrono::system_clock::time_point(
+                                 std::chrono::seconds(createdAtSeconds))};
 }
 
 }  // namespace
@@ -163,6 +182,117 @@ TEST_CASE("ListTrusted mixes a named and an unnamed client in the same listing",
     std::string listing = service.ListTrusted();
     CHECK(listing.find("11111  Phone") != std::string::npos);
     CHECK(listing.find("22222  (no display name)") != std::string::npos);
+}
+
+TEST_CASE("ListKnownDevices and ListBlocked report clear empty results",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ListKnownDevices() == "No known devices.");
+    CHECK(service.ListBlocked() == "No blocked devices.");
+}
+
+TEST_CASE("ListKnownDevices formats a single device with its state",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-1", "11111", std::string("Phone"), KnownDeviceState::kTrusted, 100),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ListKnownDevices() == "1 known device:\n11111  Phone  trusted");
+}
+
+TEST_CASE("ListKnownDevices keeps distinct display names unsuffixed and sorts by creation time",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-2", "22222", std::string("Tablet"), KnownDeviceState::kRevoked, 200),
+        MakeKnownDevice("client-1", "11111", std::string("Phone"), KnownDeviceState::kTrusted, 100),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    const std::string listing = service.ListKnownDevices();
+    const auto first = listing.find("11111  Phone  trusted");
+    const auto second = listing.find("22222  Tablet  revoked");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    CHECK(first < second);
+    CHECK(listing.find("#") == std::string::npos);
+}
+
+TEST_CASE("ListKnownDevices disambiguates two and three duplicate names oldest first",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-3", "33333", std::string("Shared"), KnownDeviceState::kUnpaired, 300),
+        MakeKnownDevice("client-1", "11111", std::string("Shared"), KnownDeviceState::kRevoked, 100),
+        MakeKnownDevice("client-2", "22222", std::string("Shared"), KnownDeviceState::kBlocked, 200),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    const std::string listing = service.ListKnownDevices();
+    const auto first = listing.find("11111  Shared #1  revoked");
+    const auto second = listing.find("22222  Shared #2  blocked");
+    const auto third = listing.find("33333  Shared #3  unpaired");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    REQUIRE(third != std::string::npos);
+    CHECK(first < second);
+    CHECK(second < third);
+}
+
+TEST_CASE("ListKnownDevices recomputes duplicate suffixes after forgetting the oldest device",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-2", "22222", std::string("Shared"), KnownDeviceState::kRevoked, 200),
+        MakeKnownDevice("client-1", "11111", std::string("Shared"), KnownDeviceState::kRevoked, 100),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    REQUIRE(service.ListKnownDevices().find("11111  Shared #1  revoked") != std::string::npos);
+    REQUIRE(service.ListKnownDevices().find("22222  Shared #2  revoked") != std::string::npos);
+    CHECK(service.ForgetByShortId("11111") == "Forgot device 11111 (Shared).");
+    CHECK(service.ListKnownDevices() == "1 known device:\n22222  Shared  revoked");
+}
+
+TEST_CASE("ListBlocked includes blocked devices while excluding nonblocked devices",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-1", "11111", std::string("Phone"), KnownDeviceState::kTrusted, 100),
+        MakeKnownDevice("client-2", "22222", std::string("Blocked Phone"), KnownDeviceState::kBlocked, 200),
+        MakeKnownDevice("client-3", "33333", std::nullopt, KnownDeviceState::kRevoked, 300),
+        MakeKnownDevice("client-4", "44444", std::string("Blocked Phone"), KnownDeviceState::kBlocked, 150),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    const std::string all = service.ListKnownDevices();
+    const std::string blocked = service.ListBlocked();
+    CHECK(all.find("11111  Phone  trusted") != std::string::npos);
+    CHECK(all.find("22222  Blocked Phone #2  blocked") != std::string::npos);
+    CHECK(all.find("33333  (no display name)  revoked") != std::string::npos);
+    CHECK(blocked == "2 blocked devices:\n44444  Blocked Phone #1  blocked\n22222  Blocked Phone #2  blocked");
 }
 
 TEST_CASE("RevokeByShortId reports not-found for an unknown shortId without changing the store",
