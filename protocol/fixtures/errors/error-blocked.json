@@ -1,0 +1,15 @@
+{
+  "messageType": "error",
+  "messageId": "message-error-blocked-1",
+  "sessionId": null,
+  "correlationId": "message-hello-1",
+  "payload": {
+    "code": "blocked",
+    "message": "This device is blocked",
+    "retryable": false,
+    "details": null
+  },
+  "bridgeInstanceId": null,
+  "playContextId": null,
+  "clientId": null
+}

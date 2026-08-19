@@ -260,6 +260,7 @@ class ValidateAllTests(unittest.TestCase):
             "state/character/character-state-event.json",
             "state/character/character-state-snapshot.json",
             "state/character/character-state-unavailable.json",
+            "errors/error-blocked.json",
             "errors/error-frame-too-large.json",
             "errors/error-malformed-message.json",
             "errors/error-rate-limited.json",

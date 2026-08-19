@@ -409,6 +409,55 @@ TEST_CASE("dovahlink_bridge_harness's revoke command handles an empty clientId a
     CHECK(harness.ExitCode() == 0);
 }
 
+TEST_CASE("dovahlink_bridge_harness's block command reports BLOCK_FAILED for a never-paired clientId",
+          "[harness]") {
+    // Unlike TrustStore::Revoke, TrustStore::Block is not idempotent-success for an unknown
+    // clientId (bridge/security/trust_store.cpp): blocking targets an existing Known Device
+    // record, not a bare identity string, so a never-paired clientId reports kNotFound and this
+    // command reports BLOCK_FAILED. The .NET validator's PairingScenarioTests.cs additionally
+    // proves the real block-while-connected/reconnect-rejected round trip against an actually
+    // trusted device, using machinery this harness test file has no equivalent of on its own
+    // (matching the existing revoke tests' own documented scope split).
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    // An empty clientId (nothing after the "block " prefix) still matches the branch and reports
+    // failure the same way, mirroring the equivalent "revoke " test.
+    harness.WriteLine("block ");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED ");
+
+    // Repeating the same never-paired clientId stays BLOCK_FAILED every time: kNotFound is
+    // consistently reported, not just on the first attempt.
+    harness.WriteLine("block never-paired-client");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED never-paired-client");
+    harness.WriteLine("block never-paired-client");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness's unblock command reports UNBLOCK_FAILED for a never-paired clientId",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+
+    harness.WriteLine("unblock ");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED ");
+
+    harness.WriteLine("unblock never-paired-client");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED never-paired-client");
+    harness.WriteLine("unblock never-paired-client");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
 TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
           "lifecycle",
           "[harness]") {

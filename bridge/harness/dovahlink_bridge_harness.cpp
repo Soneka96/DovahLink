@@ -2,7 +2,8 @@
 // deterministic character level, accepts the same authentication token as the
 // plugin, prints READY followed by its generated bridge instance ID after
 // startup, and handles increase_level, new_game, load_game, load_game_fail,
-// revert, revoke <clientId>, and quit commands on standard input.
+// revert, revoke <clientId>, block <clientId>, unblock <clientId>, and quit
+// commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -43,6 +44,8 @@ constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
 constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
 constexpr std::string_view kRevokeCommandPrefix = "revoke ";
+constexpr std::string_view kBlockCommandPrefix = "block ";
+constexpr std::string_view kUnblockCommandPrefix = "unblock ";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
@@ -264,6 +267,31 @@ int main() {
                 std::cout << "REVOKED " << revokedClientId << std::endl;
             } else {
                 std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;
+            }
+        } else if (line.starts_with(kBlockCommandPrefix)) {
+            // Test-only shortcut straight to TrustStore::Block, mirroring the "revoke " shortcut
+            // above: skips TrustAdminService's shortId lookup (the harness already knows the
+            // clientId a scenario paired) but still exercises the same
+            // ActiveSessionDisconnector/PairingSession::TryCancel primitives
+            // TrustAdminService::BlockByShortId itself calls, so a scenario can prove
+            // block-while-connected disconnects the live session and cancels any owned pairing
+            // challenge immediately, not just the next reconnect/pairing attempt.
+            std::string blockedClientId = line.substr(kBlockCommandPrefix.size());
+            if (trustStore.Block(blockedClientId) == dovahlink::security::BlockOutcome::kBlocked) {
+                (void)pairingSession.TryCancel(blockedClientId, std::chrono::steady_clock::now());
+                bridgeWorkerPool.DisconnectIfClientActive(blockedClientId);
+                std::cout << "BLOCKED " << blockedClientId << std::endl;
+            } else {
+                std::cout << "BLOCK_FAILED " << blockedClientId << std::endl;
+            }
+        } else if (line.starts_with(kUnblockCommandPrefix)) {
+            // Test-only shortcut straight to TrustStore::Unblock, mirroring "block "/"revoke "
+            // above.
+            std::string unblockedClientId = line.substr(kUnblockCommandPrefix.size());
+            if (trustStore.Unblock(unblockedClientId) == dovahlink::security::UnblockOutcome::kUnblocked) {
+                std::cout << "UNBLOCKED " << unblockedClientId << std::endl;
+            } else {
+                std::cout << "UNBLOCK_FAILED " << unblockedClientId << std::endl;
             }
         } else if (line == "quit") {
             break;

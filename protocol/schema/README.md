@@ -422,11 +422,15 @@ Reports a structured failure without exposing infrastructure exceptions:
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
 
 Canonical error codes include `malformed_message`, `frame_too_large`, `unsupported_capability`,
-`unauthenticated`, `unauthorized`, `revoked`, `replayed_message`, `stale_session`, `rate_limited`,
-and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected because the
-presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never paired or
-wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust". Error codes are
-for branching; diagnostic messages are not. There is no
+`unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`,
+`rate_limited`, and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected
+because the presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never
+paired or wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust".
+`blocked` is an `unpaired` or `trusted_device_credential` hello rejected because the presented
+`clientId` is a currently blocked Known Device -- distinct from `revoked` (blocking prevents both
+authentication and re-pairing, while a revoked device may still re-pair) and never issued for
+`one_time_local_token` (developer-token) authentication, which stays a separate provider unaffected
+by Known Device blocking. Error codes are for branching; diagnostic messages are not. There is no
 Bridge-version-incompatibility wire error code: a client detects incompatibility itself from
 `hello_ack.bridgeVersion` and fails without completing the rest of the exchange, per
 `ai/context/protocol/compatibility.md`.
