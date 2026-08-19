@@ -139,4 +139,21 @@ enum class ForgetOutcome {
     kSaveFailed,
 };
 
+/// Outcome of `TrustStore::Rename`.
+enum class RenameOutcome {
+    /// The device's `displayName` was updated (or cleared, for an empty input).
+    kRenamed,
+    /// The supplied display name exceeds the configured length bound or contains a control
+    /// character.
+    kInvalidDisplayName,
+    /// A known device record exists for the identity, but its current state is not `kTrusted` --
+    /// only a currently trusted device may rename itself.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The rename was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
 }  // namespace dovahlink::security

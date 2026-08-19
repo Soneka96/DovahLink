@@ -18,6 +18,7 @@ using dovahlink::security::ForgetOutcome;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
+using dovahlink::security::RenameOutcome;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::UnblockOutcome;
@@ -779,6 +780,215 @@ TEST_CASE("concurrent Persist calls for distinct clients all succeed without dat
 
     CHECK(successCount.load() == kClients);
     CHECK(store.ListTrusted().size() == static_cast<std::size_t>(kClients));
+}
+
+TEST_CASE("Persist preserves the existing displayName when re-pairing with no displayName supplied",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("My PC")).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::nullopt);
+
+    REQUIRE(repaired.has_value());
+    REQUIRE(repaired->displayName.has_value());
+    CHECK(*repaired->displayName == "My PC");
+}
+
+TEST_CASE("Persist preserves the existing displayName when re-pairing from unpaired with no "
+          "displayName supplied",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("My PC")).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::nullopt);
+
+    REQUIRE(repaired.has_value());
+    REQUIRE(repaired->displayName.has_value());
+    CHECK(*repaired->displayName == "My PC");
+}
+
+TEST_CASE("Persist replaces the existing displayName when re-pairing with a new one supplied",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("My PC")).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::string("New Name"));
+
+    REQUIRE(repaired.has_value());
+    REQUIRE(repaired->displayName.has_value());
+    CHECK(*repaired->displayName == "New Name");
+}
+
+TEST_CASE("Persist still leaves no displayName for a genuinely new clientId given no displayName",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+
+    auto result = store.Persist("client-1", MakeCredential(1), std::nullopt);
+
+    REQUIRE(result.has_value());
+    CHECK_FALSE(result->displayName.has_value());
+}
+
+TEST_CASE("Rename on an unknown clientId reports kNotFound", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK(store.Rename("never-paired", "New Name") == RenameOutcome::kNotFound);
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Rename on a revoked clientId reports kNotEligible", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    persistence.saveCallCount = 0;
+
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kNotEligible);
+
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Rename on a blocked clientId reports kNotEligible", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    persistence.saveCallCount = 0;
+
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kNotEligible);
+
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Rename on an unpaired (unblocked) clientId reports kNotEligible", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+    persistence.saveCallCount = 0;
+
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kNotEligible);
+
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Rename reports kNotEligible ahead of an invalid displayName for an ineligible client",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    std::string tooLong(65, 'a');
+
+    CHECK(store.Rename("client-1", tooLong) == RenameOutcome::kNotEligible);
+}
+
+TEST_CASE("Rename replaces a trusted client's displayName", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Old Name")).has_value());
+
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kRenamed);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    REQUIRE(found->displayName.has_value());
+    CHECK(*found->displayName == "New Name");
+}
+
+TEST_CASE("Rename with an empty displayName clears the name", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Old Name")).has_value());
+
+    CHECK(store.Rename("client-1", "") == RenameOutcome::kRenamed);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK_FALSE(found->displayName.has_value());
+}
+
+TEST_CASE("Rename does not change shortId, createdAt, or credential", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    auto original = store.Persist("client-1", MakeCredential(1), std::string("Old Name"));
+    REQUIRE(original.has_value());
+
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kRenamed);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK(found->shortId == original->shortId);
+    CHECK(found->createdAt == original->createdAt);
+    CHECK(found->credential == original->credential);
+}
+
+TEST_CASE("Rename accepts a displayName exactly at the length bound", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    std::string atBound(64, 'a');
+
+    CHECK(store.Rename("client-1", atBound) == RenameOutcome::kRenamed);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK(*found->displayName == atBound);
+}
+
+TEST_CASE("Rename rejects a displayName longer than the configured bound",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Old Name")).has_value());
+    std::string tooLong(65, 'a');
+
+    CHECK(store.Rename("client-1", tooLong) == RenameOutcome::kInvalidDisplayName);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK(*found->displayName == "Old Name");
+}
+
+TEST_CASE("Rename rejects a displayName containing a control character",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK(store.Rename("client-1", std::string("bad\nname")) == RenameOutcome::kInvalidDisplayName);
+}
+
+TEST_CASE("Rename rejects a displayName containing a null byte", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK(store.Rename("client-1", std::string("bad\0name", 8)) == RenameOutcome::kInvalidDisplayName);
+}
+
+TEST_CASE("Rename surfaces a Save failure without corrupting in-memory state",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Old Name")).has_value());
+
+    persistence.FailNextSave();
+    CHECK(store.Rename("client-1", "New Name") == RenameOutcome::kSaveFailed);
+
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK(*found->displayName == "Old Name");
 }
 
 TEST_CASE("Forget on an unknown clientId reports kNotFound", "[security][trust_store]") {

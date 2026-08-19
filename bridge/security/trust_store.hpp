@@ -70,10 +70,13 @@ public:
     /// has a known device record (in any prior state except `kBlocked`), reuses its existing
     /// `shortId` and `createdAt` -- re-pairing never changes a device's identity or mints a second
     /// `shortId` for it. Otherwise assigns a newly generated unique `shortId` and a fresh
-    /// `createdAt`. Rejects an empty `clientId` or `credential`, rejects a `displayName` that
-    /// exceeds the configured length bound or contains a control character, and rejects a
-    /// currently `kBlocked` `clientId` outright -- it must be transitioned to `kUnpaired` via
-    /// `Unblock` before it can re-pair.
+    /// `createdAt`. `displayName` of `std::nullopt` means the field was omitted: for a genuinely
+    /// new `clientId` this leaves no display name; for a re-pairing `clientId` this preserves its
+    /// existing `displayName` unchanged. A supplied `displayName` (including an explicit empty
+    /// string, which clears the name) always replaces whatever the record previously held. Rejects
+    /// an empty `clientId` or `credential`, rejects a `displayName` that exceeds the configured
+    /// length bound or contains a control character, and rejects a currently `kBlocked` `clientId`
+    /// outright -- it must be transitioned to `kUnpaired` via `Unblock` before it can re-pair.
     /// @return The new record, or `std::nullopt` when validation, `shortId` generation, or the
     ///     underlying `Save` fails. On any failure the in-memory state is left unchanged.
     [[nodiscard]] std::optional<KnownDeviceRecord> Persist(
@@ -117,6 +120,14 @@ public:
     /// @return `kForgotten` on success; `kNotEligible`, `kNotFound`, or `kSaveFailed` otherwise. On
     ///     any non-`kForgotten` outcome the in-memory state is unchanged.
     [[nodiscard]] ForgetOutcome Forget(const std::string& clientId);
+
+    /// Renames a currently `kTrusted` `clientId`'s `displayName`. An empty `displayName` clears
+    /// the name (stored as `std::nullopt`, never an empty string -- "no display name" stays one
+    /// canonical representation); a non-empty `displayName` replaces it after the same length and
+    /// control-character validation `Persist` applies.
+    /// @return `kRenamed` on success; `kInvalidDisplayName`, `kNotEligible`, `kNotFound`, or
+    ///     `kSaveFailed` otherwise. On any non-`kRenamed` outcome the in-memory state is unchanged.
+    [[nodiscard]] RenameOutcome Rename(const std::string& clientId, std::string displayName);
 
 private:
     /// Constructs a store from already-loaded state.

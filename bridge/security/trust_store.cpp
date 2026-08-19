@@ -174,6 +174,11 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
     if (existing != devices_.end()) {
         shortId = existing->second.shortId;
         createdAt = existing->second.createdAt;
+        // An omitted displayName (std::nullopt) preserves whatever the record already held on
+        // re-pair; a supplied value -- including an explicit empty string -- always replaces it.
+        if (!displayName.has_value()) {
+            displayName = existing->second.displayName;
+        }
     } else {
         auto generated = GenerateUniqueShortId();
         if (!generated.has_value()) {
@@ -300,6 +305,29 @@ ForgetOutcome TrustStore::Forget(const std::string& clientId) {
         return ForgetOutcome::kSaveFailed;
     }
     return ForgetOutcome::kForgotten;
+}
+
+RenameOutcome TrustStore::Rename(const std::string& clientId, std::string displayName) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = devices_.find(clientId);
+    if (it == devices_.end()) {
+        return RenameOutcome::kNotFound;
+    }
+    if (it->second.state != KnownDeviceState::kTrusted) {
+        return RenameOutcome::kNotEligible;
+    }
+    if (!displayName.empty() && !IsValidDisplayName(displayName)) {
+        return RenameOutcome::kInvalidDisplayName;
+    }
+
+    auto previousDevice = it->second;
+    it->second.displayName = displayName.empty() ? std::nullopt : std::optional(std::move(displayName));
+
+    if (!persistence_->Save(BuildSnapshot())) {
+        it->second = std::move(previousDevice);
+        return RenameOutcome::kSaveFailed;
+    }
+    return RenameOutcome::kRenamed;
 }
 
 }  // namespace dovahlink::security
