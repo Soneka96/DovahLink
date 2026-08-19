@@ -7,6 +7,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -15,8 +16,8 @@
 #include <vector>
 
 using dovahlink::security::EncryptForCurrentUser;
-using dovahlink::security::RevocationTombstone;
-using dovahlink::security::TrustedClientRecord;
+using dovahlink::security::KnownDeviceRecord;
+using dovahlink::security::KnownDeviceState;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::WindowsTrustStorePersistence;
 
@@ -52,6 +53,12 @@ std::vector<std::uint8_t> MakeCredential(std::uint8_t seed) {
     return std::vector<std::uint8_t>{seed, 0, static_cast<std::uint8_t>(seed + 1)};
 }
 
+/// A fixed, arbitrary `createdAt` used by tests that only need a deterministic, second-precision
+/// value to round-trip -- not the current time.
+std::chrono::system_clock::time_point FixedCreatedAt() {
+    return std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000));
+}
+
 /// Writes raw bytes directly to `path`, bypassing `WindowsTrustStorePersistence::Save` -- used to
 /// craft deliberately corrupt or malformed fixtures.
 void WriteRawFile(const std::filesystem::path& path, const std::vector<std::uint8_t>& bytes) {
@@ -78,44 +85,48 @@ TEST_CASE("Load on a nonexistent file returns a valid empty snapshot",
     auto snapshot = persistence.Load();
 
     REQUIRE(snapshot.has_value());
-    CHECK(snapshot->records.empty());
-    CHECK(snapshot->tombstones.empty());
+    CHECK(snapshot->devices.empty());
 }
 
 TEST_CASE("Save then Load round-trips a full TrustStoreSnapshot with exact field equality, "
-          "including credential byte-vector equality",
+          "including credential byte-vector equality, state, and createdAt",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     WindowsTrustStorePersistence persistence(dir.Path() / "trust_store.dat");
 
     TrustStoreSnapshot snapshot;
-    snapshot.records = {
-        TrustedClientRecord{.clientId = "client-1",
-                             .credential = MakeCredential(1),
-                             .shortId = "11111",
-                             .displayName = std::string("My PC")},
-        TrustedClientRecord{.clientId = "client-2",
-                             .credential = MakeCredential(2),
-                             .shortId = "22222",
-                             .displayName = std::nullopt},
+    snapshot.devices = {
+        KnownDeviceRecord{.clientId = "client-1",
+                           .credential = MakeCredential(1),
+                           .shortId = "11111",
+                           .displayName = std::string("My PC"),
+                           .state = KnownDeviceState::kTrusted,
+                           .createdAt = FixedCreatedAt()},
+        KnownDeviceRecord{.clientId = "client-2",
+                           .credential = {},
+                           .shortId = "22222",
+                           .displayName = std::nullopt,
+                           .state = KnownDeviceState::kRevoked,
+                           .createdAt = FixedCreatedAt()},
     };
-    snapshot.tombstones = {RevocationTombstone{.clientId = "client-3"}};
 
     REQUIRE(persistence.Save(snapshot));
     auto loaded = persistence.Load();
 
     REQUIRE(loaded.has_value());
-    REQUIRE(loaded->records.size() == 2);
-    CHECK(loaded->records[0].clientId == "client-1");
-    CHECK(loaded->records[0].credential == MakeCredential(1));
-    CHECK(loaded->records[0].shortId == "11111");
-    REQUIRE(loaded->records[0].displayName.has_value());
-    CHECK(*loaded->records[0].displayName == "My PC");
-    CHECK(loaded->records[1].clientId == "client-2");
-    CHECK(loaded->records[1].credential == MakeCredential(2));
-    CHECK_FALSE(loaded->records[1].displayName.has_value());
-    REQUIRE(loaded->tombstones.size() == 1);
-    CHECK(loaded->tombstones[0].clientId == "client-3");
+    REQUIRE(loaded->devices.size() == 2);
+    CHECK(loaded->devices[0].clientId == "client-1");
+    CHECK(loaded->devices[0].credential == MakeCredential(1));
+    CHECK(loaded->devices[0].shortId == "11111");
+    REQUIRE(loaded->devices[0].displayName.has_value());
+    CHECK(*loaded->devices[0].displayName == "My PC");
+    CHECK(loaded->devices[0].state == KnownDeviceState::kTrusted);
+    CHECK(loaded->devices[0].createdAt == FixedCreatedAt());
+    CHECK(loaded->devices[1].clientId == "client-2");
+    CHECK(loaded->devices[1].credential.empty());
+    CHECK_FALSE(loaded->devices[1].displayName.has_value());
+    CHECK(loaded->devices[1].state == KnownDeviceState::kRevoked);
+    CHECK(loaded->devices[1].createdAt == FixedCreatedAt());
 }
 
 TEST_CASE("Save creates a missing parent directory", "[security][windows_trust_store_persistence]") {
@@ -145,20 +156,28 @@ TEST_CASE("a second Save fully replaces the first snapshot's content",
     WindowsTrustStorePersistence persistence(dir.Path() / "trust_store.dat");
 
     TrustStoreSnapshot first;
-    first.records = {TrustedClientRecord{
-        .clientId = "client-1", .credential = MakeCredential(1), .shortId = "11111", .displayName = std::nullopt}};
+    first.devices = {KnownDeviceRecord{.clientId = "client-1",
+                                        .credential = MakeCredential(1),
+                                        .shortId = "11111",
+                                        .displayName = std::nullopt,
+                                        .state = KnownDeviceState::kTrusted,
+                                        .createdAt = FixedCreatedAt()}};
     REQUIRE(persistence.Save(first));
 
     TrustStoreSnapshot second;
-    second.records = {TrustedClientRecord{
-        .clientId = "client-2", .credential = MakeCredential(2), .shortId = "22222", .displayName = std::nullopt}};
+    second.devices = {KnownDeviceRecord{.clientId = "client-2",
+                                         .credential = MakeCredential(2),
+                                         .shortId = "22222",
+                                         .displayName = std::nullopt,
+                                         .state = KnownDeviceState::kTrusted,
+                                         .createdAt = FixedCreatedAt()}};
     REQUIRE(persistence.Save(second));
 
     auto loaded = persistence.Load();
 
     REQUIRE(loaded.has_value());
-    REQUIRE(loaded->records.size() == 1);
-    CHECK(loaded->records[0].clientId == "client-2");
+    REQUIRE(loaded->devices.size() == 1);
+    CHECK(loaded->devices[0].clientId == "client-2");
 }
 
 TEST_CASE("Load fails closed on a file that is not valid DPAPI ciphertext",
@@ -185,89 +204,95 @@ TEST_CASE("Load fails closed on ciphertext that decrypts to non-JSON bytes",
     CHECK_FALSE(loaded.has_value());
 }
 
-TEST_CASE("Load fails closed when a record is missing its credential field",
+TEST_CASE("Load fails closed when a device is missing its credential field",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(
-        path, R"({"records": [{"clientId": "client-1", "shortId": "11111", "displayName": null}], "tombstones": []})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "shortId": "11111", "displayName": null, )"
+                            R"("state": "trusted", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a record is missing its shortId field",
+TEST_CASE("Load fails closed when a device is missing its shortId field",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(
-        path,
-        R"({"records": [{"clientId": "client-1", "credential": "01", "displayName": null}], "tombstones": []})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "displayName": null, )"
+                            R"("state": "trusted", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a record's displayName key is entirely absent",
+TEST_CASE("Load fails closed when a device's displayName key is entirely absent",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(
-        path, R"({"records": [{"clientId": "client-1", "credential": "01", "shortId": "11111"}], "tombstones": []})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("state": "trusted", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a record's displayName has the wrong type",
+TEST_CASE("Load fails closed when a device's displayName has the wrong type",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(
-        path,
-        R"({"records": [{"clientId": "client-1", "credential": "01", "shortId": "11111", "displayName": 42}], "tombstones": []})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": 42, "state": "trusted", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a record's credential is not valid hex",
+TEST_CASE("Load fails closed when a device's credential is not valid hex",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(
-        path,
-        R"({"records": [{"clientId": "client-1", "credential": "not-hex", "shortId": "11111", "displayName": null}], "tombstones": []})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "not-hex", "shortId": "11111", )"
+                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a record array item is not a JSON object",
+TEST_CASE("Load fails closed when a device array item is not a JSON object",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(path, R"({"records": ["not-an-object"], "tombstones": []})");
+    WriteEncryptedJsonFile(path, R"({"devices": ["not-an-object"]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a tombstone is missing its clientId field",
+TEST_CASE("Load fails closed when a device's state is an unrecognized string",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(path, R"({"records": [], "tombstones": [{}]})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "not-a-real-state", "createdAt": 1700000000}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
 }
 
-TEST_CASE("Load fails closed when a tombstone's clientId has the wrong type",
+TEST_CASE("Load fails closed when a device's createdAt has the wrong JSON type",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(path, R"({"records": [], "tombstones": [{"clientId": 123}]})");
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "trusted", "createdAt": "not-a-number"}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -277,17 +302,19 @@ TEST_CASE("Load fails closed when the decrypted root JSON is not an object",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(path, R"(["records", "tombstones"])");
+    WriteEncryptedJsonFile(path, R"(["devices"])");
     WindowsTrustStorePersistence persistence(path);
 
-    CHECK_FALSE(persistence.Load().has_value());
+    auto loaded = persistence.Load();
+
+    CHECK_FALSE(loaded.has_value());
 }
 
 TEST_CASE("Load fails closed on well-formed JSON missing the required shape",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     auto path = dir.Path() / "trust_store.dat";
-    WriteEncryptedJsonFile(path, R"({"records": [{"clientId": "client-1"}], "tombstones": []})");
+    WriteEncryptedJsonFile(path, R"({"devices": [{"clientId": "client-1"}]})");
     WindowsTrustStorePersistence persistence(path);
 
     auto loaded = persistence.Load();
@@ -304,8 +331,7 @@ TEST_CASE("Save then Load round-trips an empty TrustStoreSnapshot",
     auto loaded = persistence.Load();
 
     REQUIRE(loaded.has_value());
-    CHECK(loaded->records.empty());
-    CHECK(loaded->tombstones.empty());
+    CHECK(loaded->devices.empty());
 }
 
 TEST_CASE("a failed Save leaves the previously saved file untouched",
@@ -315,8 +341,12 @@ TEST_CASE("a failed Save leaves the previously saved file untouched",
     WindowsTrustStorePersistence persistence(path);
 
     TrustStoreSnapshot original;
-    original.records = {TrustedClientRecord{
-        .clientId = "client-1", .credential = MakeCredential(1), .shortId = "11111", .displayName = std::nullopt}};
+    original.devices = {KnownDeviceRecord{.clientId = "client-1",
+                                           .credential = MakeCredential(1),
+                                           .shortId = "11111",
+                                           .displayName = std::nullopt,
+                                           .state = KnownDeviceState::kTrusted,
+                                           .createdAt = FixedCreatedAt()}};
     REQUIRE(persistence.Save(original));
 
     // Exclusively locks the temp file Save must write to next, forcing that write step to fail
@@ -328,16 +358,20 @@ TEST_CASE("a failed Save leaves the previously saved file untouched",
     REQUIRE(lock != INVALID_HANDLE_VALUE);
 
     TrustStoreSnapshot different;
-    different.records = {TrustedClientRecord{
-        .clientId = "client-2", .credential = MakeCredential(2), .shortId = "22222", .displayName = std::nullopt}};
+    different.devices = {KnownDeviceRecord{.clientId = "client-2",
+                                            .credential = MakeCredential(2),
+                                            .shortId = "22222",
+                                            .displayName = std::nullopt,
+                                            .state = KnownDeviceState::kTrusted,
+                                            .createdAt = FixedCreatedAt()}};
     CHECK_FALSE(persistence.Save(different));
 
     CloseHandle(lock);
 
     auto loaded = persistence.Load();
     REQUIRE(loaded.has_value());
-    REQUIRE(loaded->records.size() == 1);
-    CHECK(loaded->records[0].clientId == "client-1");
+    REQUIRE(loaded->devices.size() == 1);
+    CHECK(loaded->devices[0].clientId == "client-1");
 }
 
 TEST_CASE("ResolveDefaultTrustStorePath returns a path under DovahLink",

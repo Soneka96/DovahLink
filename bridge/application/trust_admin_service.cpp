@@ -25,7 +25,7 @@ std::string TrustAdminService::ListTrusted() const {
 std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {
     auto records = trustStore_.ListTrusted();
     auto it = std::find_if(records.begin(), records.end(),
-                            [&](const security::TrustedClientRecord& record) { return record.shortId == shortId; });
+                            [&](const security::KnownDeviceRecord& record) { return record.shortId == shortId; });
     if (it == records.end()) {
         return "No trusted client with id " + std::string(shortId) + ".";
     }

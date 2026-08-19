@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <cctype>
+#include <chrono>
 #include <utility>
 
 namespace dovahlink::security {
@@ -28,12 +29,9 @@ TrustStore::TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator sho
     : persistence_(&persistence),
       shortIdGenerator_(std::move(shortIdGenerator)),
       wasCorruptOnLoad_(wasCorruptOnLoad) {
-    for (auto& record : snapshot.records) {
-        auto clientId = record.clientId;
-        records_.emplace(std::move(clientId), std::move(record));
-    }
-    for (auto& tombstone : snapshot.tombstones) {
-        tombstones_.insert(std::move(tombstone.clientId));
+    for (auto& device : snapshot.devices) {
+        auto clientId = device.clientId;
+        devices_.emplace(std::move(clientId), std::move(device));
     }
 }
 
@@ -55,28 +53,30 @@ std::optional<std::string> TrustStore::DefaultShortIdGenerator() {
 
 bool TrustStore::WasCorruptOnLoad() const noexcept { return wasCorruptOnLoad_; }
 
-std::optional<TrustedClientRecord> TrustStore::Query(const std::string& clientId) {
+std::optional<KnownDeviceRecord> TrustStore::Query(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = records_.find(clientId);
-    if (it == records_.end()) {
+    auto it = devices_.find(clientId);
+    if (it == devices_.end() || it->second.state != KnownDeviceState::kTrusted) {
         return std::nullopt;
     }
     return it->second;
 }
 
-std::vector<TrustedClientRecord> TrustStore::ListTrusted() {
+std::vector<KnownDeviceRecord> TrustStore::ListTrusted() {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<TrustedClientRecord> result;
-    result.reserve(records_.size());
-    for (const auto& [clientId, record] : records_) {
-        result.push_back(record);
+    std::vector<KnownDeviceRecord> result;
+    for (const auto& [clientId, device] : devices_) {
+        if (device.state == KnownDeviceState::kTrusted) {
+            result.push_back(device);
+        }
     }
     return result;
 }
 
 bool TrustStore::IsRevoked(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return tombstones_.contains(clientId);
+    auto it = devices_.find(clientId);
+    return it != devices_.end() && it->second.state == KnownDeviceState::kRevoked;
 }
 
 bool TrustStore::Authenticate(const std::string& clientId,
@@ -85,8 +85,8 @@ bool TrustStore::Authenticate(const std::string& clientId,
         return false;
     }
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = records_.find(clientId);
-    if (it == records_.end()) {
+    auto it = devices_.find(clientId);
+    if (it == devices_.end() || it->second.state != KnownDeviceState::kTrusted) {
         return false;
     }
     return ConstantTimeEquals(it->second.credential, presentedCredential);
@@ -111,8 +111,8 @@ std::optional<std::string> TrustStore::GenerateUniqueShortId() {
             return std::nullopt;
         }
         bool collides = false;
-        for (const auto& [clientId, record] : records_) {
-            if (record.shortId == *candidate) {
+        for (const auto& [clientId, device] : devices_) {
+            if (device.shortId == *candidate) {
                 collides = true;
                 break;
             }
@@ -126,20 +126,16 @@ std::optional<std::string> TrustStore::GenerateUniqueShortId() {
 
 TrustStoreSnapshot TrustStore::BuildSnapshot() const {
     TrustStoreSnapshot snapshot;
-    snapshot.records.reserve(records_.size());
-    for (const auto& [clientId, record] : records_) {
-        snapshot.records.push_back(record);
-    }
-    snapshot.tombstones.reserve(tombstones_.size());
-    for (const auto& clientId : tombstones_) {
-        snapshot.tombstones.push_back(RevocationTombstone{.clientId = clientId});
+    snapshot.devices.reserve(devices_.size());
+    for (const auto& [clientId, device] : devices_) {
+        snapshot.devices.push_back(device);
     }
     return snapshot;
 }
 
-std::optional<TrustedClientRecord> TrustStore::Persist(std::string clientId,
-                                                        std::vector<std::uint8_t> credential,
-                                                        std::optional<std::string> displayName) {
+std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
+                                                      std::vector<std::uint8_t> credential,
+                                                      std::optional<std::string> displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (clientId.empty() || credential.empty()) {
         return std::nullopt;
@@ -152,19 +148,18 @@ std::optional<TrustedClientRecord> TrustStore::Persist(std::string clientId,
         return std::nullopt;
     }
 
-    TrustedClientRecord record{.clientId = clientId,
-                                .credential = std::move(credential),
-                                .shortId = std::move(*shortId),
-                                .displayName = std::move(displayName)};
+    KnownDeviceRecord device{.clientId = clientId,
+                              .credential = std::move(credential),
+                              .shortId = std::move(*shortId),
+                              .displayName = std::move(displayName),
+                              .state = KnownDeviceState::kTrusted,
+                              .createdAt = std::chrono::system_clock::now()};
 
-    auto previousRecords = records_;
-    auto previousTombstones = tombstones_;
-    tombstones_.erase(clientId);
-    auto it = records_.insert_or_assign(clientId, std::move(record)).first;
+    auto previousDevices = devices_;
+    auto it = devices_.insert_or_assign(clientId, std::move(device)).first;
 
     if (!persistence_->Save(BuildSnapshot())) {
-        records_ = std::move(previousRecords);
-        tombstones_ = std::move(previousTombstones);
+        devices_ = std::move(previousDevices);
         return std::nullopt;
     }
     return it->second;
@@ -172,40 +167,35 @@ std::optional<TrustedClientRecord> TrustStore::Persist(std::string clientId,
 
 bool TrustStore::Revoke(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto it = records_.find(clientId);
-    if (it == records_.end()) {
-        // Never trusted, so nothing distinguishes it from any other unknown string; only a
-        // clientId that was actually trusted earns a tombstone (see IsRevoked).
+    auto it = devices_.find(clientId);
+    if (it == devices_.end() || it->second.state != KnownDeviceState::kTrusted) {
+        // Unknown, or already not trusted: nothing to change. Only a clientId that was actually
+        // trusted transitions to a durable Revoked record (see IsRevoked).
         return true;
     }
 
-    auto removed = std::move(it->second);
-    records_.erase(it);
-    tombstones_.insert(clientId);
+    auto previousDevice = it->second;
+    it->second.state = KnownDeviceState::kRevoked;
+    SecureClear(it->second.credential);
 
     if (!persistence_->Save(BuildSnapshot())) {
-        records_.emplace(clientId, std::move(removed));
-        tombstones_.erase(clientId);
+        it->second = std::move(previousDevice);
         return false;
     }
-    SecureClear(removed.credential);
     return true;
 }
 
 bool TrustStore::Reset() {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto previousRecords = std::move(records_);
-    auto previousTombstones = std::move(tombstones_);
-    records_.clear();
-    tombstones_.clear();
+    auto previousDevices = std::move(devices_);
+    devices_.clear();
 
     if (!persistence_->Save(BuildSnapshot())) {
-        records_ = std::move(previousRecords);
-        tombstones_ = std::move(previousTombstones);
+        devices_ = std::move(previousDevices);
         return false;
     }
-    for (auto& [clientId, record] : previousRecords) {
-        SecureClear(record.credential);
+    for (auto& [clientId, device] : previousDevices) {
+        SecureClear(device.credential);
     }
     return true;
 }

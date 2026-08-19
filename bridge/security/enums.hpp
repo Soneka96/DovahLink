@@ -78,4 +78,22 @@ enum class CancelOutcome {
     kAlreadyIdle,
 };
 
+// ---- Known device ----
+
+/// The four durable states one persistent `KnownDeviceRecord` can occupy. A Known Device is always
+/// in exactly one of these; only `kTrusted` carries a usable credential.
+enum class KnownDeviceState {
+    /// Holds a usable credential and can authenticate normally.
+    kTrusted,
+    /// Trust was removed; the device may re-pair to become `kTrusted` again under the same
+    /// identity.
+    kRevoked,
+    /// Rejected at `hello` and at pairing; requires an explicit unblock before it can do either
+    /// again.
+    kBlocked,
+    /// No longer blocked but not yet re-paired; requires a completely fresh pairing flow to become
+    /// `kTrusted` again.
+    kUnpaired,
+};
+
 }  // namespace dovahlink::security

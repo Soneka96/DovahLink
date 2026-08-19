@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <format>
@@ -13,7 +14,8 @@
 #include <vector>
 
 using dovahlink::security::ITrustStorePersistence;
-using dovahlink::security::TrustedClientRecord;
+using dovahlink::security::KnownDeviceRecord;
+using dovahlink::security::KnownDeviceState;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 
@@ -85,11 +87,12 @@ TEST_CASE("a freshly loaded empty store has no trusted clients", "[security][tru
 TEST_CASE("loading an existing snapshot makes its records queryable", "[security][trust_store]") {
     FakePersistence persistence;
     persistence.SetSnapshotToLoad(TrustStoreSnapshot{
-        .records = {TrustedClientRecord{.clientId = "client-1",
-                                         .credential = MakeCredential(1),
-                                         .shortId = "00001",
-                                         .displayName = std::nullopt}},
-        .tombstones = {},
+        .devices = {KnownDeviceRecord{.clientId = "client-1",
+                                       .credential = MakeCredential(1),
+                                       .shortId = "00001",
+                                       .displayName = std::nullopt,
+                                       .state = KnownDeviceState::kTrusted,
+                                       .createdAt = std::chrono::system_clock::now()}},
     });
 
     auto store = TrustStore::Load(persistence, QueuedShortIds({}));
@@ -125,6 +128,20 @@ TEST_CASE("Persist assigns the generated shortId and is queryable afterward",
     auto queried = store.Query("client-1");
     REQUIRE(queried.has_value());
     CHECK(queried->credential == MakeCredential(1));
+}
+
+TEST_CASE("Persist sets state to kTrusted and stamps createdAt", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"12345"}));
+    auto before = std::chrono::system_clock::now();
+
+    auto result = store.Persist("client-1", MakeCredential(1), std::nullopt);
+
+    auto after = std::chrono::system_clock::now();
+    REQUIRE(result.has_value());
+    CHECK(result->state == KnownDeviceState::kTrusted);
+    CHECK(result->createdAt >= before);
+    CHECK(result->createdAt <= after);
 }
 
 TEST_CASE("Persist retries shortId generation on collision with a currently trusted shortId",
@@ -206,7 +223,7 @@ TEST_CASE("Persist surfaces a Save failure without corrupting in-memory state",
     CHECK(retried.has_value());
 }
 
-TEST_CASE("re-pairing a previously revoked clientId clears its tombstone",
+TEST_CASE("re-pairing a previously revoked clientId returns it to kTrusted",
           "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
@@ -229,7 +246,19 @@ TEST_CASE("Revoke on an unknown clientId is a no-op", "[security][trust_store]")
     CHECK(persistence.saveCallCount == 0);
 }
 
-TEST_CASE("Revoke removes trust and records a tombstone for a trusted client",
+TEST_CASE("Revoke on an already-revoked clientId is a no-op", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    persistence.saveCallCount = 0;
+
+    CHECK(store.Revoke("client-1"));
+
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Revoke transitions a trusted client to kRevoked and clears its credential",
           "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
@@ -239,9 +268,25 @@ TEST_CASE("Revoke removes trust and records a tombstone for a trusted client",
 
     CHECK_FALSE(store.Query("client-1").has_value());
     CHECK(store.IsRevoked("client-1"));
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
 }
 
-TEST_CASE("Reset clears both trusted records and tombstones", "[security][trust_store]") {
+TEST_CASE("a revoked client's shortId stays reserved and cannot be allocated to a different clientId",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    // "11111" (client-1's now-revoked shortId) is offered first and must be rejected as a
+    // collision even though client-1 is no longer kTrusted; "22222" is the retried candidate.
+    auto second = store.Persist("client-2", MakeCredential(2), std::nullopt);
+
+    REQUIRE(second.has_value());
+    CHECK(second->shortId == "22222");
+}
+
+TEST_CASE("Reset clears every known device regardless of state", "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
     REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
