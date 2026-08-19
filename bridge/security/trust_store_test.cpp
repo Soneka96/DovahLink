@@ -14,6 +14,7 @@
 #include <vector>
 
 using dovahlink::security::BlockOutcome;
+using dovahlink::security::ForgetOutcome;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
@@ -778,4 +779,123 @@ TEST_CASE("concurrent Persist calls for distinct clients all succeed without dat
 
     CHECK(successCount.load() == kClients);
     CHECK(store.ListTrusted().size() == static_cast<std::size_t>(kClients));
+}
+
+TEST_CASE("Forget on an unknown clientId reports kNotFound", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK(store.Forget("never-paired") == ForgetOutcome::kNotFound);
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Forget on a trusted clientId reports kNotEligible and leaves it trusted",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK(store.Forget("client-1") == ForgetOutcome::kNotEligible);
+
+    CHECK(store.Query("client-1").has_value());
+    CHECK(persistence.saveCallCount == 1);
+}
+
+TEST_CASE("Forget on a blocked clientId reports kNotEligible without implicitly lifting the block",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    persistence.saveCallCount = 0;
+    CHECK(store.Forget("client-1") == ForgetOutcome::kNotEligible);
+
+    CHECK(store.IsBlocked("client-1"));
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Forget deletes a revoked clientId's record entirely", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    CHECK(store.Forget("client-1") == ForgetOutcome::kForgotten);
+
+    CHECK_FALSE(store.IsRevoked("client-1"));
+    CHECK_FALSE(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("Forget deletes an unpaired (unblocked) clientId's record entirely",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    CHECK(store.Forget("client-1") == ForgetOutcome::kForgotten);
+
+    CHECK_FALSE(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("Forget frees the clientId's shortId for a genuinely new clientId to reuse",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    REQUIRE(store.Forget("client-1") == ForgetOutcome::kForgotten);
+
+    auto result = store.Persist("client-2", MakeCredential(2), std::nullopt);
+
+    REQUIRE(result.has_value());
+    CHECK(result->shortId == "11111");
+}
+
+TEST_CASE("Forget surfaces a Save failure without corrupting in-memory state (revoked)",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    persistence.FailNextSave();
+    CHECK(store.Forget("client-1") == ForgetOutcome::kSaveFailed);
+
+    CHECK(store.IsRevoked("client-1"));
+    CHECK(store.FindByShortId("11111").has_value());
+}
+
+TEST_CASE("Forget surfaces a Save failure without corrupting in-memory state (unpaired)",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    persistence.FailNextSave();
+    CHECK(store.Forget("client-1") == ForgetOutcome::kSaveFailed);
+
+    auto found = store.FindByShortId("11111");
+    REQUIRE(found.has_value());
+    CHECK(found->state == KnownDeviceState::kUnpaired);
+}
+
+TEST_CASE("re-pairing a clientId after Forget mints a brand-new shortId and createdAt",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    auto original = store.Persist("client-1", MakeCredential(1), std::nullopt);
+    REQUIRE(original.has_value());
+    REQUIRE(store.Revoke("client-1"));
+    REQUIRE(store.Forget("client-1") == ForgetOutcome::kForgotten);
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::nullopt);
+
+    REQUIRE(repaired.has_value());
+    CHECK(repaired->shortId != original->shortId);
+    CHECK(repaired->shortId == "22222");
 }

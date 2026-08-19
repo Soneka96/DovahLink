@@ -125,4 +125,18 @@ enum class UnblockOutcome {
     kSaveFailed,
 };
 
+/// Outcome of `TrustStore::Forget`.
+enum class ForgetOutcome {
+    /// The device record was deleted entirely; its `shortId` is now free for reuse.
+    kForgotten,
+    /// A known device record exists for the identity, but its current state (`kTrusted` or
+    /// `kBlocked`) is not eligible to be forgotten -- revoke or unblock it first.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
 }  // namespace dovahlink::security

@@ -282,4 +282,24 @@ bool TrustStore::Reset() {
     return true;
 }
 
+ForgetOutcome TrustStore::Forget(const std::string& clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = devices_.find(clientId);
+    if (it == devices_.end()) {
+        return ForgetOutcome::kNotFound;
+    }
+    if (it->second.state != KnownDeviceState::kRevoked && it->second.state != KnownDeviceState::kUnpaired) {
+        return ForgetOutcome::kNotEligible;
+    }
+
+    auto previousDevices = devices_;
+    devices_.erase(it);
+
+    if (!persistence_->Save(BuildSnapshot())) {
+        devices_ = std::move(previousDevices);
+        return ForgetOutcome::kSaveFailed;
+    }
+    return ForgetOutcome::kForgotten;
+}
+
 }  // namespace dovahlink::security

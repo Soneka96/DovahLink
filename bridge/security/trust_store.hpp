@@ -109,6 +109,15 @@ public:
     ///     unchanged.
     [[nodiscard]] bool Reset();
 
+    /// Deletes a currently `kRevoked` or `kUnpaired` `clientId`'s known device record entirely --
+    /// identity, `shortId`, `displayName`, `createdAt`, and revocation history -- freeing its
+    /// `shortId` for future allocation. Forgetting a `kTrusted` device requires revoking it first;
+    /// forgetting a `kBlocked` device requires unblocking it first, since forgetting never
+    /// implicitly lifts a block.
+    /// @return `kForgotten` on success; `kNotEligible`, `kNotFound`, or `kSaveFailed` otherwise. On
+    ///     any non-`kForgotten` outcome the in-memory state is unchanged.
+    [[nodiscard]] ForgetOutcome Forget(const std::string& clientId);
+
 private:
     /// Constructs a store from already-loaded state.
     TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator shortIdGenerator,
