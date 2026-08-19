@@ -26,6 +26,17 @@ std::expected<std::string, DecodeError> DecodeNonEmptyString(const boost::json::
     return std::string(value->get_string());
 }
 
+std::expected<std::string, DecodeError> DecodeString(const boost::json::value* value,
+                                                       std::string_view fieldName) {
+    if (!value) {
+        return Fail("missing required field: " + std::string(fieldName));
+    }
+    if (!value->is_string()) {
+        return Fail(std::string(fieldName) + " must be a string");
+    }
+    return std::string(value->get_string());
+}
+
 std::expected<std::int64_t, DecodeError> DecodeNonNegativeInt(const boost::json::value* value,
                                                                 std::string_view fieldName) {
     if (!value) {

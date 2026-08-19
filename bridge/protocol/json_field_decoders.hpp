@@ -27,6 +27,14 @@ const boost::json::value* RequireField(const boost::json::object& obj, std::stri
 std::expected<std::string, DecodeError> DecodeNonEmptyString(const boost::json::value* value,
                                                               std::string_view fieldName);
 
+/// Decodes a present JSON field as a string of any content, including empty. Distinct from
+/// `DecodeNonEmptyString` (rejects empty) and `DecodeOptionalString` (allows absence/`null` but
+/// rejects a present empty string): use this for a field that is always required but whose empty
+/// value is itself meaningful (for example `rename_request`'s `displayName`, where an empty string
+/// means "clear the name").
+std::expected<std::string, DecodeError> DecodeString(const boost::json::value* value,
+                                                      std::string_view fieldName);
+
 /// Decodes a present JSON field as a non-negative signed integer.
 std::expected<std::int64_t, DecodeError> DecodeNonNegativeInt(const boost::json::value* value,
                                                                std::string_view fieldName);
