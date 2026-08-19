@@ -69,6 +69,22 @@ to this rule: it declares no types of its own, it only re-exports a curated publ
 already lives in its own properly organized file elsewhere, per each area's own public-API
 conventions (for the SDK, `ai/context/sdk/api-design.md`'s "curated public exports").
 
+## Addition convention
+
+When extending an ordered collection or section -- enums, class members, changelog entries,
+configuration lists, and similar -- add new items to the **end** of their respective section, not
+the beginning. This preserves line-number stability for existing entries and prevents constant
+drift when reviewing or auditing changes. Applied uniformly:
+
+- Changelog entries: new version sections added after the latest existing release
+- Enums: new members added at the end, before the closing brace
+- Class/struct members: new fields and methods added at the end
+- Configuration sections: new entries added after existing entries in that section
+- Any ordered list: new items at the end, not beginning
+
+This rule prioritizes stability over reverse-chronological display: existing entries remain at
+stable line numbers across the file's history.
+
 ## Documentation
 
 Documentation describes the purpose and contract of the code it is attached to. Apply these rules

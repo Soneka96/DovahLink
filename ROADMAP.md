@@ -353,7 +353,7 @@ selecting among Bridge processes.
 
 ## 3.1 Live Pairing Challenge UX
 
-**Status:** Planned
+**Status:** Complete
 
 ### Outcome
 
