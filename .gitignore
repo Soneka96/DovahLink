@@ -4,6 +4,7 @@ __pycache__/
 **/bin/
 **/obj/
 tooling/out/
+/out/
 
 # Generated Dart files
 *.g.dart

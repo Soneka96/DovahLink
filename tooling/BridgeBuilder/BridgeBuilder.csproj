@@ -8,6 +8,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <OutputPath>../../out/BridgeBuilder/</OutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="BridgeBuilder.Tests" />
   </ItemGroup>
