@@ -10,7 +10,7 @@ adapters consume that contract without redefining it.
 
 ## SDK migration
 
-Before `ROADMAP.md`'s Phase 5 ("Dart Client SDK Foundation"), this directory owns its protocol and
+Before `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 ("Dart Client SDK Foundation"), this directory owns its protocol and
 client adapters directly — the identity, pairing, and live-synchronization foundations already in
 progress are implemented here, following `ai/context/flutter/`. After that phase, this app consumes
 [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink communication

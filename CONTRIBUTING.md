@@ -54,10 +54,10 @@ Before a pull request is considered ready, verify all of the following:
 
 Branch names:
 
-- When a branch implements a `ROADMAP.md` phase (or sub-phase), name it
+- When a branch implements a roadmap phase (or sub-phase), name it
   `feature/<phase-number>-<phase-name-slug>`, using that phase's exact heading number and a
   kebab-case slug of its name, so the branch and its PR are traceable to the phase they implement at
-  a glance: `ROADMAP.md`'s "## 3.1 Live Pairing Challenge UX" becomes
+  a glance: `roadmap/03-local-device-pairing-and-reconnection.md`'s "## 3.1 Live Pairing Challenge UX" becomes
   `feature/3.1-live-pairing-challenge-ux`.
 - For a fix or a change with no corresponding roadmap phase, use a short kebab-case description
   instead:

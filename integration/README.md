@@ -4,7 +4,7 @@ This directory holds the independent validation client and the deterministic end
 that exercise the Skyrim bridge's real protocol behavior. Everything here is a separate protocol
 consumer, hand-written with `System.Text.Json`; nothing links against or shares code with the
 bridge's own C++ codec. It also does not consume, wrap, or generate from the future Dart Client SDK
-(`sdk/`, see `ROADMAP.md`'s Phase 5) once one exists; its value depends on staying an independent
+(`sdk/`, see `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5) once one exists; its value depends on staying an independent
 implementation of the canonical contract.
 
 ## Contents
@@ -64,5 +64,6 @@ Every scenario here proves the pull side of state delivery (`subscribe` / `snaps
 the transport/security/session machinery around it. Live, unprompted `state_event` push to an
 already-subscribed client and genuine reconnect after a successful session are both out of scope
 for Phase 1 by design — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
-"Known limitation: no reconnect after a successful session" for why, and `ROADMAP.md`'s Phase 4
-and Phase 3 entries for where each is planned.
+"Known limitation: no reconnect after a successful session" for why, and the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries for where each is planned.
+
+undefined

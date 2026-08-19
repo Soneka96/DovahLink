@@ -422,7 +422,7 @@ TEST_CASE("RunConnectionSession's revision survives a reconnect that reuses the 
     // Each connection gets its own TokenStore/throttle: the one-time-token
     // model has no mechanism yet to reissue a token for a same-instance
     // reconnect (that is Phase 3's "Local Device Pairing and Reconnection"
-    // scope, per ROADMAP.md's Phase 1 acceptance note on this exact
+    // scope, per roadmap/01-skyrim-bridge-foundation.md's Phase 1 acceptance note on this exact
     // limitation). This test isolates the concern actually in scope here --
     // does the revision survive a reconnect -- from how a reconnect
     // authenticates, which is unbuilt and irrelevant to that question.
