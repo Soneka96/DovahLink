@@ -44,6 +44,16 @@
 //   revocation is a bridge-side decision the client did not cause, and the distinct code lets the
 //   app return the user directly to pairing rather than retrying a dead credential forever
 //   (ai/context/protocol/security.md's "Persistent local trust").
+// - A kBlocked clientId is rejected with `blocked` before any auth-method-specific work runs
+//   (throttle bookkeeping, credential comparison), not folded into the trusted_device_credential
+//   branch's existing `revoked` check: ROADMAP.md's "3.2 Known Device & Trust Administration"
+//   requires blocking to reject "as early as hello" for *both* trusted_device_credential and
+//   unpaired attempts (an unpaired session is how a blocked device would otherwise reach
+//   pairing_request again), and `blocked` must never be conflated with `revoked`. Developer-token
+//   (one_time_local_token) authentication is exempt -- it stays a separate provider never
+//   redefined as a paired device by Known Device blocking (security.md's "Developer
+//   authentication"). This check touches no throttle or trust-store mutation state, so a blocked
+//   attempt updates no persisted metadata, matching the acceptance criterion.
 // - Handshake-timeout closure (checking ConnectionTimeoutTracker::IsTimedOut
 //   independent of a message actually arriving) is not this function's job;
 //   this function only runs once a hello message has already been read.
@@ -83,6 +93,10 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "malformed_message", "Malformed hello payload", false);
+    }
+
+    if (hello->authMethod != "one_time_local_token" && trustStore.IsBlocked(hello->clientId)) {
+        return Fail(helloEnvelope, bridgeInstanceId, "blocked", "This device is blocked", false);
     }
 
     // A structurally invalid presented credential (not valid hex) can never match a stored one;
