@@ -30,7 +30,7 @@ subs:
         type: String
         alias: id
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: The five-digit administration-only id shown by "dovahlink list" or "dovahlink devices" (never the client's real, long identity or its credential).
   - name: unblock
     func: Unblock
     help: Unblocks the known device with the given administration-only id, returning it to unpaired.
@@ -39,7 +39,7 @@ subs:
         type: String
         alias: id
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: The five-digit administration-only id shown by "dovahlink list" or "dovahlink devices" (never the client's real, long identity or its credential).
   - name: forget
     func: Forget
     help: Forgets the known device with the given administration-only id, deleting its record entirely. Only eligible from revoked or unpaired.
@@ -48,4 +48,10 @@ subs:
         type: String
         alias: id
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: The five-digit administration-only id shown by "dovahlink list" or "dovahlink devices" (never the client's real, long identity or its credential).
+  - name: devices
+    func: Devices
+    help: Lists every known device with its current state, sorted oldest-to-newest by creation time.
+  - name: blocklist
+    func: Blocked
+    help: Lists only known devices currently in the blocked state.

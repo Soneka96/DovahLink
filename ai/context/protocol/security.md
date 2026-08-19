@@ -136,14 +136,15 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 
 ## Trust administration surface
 
-- Trust administration (list trusted clients, revoke one, reset all) is implemented once, as a
+- Trust administration (list trusted clients, list all known devices or only blocked devices,
+  revoke one, reset all, and manage known-device state) is implemented once, as a
   reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
   load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
   developer tooling -- duplicates trust-store logic; each only formats input and output around the
   same calls.
-- The five-digit `shortId` (never `clientId`, never a credential) is the identifier every
-  administration surface accepts for "which trusted client" -- matching "Persistent local trust"'s
-  own stated purpose for `shortId`: human-readable administration only.
+- The five-digit `shortId` (never `clientId`, never a credential) is the identifier administration
+  surfaces accept for "which known device" -- matching "Persistent local trust"'s own stated
+  purpose for `shortId`: human-readable administration only.
 - Native Skyrim has no supported API for registering a genuinely new console command. Confirmed by
   inspecting the vendored CommonLibSSE-NG headers: `RE::SCRIPT_FUNCTION` is a fixed, pre-populated
   table with no `AddCommand`, and intercepting the console's own script-compile call site requires
@@ -155,7 +156,8 @@ Security rules apply before the bridge accepts any client connection. A local-ne
     parses in-game console text into named commands/subcommands/arguments from a YAML config and
     calls a matching Papyrus `global` function per subcommand. Its documented syntax
     (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
-    `dovahlink revoke -id <shortId>`, and `dovahlink reset` directly.
+    `dovahlink devices`, `dovahlink blocklist`, `dovahlink revoke -id <shortId>`, and
+    `dovahlink reset` directly.
   - DovahLink Bridge registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
     memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
@@ -165,11 +167,13 @@ Security rules apply before the bridge accepts any client connection. A local-ne
     own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
     introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
-    DovahLink Bridge itself. The bridge's native Papyrus-function registration succeeds
+    DovahLink Bridge itself. The bridge attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
-    to version-check at bridge startup); every other bridge behavior -- connection, pairing, trust
+    to version-check at bridge startup); a registration failure is logged and remains isolated to
+    this optional adapter; every other bridge behavior -- connection, pairing, trust
     persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
-    config are absent. Without them, `dovahlink list`/`revoke`/`reset` are simply unrecognized
+    config are absent. Without them, `dovahlink list`/`devices`/`blocklist`/`revoke`/`reset`/`block`/
+    `unblock`/`forget` are simply unrecognized
     console commands, exactly like any other unknown input; there is no error path and no degraded
     core behavior to account for.
 - Scope boundary, recorded explicitly rather than left implicit: this surface's `Revoke`/`Reset`

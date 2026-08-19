@@ -24,3 +24,9 @@ String Function Unblock(String akId) global native
 ; Forgets the known device identified by its five-digit administration-only shortId, deleting its
 ; record entirely. Only eligible from Revoked or Unpaired.
 String Function Forget(String akId) global native
+
+; Lists every known device, including its current state, sorted oldest-to-newest by creation time.
+String Function Devices() global native
+
+; Lists only known devices currently in the blocked state.
+String Function Blocked() global native

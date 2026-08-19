@@ -7,7 +7,7 @@ revoking, resetting, and blocking/unblocking known devices — documented in
 surface" section, which records the full design decision and rationale.
 
 DovahLink Bridge works completely normally without anything in this directory installed. The
-bridge always registers its native Papyrus functions
+bridge attempts to register its native Papyrus functions
 (`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`); the files here are only what makes
 those functions reachable from Skyrim's in-game console.
 
@@ -22,13 +22,18 @@ dovahlink reset
 dovahlink block -id <shortId>
 dovahlink unblock -id <shortId>
 dovahlink forget -id <shortId>
+dovahlink devices
+dovahlink blocklist
 ```
 
-`<shortId>` is the five-digit administration-only identifier `dovahlink list` prints next to each
-trusted client — never the client's real (long) identity, and never a credential. `block`/`unblock`
-target a known device by `<shortId>` regardless of its current state (trusted, revoked, or already
-blocked); `dovahlink list` itself still only lists currently-trusted clients as of this phase, so
-blocking a revoked device requires already knowing its `<shortId>` from before it was revoked.
+`<shortId>` is the five-digit administration-only identifier printed by `dovahlink list` or
+`dovahlink devices` — never the client's real (long) identity, and never a credential.
+`dovahlink list` lists currently trusted clients only. `dovahlink devices` lists every known device
+with its current state, sorted oldest-to-newest by creation time; repeated display names receive
+temporary `#1`, `#2`, ... suffixes in that presentation only. `dovahlink blocklist` shows only
+currently blocked devices. `block`/`unblock` target a known device by `<shortId>` regardless of its
+current state (trusted, revoked, or already blocked); blocking a revoked device therefore uses the
+stable `<shortId>` shown by `dovahlink devices`.
 `forget` deletes a known device's record entirely and frees its `<shortId>` for future allocation,
 but only from revoked or unpaired — a trusted device must be revoked first, and a blocked device
 must be explicitly unblocked first; `forget` never implicitly lifts a block.
@@ -38,7 +43,7 @@ must be explicitly unblocked first; `forget` never implicitly lifts a block.
 This adapter requires [ConsoleUtil Extended](https://github.com/KrisV-777/ConsoleUtil-Extended), a
 third-party SKSE plugin, installed separately as its own mod. DovahLink Bridge does not bundle it
 and does not check for its presence at plugin load — if it (or the files in this directory) are
-missing, `dovahlink list`/`revoke`/`reset`/`block`/`unblock` are simply unrecognized console
+missing, `dovahlink list`/`devices`/`blocklist`/`revoke`/`reset`/`block`/`unblock`/`forget` are simply unrecognized console
 commands, exactly like any other unknown input; nothing else about the bridge is affected.
 
 **Known compatibility risk, not yet resolved:** ConsoleUtil Extended's own build instructions
@@ -74,9 +79,9 @@ cannot exercise a live Papyrus VM or a third-party plugin
 ([`ai/context/skse/testing.md`](../ai/context/skse/testing.md)'s "Manual verification"). Before
 relying on this adapter, confirm in-game that:
 
-- `dovahlink list`, `dovahlink revoke -id <shortId>`, `dovahlink reset`, `dovahlink block -id
-  <shortId>`, `dovahlink unblock -id <shortId>`, and `dovahlink forget -id <shortId>` are
-  recognized and produce the expected output.
+- `dovahlink list`, `dovahlink devices`, `dovahlink blocklist`, `dovahlink revoke -id <shortId>`,
+  `dovahlink reset`, `dovahlink block -id <shortId>`, `dovahlink unblock -id <shortId>`, and
+  `dovahlink forget -id <shortId>` are recognized and produce the expected output.
 - ConsoleUtil Extended tolerates a `global native` Papyrus function body (its own documentation
   never states this explicitly, only that functions must be `global` — every other SKSE
   native-Papyrus-function integration works this way, but this specific combination is unconfirmed).

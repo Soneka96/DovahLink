@@ -99,7 +99,31 @@ RE::BSFixedString Forget(RE::StaticFunctionTag*, RE::BSFixedString akId) {
     }
 }
 
-/// Binds the six native functions above to their Papyrus declarations.
+/// Native implementation of the Papyrus `DovahLinkAdmin.Devices()` function.
+RE::BSFixedString Devices(RE::StaticFunctionTag*) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ListKnownDevices());
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.Blocked()` function.
+RE::BSFixedString Blocked(RE::StaticFunctionTag*) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ListBlocked());
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Binds the eight native functions above to their Papyrus declarations.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("List", "DovahLinkAdmin", List);
     vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
@@ -107,6 +131,8 @@ bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
     vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
     vm->RegisterFunction("Forget", "DovahLinkAdmin", Forget);
+    vm->RegisterFunction("Devices", "DovahLinkAdmin", Devices);
+    vm->RegisterFunction("Blocked", "DovahLinkAdmin", Blocked);
     return true;
 }
 
@@ -125,7 +151,10 @@ void InstallTrustAdminPapyrusAdapter(application::TrustAdminService& service) {
                          "adapter will not be registered.");
         return;
     }
-    papyrus->Register(RegisterFunctions);
+    if (!papyrus->Register(RegisterFunctions)) {
+        SKSE::log::error("DovahLink trust-admin Papyrus function registration failed; console commands "
+                         "will remain unavailable.");
+    }
 }
 
 }  // namespace dovahlink::game_state

@@ -277,9 +277,10 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         kBridgeVersion);
 
     // Registers the optional trust-administration console adapter
-    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
-    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
-    // Papyrus glue script are not installed. Constructed after bridgeWorkerPool, which it depends on
+    // (ai/context/protocol/security.md's "Trust administration surface"). Registration is attempted
+    // unconditionally; a failure is logged and remains isolated to this optional adapter, while the
+    // native functions simply go unused if ConsoleUtil Extended and its Papyrus glue script are not
+    // installed. Constructed after bridgeWorkerPool, which it depends on
     // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
     // (security.md's "Persistent local trust") against an already-connected session, not just the
     // persisted trust record.
