@@ -26,6 +26,8 @@ inline constexpr std::string_view kPairingAck = "pairing_ack";
 inline constexpr std::string_view kPairingOutcome = "pairing_outcome";
 inline constexpr std::string_view kPairingRenotify = "pairing_renotify";
 inline constexpr std::string_view kPairingCancel = "pairing_cancel";
+inline constexpr std::string_view kRenameRequest = "rename_request";
+inline constexpr std::string_view kRenameOutcome = "rename_outcome";
 }  // namespace message_type
 
 // ---- State areas ----

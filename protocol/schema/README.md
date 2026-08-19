@@ -217,8 +217,11 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 ```
 
 `code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
-client; send `null` when omitted. The bridge responds with `pairing_outcome`
-(`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or `"hard_limit_reached"`).
+client; send `null` when omitted, which preserves the client's existing display name on a re-pair
+(a genuinely new client stays unnamed). A present value -- including an empty string, which clears
+the name -- always replaces whatever the client previously held. The bridge responds with
+`pairing_outcome` (`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or
+`"hard_limit_reached"`).
 
 Required payload field: `code`.
 
@@ -305,6 +308,49 @@ are always present in the payload as `null` unless the note above says otherwise
 
 `pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
 answers.
+
+### `rename_request`
+
+Client request to rename itself. Sent on a Full session only -- an already-trusted device renames
+itself directly; an unpaired/restricted session has nothing to rename.
+
+```json
+{
+  "displayName": "New Name"
+}
+```
+
+`displayName` is required and may be empty; an empty value clears the device's display name,
+matching `ai/context/protocol/security.md`'s "displayName stays presentation-only metadata" rule. A
+non-empty value is subject to the trust store's length and control-character bound. The bridge
+responds with `rename_outcome`.
+
+Required payload field: `displayName`.
+
+### `rename_outcome`
+
+Bridge reply to `rename_request`:
+
+```json
+{
+  "outcome": "renamed",
+  "displayName": "New Name"
+}
+```
+
+`outcome` is one of `"renamed"`, `"invalid_display_name"`, or `"not_trusted"`. `"not_trusted"`
+covers both an unrecognized identity and one that is known but not currently trusted -- there is
+nothing actionable a connected client can do differently between those two cases, and this phase's
+trust-tier design (`ai/context/protocol/security.md`'s "Hello authentication and session trust
+tiers") makes it unreachable in practice: a Full session's owner is always currently trusted, since
+Block and Revoke immediately tear down the session that owns the credential being invalidated.
+`displayName` echoes the resulting name and is present only for `"renamed"`; `null` when the rename
+cleared the name or for any other outcome.
+
+Required payload field: `outcome`. `displayName` is always present in the payload as `null` unless
+the note above says otherwise.
+
+`rename_outcome.correlationId` is the `messageId` of the `rename_request` it answers.
 
 ### `capabilities`
 

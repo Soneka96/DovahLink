@@ -54,6 +54,8 @@ add_library(dovahlink_bridge_core STATIC
     protocol/pairing_confirm_payload.cpp
     protocol/pairing_outcome_payload.cpp
     protocol/pairing_status_payload.cpp
+    protocol/rename_outcome_payload.cpp
+    protocol/rename_request_payload.cpp
     protocol/snapshot_request_payload.cpp
     protocol/state_event_payload.cpp
     protocol/state_snapshot_payload.cpp
@@ -177,6 +179,8 @@ add_executable(dovahlink_bridge_tests
     protocol/pairing_confirm_payload_test.cpp
     protocol/pairing_outcome_payload_test.cpp
     protocol/pairing_status_payload_test.cpp
+    protocol/rename_outcome_payload_test.cpp
+    protocol/rename_request_payload_test.cpp
     protocol/snapshot_request_payload_test.cpp
     protocol/state_event_payload_test.cpp
     protocol/state_snapshot_payload_test.cpp

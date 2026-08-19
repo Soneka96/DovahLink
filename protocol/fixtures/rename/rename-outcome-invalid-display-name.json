@@ -1,0 +1,13 @@
+{
+  "messageType": "rename_outcome",
+  "messageId": "message-rename-outcome-2",
+  "sessionId": "session-1",
+  "correlationId": "message-rename-request-2",
+  "payload": {
+    "outcome": "invalid_display_name",
+    "displayName": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}
