@@ -240,10 +240,10 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
 
 ## Optional trust-administration console adapter
 
-The bridge attempts to register native Papyrus functions for listing trusted clients, listing known
-devices and the blocklist, revoking, resetting, and managing known devices
-(`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`). Reaching them from
-Skyrim's in-game console requires a separate, optional integration
+The bridge attempts to register native Papyrus functions for listing all known devices, listing
+trusted or blocked devices, showing help, revoking, resetting, and managing known devices
+(`bridge/game_state/commonlib_trust_admin_papyrus_adapter.cpp`). Reaching them from Skyrim's
+in-game console requires a separate, optional integration
 ([`console-admin/README.md`](../console-admin/README.md)) with a third-party plugin, ConsoleUtil
 Extended — not part of this bridge's own dependency baseline above, and not required for any other
 bridge behavior.

@@ -136,8 +136,8 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 
 ## Trust administration surface
 
-- Trust administration (list trusted clients, list all known devices or only blocked devices,
-  revoke one, reset all, and manage known-device state) is implemented once, as a
+- Trust administration (list all known devices, list trusted or blocked devices, show help, revoke
+  one, reset all, and manage known-device state) is implemented once, as a
   reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
   load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
   developer tooling -- duplicates trust-store logic; each only formats input and output around the
@@ -156,8 +156,9 @@ Security rules apply before the bridge accepts any client connection. A local-ne
     parses in-game console text into named commands/subcommands/arguments from a YAML config and
     calls a matching Papyrus `global` function per subcommand. Its documented syntax
     (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
-    `dovahlink devices`, `dovahlink blocklist`, `dovahlink revoke -id <shortId>`, and
-    `dovahlink reset` directly.
+    `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
+    `dovahlink revoke -id <shortId>`, `dovahlink reset`, `dovahlink block -id <shortId>`,
+    `dovahlink unblock -id <shortId>`, and `dovahlink forget -id <shortId>` directly.
   - DovahLink Bridge registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
     memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
@@ -172,8 +173,8 @@ Security rules apply before the bridge accepts any client connection. A local-ne
     to version-check at bridge startup); a registration failure is logged and remains isolated to
     this optional adapter; every other bridge behavior -- connection, pairing, trust
     persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
-    config are absent. Without them, `dovahlink list`/`devices`/`blocklist`/`revoke`/`reset`/`block`/
-    `unblock`/`forget` are simply unrecognized
+    config are absent. Without them, `dovahlink list`/`dovahlink list trust`/`dovahlink list block`/
+    `dovahlink help` and the mutation commands are simply unrecognized
     console commands, exactly like any other unknown input; there is no error path and no degraded
     core behavior to account for.
 - Scope boundary, recorded explicitly rather than left implicit: this surface's `Revoke`/`Reset`
