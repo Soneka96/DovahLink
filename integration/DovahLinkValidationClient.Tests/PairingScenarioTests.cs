@@ -378,9 +378,17 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies the single-connected-client model (Phase 9 deferred): when client-1 owns an active
-    /// challenge, client-2's pairing_request returns "other_device_pairing" state, disclosing nothing
-    /// about the owning device or code. Client-2 cannot proceed; client-1 completes pairing and upgrades.
+    /// Verifies the single-connected-client model (Phase 9 deferred): "other_device_pairing" is
+    /// scoped by that model, not by two simultaneously live connections -- per PLAN.md's design
+    /// notes, "a second clientId can only ever reach pairing_request while the owner's socket is
+    /// down and the grace period hasn't elapsed yet." ConnectionSlot admits exactly one connected
+    /// client at a time (BridgeWorkerPool rejects a second TCP-level connection attempt outright
+    /// while the slot is held, before any WebSocket handshake), so client-1 must disconnect --
+    /// while remaining within the 10-second reconnect grace period, where PairingSession still
+    /// remembers it owns the active challenge -- before client-2 can even connect. Client-2's
+    /// pairing_request then returns "other_device_pairing", disclosing nothing about the owning
+    /// device or code. Once client-2 disconnects, client-1 reconnects and resumes its own
+    /// still-owned challenge to completion, proving a competing device never displaces the owner.
     /// </summary>
     [Fact]
     public async Task OtherDeviceBusyReturnsOtherDevicePairingState()
@@ -398,11 +406,17 @@ public class PairingScenarioTests
         Assert.Equal("message-request-1", status1.CorrelationId);
         Assert.Equal("available", status1.Payload["state"]!.GetValue<string>());
 
-        // Synchronization point: the harness has printed the code to stdout; challenge is now stable.
-        // Client-2's request below will find the active challenge still owned by client-1.
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
-        // Client-2 attempts pairing while client-1 owns the active challenge.
+        // Client-1 disconnects mid-challenge, within the 10-second reconnect grace period --
+        // ConnectionSlot's exclusivity means client-2 cannot even be accepted until this releases
+        // it, and PairingSession's ownership of the challenge survives the disconnect regardless.
+        connection1.Abort();
+
+        // Client-2 connects while client-1 is within its grace period: rides out
+        // ConnectWithRetryAsync's bounded short retry/backoff over the brief window where the slot
+        // is still busy completing client-1's abrupt teardown, the same established pattern
+        // AbruptDisconnectAfterPairingRecoversViaBoundedRetryWithAFreshSession proves.
         await using BridgeConnection connection2 = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
         await connection2.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
         Envelope helloAck2 = await connection2.ReceiveAsync();
@@ -419,41 +433,48 @@ public class PairingScenarioTests
         Assert.Equal("other_device_pairing", status2.Payload["state"]!.GetValue<string>());
         Assert.False(status2.Payload.ContainsKey("expiresInSeconds"), "expiresInSeconds must not be present for other_device_pairing state");
 
-        // Client-2 cannot proceed without a code; any confirm attempt should fail (no code to send).
-        // Rather than speculate on the bridge's behavior (confirm with empty/fake code), we simply verify
-        // client-1 can complete pairing unimpeded while client-2 observes the blocked state.
-
-        // Client-1 confirms the original code and completes pairing.
-        await connection1.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId1, null,
-            new JsonObject { ["code"] = code, ["displayName"] = "Device 1" }));
-        Envelope confirmOutcome = await connection1.ReceiveAsync();
-        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
-
-        await connection1.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId1, null,
-            new JsonObject { ["credential"] = credential }));
-        Envelope ackOutcome = await connection1.ReceiveAsync();
-        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
-
-        // Client-1's session is now Full (paired); subscription succeeds.
-        await connection1.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId1, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
-        Envelope subscriptionAck = await connection1.ReceiveAsync();
-        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
-
-        // Client-2 remains Restricted (unpaired): subscription is rejected.
+        // Client-2's own session is still Restricted (unpaired): subscription is rejected, proving
+        // "other_device_pairing" grants it no capability the wire contract wouldn't already deny.
         await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         Envelope error2 = await connection2.ReceiveAsync();
         Assert.Equal("error", error2.MessageType);
         Assert.Equal("malformed_message", error2.Payload["code"]!.GetValue<string>());
 
-        await connection1.CloseAsync();
+        // Client-2 cannot proceed without the code (it was never disclosed) -- rather than
+        // speculate on a fake-code confirm attempt, it simply disconnects, freeing the slot so the
+        // real owner can reconnect and finish what it started.
         await connection2.CloseAsync();
-        await harness.WriteLineAsync("quit");
-        await harness.WaitForExitAsync(TimeSpan.FromSeconds(5));
+
+        // Client-1 reconnects, still within the grace period, and resumes its own still-owned
+        // challenge -- a competing device observing "other_device_pairing" never displaces it.
+        await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnect.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-1"));
+        Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
+        Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
+        string sessionId1Reconnected = reconnectHelloAck.SessionId!;
+        await reconnect.ReceiveAsync(); // capabilities (ignored)
+
+        await reconnect.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId1Reconnected, null,
+            new JsonObject { ["code"] = code, ["displayName"] = "Device 1" }));
+        Envelope confirmOutcome = await reconnect.ReceiveAsync();
+        Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await reconnect.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId1Reconnected, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await reconnect.ReceiveAsync();
+        Assert.Equal("pairing_outcome", ackOutcome.MessageType);
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Client-1's session is now Full (paired); subscription succeeds.
+        await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId1Reconnected, null,
+            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+        Envelope subscriptionAck = await reconnect.ReceiveAsync();
+        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, reconnect);
     }
 
     /// <summary>

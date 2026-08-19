@@ -59,10 +59,17 @@ class PairingStatusPayload {
   @JsonKey(required: true)
   final String state;
 
-  /// The active challenge's remaining code validity in seconds, present for `"available"` and
-  /// `"in_progress"`, `null` for other non-`other_device_pairing` states, and the key itself
-  /// genuinely omitted for `"other_device_pairing"` (not just `null`) -- so this key is optional,
-  /// unlike this payload's other, always-present fields.
+  /// The active challenge's remaining *code* validity in seconds -- not a general "how long until
+  /// you lose this state" figure, so its presence follows the code's own lifetime, not [state]
+  /// alone (`protocol/schema/README.md`'s `pairing_status` section):
+  /// - A number for `"available"`, and for `"in_progress"` while the resumed state is still an
+  ///   actively counting-down challenge.
+  /// - `null` (key present) for `"unavailable"`, and for `"in_progress"` while the resumed state is
+  ///   only a pending credential awaiting `pairing_ack` -- the code was already consumed on a
+  ///   successful confirm, so there is nothing left to count down even though `"in_progress"` still
+  ///   applies.
+  /// - Omitted from the wire payload entirely (not merely `null`) for `"other_device_pairing"` --
+  ///   this key is therefore optional, unlike this payload's other, always-present fields.
   final int? expiresInSeconds;
 }
 

@@ -52,6 +52,26 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
         }
 
         ConnectionId connection = nextConnectionId_.fetch_add(1, std::memory_order_relaxed);
+        RunSessionOnOwnThread(workerRunner, connection, std::move(socket), std::move(*slotLease));
+    }
+}
+
+void BridgeWorkerPool::JoinConnectionThreadLocked() {
+    if (connectionThread_.joinable()) {
+        connectionThread_.join();
+    }
+}
+
+void BridgeWorkerPool::RunSessionOnOwnThread(const ContainedWorkRunner& workerRunner, ConnectionId connection,
+                                             boost::asio::ip::tcp::socket socket,
+                                             transport::ConnectionSlot::Lease slotLease) {
+    std::lock_guard<std::mutex> connectionThreadLock(connectionThreadMutex_);
+    JoinConnectionThreadLocked();
+    connectionThread_ = std::thread([this, workerRunner, connection, socket = std::move(socket),
+                                     slotLease = std::move(slotLease)]() mutable {
+        // slotLease's destruction (releasing ConnectionSlot) is what determines when the *next*
+        // connection attempt can be admitted -- moved in here so it spans this thread's whole
+        // session, not just the brief AcceptLoop iteration that spawned it.
         (void)workerRunner([this, connection, socket = std::move(socket)]() mutable {
             auto socketHandle = transport::WebSocketSession::CreateSocket(std::move(socket));
             {
@@ -69,7 +89,7 @@ void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener, const C
                                  sessionManager_, connection, activePlayContext_, pairingSession_,
                                  pairingNotificationSink_, bridgeInstanceId_, bridgeVersion_);
         });
-    }
+    });
 }
 
 void BridgeWorkerPool::Start(ContainedWorkRunner workerRunner) {
@@ -129,6 +149,10 @@ void BridgeWorkerPool::Join() {
     if (threadV6_.joinable()) {
         threadV6_.join();
     }
+    // After both accept threads have joined, no further connection thread can be spawned; the
+    // current one (if any) is already unwinding from Stop()'s ShutdownActiveSocket() call.
+    std::lock_guard<std::mutex> connectionThreadLock(connectionThreadMutex_);
+    JoinConnectionThreadLocked();
 }
 
 }  // namespace dovahlink::application

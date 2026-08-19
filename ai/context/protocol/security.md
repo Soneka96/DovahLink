@@ -72,9 +72,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   payload, bridge replies with `pairing_outcome` bearing `cancelled`/`already_idle`). Phase 3.1 also
   replaced the single undifferentiated `rate_limited` outcome with `pacing_limited` (attempt too
   soon, doesn't count wrong) and `hard_limit_reached` (5th wrong attempt, cancels challenge), per
-  `ROADMAP.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`
-  for `available` and `in_progress` states, and adds `other_device_pairing` to report that a
-  different `clientId` owns the active challenge without revealing anything else about it.
+  `ROADMAP.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`,
+  a number only while `clientId`'s own code is actively counting down (`available`, or `in_progress`
+  while still `CHALLENGE_ACTIVE`) and `null` for `in_progress` while only a `PENDING_CREDENTIAL` is
+  owned -- see `protocol/schema/README.md`'s `pairing_status` section for the exact
+  number/null/omitted contract -- and adds `other_device_pairing` to report that a different
+  `clientId` owns the active challenge without revealing anything else about it.
 
   The in-memory pending-credential record is keyed to the single active connection (this phase's
   single-connected-client limit makes a second concurrent claimant structurally impossible) and

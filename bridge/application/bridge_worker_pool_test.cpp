@@ -219,23 +219,29 @@ TEST_CASE("BridgeWorkerPool releases the slot and accepts again after "
           "contained connection work fails",
           "[application][bridge_worker_pool]") {
     Fixture fixture;
+    std::atomic<int> callIndex{0};
     std::atomic<int> containedConnectionFailures{0};
-    ContainedWorkRunner workerRunner = [&containedConnectionFailures](ContainedWork work) noexcept {
-        thread_local bool insideThreadBoundary = false;
-        if (insideThreadBoundary) {
-            containedConnectionFailures.fetch_add(1, std::memory_order_release);
-            return false;
+    // Simulates "contained connection work fails": workerRunner is called both to wrap each
+    // listener's whole AcceptLoop (BridgeWorkerPool::Start, once per listener -- this must actually
+    // run the accept loop, or nothing is ever accepted at all) and, separately, once per accepted
+    // connection on that connection's own freshly spawned thread
+    // (BridgeWorkerPool::RunSessionOnOwnThread). A same-thread-reentrancy trick can no longer tell
+    // these apart now that each connection gets its own thread rather than sharing the single
+    // accept thread, so this counts calls instead: the first two calls are always the two
+    // AcceptLoop wraps (one per listener, made before any connection can possibly be accepted) and
+    // must run for real; every call after that is a per-connection call, which this fails by never
+    // invoking it.
+    ContainedWorkRunner workerRunner = [&callIndex, &containedConnectionFailures](ContainedWork work) noexcept {
+        if (callIndex.fetch_add(1, std::memory_order_acq_rel) < 2) {
+            try {
+                work();
+            } catch (...) {
+                return false;
+            }
+            return true;
         }
-
-        insideThreadBoundary = true;
-        try {
-            work();
-        } catch (...) {
-            insideThreadBoundary = false;
-            return false;
-        }
-        insideThreadBoundary = false;
-        return true;
+        containedConnectionFailures.fetch_add(1, std::memory_order_release);
+        return false;
     };
     fixture.pool.Start(std::move(workerRunner));
 

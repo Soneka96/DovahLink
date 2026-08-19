@@ -12,7 +12,12 @@ class PairingChallengeStatus {
   /// device.
   final PairingAvailability availability;
 
-  /// The active challenge's remaining code validity in seconds, present only for
-  /// [PairingAvailability.available] and [PairingAvailability.inProgress].
+  /// The active challenge's remaining *code* validity in seconds -- not a general "how long until
+  /// you lose this state" figure. Always non-null for [PairingAvailability.available]. For
+  /// [PairingAvailability.inProgress] it is non-null only while the resumed challenge is still
+  /// actively counting down; it is `null` when this installation's own resumed state is instead a
+  /// pending credential awaiting acknowledgement (the code was already consumed on a successful
+  /// confirm, so there is nothing left to count down even though pairing is still `inProgress`).
+  /// Always `null` for [PairingAvailability.unavailable] and [PairingAvailability.otherDevicePairing].
   final int? expiresInSeconds;
 }

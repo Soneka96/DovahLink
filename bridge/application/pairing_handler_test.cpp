@@ -229,6 +229,36 @@ TEST_CASE("a second pairing_request from the same client reports in_progress wit
     CHECK(sink.codes.size() == 1);
 }
 
+TEST_CASE("a pairing_request from the same client reports in_progress with null expiresInSeconds "
+          "once its own code is already confirmed and pending acknowledgement",
+          "[application][pairing_handler]") {
+    // Pins protocol/schema/README.md's pairing_status contract: expiresInSeconds tracks the
+    // *code's* own remaining validity, not "how long until this state changes" in general -- once
+    // the owner's code is consumed by a successful pairing_confirm (PENDING_CREDENTIAL), a repeated
+    // pairing_request still resumes as "in_progress" (the client still owns something to resume),
+    // but there is no code left to count down, so expiresInSeconds is null (present, not omitted --
+    // omission is reserved for other_device_pairing).
+    PairingSession pairingSession([]() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+
+    auto requested = HandlePairingRequest(BuildPairingRequestEnvelope(), kSessionId, kClientId, pairingSession, sink, now);
+    REQUIRE(dovahlink::protocol::DecodePairingStatusPayload(requested.payload)->state == "available");
+
+    auto confirmed =
+        HandlePairingConfirm(BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, pairingSession, sink, now);
+    auto confirmedOutcome = dovahlink::protocol::DecodePairingOutcomePayload(confirmed.payload);
+    REQUIRE(confirmedOutcome.has_value());
+    REQUIRE(confirmedOutcome->outcome == "credential_issued");
+
+    auto resumed = HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"), kSessionId, kClientId,
+                                         pairingSession, sink, now);
+    auto resumedStatus = dovahlink::protocol::DecodePairingStatusPayload(resumed.payload);
+    REQUIRE(resumedStatus.has_value());
+    CHECK(resumedStatus->state == "in_progress");
+    CHECK_FALSE(resumedStatus->expiresInSeconds.has_value());
+}
+
 TEST_CASE("a pairing_request from a different client reports other_device_pairing and reveals no "
           "expiresInSeconds",
           "[application][pairing_handler]") {

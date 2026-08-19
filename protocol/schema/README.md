@@ -174,18 +174,34 @@ Bridge report of pairing availability, sent in reply to `pairing_request`:
 
 `state` is one of `"unavailable"`, `"available"`, `"in_progress"`, or `"other_device_pairing"`.
 `"available"` means a fresh six-digit code was just generated and displayed to the user in Skyrim; a
-repeated `pairing_request` from the same `clientId` while that code is still active reports
-`"in_progress"` instead, without generating or displaying a second code. `"other_device_pairing"`
+repeated `pairing_request` from the same `clientId` reports `"in_progress"` instead, without
+generating or displaying a second code -- covering *both* of `clientId`'s own resumable states:
+its code is still active and counting down (`CHALLENGE_ACTIVE`), or it already submitted the
+correct code and is now holding a pending credential awaiting `pairing_ack` (`PENDING_CREDENTIAL`,
+`ai/context/protocol/security.md`'s "Persistent local trust" state machine). `"other_device_pairing"`
 means a *different* `clientId` currently owns the active challenge or pending credential; it
 discloses nothing else about the owning device or its code, and `expiresInSeconds` is never present
 alongside it.
 
-`expiresInSeconds` is the active challenge's remaining code validity, present for `"available"` and
-`"in_progress"` and `null` otherwise. The SDK/app renders a local countdown from it and refreshes
-authoritative pairing state as expiry approaches rather than owning expiry semantics itself.
+`expiresInSeconds` is the active challenge's remaining *code* validity -- not a general "how long
+until you lose this state" figure -- so its presence follows the code's own lifetime, not `state`
+alone:
+- A number, for `"available"` and for `"in_progress"` while `clientId`'s own code is still
+  `CHALLENGE_ACTIVE` and actively counting down.
+- `null` (the key present, valued `null`) for `"unavailable"`, and for `"in_progress"` while
+  `clientId`'s own resumed state is `PENDING_CREDENTIAL` -- the code was already consumed on a
+  successful `pairing_confirm`, so there is no code left to count down, even though the client still
+  has something of its own to resume (per `PairingSession::RemainingSeconds`'s own contract: no
+  value once no challenge is active, "including a `PENDING_CREDENTIAL` state, which has no code left
+  to redisplay"). This is a real, reachable case, not a defect: a client that reconnects, crashes, or
+  otherwise probes `pairing_request` again after confirming a code but before its `pairing_ack` has
+  landed observes exactly this.
+- Omitted from the payload entirely (not merely `null`) for `"other_device_pairing"` -- see above.
 
-Required payload field: `state`. `expiresInSeconds` is always present as `null` unless the note
-above says otherwise.
+Required payload field: `state`. `expiresInSeconds` is always present as `null` unless one of the
+notes above says it carries a number or is omitted entirely. Absent and `null` are not
+interchangeable on this field: omission is reserved for `"other_device_pairing"` specifically, and
+every other state that has no number to report still carries the key with a `null` value.
 
 `pairing_status.correlationId` is the `messageId` of the `pairing_request` it answers.
 
