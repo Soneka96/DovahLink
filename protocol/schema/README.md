@@ -167,16 +167,41 @@ Bridge report of pairing availability, sent in reply to `pairing_request`:
 
 ```json
 {
-  "state": "available"
+  "state": "available",
+  "expiresInSeconds": 287
 }
 ```
 
-`state` is one of `"unavailable"`, `"available"`, or `"in_progress"`. `"available"` means a fresh
-six-digit code was just generated and displayed to the user in Skyrim; a repeated `pairing_request`
-while that code is still active reports `"in_progress"` instead, without generating or displaying a
-second code.
+`state` is one of `"unavailable"`, `"available"`, `"in_progress"`, or `"other_device_pairing"`.
+`"available"` means a fresh six-digit code was just generated and displayed to the user in Skyrim; a
+repeated `pairing_request` from the same `clientId` reports `"in_progress"` instead, without
+generating or displaying a second code -- covering *both* of `clientId`'s own resumable states:
+its code is still active and counting down (`CHALLENGE_ACTIVE`), or it already submitted the
+correct code and is now holding a pending credential awaiting `pairing_ack` (`PENDING_CREDENTIAL`,
+`ai/context/protocol/security.md`'s "Persistent local trust" state machine). `"other_device_pairing"`
+means a *different* `clientId` currently owns the active challenge or pending credential; it
+discloses nothing else about the owning device or its code, and `expiresInSeconds` is never present
+alongside it.
 
-Required payload field: `state`.
+`expiresInSeconds` is the active challenge's remaining *code* validity -- not a general "how long
+until you lose this state" figure -- so its presence follows the code's own lifetime, not `state`
+alone:
+- A number, for `"available"` and for `"in_progress"` while `clientId`'s own code is still
+  `CHALLENGE_ACTIVE` and actively counting down.
+- `null` (the key present, valued `null`) for `"unavailable"`, and for `"in_progress"` while
+  `clientId`'s own resumed state is `PENDING_CREDENTIAL` -- the code was already consumed on a
+  successful `pairing_confirm`, so there is no code left to count down, even though the client still
+  has something of its own to resume (per `PairingSession::RemainingSeconds`'s own contract: no
+  value once no challenge is active, "including a `PENDING_CREDENTIAL` state, which has no code left
+  to redisplay"). This is a real, reachable case, not a defect: a client that reconnects, crashes, or
+  otherwise probes `pairing_request` again after confirming a code but before its `pairing_ack` has
+  landed observes exactly this.
+- Omitted from the payload entirely (not merely `null`) for `"other_device_pairing"` -- see above.
+
+Required payload field: `state`. `expiresInSeconds` is always present as `null` unless one of the
+notes above says it carries a number or is omitted entirely. Absent and `null` are not
+interchangeable on this field: omission is reserved for `"other_device_pairing"` specifically, and
+every other state that has no number to report still carries the key with a `null` value.
 
 `pairing_status.correlationId` is the `messageId` of the `pairing_request` it answers.
 
@@ -193,7 +218,7 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 
 `code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
 client; send `null` when omitted. The bridge responds with `pairing_outcome`
-(`"credential_issued"`, `"expired"`, `"invalid"`, or `"rate_limited"`).
+(`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or `"hard_limit_reached"`).
 
 Required payload field: `code`.
 
@@ -214,6 +239,34 @@ upgrades the session to full trust in place on the same connection — no reconn
 
 Required payload field: `credential`.
 
+### `pairing_renotify`
+
+Client request to redisplay the active pairing challenge's code. Sent on a Restricted session only.
+Never generates a new code and never sends the code itself over the wire — redisplay occurs through
+the in-game notification, not the connection.
+
+```json
+{}
+```
+
+No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+(`"renotified"` on success, `"renotify_cooldown"` with remaining wait, or `"already_idle"` when no
+challenge is owned).
+
+### `pairing_cancel`
+
+Client request to give up an owned active challenge or pending credential. Sent on a Restricted
+session only. Never touches persisted trust or any already-committed credentials — only clears
+in-memory challenge/pending state and frees the slot for a fresh `pairing_request`.
+
+```json
+{}
+```
+
+No payload fields. Only the owning `clientId` may invoke it. The bridge responds with `pairing_outcome`
+(`"cancelled"` if something was cleared, or `"already_idle"` if nothing was owned). Idempotent without
+pretending work occurred — repeating it truthfully reports `"already_idle"`, not `"cancelled"`.
+
 ### `pairing_outcome`
 
 Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished by `outcome`:
@@ -223,19 +276,32 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
   "outcome": "trusted",
   "credential": "redacted-in-documentation",
   "shortId": "12345",
-  "displayName": "My PC"
+  "displayName": "My PC",
+  "retryAfterSeconds": null
 }
 ```
 
 `outcome` is one of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
-`"invalid"`, `"rate_limited"`, or `"pending_not_found"`. `credential` is present only for
-`"credential_issued"`, `"trusted"`, and `"already_trusted"`. `shortId` (an administration-only
-identifier, not a trust credential) is present only for `"trusted"` and `"already_trusted"`.
-`displayName` echoes the client-supplied label and is present only alongside `credential`/`shortId`
-when the client supplied one.
+`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`, `"renotified"`,
+`"renotify_cooldown"`, `"cancelled"`, or `"already_idle"`. Outcomes are grouped by originating message:
+- From `pairing_confirm`: `"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
+  `"hard_limit_reached"`. `"pacing_limited"` and `"hard_limit_reached"` replace the single
+  undifferentiated `"rate_limited"` earlier phases used: pacing rejects an attempt made too soon
+  after the previous one, without counting it as wrong, while the hard limit is the terminal count
+  of wrong attempts that cancels the challenge outright.
+- From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`.
+- From `pairing_renotify`: `"renotified"`, `"renotify_cooldown"`, `"already_idle"`.
+- From `pairing_cancel`: `"cancelled"`, `"already_idle"`.
 
-Required payload field: `outcome`. `credential`, `shortId`, and `displayName` are always present in
-the payload as `null` unless the note above says otherwise.
+`credential` is present only for `"credential_issued"`, `"trusted"`, and `"already_trusted"`.
+`shortId` (an administration-only identifier, not a trust credential) is present only for `"trusted"`
+and `"already_trusted"`. `displayName` echoes the client-supplied label and is present only alongside
+`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the remaining wait, present
+for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and `"renotify_cooldown"` (next
+manual `pairing_renotify`).
+
+Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
+are always present in the payload as `null` unless the note above says otherwise.
 
 `pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
 answers.

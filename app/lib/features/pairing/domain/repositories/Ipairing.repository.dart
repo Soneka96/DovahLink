@@ -12,8 +12,9 @@ abstract interface class IPairingRepository {
 
   /// Starts, or queries the status of, a pairing challenge. A fresh or
   /// already-active code is shown in Skyrim; this resolves once the client
-  /// may show its code-entry form.
-  Future<Either<Failure, Unit>> requestPairingCode();
+  /// may show its code-entry form. Returns the active code's remaining
+  /// validity in seconds, or null when the bridge did not report one.
+  Future<Either<Failure, int?>> requestPairingCode();
 
   /// Submits the six-digit code the user read from Skyrim and completes the
   /// trust handshake.
@@ -24,4 +25,12 @@ abstract interface class IPairingRepository {
 
   /// Closes the current connection without changing game state.
   Future<Either<Failure, Unit>> disconnect();
+
+  /// Requests redisplay of the active pairing code in Skyrim, or reports
+  /// cooldown or idle status. Returns cooldown seconds if in cooldown.
+  Future<Either<Failure, int?>> requestPairingRenotify();
+
+  /// Cancels the owned active pairing challenge or pending credential, or
+  /// reports idle status.
+  Future<Either<Failure, Unit>> cancelPairing();
 }

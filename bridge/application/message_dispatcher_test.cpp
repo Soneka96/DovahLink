@@ -57,8 +57,22 @@ public:
         codes.emplace_back(sixDigitCode);
     }
 
+    /// Appends `sixDigitCode` to `incorrectCodes`.
+    void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
+        incorrectCodes.emplace_back(sixDigitCode);
+    }
+
+    /// Increments `attemptsExhaustedCount`.
+    void NotifyPairingAttemptsExhausted() override { ++attemptsExhaustedCount; }
+
     /// Every code this sink has been given, in order.
     std::vector<std::string> codes;
+
+    /// Every code this sink was asked to redisplay after a wrong attempt, in order.
+    std::vector<std::string> incorrectCodes;
+
+    /// Number of times the wrong-attempt hard limit was reached.
+    int attemptsExhaustedCount = 0;
 };
 
 /// Bundles an authenticated dispatcher session and its production collaborators.
@@ -146,6 +160,20 @@ std::string PairingConfirmMessage(const std::string& code, std::string messageId
 std::string PairingAckMessage(const std::string& hexCredential, std::string messageId = "message-pairing-ack-1") {
     return R"({"messageType": "pairing_ack", "messageId": ")" + messageId + R"(", "sessionId": ")" + kSessionId +
            R"(", "correlationId": null, "payload": {"credential": ")" + hexCredential + R"("}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a pairing_renotify envelope (no payload).
+std::string PairingRenotifyMessage(std::string messageId = "message-pairing-renotify-1") {
+    return R"({"messageType": "pairing_renotify", "messageId": ")" + messageId + R"(", "sessionId": ")" + kSessionId +
+           R"(", "correlationId": null, "payload": {}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds a pairing_cancel envelope (no payload).
+std::string PairingCancelMessage(std::string messageId = "message-pairing-cancel-1") {
+    return R"({"messageType": "pairing_cancel", "messageId": ")" + messageId + R"(", "sessionId": ")" + kSessionId +
+           R"(", "correlationId": null, "payload": {}, )"
            R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
@@ -1027,4 +1055,59 @@ TEST_CASE("ProcessInboundMessage checks the trust-tier allowlist before session 
     auto error = dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "malformed_message");
+}
+
+TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing_renotify and pairing_cancel but "
+          "rejects them on Full",
+          "[application][message_dispatcher]") {
+    Fixture restrictedFixture(SessionTrustTier::kRestricted);
+
+    auto renotify = restrictedFixture.Process(PairingRenotifyMessage());
+    REQUIRE(renotify.responses.size() == 1);
+    CHECK(renotify.responses[0].messageType == "pairing_outcome");
+
+    auto cancel = restrictedFixture.Process(PairingCancelMessage());
+    REQUIRE(cancel.responses.size() == 1);
+    CHECK(cancel.responses[0].messageType == "pairing_outcome");
+
+    Fixture fullFixture;  // Defaults to SessionTrustTier::kFull.
+
+    auto renotifyFull = fullFixture.Process(PairingRenotifyMessage());
+    REQUIRE(renotifyFull.responses.size() == 1);
+    auto renotifyError = dovahlink::protocol::DecodeErrorPayload(renotifyFull.responses[0].payload);
+    REQUIRE(renotifyError.has_value());
+    CHECK(renotifyError->code == "malformed_message");
+    REQUIRE(renotifyFull.responses[0].bridgeInstanceId.has_value());
+    CHECK(*renotifyFull.responses[0].bridgeInstanceId == "bridge-1");
+
+    auto cancelFull = fullFixture.Process(PairingCancelMessage());
+    REQUIRE(cancelFull.responses.size() == 1);
+    auto cancelError = dovahlink::protocol::DecodeErrorPayload(cancelFull.responses[0].payload);
+    REQUIRE(cancelError.has_value());
+    CHECK(cancelError->code == "malformed_message");
+    REQUIRE(cancelFull.responses[0].bridgeInstanceId.has_value());
+    CHECK(*cancelFull.responses[0].bridgeInstanceId == "bridge-1");
+}
+
+TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on pairing_renotify and "
+          "pairing_cancel responses too, never clientId",
+          "[application][message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kRestricted);
+    fixture.activePlayContext.Begin("context-1");
+
+    auto renotify = fixture.Process(PairingRenotifyMessage());
+    REQUIRE(renotify.responses.size() == 1);
+    REQUIRE(renotify.responses[0].bridgeInstanceId.has_value());
+    CHECK(*renotify.responses[0].bridgeInstanceId == "bridge-1");
+    REQUIRE(renotify.responses[0].playContextId.has_value());
+    CHECK(*renotify.responses[0].playContextId == "context-1");
+    CHECK_FALSE(renotify.responses[0].clientId.has_value());
+
+    auto cancel = fixture.Process(PairingCancelMessage());
+    REQUIRE(cancel.responses.size() == 1);
+    REQUIRE(cancel.responses[0].bridgeInstanceId.has_value());
+    CHECK(*cancel.responses[0].bridgeInstanceId == "bridge-1");
+    REQUIRE(cancel.responses[0].playContextId.has_value());
+    CHECK(*cancel.responses[0].playContextId == "context-1");
+    CHECK_FALSE(cancel.responses[0].clientId.has_value());
 }

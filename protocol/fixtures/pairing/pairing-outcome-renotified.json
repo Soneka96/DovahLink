@@ -1,0 +1,16 @@
+{
+  "messageType": "pairing_outcome",
+  "messageId": "message-pairing-outcome-7",
+  "sessionId": "session-1",
+  "correlationId": "message-pairing-renotify-1",
+  "payload": {
+    "outcome": "renotified",
+    "credential": null,
+    "shortId": null,
+    "displayName": null,
+    "retryAfterSeconds": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

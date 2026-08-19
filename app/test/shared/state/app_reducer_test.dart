@@ -22,6 +22,8 @@ void main() {
           phase: PairingPhase.none,
           bridgeVersion: null,
           error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
         ),
       );
 

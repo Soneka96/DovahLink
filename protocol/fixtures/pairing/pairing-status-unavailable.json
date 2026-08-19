@@ -4,7 +4,8 @@
   "sessionId": "session-1",
   "correlationId": "message-pairing-request-1",
   "payload": {
-    "state": "unavailable"
+    "state": "unavailable",
+    "expiresInSeconds": null
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,

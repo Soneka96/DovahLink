@@ -56,12 +56,14 @@ namespace {
 // Pairing messages are deliberately absent from the Full allowlist below: once a session is
 // already trusted, re-running pairing is pointless, and excluding it keeps a stray retry from a
 // confused already-paired client from reaching pairing_handler at all.
-constexpr std::array<std::string_view, 5> kRestrictedAllowedMessageTypes = {
+constexpr std::array<std::string_view, 7> kRestrictedAllowedMessageTypes = {
     protocol::message_type::kPing,
     protocol::message_type::kCapabilities,
     protocol::message_type::kPairingRequest,
     protocol::message_type::kPairingConfirm,
     protocol::message_type::kPairingAck,
+    protocol::message_type::kPairingRenotify,
+    protocol::message_type::kPairingCancel,
 };
 
 constexpr std::array<std::string_view, 4> kFullAllowedMessageTypes = {
@@ -314,22 +316,37 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
             result.responses.push_back(std::move(snapshot));
         }
     } else if (envelope->messageType == protocol::message_type::kPairingRequest) {
-        result = FromHandlerResponse(HandlePairingRequest(*envelope, sessionId, pairingSession, pairingNotificationSink),
-                                     violations, steadyNow);
-    } else if (envelope->messageType == protocol::message_type::kPairingConfirm) {
         // Restricted-only (kRestrictedAllowedMessageTypes above): the session passed
         // IsValidForConnection above, so it is this connection's active session and always has a
         // clientId (SessionManager::TryCreateSession never admits one without it).
         auto clientId = sessionManager.ClientIdForConnection(connection);
         assert(clientId.has_value());
-        result = FromHandlerResponse(HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession, steadyNow),
-                                     violations, steadyNow);
-    } else if (envelope->messageType == protocol::message_type::kPairingAck) {
+        result = FromHandlerResponse(
+            HandlePairingRequest(*envelope, sessionId, *clientId, pairingSession, pairingNotificationSink, steadyNow),
+            violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingConfirm) {
         auto clientId = sessionManager.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
-            HandlePairingAck(*envelope, sessionId, *clientId, connection, pairingSession, trustStore, sessionManager),
+            HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession, pairingNotificationSink, steadyNow),
             violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingAck) {
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(HandlePairingAck(*envelope, sessionId, *clientId, connection, pairingSession,
+                                                       trustStore, sessionManager, steadyNow),
+                                     violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingRenotify) {
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(HandlePairingRenotify(*envelope, sessionId, *clientId, pairingSession,
+                                                            pairingNotificationSink, steadyNow),
+                                     violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kPairingCancel) {
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(HandlePairingCancel(*envelope, sessionId, *clientId, pairingSession, steadyNow),
+                                     violations, steadyNow);
     } else {
         // Only kSnapshotRequest remains, per kFullAllowedMessageTypes -- unreachable for a
         // Restricted session, since every Restricted-allowed type is handled explicitly above.

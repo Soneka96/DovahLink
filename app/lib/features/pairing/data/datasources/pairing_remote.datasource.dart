@@ -12,7 +12,9 @@ abstract interface class PairingRemoteDataSource {
   Future<Either<Failure, PairingHandshakeEntity>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
-  Future<Either<Failure, Unit>> requestPairingCode();
+  /// Returns the active code's remaining validity in seconds, or null when the bridge did not
+  /// report one.
+  Future<Either<Failure, int?>> requestPairingCode();
 
   /// Submits the six-digit code and completes the trust handshake.
   Future<Either<Failure, Unit>> confirmPairingCode({
@@ -22,6 +24,13 @@ abstract interface class PairingRemoteDataSource {
 
   /// Closes the current connection.
   Future<Either<Failure, Unit>> disconnect();
+
+  /// Requests redisplay of the active pairing code in Skyrim.
+  /// Returns cooldown seconds if in cooldown, null if succeeded.
+  Future<Either<Failure, int?>> requestPairingRenotify();
+
+  /// Cancels the owned active pairing challenge or pending credential.
+  Future<Either<Failure, Unit>> cancelPairing();
 }
 
 /// The user-safe [Failure] reported for any exception this data source's typed catches don't
@@ -83,28 +92,38 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
 
   /// Converts a recovered credential-rejection reason into its user-safe explanation, or `null`
   /// when [reason] is `null` (nothing was recovered from).
-  String? _credentialRejectedMessage(CredentialRejectionReason? reason) =>
-      switch (reason) {
-        CredentialRejectionReason.revoked =>
-          "This device's trust was revoked. Requesting a new pairing code.",
-        CredentialRejectionReason.unrecognized =>
-          "This device isn't recognized by this bridge. Requesting a new pairing code.",
-        null => null,
-      };
+  String? _credentialRejectedMessage(
+    CredentialRejectionReason? reason,
+  ) => switch (reason) {
+    CredentialRejectionReason.revoked =>
+      "This device's trust was revoked. Requesting a new pairing code.",
+    CredentialRejectionReason.unrecognized =>
+      "This device isn't recognized by this bridge. Requesting a new pairing code.",
+    null => null,
+  };
 
   /// See [PairingRemoteDataSource.requestPairingCode].
   @override
-  Future<Either<Failure, Unit>> requestPairingCode() async {
+  Future<Either<Failure, int?>> requestPairingCode() async {
     try {
-      final PairingAvailability availability = await _client.requestPairing();
-      if (availability == PairingAvailability.unavailable) {
+      final PairingChallengeStatus status = await _client.requestPairing();
+      if (status.availability == PairingAvailability.unavailable) {
         return const Left(
           PairingFailure(
             'Pairing is not available right now. Try again in a moment.',
           ),
         );
       }
-      return const Right(unit);
+      if (status.availability == PairingAvailability.otherDevicePairing) {
+        // Reveals nothing about the owning device or its code, matching
+        // ai/context/protocol/security.md's other_device_pairing contract.
+        return const Left(
+          PairingFailure(
+            'Another device is already pairing. Try again in a moment.',
+          ),
+        );
+      }
+      return Right(status.expiresInSeconds);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
@@ -132,7 +151,16 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
-      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+      final String message = _pairingOutcomeMessage(error.outcome);
+      // Only a wrong code or a too-soon retry are retriable against the same still-active
+      // challenge: everything else (expired, hard_limit_reached, pending_not_found) ends the
+      // flow, matching PLAN.md stage I's "keeps a short-of-hard-limit wrong code on
+      // awaitingCode... instead of bouncing to failed" versus "maps hard_limit_reached to the
+      // existing PairingFailedAction path."
+      if (error.outcome == 'invalid' || error.outcome == 'pacing_limited') {
+        return Left(PairingRetriableFailure(message));
+      }
+      return Left(PairingFailure(message));
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
     } on Object {
@@ -158,7 +186,58 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   String _pairingOutcomeMessage(String outcome) => switch (outcome) {
     'expired' => 'That pairing code has expired. Request a new one.',
     'invalid' => "That code isn't correct. Check Skyrim and try again.",
-    'rate_limited' => 'Too many attempts. Wait a moment before trying again.',
+    'pacing_limited' => 'Slow down a little, then try again.',
+    'hard_limit_reached' =>
+      'Too many wrong attempts. Request a new pairing code.',
+    'pending_not_found' =>
+      'This pairing attempt is no longer recognized. Request a new code.',
     _ => 'Pairing could not be completed. Please try again.',
   };
+
+  /// See [PairingRemoteDataSource.requestPairingRenotify].
+  @override
+  Future<Either<Failure, int?>> requestPairingRenotify() async {
+    try {
+      final renotifyResult = await _client.requestPairingRenotify();
+      return switch (renotifyResult.status) {
+        PairingRenotifyStatus.renotified => const Right(null),
+        PairingRenotifyStatus.cooldown => Right(
+          renotifyResult.retryAfterSeconds,
+        ),
+        PairingRenotifyStatus.alreadyIdle => const Left(
+          PairingFailure('No pairing is currently active.'),
+        ),
+      };
+    } on DovahLinkConnectionException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkProtocolException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkPairingException catch (error) {
+      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
+    }
+  }
+
+  /// See [PairingRemoteDataSource.cancelPairing].
+  @override
+  Future<Either<Failure, Unit>> cancelPairing() async {
+    try {
+      final cancelOutcome = await _client.cancelPairing();
+      return switch (cancelOutcome.status) {
+        PairingCancelStatus.cancelled => const Right(unit),
+        PairingCancelStatus.alreadyIdle => const Right(unit),
+      };
+    } on DovahLinkConnectionException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkProtocolException catch (error) {
+      return Left(NetworkFailure(error.message));
+    } on DovahLinkPairingException catch (error) {
+      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+    } on DovahLinkStorageException catch (error) {
+      return Left(DatabaseFailure(error.message));
+    } on Object {
+      return const Left(_unexpectedPairingFailure);
+    }
+  }
 }

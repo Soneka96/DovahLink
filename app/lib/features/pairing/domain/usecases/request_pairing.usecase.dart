@@ -7,7 +7,7 @@ import 'package:dovahlink_client/shared/usecase/usecase.dart';
 
 /// Starts, or queries the status of, a pairing challenge through
 /// [IPairingRepository].
-class RequestPairingUseCase extends UseCase<Either<Failure, Unit>, NoParams> {
+class RequestPairingUseCase extends UseCase<Either<Failure, int?>, NoParams> {
   /// Creates a use case backed by [IPairingRepository].
   RequestPairingUseCase(this._repository);
 
@@ -16,7 +16,7 @@ class RequestPairingUseCase extends UseCase<Either<Failure, Unit>, NoParams> {
 
   /// See [UseCase.call].
   @override
-  Future<Either<Failure, Unit>> call(NoParams params) {
+  Future<Either<Failure, int?>> call(NoParams params) {
     return _repository.requestPairingCode();
   }
 }

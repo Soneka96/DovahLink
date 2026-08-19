@@ -91,6 +91,29 @@ TEST_CASE("IsAvailable is true before consumption or expiry", "[security][token_
     CHECK(store.IsAvailable());
 }
 
+TEST_CASE("RemainingSeconds reports a positive duration before consumption or expiry",
+          "[security][token_store]") {
+    TokenStore store(MakeToken(1), std::chrono::minutes(5));
+    auto remaining = store.RemainingSeconds();
+    REQUIRE(remaining.has_value());
+    CHECK(*remaining > std::chrono::seconds(0));
+    CHECK(*remaining <= std::chrono::minutes(5));
+}
+
+TEST_CASE("RemainingSeconds reports no value once the token has expired", "[security][token_store]") {
+    TokenStore store(MakeToken(1), std::chrono::seconds(0));
+    CHECK_FALSE(store.RemainingSeconds().has_value());
+}
+
+TEST_CASE("RemainingSeconds reports no value after a successful consume", "[security][token_store]") {
+    auto token = MakeToken(1);
+    TokenStore store(token);
+    auto reservation = store.TryReserve(token);
+    REQUIRE(reservation.has_value());
+    reservation->Commit();
+    CHECK_FALSE(store.RemainingSeconds().has_value());
+}
+
 TEST_CASE("IsAvailable is false after a successful consume", "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);

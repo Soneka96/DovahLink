@@ -285,6 +285,28 @@ public static class BridgeScenario
         }
     }
 
+    /// <summary>
+    /// Builds a pairing-renotify request envelope to redisplay the active challenge's code.
+    /// </summary>
+    /// <param name="sessionId">The authenticated session ID.</param>
+    /// <param name="messageId">The message identifier for the envelope.</param>
+    /// <returns>A pairing_renotify envelope with no payload, matching protocol/schema/README.md.</returns>
+    public static Envelope RenotifyEnvelope(string sessionId, string messageId = "message-renotify-1")
+    {
+        return new Envelope("pairing_renotify", messageId, sessionId, null, new JsonObject());
+    }
+
+    /// <summary>
+    /// Builds a pairing-cancel request envelope to clear an owned active challenge or pending credential.
+    /// </summary>
+    /// <param name="sessionId">The authenticated session ID.</param>
+    /// <param name="messageId">The message identifier for the envelope.</param>
+    /// <returns>A pairing_cancel envelope with no payload, matching protocol/schema/README.md.</returns>
+    public static Envelope CancelEnvelope(string sessionId, string messageId = "message-cancel-1")
+    {
+        return new Envelope("pairing_cancel", messageId, sessionId, null, new JsonObject());
+    }
+
     /// <summary>Builds a harness environment override isolating the trust store at <paramref name="path"/>.</summary>
     /// <param name="path">The isolated trust-store file path.</param>
     public static Dictionary<string, string> TrustStoreOverride(string path) =>

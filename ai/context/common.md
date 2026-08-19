@@ -54,6 +54,16 @@ see:
 - C# (.NET validation client and tooling): `ai/context/dotnet/csharp-style.md`
 - Python (repository tooling): `ai/context/python/python-style.md`
 
+A small type that exists only to be returned by, or passed to, exactly one other type -- a
+result/outcome value type, for example -- is not a third exception alongside enums and constants:
+it still gets its own file under the one-type-per-file default above, the same as any other primary
+type, rather than being nested inside the type it serves. This applies uniformly across languages.
+The one narrow carve-out is a type that is structurally inseparable from its owner rather than
+merely convenient to nest beside it -- for example a C++ RAII helper that requires `friend` access
+to its owner's private state, or an equivalent language-specific coupling that cannot be expressed
+across a file boundary. Document a carve-out type as such where it is declared; do not invoke it
+merely because a type is small or currently used in only one place.
+
 A curated public export barrel (for example a Dart package's `lib/<package>.dart`) is not subject
 to this rule: it declares no types of its own, it only re-exports a curated public surface that
 already lives in its own properly organized file elsewhere, per each area's own public-API

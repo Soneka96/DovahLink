@@ -73,6 +73,8 @@ void main() {
               phase: entry.key,
               bridgeVersion: null,
               error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
             ),
           ),
           distinct: true,

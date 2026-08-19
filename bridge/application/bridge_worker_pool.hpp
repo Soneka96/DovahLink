@@ -13,6 +13,8 @@
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
+#include <boost/asio/ip/tcp.hpp>
+
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -83,6 +85,31 @@ private:
     /// @param listener Listener whose accept loop is executed.
     /// @param workerRunner Per-connection exception containment boundary.
     void AcceptLoop(transport::LoopbackListener& listener, const ContainedWorkRunner& workerRunner);
+
+    /// Joins the previous connection's session thread, if any is still joinable. `ConnectionSlot`
+    /// admits at most one session at a time, so by the time a *new* connection successfully
+    /// acquires the slot the previous session thread has already released it (finished or is
+    /// finishing) -- this join is therefore expected to return immediately, not to reintroduce the
+    /// accept-loop stall `RunSessionOnOwnThread` exists to avoid. Call only while holding
+    /// `connectionThreadMutex_`.
+    void JoinConnectionThreadLocked();
+
+    /// Runs one accepted connection's full session (`RunConnectionSession`, wrapped in
+    /// `workerRunner`'s exception containment) on its own thread, moving `slotLease` into that
+    /// thread so the slot is held for the session's real lifetime. Letting `AcceptLoop` return to
+    /// `AcceptLoopbackOnly()` immediately after spawning this -- rather than blocking on the
+    /// session itself -- is what lets a second connection attempt arriving while this one is still
+    /// live actually reach `ConnectionSlot::TryAcquire()` and be rejected promptly, matching
+    /// `ai/context/protocol/security.md`'s "reject without a WebSocket handshake" contract instead
+    /// of sitting unrejected in the OS accept backlog until this session's own idle timeout frees
+    /// the accept thread.
+    /// @param workerRunner Per-connection exception containment boundary.
+    /// @param connection Identifier assigned to the accepted connection.
+    /// @param socket The accepted, not-yet-upgraded TCP socket.
+    /// @param slotLease The connection slot lease admitting this connection; released when the
+    ///     session ends.
+    void RunSessionOnOwnThread(const ContainedWorkRunner& workerRunner, ConnectionId connection,
+                               boost::asio::ip::tcp::socket socket, transport::ConnectionSlot::Lease slotLease);
 
     /// Shuts down the active session socket, if one is currently published, independent of the
     /// caller's thread -- the same cross-thread-safe path `Socket::Shutdown()` itself provides.
@@ -156,6 +183,16 @@ private:
 
     /// IPv6 accept worker.
     std::thread threadV6_;
+
+    /// Serializes replacing `connectionThread_` (both accept-loop threads may spawn one).
+    std::mutex connectionThreadMutex_;
+
+    /// Runs the most recently accepted connection's full session. `ConnectionSlot`'s exclusivity
+    /// means at most one of these is ever doing meaningful work at a time -- see
+    /// `JoinConnectionThreadLocked`'s own doc comment for why a single field suffices here, the
+    /// same reasoning `activeConnectionId_` above already documents for the single-connected-client
+    /// model.
+    std::thread connectionThread_;
 };
 
 }  // namespace dovahlink::application

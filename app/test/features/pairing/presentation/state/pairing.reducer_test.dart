@@ -23,6 +23,8 @@ void main() {
         phase: PairingPhase.failed,
         bridgeVersion: null,
         error: 'old error',
+        codeExpiresAt: null,
+        renotifyAvailableAt: null,
       );
 
       final PairingState result = pairingReducer(
@@ -91,6 +93,8 @@ void main() {
           phase: PairingPhase.connecting,
           bridgeVersion: null,
           error: 'old error',
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
         );
 
         final PairingState result = pairingReducer(
@@ -123,7 +127,78 @@ void main() {
 
       expect(result.phase, PairingPhase.awaitingCode);
       expect(result.error, isNull);
+      expect(result.codeExpiresAt, isNull);
     });
+
+    test(
+      'PairingCodeAvailableAction sets codeExpiresAt when expiresInSeconds is present',
+      () {
+        final PairingState result = pairingReducer(
+          PairingState.initial(),
+          const PairingCodeAvailableAction(expiresInSeconds: 30),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.codeExpiresAt, isNotNull);
+        expect(result.codeExpiresAt!.isAfter(DateTime.now()), isTrue);
+      },
+    );
+
+    test(
+      'PairingCodeAvailableAction sets codeExpiresAt when expiresInSeconds is zero',
+      () {
+        final PairingState result = pairingReducer(
+          PairingState.initial(),
+          const PairingCodeAvailableAction(expiresInSeconds: 0),
+        );
+
+        expect(result.codeExpiresAt, isNotNull);
+      },
+    );
+
+    test(
+      'PairingCodeAvailableAction clears a stale codeExpiresAt when expiresInSeconds is null',
+      () {
+        final DateTime staleExpiresAt = DateTime.now();
+        final PairingState state = PairingState(
+          phase: PairingPhase.requestingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: staleExpiresAt,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingCodeAvailableAction(),
+        );
+
+        expect(result.codeExpiresAt, isNull);
+      },
+    );
+
+    test(
+      'PairingCodeAvailableAction clears a stale renotifyAvailableAt from a previous challenge',
+      () {
+        final DateTime staleRenotifyAvailableAt = DateTime.now().add(
+          const Duration(seconds: 5),
+        );
+        final PairingState state = PairingState(
+          phase: PairingPhase.requestingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: staleRenotifyAvailableAt,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingCodeAvailableAction(expiresInSeconds: 30),
+        );
+
+        expect(result.renotifyAvailableAt, isNull);
+      },
+    );
 
     test('PairingCodeSubmittedAction changes the phase to confirming', () {
       final PairingState result = pairingReducer(
@@ -145,26 +220,25 @@ void main() {
       expect(result.error, isNull);
     });
 
-    test(
-      'PairingDisconnectedAction changes the phase to disconnected, clears '
-      'error, and preserves bridgeVersion',
-      () {
-        const PairingState state = PairingState(
-          phase: PairingPhase.connecting,
-          bridgeVersion: '1.2.3',
-          error: 'old error',
-        );
+    test('PairingDisconnectedAction changes the phase to disconnected, clears '
+        'error, and preserves bridgeVersion', () {
+      const PairingState state = PairingState(
+        phase: PairingPhase.connecting,
+        bridgeVersion: '1.2.3',
+        error: 'old error',
+        codeExpiresAt: null,
+        renotifyAvailableAt: null,
+      );
 
-        final PairingState result = pairingReducer(
-          state,
-          const PairingDisconnectedAction(),
-        );
+      final PairingState result = pairingReducer(
+        state,
+        const PairingDisconnectedAction(),
+      );
 
-        expect(result.phase, PairingPhase.disconnected);
-        expect(result.error, isNull);
-        expect(result.bridgeVersion, '1.2.3');
-      },
-    );
+      expect(result.phase, PairingPhase.disconnected);
+      expect(result.error, isNull);
+      expect(result.bridgeVersion, '1.2.3');
+    });
 
     test('PairingFailedAction stores the message and phase', () {
       final PairingState result = pairingReducer(
@@ -176,11 +250,36 @@ void main() {
       expect(result.error, "That code isn't correct.");
     });
 
+    test(
+      'PairingFailedAction clears codeExpiresAt and renotifyAvailableAt from the leftover '
+      'challenge',
+      () {
+        final PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: DateTime.now(),
+          renotifyAvailableAt: DateTime.now().add(const Duration(seconds: 5)),
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingFailedAction('Too many wrong attempts.'),
+        );
+
+        expect(result.phase, PairingPhase.failed);
+        expect(result.codeExpiresAt, isNull);
+        expect(result.renotifyAvailableAt, isNull);
+      },
+    );
+
     test('PairingDisposedAction resets phase, bridge version, and error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
         bridgeVersion: '1.2.3',
         error: 'old error',
+        codeExpiresAt: null,
+        renotifyAvailableAt: null,
       );
 
       final PairingState result = pairingReducer(
@@ -200,6 +299,8 @@ void main() {
           phase: PairingPhase.trusted,
           bridgeVersion: '1.2.3',
           error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
         );
 
         final PairingState result = pairingReducer(
@@ -210,6 +311,232 @@ void main() {
         expect(result.phase, PairingPhase.none);
         expect(result.bridgeVersion, isNull);
         expect(result.error, isNull);
+      },
+    );
+  });
+
+  group('PairingReducer processes new pairing actions correctly', () {
+    test(
+      'PairingRenotifyRequestedAction clears error, stays in awaitingCode',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: 'old error',
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingRenotifyRequestedAction(),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.error, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+        expect(result.codeExpiresAt, isNull);
+        expect(result.renotifyAvailableAt, isNull);
+      },
+    );
+
+    test('PairingRenotifyRequestedAction preserves timing fields', () {
+      final DateTime expiresAt = DateTime.now();
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
+      final PairingState state = PairingState(
+        phase: PairingPhase.awaitingCode,
+        bridgeVersion: '1.2.3',
+        error: 'old error',
+        codeExpiresAt: expiresAt,
+        renotifyAvailableAt: availableAt,
+      );
+
+      final PairingState result = pairingReducer(
+        state,
+        const PairingRenotifyRequestedAction(),
+      );
+
+      expect(result.codeExpiresAt, expiresAt);
+      expect(result.renotifyAvailableAt, availableAt);
+    });
+
+    test(
+      'PairingRenotifySucceededAction clears error, stays in awaitingCode',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: 'old error',
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingRenotifySucceededAction(),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.error, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
+    test('PairingRenotifySucceededAction preserves timing fields', () {
+      final DateTime expiresAt = DateTime.now();
+      final PairingState state = PairingState(
+        phase: PairingPhase.awaitingCode,
+        bridgeVersion: '1.2.3',
+        error: 'old error',
+        codeExpiresAt: expiresAt,
+        renotifyAvailableAt: null,
+      );
+
+      final PairingState result = pairingReducer(
+        state,
+        const PairingRenotifySucceededAction(),
+      );
+
+      expect(result.codeExpiresAt, expiresAt);
+    });
+
+    test('PairingRenotifyCooldownAction sets renotifyAvailableAt', () {
+      const PairingState state = PairingState(
+        phase: PairingPhase.awaitingCode,
+        bridgeVersion: '1.2.3',
+        error: null,
+        codeExpiresAt: null,
+        renotifyAvailableAt: null,
+      );
+
+      final PairingState result = pairingReducer(
+        state,
+        const PairingRenotifyCooldownAction(retryAfterSeconds: 5),
+      );
+
+      expect(result.phase, PairingPhase.awaitingCode);
+      expect(result.renotifyAvailableAt, isNotNull);
+      expect(result.renotifyAvailableAt!.isAfter(DateTime.now()), isTrue);
+    });
+
+    test('PairingRenotifyCooldownAction preserves codeExpiresAt and error', () {
+      final DateTime expiresAt = DateTime.now();
+      final PairingState state = PairingState(
+        phase: PairingPhase.awaitingCode,
+        bridgeVersion: '1.2.3',
+        error: 'wrong code',
+        codeExpiresAt: expiresAt,
+        renotifyAvailableAt: null,
+      );
+
+      final PairingState result = pairingReducer(
+        state,
+        const PairingRenotifyCooldownAction(retryAfterSeconds: 3),
+      );
+
+      expect(result.codeExpiresAt, expiresAt);
+      expect(result.error, 'wrong code');
+    });
+
+    test(
+      'PairingCancelSucceededAction clears timing and transitions to failed',
+      () {
+        final DateTime expiresAt = DateTime.now();
+        final PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: expiresAt,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingCancelSucceededAction(),
+        );
+
+        expect(result.phase, PairingPhase.failed);
+        expect(result.error, 'Pairing cancelled.');
+        expect(result.codeExpiresAt, isNull);
+        expect(result.renotifyAvailableAt, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
+    test(
+      'PairingConfirmFailedWithAttemptsRemainingAction keeps awaitingCode with error',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: "That code isn't correct.",
+          ),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.error, "That code isn't correct.");
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
+    test(
+      'PairingConfirmFailedWithAttemptsRemainingAction preserves timing fields',
+      () {
+        final DateTime expiresAt = DateTime.now();
+        final DateTime availableAt = DateTime.now().add(
+          const Duration(seconds: 5),
+        );
+        final PairingState state = PairingState(
+          phase: PairingPhase.awaitingCode,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: expiresAt,
+          renotifyAvailableAt: availableAt,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: 'invalid',
+          ),
+        );
+
+        expect(result.codeExpiresAt, expiresAt);
+        expect(result.renotifyAvailableAt, availableAt);
+      },
+    );
+
+    test(
+      'PairingConfirmFailedWithAttemptsRemainingAction returns to awaitingCode from its real '
+      'predecessor, confirming',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.confirming,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: "That code isn't correct.",
+          ),
+        );
+
+        expect(result.phase, PairingPhase.awaitingCode);
+        expect(result.error, "That code isn't correct.");
       },
     );
   });

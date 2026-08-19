@@ -11,6 +11,10 @@ script or package gets its own, never shared across scripts): every enum belongs
 that tool's `constants.py`. Within either file, group entries by the area they belong to, each
 preceded by a `# ---- <Area> ----` comment banner.
 
+A small result/outcome class used by only one other type is not a third exception: it still gets
+its own module rather than being defined inside the module of the type that returns it, per
+`ai/context/common.md`'s file-organization rule.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md` and PEP 257 placement.

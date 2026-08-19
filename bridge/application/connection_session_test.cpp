@@ -33,6 +33,7 @@ using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::PairingSession;
+using dovahlink::security::StartChallengeOutcome;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
@@ -74,6 +75,12 @@ public:
         codes.emplace_back(sixDigitCode);
     }
 
+    /// No-op: satisfies the interface only, matching this fake's existing minimal-footprint intent.
+    void NotifyPairingCodeIncorrect(std::string_view) override {}
+
+    /// No-op: satisfies the interface only, matching this fake's existing minimal-footprint intent.
+    void NotifyPairingAttemptsExhausted() override {}
+
     /// Every code this sink has been given, in order.
     std::vector<std::string> codes;
 };
@@ -107,6 +114,17 @@ std::string HelloMessage(const std::string& token, std::string clientId = "clien
            R"("clientId": ")" +
            clientId + R"(", "auth": {"method": "one_time_local_token", "token": ")" + token +
            R"("}}, "bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+}
+
+/// Builds an unpaired-tier hello message (no credential) for the given clientId -- the actual
+/// trust tier the pairing flow runs under, per `ai/context/protocol/security.md`'s "Hello
+/// authentication and session trust tiers".
+std::string UnpairedHelloMessage(std::string clientId) {
+    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
+           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
+           R"("clientId": ")" +
+           clientId + R"(", "auth": {"method": "unpaired"}}, )"
+           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
 /// Builds a ping message for an established session.
@@ -832,4 +850,348 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives afte
     // frame or the session message cap.
     CHECK(readEc);
     CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("RunConnectionSession's disconnect notifies PairingSession, keeping an owned challenge "
+          "reserved within the grace period",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    auto start = std::chrono::steady_clock::now();
+    // Established directly through PairingSession's own API -- this test proves
+    // RunConnectionSession's disconnect wiring, not the pairing_request wire flow, which is
+    // covered elsewhere (pairing_handler_test.cpp, message_dispatcher_test.cpp).
+    REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kStarted);
+
+    // Exactly three steadyNow() calls occur for a connection that completes hello and then closes
+    // without exchanging any further messages: the ConnectionTimeoutTracker constructor, postReadNow
+    // (also used for the reconnect notification), and the final teardown call that notifies
+    // PairingSession of the disconnect.
+    int clockCalls = 0;
+    auto steadyNow = [&] {
+        ++clockCalls;
+        if (clockCalls <= 2) {
+            return start;
+        }
+        return start + std::chrono::seconds(2);
+    };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken, "client-1"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(clockCalls == 3);
+
+    // Disconnect landed at start+2s; well inside the 10-second grace period, a different device is
+    // still shut out, and the original owner's challenge is untouched.
+    CHECK(pairingSession.TryStartChallenge("client-2", start + std::chrono::seconds(2 + 5)).outcome ==
+          StartChallengeOutcome::kOtherDeviceActive);
+}
+
+TEST_CASE("RunConnectionSession's disconnect notification lets an owned challenge's grace period "
+          "elapse, freeing it for another device",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    auto start = std::chrono::steady_clock::now();
+    REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kStarted);
+
+    int clockCalls = 0;
+    auto steadyNow = [&] {
+        ++clockCalls;
+        if (clockCalls <= 2) {
+            return start;
+        }
+        return start + std::chrono::seconds(2);
+    };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken, "client-1"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(clockCalls == 3);
+
+    // Disconnect landed at start+2s; past the 10-second grace period (start+2s+11s), the slot is
+    // genuinely free for a different device.
+    auto started = pairingSession.TryStartChallenge("client-2", start + std::chrono::seconds(2 + 11));
+    CHECK(started.outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(started.code.has_value());
+}
+
+TEST_CASE("RunConnectionSession's successful hello notifies PairingSession of a reconnect, clearing "
+          "a pending grace countdown from a prior disconnect",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    auto start = std::chrono::steady_clock::now();
+    REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kStarted);
+    // Simulates a prior dropped connection that already started the grace countdown, before this
+    // test's own connection (the "reconnect") is even accepted.
+    pairingSession.NotifyDisconnected("client-1", start);
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, HelloMessage(kValidHexToken, "client-1"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    // capabilities is sent strictly after this session's own NotifyReconnected call in program
+    // order on the server thread, so reading it here happens-after that call actually ran.
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    // Even past what would have been the original disconnect's grace deadline, the challenge is
+    // still client-1's -- the reconnect cleared the countdown rather than leaving it running.
+    auto pastOriginalGrace = start + std::chrono::seconds(11);
+    CHECK(pairingSession.TryStartChallenge("client-2", pastOriginalGrace).outcome ==
+          StartChallengeOutcome::kOtherDeviceActive);
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    REQUIRE_FALSE(serverAcceptEc);
+}
+
+TEST_CASE("RunConnectionSession's disconnect/reconnect wiring works on an unpaired session, the "
+          "trust tier pairing actually runs under",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    auto start = std::chrono::steady_clock::now();
+    REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kStarted);
+
+    int clockCalls = 0;
+    auto steadyNow = [&] {
+        ++clockCalls;
+        if (clockCalls <= 2) {
+            return start;
+        }
+        return start + std::chrono::seconds(2);
+    };
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion, steadyNow);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, UnpairedHelloMessage("client-1"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    REQUIRE_FALSE(serverAcceptEc);
+    CHECK(clockCalls == 3);
+
+    // Disconnect landed at start+2s; well inside the 10-second grace period, a different device is
+    // still shut out. Proves the wiring fires the same way on the unpaired tier the pairing flow
+    // actually authenticates on, not just the developer-token tier the other tests above use.
+    CHECK(pairingSession.TryStartChallenge("client-2", start + std::chrono::seconds(2 + 5)).outcome ==
+          StartChallengeOutcome::kOtherDeviceActive);
+}
+
+TEST_CASE("RunConnectionSession's reconnect notification for a client owning nothing is a harmless "
+          "no-op that leaves an unrelated client's owned challenge untouched",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    auto start = std::chrono::steady_clock::now();
+    // "client-1" owns an active challenge; the connection under test authenticates as the
+    // unrelated "client-3", which owns nothing in PairingSession.
+    REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kStarted);
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore, credentialThrottle, sessionManager, /*connection=*/1, activePlayContext,
+                             pairingSession, pairingNotificationSink, /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, UnpairedHelloMessage("client-3"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.messageType == "hello_ack");
+    // capabilities is sent strictly after this session's own NotifyReconnected("client-3", ...)
+    // call in program order on the server thread, so reading it here happens-after that call ran.
+    auto capabilities = ClientReadEnvelope(clientWs);
+    CHECK(capabilities.messageType == "capabilities");
+
+    // client-1's challenge is exactly as it was: "client-3" reconnecting (owning nothing) never
+    // touched it.
+    CHECK(pairingSession.TryStartChallenge("client-1", start).outcome == StartChallengeOutcome::kResumed);
+    CHECK(pairingSession.TryStartChallenge("client-2", start).outcome == StartChallengeOutcome::kOtherDeviceActive);
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    REQUIRE_FALSE(serverAcceptEc);
 }

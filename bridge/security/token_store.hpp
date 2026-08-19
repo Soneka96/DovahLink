@@ -67,6 +67,10 @@ public:
     /// Reports whether the token remains available, clearing it on expiry.
     [[nodiscard]] bool IsAvailable();
 
+    /// Returns the token's remaining validity, or `std::nullopt` if consumed or expired
+    /// (clearing it on expiry, matching @ref IsAvailable).
+    [[nodiscard]] std::optional<std::chrono::seconds> RemainingSeconds();
+
 private:
     /// Checks availability and clears expired token material while locked.
     bool IsAvailableLocked();

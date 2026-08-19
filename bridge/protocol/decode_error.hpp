@@ -10,4 +10,8 @@ struct DecodeError {
     std::string reason;
 };
 
+/// Reports a message-payload decoding failure. An alias, not a distinct type: every payload
+/// codec's error is structurally a `DecodeError`.
+using MessageError = DecodeError;
+
 }  // namespace dovahlink::protocol

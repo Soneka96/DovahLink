@@ -6,8 +6,11 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
@@ -78,8 +81,31 @@ class PairingScreen extends StatelessWidget {
                             PairingPhase.unpaired => PairingRequestCodeButton(
                               onRequestCode: viewModel.onRequestCode,
                             ),
-                            PairingPhase.awaitingCode => PairingCodeForm(
-                              onSubmit: viewModel.onSubmitCode,
+                            PairingPhase.awaitingCode => Column(
+                              children: [
+                                PairingCountdown(
+                                  textStyle:
+                                      Theme.of(context).textTheme.headlineLarge,
+                                ),
+                                const SizedBox(height: 16),
+                                PairingCodeForm(
+                                  onSubmit: viewModel.onSubmitCode,
+                                ),
+                                const SizedBox(height: 16),
+                                const Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    Expanded(
+                                      child: PairingRenotifyButton(),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                      child: PairingCancelButton(),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                             PairingPhase.trusted =>
                               const PairingTrustedIndicator(),

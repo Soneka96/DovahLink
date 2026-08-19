@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Catch2 3 CONFIG REQUIRED)
+find_package(Catch2 3.0 CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(boost_beast CONFIG REQUIRED)
 find_package(boost_json CONFIG REQUIRED)
@@ -43,9 +43,22 @@ add_library(dovahlink_bridge_core STATIC
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
+    protocol/capabilities_payload.cpp
+    protocol/character_state.cpp
     protocol/envelope.cpp
+    protocol/error_payload.cpp
+    protocol/hello_ack_payload.cpp
+    protocol/hello_payload.cpp
     protocol/json_field_decoders.cpp
-    protocol/messages.cpp
+    protocol/pairing_ack_payload.cpp
+    protocol/pairing_confirm_payload.cpp
+    protocol/pairing_outcome_payload.cpp
+    protocol/pairing_status_payload.cpp
+    protocol/snapshot_request_payload.cpp
+    protocol/state_event_payload.cpp
+    protocol/state_snapshot_payload.cpp
+    protocol/subscribe_payload.cpp
+    protocol/subscription_ack_payload.cpp
     security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
@@ -153,9 +166,22 @@ add_executable(dovahlink_bridge_tests
     security/trust_store_test.cpp
     security/windows_trust_store_persistence_test.cpp
     protocol/bounded_json_test.cpp
+    protocol/capabilities_payload_test.cpp
+    protocol/character_state_test.cpp
     protocol/envelope_test.cpp
+    protocol/error_payload_test.cpp
+    protocol/hello_ack_payload_test.cpp
+    protocol/hello_payload_test.cpp
     protocol/json_field_decoders_test.cpp
-    protocol/messages_test.cpp
+    protocol/pairing_ack_payload_test.cpp
+    protocol/pairing_confirm_payload_test.cpp
+    protocol/pairing_outcome_payload_test.cpp
+    protocol/pairing_status_payload_test.cpp
+    protocol/snapshot_request_payload_test.cpp
+    protocol/state_event_payload_test.cpp
+    protocol/state_snapshot_payload_test.cpp
+    protocol/subscribe_payload_test.cpp
+    protocol/subscription_ack_payload_test.cpp
     transport/connection_slot_test.cpp
     transport/inbound_limit_test.cpp
     transport/listener_test.cpp

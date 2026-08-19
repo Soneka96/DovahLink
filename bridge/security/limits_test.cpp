@@ -36,3 +36,11 @@ TEST_CASE("throttling limits match the documented Phase 1 values", "[security][l
     CHECK(kMaxProtocolViolations == 3);
     CHECK(kProtocolViolationWindow == std::chrono::seconds{30});
 }
+
+TEST_CASE("pairing challenge limits match the documented Phase 3.1 values", "[security][limits]") {
+    CHECK(kPairingReconnectGracePeriod == std::chrono::seconds{10});
+    CHECK(kPairingRenotifyCooldown == std::chrono::seconds{5});
+    CHECK(kPairingConfirmPacingInterval == std::chrono::seconds{1});
+    CHECK(kPairingMaxWrongAttempts == 5);
+    CHECK(kPairingPendingCredentialTtl == std::chrono::minutes{5});
+}

@@ -7,7 +7,8 @@
     "outcome": "already_trusted",
     "credential": "a1b2c3d4e5f6",
     "shortId": "12345",
-    "displayName": "My PC"
+    "displayName": "My PC",
+    "retryAfterSeconds": null
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,

@@ -4,6 +4,7 @@
 #include "security/csprng.hpp"
 #include "security/hex.hpp"
 
+#include <cstdint>
 #include <utility>
 
 namespace dovahlink::application {
@@ -30,32 +31,49 @@ protocol::Envelope BuildPairingOutcome(const std::string& sessionId, std::option
                                          "Unable to build response", false);
 }
 
+/// Converts a `PairingSession` duration to the wire's plain-integer seconds shape.
+std::optional<std::int64_t> ToWireSeconds(std::optional<std::chrono::seconds> duration) {
+    if (!duration.has_value()) {
+        return std::nullopt;
+    }
+    return static_cast<std::int64_t>(duration->count());
+}
+
 }  // namespace
 
 protocol::Envelope HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
-                                          const std::string& sessionId, security::PairingSession& pairingSession,
-                                          PairingNotificationSink& notificationSink) {
-    auto result = pairingSession.TryStartChallenge();
+                                          const std::string& sessionId, const std::string& clientId,
+                                          security::PairingSession& pairingSession,
+                                          PairingNotificationSink& notificationSink,
+                                          std::chrono::steady_clock::time_point now) {
+    auto result = pairingSession.TryStartChallenge(clientId, now);
     std::string state;
+    std::optional<std::int64_t> expiresInSeconds;
     switch (result.outcome) {
-        case security::PairingSession::StartChallengeOutcome::kStarted:
+        case security::StartChallengeOutcome::kStarted:
             notificationSink.NotifyPairingCodeAvailable(*result.code);
             state = "available";
+            expiresInSeconds = ToWireSeconds(pairingSession.RemainingSeconds(now));
             break;
-        case security::PairingSession::StartChallengeOutcome::kAlreadyInProgress:
-            // A challenge or a pending credential is active. Never a second code, never a second
-            // notification.
+        case security::StartChallengeOutcome::kResumed:
+            // clientId already owns the active challenge or pending credential. Never a second
+            // code, never a second notification.
             state = "in_progress";
+            expiresInSeconds = ToWireSeconds(pairingSession.RemainingSeconds(now));
             break;
-        case security::PairingSession::StartChallengeOutcome::kGeneratorFailed:
+        case security::StartChallengeOutcome::kOtherDeviceActive:
+            // A different clientId owns it -- reveal nothing else, including remaining time.
+            state = "other_device_pairing";
+            break;
+        case security::StartChallengeOutcome::kGeneratorFailed:
             state = "unavailable";
             break;
     }
 
-    auto envelope = protocol::BuildEnvelope(std::string(protocol::message_type::kPairingStatus), sessionId,
-                                             pairingRequestEnvelope.messageId,
-                                             protocol::EncodePairingStatusPayload(
-                                                 protocol::PairingStatusPayload{.state = std::move(state)}));
+    auto envelope = protocol::BuildEnvelope(
+        std::string(protocol::message_type::kPairingStatus), sessionId, pairingRequestEnvelope.messageId,
+        protocol::EncodePairingStatusPayload(
+            protocol::PairingStatusPayload{.state = std::move(state), .expiresInSeconds = expiresInSeconds}));
     if (envelope.has_value()) {
         return std::move(*envelope);
     }
@@ -66,6 +84,7 @@ protocol::Envelope HandlePairingRequest(const protocol::Envelope& pairingRequest
 protocol::Envelope HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                                           const std::string& sessionId, const std::string& clientId,
                                           security::PairingSession& pairingSession,
+                                          PairingNotificationSink& notificationSink,
                                           std::chrono::steady_clock::time_point now) {
     auto confirm = protocol::DecodePairingConfirmPayload(pairingConfirmEnvelope.payload);
     if (!confirm.has_value()) {
@@ -85,7 +104,7 @@ protocol::Envelope HandlePairingConfirm(const protocol::Envelope& pairingConfirm
     auto result =
         pairingSession.TryConfirmCode(confirm->code, now, clientId, *credentialBytes, confirm->displayName);
 
-    if (result == security::PairingSession::ConfirmResult::kConfirmed) {
+    if (result.outcome == security::ConfirmResult::kConfirmed) {
         return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
                                     protocol::PairingOutcomePayload{
                                         .outcome = "credential_issued",
@@ -94,15 +113,28 @@ protocol::Envelope HandlePairingConfirm(const protocol::Envelope& pairingConfirm
                                         .displayName = confirm->displayName,
                                     });
     }
-    if (result == security::PairingSession::ConfirmResult::kRateLimited) {
+    if (result.outcome == security::ConfirmResult::kPacingLimited) {
         return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
-                                    protocol::PairingOutcomePayload{.outcome = "rate_limited"});
+                                    protocol::PairingOutcomePayload{
+                                        .outcome = "pacing_limited",
+                                        .retryAfterSeconds = ToWireSeconds(result.retryAfterSeconds)});
     }
-    if (result == security::PairingSession::ConfirmResult::kExpired) {
+    if (result.outcome == security::ConfirmResult::kExpired) {
         return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
                                     protocol::PairingOutcomePayload{.outcome = "expired"});
     }
+    if (result.outcome == security::ConfirmResult::kHardLimitReached) {
+        notificationSink.NotifyPairingAttemptsExhausted();
+        return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
+                                    protocol::PairingOutcomePayload{.outcome = "hard_limit_reached"});
+    }
     // Only kInvalid remains.
+    if (result.shouldAutoRenotify) {
+        auto currentCode = pairingSession.CurrentCode(now);
+        if (currentCode.has_value()) {
+            notificationSink.NotifyPairingCodeIncorrect(*currentCode);
+        }
+    }
     return BuildPairingOutcome(sessionId, pairingConfirmEnvelope.messageId,
                                 protocol::PairingOutcomePayload{.outcome = "invalid"});
 }
@@ -110,7 +142,7 @@ protocol::Envelope HandlePairingConfirm(const protocol::Envelope& pairingConfirm
 protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
                                       const std::string& clientId, ConnectionId connection,
                                       security::PairingSession& pairingSession, security::TrustStore& trustStore,
-                                      SessionManager& sessionManager) {
+                                      SessionManager& sessionManager, std::chrono::steady_clock::time_point now) {
     auto ack = protocol::DecodePairingAckPayload(pairingAckEnvelope.payload);
     if (!ack.has_value()) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId, "malformed_message",
@@ -146,7 +178,7 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
         }
     }
 
-    auto pending = pairingSession.PeekPending(clientId, *credentialBytes);
+    auto pending = pairingSession.PeekPending(clientId, *credentialBytes, now);
     if (!pending.has_value()) {
         return BuildPairingOutcome(sessionId, pairingAckEnvelope.messageId,
                                     protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
@@ -159,7 +191,7 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId, "internal_error",
                                              "Unable to commit trust", false);
     }
-    static_cast<void>(pairingSession.CommitPending(clientId, *credentialBytes));
+    static_cast<void>(pairingSession.CommitPending(clientId, *credentialBytes, now));
 
     sessionManager.UpgradeToFullTrust(connection, sessionId);
 
@@ -170,6 +202,52 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
                                     .shortId = persisted->shortId,
                                     .displayName = persisted->displayName,
                                 });
+}
+
+protocol::Envelope HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
+                                           const std::string& sessionId, const std::string& clientId,
+                                           security::PairingSession& pairingSession,
+                                           PairingNotificationSink& notificationSink,
+                                           std::chrono::steady_clock::time_point now) {
+    auto result = pairingSession.TryRenotify(clientId, now);
+    switch (result.outcome) {
+        case security::RenotifyOutcome::kRenotified: {
+            auto code = pairingSession.CurrentCode(now);
+            if (code.has_value()) {
+                notificationSink.NotifyPairingCodeAvailable(*code);
+            }
+            return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "renotified"});
+        }
+        case security::RenotifyOutcome::kCooldown:
+            return BuildPairingOutcome(
+                sessionId, pairingRenotifyEnvelope.messageId,
+                protocol::PairingOutcomePayload{.outcome = "renotify_cooldown",
+                                                 .retryAfterSeconds = ToWireSeconds(result.retryAfterSeconds)});
+        case security::RenotifyOutcome::kNotActive:
+            return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "already_idle"});
+    }
+    // Unreachable: every enumerator is handled above.
+    return BuildPairingOutcome(sessionId, pairingRenotifyEnvelope.messageId,
+                                protocol::PairingOutcomePayload{.outcome = "already_idle"});
+}
+
+protocol::Envelope HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope, const std::string& sessionId,
+                                         const std::string& clientId, security::PairingSession& pairingSession,
+                                         std::chrono::steady_clock::time_point now) {
+    auto outcome = pairingSession.TryCancel(clientId, now);
+    switch (outcome) {
+        case security::CancelOutcome::kCancelled:
+            return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "cancelled"});
+        case security::CancelOutcome::kAlreadyIdle:
+            return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                        protocol::PairingOutcomePayload{.outcome = "already_idle"});
+    }
+    // Unreachable: every enumerator is handled above.
+    return BuildPairingOutcome(sessionId, pairingCancelEnvelope.messageId,
+                                protocol::PairingOutcomePayload{.outcome = "already_idle"});
 }
 
 }  // namespace dovahlink::application

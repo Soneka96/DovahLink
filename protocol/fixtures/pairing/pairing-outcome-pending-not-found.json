@@ -7,7 +7,8 @@
     "outcome": "pending_not_found",
     "credential": null,
     "shortId": null,
-    "displayName": null
+    "displayName": null,
+    "retryAfterSeconds": null
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,

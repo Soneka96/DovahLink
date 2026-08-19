@@ -10,8 +10,11 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_trusted.widget.dart';
@@ -149,6 +152,31 @@ void main() {
       expect(find.text('Awaiting code'), findsOneWidget);
       expect(find.byType(PairingCodeForm), findsOneWidget);
     });
+
+    testWidgets(
+      'contains countdown widget when awaiting a code',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
+        when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(PairingCountdown), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'contains renotify and cancel buttons when awaiting a code',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
+        when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(PairingRenotifyButton), findsOneWidget);
+        expect(find.byType(PairingCancelButton), findsOneWidget);
+      },
+    );
 
     testWidgets('contains the trusted state once paired', (
       WidgetTester tester,
@@ -338,6 +366,8 @@ void main() {
               phase: PairingPhase.trusted,
               bridgeVersion: '1.2.3',
               error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
             ),
           ),
         );
@@ -423,6 +453,37 @@ void main() {
           find.byKey(const Key('pairing-confirm-button')),
           findsOneWidget,
         );
+      },
+    );
+
+    testWidgets(
+      'lays out countdown and buttons without overflow at large text scale',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
+        when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
+
+        await tester.pumpWidget(
+          buildWidget(textScaler: const TextScaler.linear(2.0)),
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(PairingCountdown), findsOneWidget);
+        expect(find.byType(PairingRenotifyButton), findsOneWidget);
+        expect(find.byType(PairingCancelButton), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'does not show countdown or buttons outside awaitingCode phase',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.connecting);
+        when(() => mockViewModel.statusLabel).thenReturn('Connecting');
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(PairingCountdown), findsNothing);
+        expect(find.byType(PairingRenotifyButton), findsNothing);
+        expect(find.byType(PairingCancelButton), findsNothing);
       },
     );
   });

@@ -60,6 +60,7 @@ void main() {
         'unavailable': 'pairing/pairing-status-unavailable.json',
         'available': 'pairing/pairing-status-available.json',
         'in_progress': 'pairing/pairing-status-in-progress.json',
+        'other_device_pairing': 'pairing/pairing-status-other-device.json',
       };
       for (final MapEntry<String, String> entry in stateFixtures.entries) {
         test('fromJson decodes the canonical ${entry.key} fixture', () {
@@ -71,18 +72,87 @@ void main() {
         });
       }
 
-      test('fromJson rejects a payload missing the required key', () {
+      test('fromJson decodes expiresInSeconds for an available fixture', () {
+        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          _readPayload('pairing/pairing-status-available.json'),
+        );
+
+        expect(payload.expiresInSeconds, 300);
+      });
+
+      test('fromJson decodes expiresInSeconds for an in_progress fixture', () {
+        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          _readPayload('pairing/pairing-status-in-progress.json'),
+        );
+
+        expect(payload.expiresInSeconds, 187);
+      });
+
+      test(
+        'fromJson decodes expiresInSeconds as null for an unavailable fixture',
+        () {
+          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+            _readPayload('pairing/pairing-status-unavailable.json'),
+          );
+
+          expect(payload.expiresInSeconds, isNull);
+        },
+      );
+
+      test(
+        'fromJson decodes expiresInSeconds as null for an other_device_pairing fixture',
+        () {
+          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+            _readPayload('pairing/pairing-status-other-device.json'),
+          );
+
+          expect(payload.expiresInSeconds, isNull);
+        },
+      );
+
+      test('fromJson rejects a payload missing the required state key', () {
         expect(
-          () => PairingStatusPayload.fromJson(<String, dynamic>{}),
+          () => PairingStatusPayload.fromJson(<String, dynamic>{
+            'expiresInSeconds': null,
+          }),
           throwsA(isA<ProtocolFormatException>()),
         );
       });
 
       test(
-        'fromJson rejects a payload with the wrong type for the required key',
+        'fromJson decodes a payload with expiresInSeconds genuinely omitted as null, matching '
+        'other_device_pairing\'s wire contract',
+        () {
+          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+            <String, dynamic>{'state': 'other_device_pairing'},
+          );
+
+          expect(payload.state, 'other_device_pairing');
+          expect(payload.expiresInSeconds, isNull);
+        },
+      );
+
+      test(
+        'fromJson rejects a payload with the wrong type for the required state key',
         () {
           expect(
-            () => PairingStatusPayload.fromJson(<String, dynamic>{'state': 7}),
+            () => PairingStatusPayload.fromJson(<String, dynamic>{
+              'state': 7,
+              'expiresInSeconds': null,
+            }),
+            throwsA(isA<ProtocolFormatException>()),
+          );
+        },
+      );
+
+      test(
+        'fromJson rejects a payload with the wrong type for expiresInSeconds',
+        () {
+          expect(
+            () => PairingStatusPayload.fromJson(<String, dynamic>{
+              'state': 'available',
+              'expiresInSeconds': 'soon',
+            }),
             throwsA(isA<ProtocolFormatException>()),
           );
         },
@@ -101,6 +171,7 @@ void main() {
         expect(payload.credential, 'a1b2c3d4e5f6');
         expect(payload.shortId, isNull);
         expect(payload.displayName, 'My PC');
+        expect(payload.retryAfterSeconds, isNull);
       });
 
       test('fromJson decodes trusted with a credential and shortId', () {
@@ -112,6 +183,7 @@ void main() {
         expect(payload.credential, 'a1b2c3d4e5f6');
         expect(payload.shortId, '12345');
         expect(payload.displayName, 'My PC');
+        expect(payload.retryAfterSeconds, isNull);
       });
 
       test(
@@ -125,6 +197,7 @@ void main() {
           expect(payload.credential, 'a1b2c3d4e5f6');
           expect(payload.shortId, '12345');
           expect(payload.displayName, 'My PC');
+          expect(payload.retryAfterSeconds, isNull);
         },
       );
 
@@ -139,6 +212,59 @@ void main() {
           expect(payload.credential, isNull);
           expect(payload.shortId, isNull);
           expect(payload.displayName, isNull);
+          expect(payload.retryAfterSeconds, isNull);
+        },
+      );
+
+      test(
+        'fromJson decodes retryAfterSeconds for a pacing_limited fixture',
+        () {
+          final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+            _readPayload('pairing/pairing-outcome-pacing-limited.json'),
+          );
+
+          expect(payload.outcome, 'pacing_limited');
+          expect(payload.retryAfterSeconds, 1);
+        },
+      );
+
+      test(
+        'fromJson decodes retryAfterSeconds as null for a hard_limit_reached fixture',
+        () {
+          final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+            _readPayload('pairing/pairing-outcome-hard-limit-reached.json'),
+          );
+
+          expect(payload.outcome, 'hard_limit_reached');
+          expect(payload.retryAfterSeconds, isNull);
+        },
+      );
+
+      test(
+        'fromJson decodes retryAfterSeconds for a renotify_cooldown fixture',
+        () {
+          final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+            _readPayload('pairing/pairing-outcome-renotify-cooldown.json'),
+          );
+
+          expect(payload.outcome, 'renotify_cooldown');
+          expect(payload.retryAfterSeconds, 3);
+        },
+      );
+
+      test(
+        'fromJson decodes renotified, cancelled, and already_idle with no retryAfterSeconds',
+        () {
+          for (final String fixture in <String>[
+            'pairing/pairing-outcome-renotified.json',
+            'pairing/pairing-outcome-cancelled.json',
+            'pairing/pairing-outcome-already-idle.json',
+          ]) {
+            final PairingOutcomePayload payload =
+                PairingOutcomePayload.fromJson(_readPayload(fixture));
+
+            expect(payload.retryAfterSeconds, isNull, reason: fixture);
+          }
         },
       );
 
@@ -154,12 +280,41 @@ void main() {
       });
 
       test(
+        'fromJson rejects a payload missing the required retryAfterSeconds key',
+        () {
+          final JsonMap withMissingKey = _readPayload(
+            'pairing/pairing-outcome-trusted.json',
+          )..remove('retryAfterSeconds');
+
+          expect(
+            () => PairingOutcomePayload.fromJson(withMissingKey),
+            throwsA(isA<ProtocolFormatException>()),
+          );
+        },
+      );
+
+      test(
         'fromJson rejects a payload with the wrong type for the required outcome key',
         () {
           final JsonMap withWrongType = _readPayload(
             'pairing/pairing-outcome-trusted.json',
           );
           withWrongType['outcome'] = 7;
+
+          expect(
+            () => PairingOutcomePayload.fromJson(withWrongType),
+            throwsA(isA<ProtocolFormatException>()),
+          );
+        },
+      );
+
+      test(
+        'fromJson rejects a payload with the wrong type for retryAfterSeconds',
+        () {
+          final JsonMap withWrongType = _readPayload(
+            'pairing/pairing-outcome-pacing-limited.json',
+          );
+          withWrongType['retryAfterSeconds'] = 'soon';
 
           expect(
             () => PairingOutcomePayload.fromJson(withWrongType),

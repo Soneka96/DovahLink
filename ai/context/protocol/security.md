@@ -48,8 +48,10 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
   credential and returns to unpaired.
-- This state machine maps to five canonical messages, all Connection-category per
-  `ai/context/protocol/conventions.md`: `pairing_request` (client, on an `unpaired`-tier session per
+- This state machine maps to canonical messages, all Connection-category per
+  `ai/context/protocol/conventions.md`:
+
+  **Phase 3 (core pairing):** `pairing_request` (client, on an `unpaired`-tier session per
   "Hello authentication and session trust tiers" below — starts or queries a challenge, no payload),
   `pairing_status` (bridge reply to `pairing_request`: `unavailable`/`available`/`in_progress`, never
   the code itself), `pairing_confirm` (client, carries the user-entered code plus an optional
@@ -57,15 +59,30 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   credential, holds it in memory only, and returns it), `pairing_ack` (client, echoes back the
   credential it just durably saved -- this is the wire form of "final confirmation";
   `PENDING_CREDENTIAL -> TRUSTED` via `TrustStore::Persist`, only once this arrives), and
-  `pairing_outcome` (bridge reply to both `pairing_confirm` and `pairing_ack`, one shared message
-  type distinguished by its `outcome` field: `credential_issued` carries the pending credential;
-  `trusted` carries the committed credential's `shortId`; `already_trusted` is `pairing_ack`'s
-  idempotent-retry success case; `expired`/`invalid`/`rate_limited` carry no credential;
-  `pending_not_found` is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory
-  pending credential, per "the pending credential as no longer known/valid" above). The in-memory
-  pending-credential record is keyed to the single active connection (this phase's single-connected-
-  client limit makes a second concurrent claimant structurally impossible) and never persists past a
-  Bridge restart, matching "Incomplete pending pairing does not need to survive a bridge restart."
+  `pairing_outcome` (bridge reply to `pairing_confirm` and `pairing_ack`, distinguished by its
+  `outcome` field: `credential_issued` carries the pending credential; `trusted` carries the
+  committed credential's `shortId`; `already_trusted` is `pairing_ack`'s idempotent-retry success
+  case; `expired`/`invalid`/`pacing_limited`/`hard_limit_reached` carry no credential; `pending_not_found`
+  is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory pending credential).
+
+  **Phase 3.1 (pairing UX):** Two additional client-originated messages, both on `unpaired`-tier
+  sessions: `pairing_renotify` (client requests redisplay of the active code, no payload, bridge
+  replies with `pairing_outcome` bearing `renotified`/`renotify_cooldown`/`already_idle`), and
+  `pairing_cancel` (client gives up ownership of an active challenge or pending credential, no
+  payload, bridge replies with `pairing_outcome` bearing `cancelled`/`already_idle`). Phase 3.1 also
+  replaced the single undifferentiated `rate_limited` outcome with `pacing_limited` (attempt too
+  soon, doesn't count wrong) and `hard_limit_reached` (5th wrong attempt, cancels challenge), per
+  `ROADMAP.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`,
+  a number only while `clientId`'s own code is actively counting down (`available`, or `in_progress`
+  while still `CHALLENGE_ACTIVE`) and `null` for `in_progress` while only a `PENDING_CREDENTIAL` is
+  owned -- see `protocol/schema/README.md`'s `pairing_status` section for the exact
+  number/null/omitted contract -- and adds `other_device_pairing` to report that a different
+  `clientId` owns the active challenge without revealing anything else about it.
+
+  The in-memory pending-credential record is keyed to the single active connection (this phase's
+  single-connected-client limit makes a second concurrent claimant structurally impossible) and
+  never persists past a Bridge restart, matching "Incomplete pending pairing does not need to
+  survive a bridge restart."
 - Persist completed trust outside the Skyrim/modpack files, scoped to the Windows user profile
   running the client and the Bridge — not to the modpack, the Skyrim installation, a particular
   Bridge process, `bridgeInstanceId`, `playContextId`, or `sessionId` — through an approved per-user

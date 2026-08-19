@@ -43,7 +43,7 @@ class PairingAckPayload {
 @JsonSerializable(checked: true, createToJson: false)
 class PairingStatusPayload {
   /// Creates a pairing-status payload.
-  const PairingStatusPayload({required this.state});
+  const PairingStatusPayload({required this.state, this.expiresInSeconds});
 
   /// Decodes and validates one `pairing_status` payload.
   factory PairingStatusPayload.fromJson(JsonMap json) {
@@ -54,10 +54,23 @@ class PairingStatusPayload {
     }
   }
 
-  /// The raw wire value: `"unavailable"`, `"available"`, or `"in_progress"`. Interpreted into a
-  /// typed value by the client rather than here.
+  /// The raw wire value: `"unavailable"`, `"available"`, `"in_progress"`, or
+  /// `"other_device_pairing"`. Interpreted into a typed value by the client rather than here.
   @JsonKey(required: true)
   final String state;
+
+  /// The active challenge's remaining *code* validity in seconds -- not a general "how long until
+  /// you lose this state" figure, so its presence follows the code's own lifetime, not [state]
+  /// alone (`protocol/schema/README.md`'s `pairing_status` section):
+  /// - A number for `"available"`, and for `"in_progress"` while the resumed state is still an
+  ///   actively counting-down challenge.
+  /// - `null` (key present) for `"unavailable"`, and for `"in_progress"` while the resumed state is
+  ///   only a pending credential awaiting `pairing_ack` -- the code was already consumed on a
+  ///   successful confirm, so there is nothing left to count down even though `"in_progress"` still
+  ///   applies.
+  /// - Omitted from the wire payload entirely (not merely `null`) for `"other_device_pairing"` --
+  ///   this key is therefore optional, unlike this payload's other, always-present fields.
+  final int? expiresInSeconds;
 }
 
 /// Incoming `pairing_outcome` payload (`protocol/schema/README.md`'s `pairing_outcome`).
@@ -70,6 +83,7 @@ class PairingOutcomePayload {
     required this.credential,
     required this.shortId,
     required this.displayName,
+    this.retryAfterSeconds,
   });
 
   /// Decodes and validates one `pairing_outcome` payload.
@@ -81,9 +95,10 @@ class PairingOutcomePayload {
     }
   }
 
-  /// The raw wire value: `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
-  /// `"invalid"`, `"rate_limited"`, or `"pending_not_found"`. Interpreted into a typed value by
-  /// the client rather than here.
+  /// The raw wire value, one of `"credential_issued"`, `"trusted"`, `"already_trusted"`,
+  /// `"expired"`, `"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`,
+  /// `"renotified"`, `"renotify_cooldown"`, `"cancelled"`, or `"already_idle"`. Interpreted into a
+  /// typed value by the client rather than here.
   @JsonKey(required: true)
   final String outcome;
 
@@ -99,4 +114,10 @@ class PairingOutcomePayload {
   /// client supplied one.
   @JsonKey(required: true)
   final String? displayName;
+
+  /// The remaining wait in seconds before the next attempt is accepted, present for
+  /// `"pacing_limited"` (next `pairing_confirm`) and `"renotify_cooldown"` (next
+  /// `pairing_renotify`); `null` otherwise.
+  @JsonKey(required: true)
+  final int? retryAfterSeconds;
 }
