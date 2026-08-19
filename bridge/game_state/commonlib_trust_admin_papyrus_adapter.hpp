@@ -5,7 +5,7 @@
 namespace dovahlink::game_state {
 
 /// Registers the native Papyrus functions
-/// (`DovahLinkAdmin.List/Revoke/Reset/Block/Unblock/Forget/Devices/Blocked`)
+/// (`DovahLinkAdmin.List/Help/Revoke/Reset/Block/Unblock/Forget`)
 /// an optional ConsoleUtil Extended integration calls, forwarding each to `service`. Carries no
 /// trust logic of its own -- see `ai/context/protocol/security.md`'s "Trust administration
 /// surface". Registration is attempted unconditionally, independent of whether ConsoleUtil

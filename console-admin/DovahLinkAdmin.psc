@@ -5,8 +5,11 @@ Scriptname DovahLinkAdmin Hidden
 ; its own -- every function below is implemented natively by the bridge plugin, not in Papyrus.
 ; See ../README.md and ai/context/protocol/security.md's "Trust administration surface".
 
-; Lists every currently trusted client as a formatted, multi-line string.
-String Function List() global native
+; Lists known devices for an empty/all, trust, or block scope as a formatted, multi-line string.
+String Function List(String akScope) global native
+
+; Shows the canonical trust-administration commands and their descriptions.
+String Function Help() global native
 
 ; Revokes the trusted client identified by its five-digit administration-only shortId.
 String Function Revoke(String akId) global native
@@ -24,9 +27,3 @@ String Function Unblock(String akId) global native
 ; Forgets the known device identified by its five-digit administration-only shortId, deleting its
 ; record entirely. Only eligible from Revoked or Unpaired.
 String Function Forget(String akId) global native
-
-; Lists every known device, including its current state, sorted oldest-to-newest by creation time.
-String Function Devices() global native
-
-; Lists only known devices currently in the blocked state.
-String Function Blocked() global native

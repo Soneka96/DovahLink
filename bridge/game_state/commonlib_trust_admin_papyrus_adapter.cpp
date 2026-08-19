@@ -26,13 +26,13 @@ constexpr const char* kUnavailableMessage = "DovahLink trust admin is unavailabl
 /// Papyrus VM, not through this codebase's own containment, so it is exactly such a boundary.
 constexpr const char* kInternalErrorMessage = "DovahLink trust admin failed unexpectedly.";
 
-/// Native implementation of the Papyrus `DovahLinkAdmin.List()` function.
-RE::BSFixedString List(RE::StaticFunctionTag*) {
+/// Native implementation of the Papyrus `DovahLinkAdmin.List(String)` function.
+RE::BSFixedString List(RE::StaticFunctionTag*, RE::BSFixedString akScope) {
     if (!g_trustAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->ListTrusted());
+        return RE::BSFixedString(g_trustAdminService->List(std::string_view(akScope)));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -99,40 +99,27 @@ RE::BSFixedString Forget(RE::StaticFunctionTag*, RE::BSFixedString akId) {
     }
 }
 
-/// Native implementation of the Papyrus `DovahLinkAdmin.Devices()` function.
-RE::BSFixedString Devices(RE::StaticFunctionTag*) {
+/// Native implementation of the Papyrus `DovahLinkAdmin.Help()` function.
+RE::BSFixedString Help(RE::StaticFunctionTag*) {
     if (!g_trustAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->ListKnownDevices());
+        return RE::BSFixedString(g_trustAdminService->Help());
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
 }
 
-/// Native implementation of the Papyrus `DovahLinkAdmin.Blocked()` function.
-RE::BSFixedString Blocked(RE::StaticFunctionTag*) {
-    if (!g_trustAdminService) {
-        return RE::BSFixedString(kUnavailableMessage);
-    }
-    try {
-        return RE::BSFixedString(g_trustAdminService->ListBlocked());
-    } catch (...) {
-        return RE::BSFixedString(kInternalErrorMessage);
-    }
-}
-
-/// Binds the eight native functions above to their Papyrus declarations.
+/// Binds the seven native functions above to their Papyrus declarations.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("List", "DovahLinkAdmin", List);
+    vm->RegisterFunction("Help", "DovahLinkAdmin", Help);
     vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
     vm->RegisterFunction("Reset", "DovahLinkAdmin", Reset);
     vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
     vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
     vm->RegisterFunction("Forget", "DovahLinkAdmin", Forget);
-    vm->RegisterFunction("Devices", "DovahLinkAdmin", Devices);
-    vm->RegisterFunction("Blocked", "DovahLinkAdmin", Blocked);
     return true;
 }
 
