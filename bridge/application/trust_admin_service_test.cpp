@@ -187,15 +187,18 @@ TEST_CASE("List scopes select all trusted and blocked devices", "[application][t
 
     CHECK(service.List("") == service.ListKnownDevices());
     CHECK(service.List("all") == service.ListKnownDevices());
+    CHECK(service.List("All") == service.ListKnownDevices());
 
     const std::string trusted = service.List("trust");
     CHECK(trusted == service.ListTrusted());
+    CHECK(service.List("TRUST") == trusted);
     CHECK(trusted.find("11111  Trusted") != std::string::npos);
     CHECK(trusted.find("22222") == std::string::npos);
     CHECK(trusted.find("33333") == std::string::npos);
 
     const std::string blocked = service.List("block");
     CHECK(blocked == service.ListBlocked());
+    CHECK(service.List("Block") == blocked);
     CHECK(blocked.find("33333  Blocked  blocked") != std::string::npos);
     CHECK(blocked.find("11111") == std::string::npos);
     CHECK(blocked.find("22222") == std::string::npos);
@@ -220,33 +223,9 @@ TEST_CASE("Help lists only the canonical trust-admin commands", "[application][t
 
     CHECK(service.Help() ==
           "DovahLink commands:\n"
-          "\n"
-          "dovahlink list\n"
-          "  Lists all known devices and their current state.\n"
-          "\n"
-          "dovahlink list trust\n"
-          "  Lists trusted devices that can currently reconnect.\n"
-          "\n"
-          "dovahlink list block\n"
-          "  Lists devices currently blocked from connecting.\n"
-          "\n"
-          "dovahlink revoke -id <shortId>\n"
-          "  Revokes a trusted device. It must pair again afterward.\n"
-          "\n"
-          "dovahlink reset\n"
-          "  Clears all known device records and requires them to pair again.\n"
-          "\n"
-          "dovahlink block -id <shortId>\n"
-          "  Blocks a trusted or revoked device from connecting.\n"
-          "\n"
-          "dovahlink unblock -id <shortId>\n"
-          "  Unblocks a device and returns it to the unpaired state.\n"
-          "\n"
-          "dovahlink forget -id <shortId>\n"
-          "  Permanently removes a revoked or unpaired device record.\n"
-          "\n"
-          "dovahlink help\n"
-          "  Shows this command list.");
+          " list [all|trust|block]\n"
+          " revoke -id <id> | reset | block -id <id>\n"
+          " unblock -id <id> | forget -id <id> | help");
 }
 
 TEST_CASE("RevokeByShortId reports not-found on an empty store", "[application][trust_admin_service]") {
