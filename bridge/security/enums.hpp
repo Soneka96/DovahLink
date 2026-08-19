@@ -96,4 +96,33 @@ enum class KnownDeviceState {
     kUnpaired,
 };
 
+/// Outcome of `TrustStore::Block`.
+enum class BlockOutcome {
+    /// The device transitioned from `kTrusted` or `kRevoked` to `kBlocked`.
+    kBlocked,
+    /// The device was already `kBlocked`; nothing changed.
+    kAlreadyBlocked,
+    /// A known device record exists for the identity, but its current state (`kUnpaired`) is not
+    /// eligible for blocking in this phase.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
+/// Outcome of `TrustStore::Unblock`.
+enum class UnblockOutcome {
+    /// The device transitioned from `kBlocked` to `kUnpaired`.
+    kUnblocked,
+    /// A known device record exists for the identity, but it is not currently `kBlocked`.
+    kNotBlocked,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
 }  // namespace dovahlink::security

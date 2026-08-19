@@ -30,6 +30,9 @@ struct KnownDeviceRecord {
     /// When this device was first successfully paired. Authoritative for age/ordering; never
     /// updated after creation.
     std::chrono::system_clock::time_point createdAt;
+    /// When this device was blocked, if it is currently `kBlocked`. `std::nullopt` in every other
+    /// state; cleared on unblock rather than kept as block history.
+    std::optional<std::chrono::system_clock::time_point> blockedAt;
 };
 
 }  // namespace dovahlink::security

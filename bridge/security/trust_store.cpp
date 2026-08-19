@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <chrono>
+#include <string_view>
 #include <utility>
 
 namespace dovahlink::security {
@@ -79,6 +80,22 @@ bool TrustStore::IsRevoked(const std::string& clientId) {
     return it != devices_.end() && it->second.state == KnownDeviceState::kRevoked;
 }
 
+bool TrustStore::IsBlocked(const std::string& clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = devices_.find(clientId);
+    return it != devices_.end() && it->second.state == KnownDeviceState::kBlocked;
+}
+
+std::optional<KnownDeviceRecord> TrustStore::FindByShortId(std::string_view shortId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& [clientId, device] : devices_) {
+        if (device.shortId == shortId) {
+            return device;
+        }
+    }
+    return std::nullopt;
+}
+
 bool TrustStore::Authenticate(const std::string& clientId,
                                const std::vector<std::uint8_t>& presentedCredential) {
     if (presentedCredential.empty()) {
@@ -145,8 +162,13 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
     }
 
     // A known device (in any prior state) keeps its shortId and createdAt for the lifetime of its
-    // record; only a genuinely new clientId mints fresh ones.
+    // record; only a genuinely new clientId mints fresh ones. A kBlocked device is the one prior
+    // state that must not be able to re-pair straight to kTrusted -- it requires an explicit
+    // Unblock first, per enums.hpp's KnownDeviceState::kBlocked contract.
     auto existing = devices_.find(clientId);
+    if (existing != devices_.end() && existing->second.state == KnownDeviceState::kBlocked) {
+        return std::nullopt;
+    }
     std::string shortId;
     std::chrono::system_clock::time_point createdAt;
     if (existing != devices_.end()) {
@@ -196,6 +218,53 @@ bool TrustStore::Revoke(const std::string& clientId) {
         return false;
     }
     return true;
+}
+
+BlockOutcome TrustStore::Block(const std::string& clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = devices_.find(clientId);
+    if (it == devices_.end()) {
+        return BlockOutcome::kNotFound;
+    }
+    if (it->second.state == KnownDeviceState::kBlocked) {
+        return BlockOutcome::kAlreadyBlocked;
+    }
+    if (it->second.state != KnownDeviceState::kTrusted && it->second.state != KnownDeviceState::kRevoked) {
+        // Only kUnpaired remains, per the four-state model; not eligible for blocking in this phase.
+        return BlockOutcome::kNotEligible;
+    }
+
+    auto previousDevice = it->second;
+    it->second.state = KnownDeviceState::kBlocked;
+    it->second.blockedAt = std::chrono::system_clock::now();
+    SecureClear(it->second.credential);
+
+    if (!persistence_->Save(BuildSnapshot())) {
+        it->second = std::move(previousDevice);
+        return BlockOutcome::kSaveFailed;
+    }
+    return BlockOutcome::kBlocked;
+}
+
+UnblockOutcome TrustStore::Unblock(const std::string& clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = devices_.find(clientId);
+    if (it == devices_.end()) {
+        return UnblockOutcome::kNotFound;
+    }
+    if (it->second.state != KnownDeviceState::kBlocked) {
+        return UnblockOutcome::kNotBlocked;
+    }
+
+    auto previousDevice = it->second;
+    it->second.state = KnownDeviceState::kUnpaired;
+    it->second.blockedAt.reset();
+
+    if (!persistence_->Save(BuildSnapshot())) {
+        it->second = std::move(previousDevice);
+        return UnblockOutcome::kSaveFailed;
+    }
+    return UnblockOutcome::kUnblocked;
 }
 
 bool TrustStore::Reset() {

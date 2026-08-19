@@ -57,9 +57,24 @@ std::optional<KnownDeviceState> DecodeState(std::string_view text) {
     return std::nullopt;
 }
 
+/// Encodes `time` as whole seconds since the Unix epoch.
+std::int64_t EncodeEpochSeconds(std::chrono::system_clock::time_point time) {
+    return std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch()).count();
+}
+
+/// Decodes a JSON integer value as whole seconds since the epoch, or `std::nullopt` when `value`
+/// is absent or not an integer.
+std::optional<std::int64_t> DecodeEpochSeconds(const boost::json::value* value) {
+    if (!value || (!value->is_int64() && !value->is_uint64())) {
+        return std::nullopt;
+    }
+    return value->is_int64() ? value->get_int64() : static_cast<std::int64_t>(value->get_uint64());
+}
+
 /// Encodes a snapshot as JSON. `credential` is hex-encoded (JSON has no binary type); `shortId`,
 /// `clientId`, and `state` are already text; `createdAt` is whole seconds since the Unix epoch.
-/// `displayName` is a string or JSON `null`.
+/// `displayName` is a string or JSON `null`; `blockedAt` is whole seconds since the epoch or JSON
+/// `null` when the device is not currently `kBlocked`.
 std::string EncodeSnapshotToJson(const TrustStoreSnapshot& snapshot) {
     boost::json::array devices;
     for (const auto& device : snapshot.devices) {
@@ -70,7 +85,9 @@ std::string EncodeSnapshotToJson(const TrustStoreSnapshot& snapshot) {
         obj["displayName"] =
             device.displayName.has_value() ? boost::json::value(*device.displayName) : boost::json::value(nullptr);
         obj["state"] = EncodeState(device.state);
-        obj["createdAt"] = std::chrono::duration_cast<std::chrono::seconds>(device.createdAt.time_since_epoch()).count();
+        obj["createdAt"] = EncodeEpochSeconds(device.createdAt);
+        obj["blockedAt"] =
+            device.blockedAt.has_value() ? boost::json::value(EncodeEpochSeconds(*device.blockedAt)) : boost::json::value(nullptr);
         devices.push_back(std::move(obj));
     }
 
@@ -94,10 +111,25 @@ std::optional<KnownDeviceRecord> DecodeRecord(const boost::json::value& item) {
     const boost::json::value* displayNameValue = obj.if_contains("displayName");
     const boost::json::value* stateValue = obj.if_contains("state");
     const boost::json::value* createdAtValue = obj.if_contains("createdAt");
+    const boost::json::value* blockedAtValue = obj.if_contains("blockedAt");
     if (!clientIdValue || !clientIdValue->is_string() || !credentialValue || !credentialValue->is_string() ||
         !shortIdValue || !shortIdValue->is_string() || !displayNameValue || !stateValue || !stateValue->is_string() ||
-        !createdAtValue || (!createdAtValue->is_int64() && !createdAtValue->is_uint64())) {
+        !blockedAtValue) {
         return std::nullopt;
+    }
+
+    auto createdAtSeconds = DecodeEpochSeconds(createdAtValue);
+    if (!createdAtSeconds.has_value()) {
+        return std::nullopt;
+    }
+
+    std::optional<std::chrono::system_clock::time_point> blockedAt;
+    if (!blockedAtValue->is_null()) {
+        auto blockedAtSeconds = DecodeEpochSeconds(blockedAtValue);
+        if (!blockedAtSeconds.has_value()) {
+            return std::nullopt;
+        }
+        blockedAt = std::chrono::system_clock::time_point(std::chrono::seconds(*blockedAtSeconds));
     }
 
     // A non-kTrusted device's credential was securely cleared before this snapshot was built and
@@ -124,16 +156,14 @@ std::optional<KnownDeviceRecord> DecodeRecord(const boost::json::value& item) {
         return std::nullopt;
     }
 
-    std::int64_t createdAtSeconds =
-        createdAtValue->is_int64() ? createdAtValue->get_int64() : static_cast<std::int64_t>(createdAtValue->get_uint64());
-
     return KnownDeviceRecord{
         .clientId = std::string(clientIdValue->get_string()),
         .credential = std::move(credential),
         .shortId = std::string(shortIdValue->get_string()),
         .displayName = std::move(displayName),
         .state = *state,
-        .createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(createdAtSeconds)),
+        .createdAt = std::chrono::system_clock::time_point(std::chrono::seconds(*createdAtSeconds)),
+        .blockedAt = blockedAt,
     };
 }
 

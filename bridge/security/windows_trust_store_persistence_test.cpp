@@ -59,6 +59,12 @@ std::chrono::system_clock::time_point FixedCreatedAt() {
     return std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'000));
 }
 
+/// A fixed, arbitrary `blockedAt`, distinct from `FixedCreatedAt()`, used by tests that only need
+/// a deterministic, second-precision value to round-trip -- not the current time.
+std::chrono::system_clock::time_point FixedBlockedAt() {
+    return std::chrono::system_clock::time_point(std::chrono::seconds(1'700'000'500));
+}
+
 /// Writes raw bytes directly to `path`, bypassing `WindowsTrustStorePersistence::Save` -- used to
 /// craft deliberately corrupt or malformed fixtures.
 void WriteRawFile(const std::filesystem::path& path, const std::vector<std::uint8_t>& bytes) {
@@ -89,7 +95,7 @@ TEST_CASE("Load on a nonexistent file returns a valid empty snapshot",
 }
 
 TEST_CASE("Save then Load round-trips a full TrustStoreSnapshot with exact field equality, "
-          "including credential byte-vector equality, state, and createdAt",
+          "including credential byte-vector equality, state, createdAt, and blockedAt",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
     WindowsTrustStorePersistence persistence(dir.Path() / "trust_store.dat");
@@ -101,20 +107,36 @@ TEST_CASE("Save then Load round-trips a full TrustStoreSnapshot with exact field
                            .shortId = "11111",
                            .displayName = std::string("My PC"),
                            .state = KnownDeviceState::kTrusted,
-                           .createdAt = FixedCreatedAt()},
+                           .createdAt = FixedCreatedAt(),
+                           .blockedAt = std::nullopt},
         KnownDeviceRecord{.clientId = "client-2",
                            .credential = {},
                            .shortId = "22222",
                            .displayName = std::nullopt,
                            .state = KnownDeviceState::kRevoked,
-                           .createdAt = FixedCreatedAt()},
+                           .createdAt = FixedCreatedAt(),
+                           .blockedAt = std::nullopt},
+        KnownDeviceRecord{.clientId = "client-3",
+                           .credential = {},
+                           .shortId = "33333",
+                           .displayName = std::nullopt,
+                           .state = KnownDeviceState::kBlocked,
+                           .createdAt = FixedCreatedAt(),
+                           .blockedAt = FixedBlockedAt()},
+        KnownDeviceRecord{.clientId = "client-4",
+                           .credential = {},
+                           .shortId = "44444",
+                           .displayName = std::nullopt,
+                           .state = KnownDeviceState::kUnpaired,
+                           .createdAt = FixedCreatedAt(),
+                           .blockedAt = std::nullopt},
     };
 
     REQUIRE(persistence.Save(snapshot));
     auto loaded = persistence.Load();
 
     REQUIRE(loaded.has_value());
-    REQUIRE(loaded->devices.size() == 2);
+    REQUIRE(loaded->devices.size() == 4);
     CHECK(loaded->devices[0].clientId == "client-1");
     CHECK(loaded->devices[0].credential == MakeCredential(1));
     CHECK(loaded->devices[0].shortId == "11111");
@@ -122,11 +144,20 @@ TEST_CASE("Save then Load round-trips a full TrustStoreSnapshot with exact field
     CHECK(*loaded->devices[0].displayName == "My PC");
     CHECK(loaded->devices[0].state == KnownDeviceState::kTrusted);
     CHECK(loaded->devices[0].createdAt == FixedCreatedAt());
+    CHECK_FALSE(loaded->devices[0].blockedAt.has_value());
     CHECK(loaded->devices[1].clientId == "client-2");
     CHECK(loaded->devices[1].credential.empty());
     CHECK_FALSE(loaded->devices[1].displayName.has_value());
     CHECK(loaded->devices[1].state == KnownDeviceState::kRevoked);
     CHECK(loaded->devices[1].createdAt == FixedCreatedAt());
+    CHECK_FALSE(loaded->devices[1].blockedAt.has_value());
+    CHECK(loaded->devices[2].clientId == "client-3");
+    CHECK(loaded->devices[2].state == KnownDeviceState::kBlocked);
+    REQUIRE(loaded->devices[2].blockedAt.has_value());
+    CHECK(*loaded->devices[2].blockedAt == FixedBlockedAt());
+    CHECK(loaded->devices[3].clientId == "client-4");
+    CHECK(loaded->devices[3].state == KnownDeviceState::kUnpaired);
+    CHECK_FALSE(loaded->devices[3].blockedAt.has_value());
 }
 
 TEST_CASE("Save creates a missing parent directory", "[security][windows_trust_store_persistence]") {
@@ -210,7 +241,7 @@ TEST_CASE("Load fails closed when a device is missing its credential field",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "shortId": "11111", "displayName": null, )"
-                            R"("state": "trusted", "createdAt": 1700000000}]})");
+                            R"("state": "trusted", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -222,7 +253,7 @@ TEST_CASE("Load fails closed when a device is missing its shortId field",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "01", "displayName": null, )"
-                            R"("state": "trusted", "createdAt": 1700000000}]})");
+                            R"("state": "trusted", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -234,7 +265,7 @@ TEST_CASE("Load fails closed when a device's displayName key is entirely absent"
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
-                            R"("state": "trusted", "createdAt": 1700000000}]})");
+                            R"("state": "trusted", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -246,7 +277,7 @@ TEST_CASE("Load fails closed when a device's displayName has the wrong type",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
-                            R"("displayName": 42, "state": "trusted", "createdAt": 1700000000}]})");
+                            R"("displayName": 42, "state": "trusted", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -258,7 +289,7 @@ TEST_CASE("Load fails closed when a device's credential is not valid hex",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "not-hex", "shortId": "11111", )"
-                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000}]})");
+                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -280,7 +311,7 @@ TEST_CASE("Load fails closed when a device's state is an unrecognized string",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
-                            R"("displayName": null, "state": "not-a-real-state", "createdAt": 1700000000}]})");
+                            R"("displayName": null, "state": "not-a-real-state", "createdAt": 1700000000, "blockedAt": null}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());
@@ -292,7 +323,33 @@ TEST_CASE("Load fails closed when a device's createdAt has the wrong JSON type",
     auto path = dir.Path() / "trust_store.dat";
     WriteEncryptedJsonFile(path,
                             R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
-                            R"("displayName": null, "state": "trusted", "createdAt": "not-a-number"}]})");
+                            R"("displayName": null, "state": "trusted", "createdAt": "not-a-number", )"
+                            R"("blockedAt": null}]})");
+    WindowsTrustStorePersistence persistence(path);
+
+    CHECK_FALSE(persistence.Load().has_value());
+}
+
+TEST_CASE("Load fails closed when a device's blockedAt key is entirely absent",
+          "[security][windows_trust_store_persistence]") {
+    TempDir dir;
+    auto path = dir.Path() / "trust_store.dat";
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000}]})");
+    WindowsTrustStorePersistence persistence(path);
+
+    CHECK_FALSE(persistence.Load().has_value());
+}
+
+TEST_CASE("Load fails closed when a device's blockedAt has the wrong JSON type",
+          "[security][windows_trust_store_persistence]") {
+    TempDir dir;
+    auto path = dir.Path() / "trust_store.dat";
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000, )"
+                            R"("blockedAt": "not-a-number"}]})");
     WindowsTrustStorePersistence persistence(path);
 
     CHECK_FALSE(persistence.Load().has_value());

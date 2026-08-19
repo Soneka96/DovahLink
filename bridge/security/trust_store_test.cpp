@@ -13,11 +13,13 @@
 #include <thread>
 #include <vector>
 
+using dovahlink::security::BlockOutcome;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using dovahlink::security::UnblockOutcome;
 
 namespace {
 
@@ -327,6 +329,227 @@ TEST_CASE("a revoked client's shortId stays reserved and cannot be allocated to 
 
     REQUIRE(second.has_value());
     CHECK(second->shortId == "22222");
+}
+
+TEST_CASE("Block transitions a trusted client to kBlocked, clearing its credential and stamping blockedAt",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    auto before = std::chrono::system_clock::now();
+
+    CHECK(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    auto after = std::chrono::system_clock::now();
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
+    CHECK(store.IsBlocked("client-1"));
+    auto found = store.FindByShortId("11111");
+    REQUIRE(found.has_value());
+    CHECK(found->state == KnownDeviceState::kBlocked);
+    REQUIRE(found->blockedAt.has_value());
+    CHECK(*found->blockedAt >= before);
+    CHECK(*found->blockedAt <= after);
+}
+
+TEST_CASE("Block transitions a revoked client to kBlocked", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    CHECK(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    CHECK(store.IsBlocked("client-1"));
+    CHECK_FALSE(store.IsRevoked("client-1"));
+}
+
+TEST_CASE("Block on an unknown clientId reports kNotFound", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK(store.Block("never-paired") == BlockOutcome::kNotFound);
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Block on an already-blocked clientId reports kAlreadyBlocked and does not save",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    persistence.saveCallCount = 0;
+
+    CHECK(store.Block("client-1") == BlockOutcome::kAlreadyBlocked);
+
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Block on an unpaired (unblocked) clientId reports kNotEligible", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    CHECK(store.Block("client-1") == BlockOutcome::kNotEligible);
+}
+
+TEST_CASE("Block surfaces a Save failure without corrupting in-memory state", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    persistence.FailNextSave();
+    CHECK(store.Block("client-1") == BlockOutcome::kSaveFailed);
+
+    CHECK_FALSE(store.IsBlocked("client-1"));
+    CHECK(store.Authenticate("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("Persist rejects re-pairing a blocked clientId", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    CHECK_FALSE(store.Persist("client-1", MakeCredential(3), std::nullopt).has_value());
+
+    CHECK(store.IsBlocked("client-1"));
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(3)));
+}
+
+TEST_CASE("Unblock transitions a blocked client to kUnpaired, clearing blockedAt and preserving identity",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    auto original = store.Persist("client-1", MakeCredential(1), std::string("My PC"));
+    REQUIRE(original.has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    CHECK(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    CHECK_FALSE(store.IsBlocked("client-1"));
+    auto found = store.FindByShortId("11111");
+    REQUIRE(found.has_value());
+    CHECK(found->state == KnownDeviceState::kUnpaired);
+    CHECK_FALSE(found->blockedAt.has_value());
+    CHECK(found->clientId == "client-1");
+    CHECK(found->shortId == original->shortId);
+    CHECK(found->displayName == original->displayName);
+    CHECK(found->createdAt == original->createdAt);
+}
+
+TEST_CASE("Unblock does not restore the device's old credential", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
+}
+
+TEST_CASE("Unblock on a trusted clientId reports kNotBlocked", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    CHECK(store.Unblock("client-1") == UnblockOutcome::kNotBlocked);
+}
+
+TEST_CASE("Unblock on a revoked clientId reports kNotBlocked", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    CHECK(store.Unblock("client-1") == UnblockOutcome::kNotBlocked);
+}
+
+TEST_CASE("Unblock on an already-unpaired clientId reports kNotBlocked", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-1") == UnblockOutcome::kUnblocked);
+
+    CHECK(store.Unblock("client-1") == UnblockOutcome::kNotBlocked);
+}
+
+TEST_CASE("Unblock on an unknown clientId reports kNotFound", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK(store.Unblock("never-paired") == UnblockOutcome::kNotFound);
+    CHECK(persistence.saveCallCount == 0);
+}
+
+TEST_CASE("Unblock surfaces a Save failure without corrupting in-memory state", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Block("client-1") == BlockOutcome::kBlocked);
+
+    persistence.FailNextSave();
+    CHECK(store.Unblock("client-1") == UnblockOutcome::kSaveFailed);
+
+    CHECK(store.IsBlocked("client-1"));
+}
+
+TEST_CASE("IsBlocked distinguishes never-paired, trusted, revoked, unpaired, and blocked clients",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222", "33333", "44444"}));
+    REQUIRE(store.Persist("trusted-client", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Persist("revoked-client", MakeCredential(2), std::nullopt).has_value());
+    REQUIRE(store.Revoke("revoked-client"));
+    REQUIRE(store.Persist("unpaired-client", MakeCredential(3), std::nullopt).has_value());
+    REQUIRE(store.Block("unpaired-client") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("unpaired-client") == UnblockOutcome::kUnblocked);
+    REQUIRE(store.Persist("blocked-client", MakeCredential(4), std::nullopt).has_value());
+    REQUIRE(store.Block("blocked-client") == BlockOutcome::kBlocked);
+
+    CHECK_FALSE(store.IsBlocked("never-paired-client"));
+    CHECK_FALSE(store.IsBlocked("trusted-client"));
+    CHECK_FALSE(store.IsBlocked("revoked-client"));
+    CHECK_FALSE(store.IsBlocked("unpaired-client"));
+    CHECK(store.IsBlocked("blocked-client"));
+}
+
+TEST_CASE("FindByShortId locates a known device in any state", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222", "33333", "44444"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Persist("client-2", MakeCredential(2), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-2"));
+    REQUIRE(store.Persist("client-3", MakeCredential(3), std::nullopt).has_value());
+    REQUIRE(store.Block("client-3") == BlockOutcome::kBlocked);
+    REQUIRE(store.Persist("client-4", MakeCredential(4), std::nullopt).has_value());
+    REQUIRE(store.Block("client-4") == BlockOutcome::kBlocked);
+    REQUIRE(store.Unblock("client-4") == UnblockOutcome::kUnblocked);
+
+    auto foundTrusted = store.FindByShortId("11111");
+    REQUIRE(foundTrusted.has_value());
+    CHECK(foundTrusted->clientId == "client-1");
+
+    auto foundRevoked = store.FindByShortId("22222");
+    REQUIRE(foundRevoked.has_value());
+    CHECK(foundRevoked->clientId == "client-2");
+
+    auto foundBlocked = store.FindByShortId("33333");
+    REQUIRE(foundBlocked.has_value());
+    CHECK(foundBlocked->clientId == "client-3");
+
+    auto foundUnpaired = store.FindByShortId("44444");
+    REQUIRE(foundUnpaired.has_value());
+    CHECK(foundUnpaired->clientId == "client-4");
+}
+
+TEST_CASE("FindByShortId returns nullopt for an unknown shortId", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK_FALSE(store.FindByShortId("99999").has_value());
 }
 
 TEST_CASE("Reset clears every known device regardless of state", "[security][trust_store]") {

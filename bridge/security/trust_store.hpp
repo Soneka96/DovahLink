@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +52,14 @@ public:
     /// Reports whether `clientId` is a known device currently in the `kRevoked` state.
     [[nodiscard]] bool IsRevoked(const std::string& clientId);
 
+    /// Reports whether `clientId` is a known device currently in the `kBlocked` state.
+    [[nodiscard]] bool IsBlocked(const std::string& clientId);
+
+    /// Returns the known device record for `shortId`, regardless of its current state. Unlike
+    /// `Query`/`ListTrusted`, this is not restricted to `kTrusted` devices -- administration
+    /// targets a device by `shortId` without knowing its current state in advance.
+    [[nodiscard]] std::optional<KnownDeviceRecord> FindByShortId(std::string_view shortId);
+
     /// Reports whether `presentedCredential` matches the credential currently trusted for
     /// `clientId`, using a constant-time comparison. `false` for an unknown clientId, a clientId
     /// not currently `kTrusted`, or an empty `presentedCredential`.
@@ -58,11 +67,13 @@ public:
                                      const std::vector<std::uint8_t>& presentedCredential);
 
     /// Binds `credential` to `clientId` and transitions it to `kTrusted`. When `clientId` already
-    /// has a known device record (in any prior state), reuses its existing `shortId` and
-    /// `createdAt` -- re-pairing never changes a device's identity or mints a second `shortId` for
-    /// it. Otherwise assigns a newly generated unique `shortId` and a fresh `createdAt`. Rejects an
-    /// empty `clientId` or `credential`, and rejects a `displayName` that exceeds the configured
-    /// length bound or contains a control character.
+    /// has a known device record (in any prior state except `kBlocked`), reuses its existing
+    /// `shortId` and `createdAt` -- re-pairing never changes a device's identity or mints a second
+    /// `shortId` for it. Otherwise assigns a newly generated unique `shortId` and a fresh
+    /// `createdAt`. Rejects an empty `clientId` or `credential`, rejects a `displayName` that
+    /// exceeds the configured length bound or contains a control character, and rejects a
+    /// currently `kBlocked` `clientId` outright -- it must be transitioned to `kUnpaired` via
+    /// `Unblock` before it can re-pair.
     /// @return The new record, or `std::nullopt` when validation, `shortId` generation, or the
     ///     underlying `Save` fails. On any failure the in-memory state is left unchanged.
     [[nodiscard]] std::optional<KnownDeviceRecord> Persist(
@@ -75,6 +86,23 @@ public:
     /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
     ///     unchanged.
     [[nodiscard]] bool Revoke(const std::string& clientId);
+
+    /// Transitions a currently `kTrusted` or `kRevoked` `clientId` to `kBlocked`, securely
+    /// clearing its credential and recording `blockedAt`. Blocking targets an existing known
+    /// device record, not a bare identity string: an unknown `clientId` reports `kNotFound` rather
+    /// than being blocked. Does not disconnect active sessions or cancel owned pairing challenges;
+    /// callers that need those effects perform them separately (mirroring `Revoke`'s own division
+    /// of responsibility with `ActiveSessionDisconnector`).
+    /// @return `kBlocked` on success; `kAlreadyBlocked`, `kNotEligible`, `kNotFound`, or
+    ///     `kSaveFailed` otherwise. On any non-`kBlocked` outcome the in-memory state is unchanged.
+    [[nodiscard]] BlockOutcome Block(const std::string& clientId);
+
+    /// Transitions a currently `kBlocked` `clientId` to `kUnpaired`, clearing `blockedAt` and
+    /// requiring a completely fresh pairing flow to become `kTrusted` again. Does not restore any
+    /// previous credential.
+    /// @return `kUnblocked` on success; `kNotBlocked`, `kNotFound`, or `kSaveFailed` otherwise. On
+    ///     any non-`kUnblocked` outcome the in-memory state is unchanged.
+    [[nodiscard]] UnblockOutcome Unblock(const std::string& clientId);
 
     /// Removes every known device record, securely clearing every removed credential.
     /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
