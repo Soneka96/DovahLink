@@ -2,7 +2,7 @@
 
 This directory is not part of the native DovahLink Bridge core (`bridge/`). It is an optional
 in-game console integration for administering DovahLink's persistent trust store — listing,
-revoking, and resetting trusted (paired) clients — documented in
+revoking, resetting, and blocking/unblocking known devices — documented in
 [`ai/context/protocol/security.md`](../ai/context/protocol/security.md)'s "Trust administration
 surface" section, which records the full design decision and rationale.
 
@@ -19,18 +19,23 @@ Once installed (see below), the following work at Skyrim's console:
 dovahlink list
 dovahlink revoke -id <shortId>
 dovahlink reset
+dovahlink block -id <shortId>
+dovahlink unblock -id <shortId>
 ```
 
 `<shortId>` is the five-digit administration-only identifier `dovahlink list` prints next to each
-trusted client — never the client's real (long) identity, and never a credential.
+trusted client — never the client's real (long) identity, and never a credential. `block`/`unblock`
+target a known device by `<shortId>` regardless of its current state (trusted, revoked, or already
+blocked); `dovahlink list` itself still only lists currently-trusted clients as of this phase, so
+blocking a revoked device requires already knowing its `<shortId>` from before it was revoked.
 
 ## Dependency
 
 This adapter requires [ConsoleUtil Extended](https://github.com/KrisV-777/ConsoleUtil-Extended), a
 third-party SKSE plugin, installed separately as its own mod. DovahLink Bridge does not bundle it
 and does not check for its presence at plugin load — if it (or the files in this directory) are
-missing, `dovahlink list`/`revoke`/`reset` are simply unrecognized console commands, exactly like
-any other unknown input; nothing else about the bridge is affected.
+missing, `dovahlink list`/`revoke`/`reset`/`block`/`unblock` are simply unrecognized console
+commands, exactly like any other unknown input; nothing else about the bridge is affected.
 
 **Known compatibility risk, not yet resolved:** ConsoleUtil Extended's own build instructions
 require CommonLibSSE's `powerof3/dev` branch, a different lineage than the `commonlibsse-ng-flatrim`
@@ -65,8 +70,8 @@ cannot exercise a live Papyrus VM or a third-party plugin
 ([`ai/context/skse/testing.md`](../ai/context/skse/testing.md)'s "Manual verification"). Before
 relying on this adapter, confirm in-game that:
 
-- `dovahlink list`, `dovahlink revoke -id <shortId>`, and `dovahlink reset` are recognized and
-  produce the expected output.
+- `dovahlink list`, `dovahlink revoke -id <shortId>`, `dovahlink reset`, `dovahlink block -id
+  <shortId>`, and `dovahlink unblock -id <shortId>` are recognized and produce the expected output.
 - ConsoleUtil Extended tolerates a `global native` Papyrus function body (its own documentation
   never states this explicitly, only that functions must be `global` — every other SKSE
   native-Papyrus-function integration works this way, but this specific combination is unconfirmed).

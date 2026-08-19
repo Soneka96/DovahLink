@@ -283,7 +283,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
     // (security.md's "Persistent local trust") against an already-connected session, not just the
     // persisted trust record.
-    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool);
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool, pairingSession);
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);

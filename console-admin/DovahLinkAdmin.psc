@@ -13,3 +13,10 @@ String Function Revoke(String akId) global native
 
 ; Resets all persistent trust.
 String Function Reset() global native
+
+; Blocks the known device identified by its five-digit administration-only shortId, regardless of
+; its current state.
+String Function Block(String akId) global native
+
+; Unblocks the known device identified by its five-digit administration-only shortId.
+String Function Unblock(String akId) global native

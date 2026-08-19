@@ -3,6 +3,7 @@
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
 
+#include <chrono>
 #include <string_view>
 
 namespace dovahlink::game_state {
@@ -61,11 +62,38 @@ RE::BSFixedString Reset(RE::StaticFunctionTag*) {
     }
 }
 
-/// Binds the three native functions above to their Papyrus declarations.
+/// Native implementation of the Papyrus `DovahLinkAdmin.Block(String)` function.
+RE::BSFixedString Block(RE::StaticFunctionTag*, RE::BSFixedString akId) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(
+            g_trustAdminService->BlockByShortId(std::string_view(akId), std::chrono::steady_clock::now()));
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.Unblock(String)` function.
+RE::BSFixedString Unblock(RE::StaticFunctionTag*, RE::BSFixedString akId) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->UnblockByShortId(std::string_view(akId)));
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Binds the five native functions above to their Papyrus declarations.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("List", "DovahLinkAdmin", List);
     vm->RegisterFunction("Revoke", "DovahLinkAdmin", Revoke);
     vm->RegisterFunction("Reset", "DovahLinkAdmin", Reset);
+    vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
+    vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
     return true;
 }
 
