@@ -158,6 +158,78 @@ TEST_CASE("ListTrusted uses plural phrasing and lists every client", "[applicati
     CHECK(disconnector.disconnectActiveCallCount == 0);
 }
 
+TEST_CASE("ListTrusted disambiguates duplicate display names oldest first",
+          "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-2", "22222", std::string("Shared"), KnownDeviceState::kTrusted, 100),
+        MakeKnownDevice("client-1", "11111", std::string("Shared"), KnownDeviceState::kTrusted, 100),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.ListTrusted() == "2 trusted clients:\n11111  Shared #1\n22222  Shared #2");
+}
+
+TEST_CASE("List scopes select all trusted and blocked devices", "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-1", "11111", std::string("Trusted"), KnownDeviceState::kTrusted, 100),
+        MakeKnownDevice("client-2", "22222", std::string("Revoked"), KnownDeviceState::kRevoked, 200),
+        MakeKnownDevice("client-3", "33333", std::string("Blocked"), KnownDeviceState::kBlocked, 300),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.List("") == service.ListKnownDevices());
+    CHECK(service.List("all") == service.ListKnownDevices());
+
+    const std::string trusted = service.List("trust");
+    CHECK(trusted == service.ListTrusted());
+    CHECK(trusted.find("11111  Trusted") != std::string::npos);
+    CHECK(trusted.find("22222") == std::string::npos);
+    CHECK(trusted.find("33333") == std::string::npos);
+
+    const std::string blocked = service.List("block");
+    CHECK(blocked == service.ListBlocked());
+    CHECK(blocked.find("33333  Blocked  blocked") != std::string::npos);
+    CHECK(blocked.find("11111") == std::string::npos);
+    CHECK(blocked.find("22222") == std::string::npos);
+}
+
+TEST_CASE("List rejects an unknown scope with the canonical choices", "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.List("revoked") == "Unknown list scope 'revoked'. Use all, trust, or block.");
+}
+
+TEST_CASE("Help lists only the canonical trust-admin commands", "[application][trust_admin_service]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    TrustAdminService service(store, disconnector, pairingSession);
+
+    CHECK(service.Help() ==
+          "DovahLink commands:\n"
+          "dovahlink list\n"
+          "dovahlink list trust\n"
+          "dovahlink list block\n"
+          "dovahlink revoke -id <shortId>\n"
+          "dovahlink reset\n"
+          "dovahlink block -id <shortId>\n"
+          "dovahlink unblock -id <shortId>\n"
+          "dovahlink forget -id <shortId>");
+}
+
 TEST_CASE("RevokeByShortId reports not-found on an empty store", "[application][trust_admin_service]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({}));

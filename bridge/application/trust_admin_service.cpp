@@ -24,10 +24,10 @@ std::string_view StateLabel(security::KnownDeviceState state) {
     return "unknown";
 }
 
-/// Formats a sorted known-device listing, numbering repeated display names only in the returned
+/// Formats a sorted device listing, numbering repeated display names only in the returned
 /// presentation and never mutating the durable records.
 std::string FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> records,
-                                     std::string_view deviceKind) {
+                                     std::string_view deviceKind, bool includeState = true) {
     if (records.empty()) {
         return "No " + std::string(deviceKind) + "s.";
     }
@@ -55,7 +55,10 @@ std::string FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> re
         if (record.displayName.has_value() && displayNameCounts[displayName] > 1) {
             displayName += " #" + std::to_string(++displayNameIndexes[displayName]);
         }
-        out << '\n' << record.shortId << "  " << displayName << "  " << StateLabel(record.state);
+        out << '\n' << record.shortId << "  " << displayName;
+        if (includeState) {
+            out << "  " << StateLabel(record.state);
+        }
     }
     return out.str();
 }
@@ -66,18 +69,33 @@ TrustAdminService::TrustAdminService(security::TrustStore& trustStore, ActiveSes
                                       security::PairingSession& pairingSession)
     : trustStore_(trustStore), sessionDisconnector_(sessionDisconnector), pairingSession_(pairingSession) {}
 
-std::string TrustAdminService::ListTrusted() const {
-    auto records = trustStore_.ListTrusted();
-    if (records.empty()) {
-        return "No trusted clients.";
+std::string TrustAdminService::List(std::string_view scope) const {
+    if (scope.empty() || scope == "all") {
+        return ListKnownDevices();
     }
+    if (scope == "trust") {
+        return ListTrusted();
+    }
+    if (scope == "block") {
+        return ListBlocked();
+    }
+    return "Unknown list scope '" + std::string(scope) + "'. Use all, trust, or block.";
+}
 
-    std::ostringstream out;
-    out << records.size() << (records.size() == 1 ? " trusted client:" : " trusted clients:");
-    for (const auto& record : records) {
-        out << '\n' << record.shortId << "  " << record.displayName.value_or("(no display name)");
-    }
-    return out.str();
+std::string TrustAdminService::Help() const {
+    return "DovahLink commands:\n"
+           "dovahlink list\n"
+           "dovahlink list trust\n"
+           "dovahlink list block\n"
+           "dovahlink revoke -id <shortId>\n"
+           "dovahlink reset\n"
+           "dovahlink block -id <shortId>\n"
+           "dovahlink unblock -id <shortId>\n"
+           "dovahlink forget -id <shortId>";
+}
+
+std::string TrustAdminService::ListTrusted() const {
+    return FormatKnownDeviceListing(trustStore_.ListTrusted(), "trusted client", false);
 }
 
 std::string TrustAdminService::ListKnownDevices() const {

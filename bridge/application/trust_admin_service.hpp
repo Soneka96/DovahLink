@@ -41,8 +41,19 @@ public:
     TrustAdminService(security::TrustStore& trustStore, ActiveSessionDisconnector& sessionDisconnector,
                        security::PairingSession& pairingSession);
 
+    /// Lists known devices according to a console-facing scope: empty or <c>all</c> for every
+    /// known device, <c>trust</c> for trusted devices, or <c>block</c> for blocked devices.
+    /// @param scope The requested listing scope.
+    /// @return A display-ready listing or a clear invalid-scope message.
+    [[nodiscard]] std::string List(std::string_view scope) const;
+
+    /// Returns the canonical trust-administration console commands.
+    /// @return A display-ready multi-line help string.
+    [[nodiscard]] std::string Help() const;
+
     /// Lists every currently trusted client as one display-ready, multi-line string: one
-    /// `shortId  displayName` line per client, or a clear "no trusted clients" message when empty.
+    /// `shortId  displayName` line per client, with temporary `#1`, `#2`, ... suffixes when
+    /// display names repeat, or a clear "no trusted clients" message when empty.
     [[nodiscard]] std::string ListTrusted() const;
 
     /// Lists every known device, regardless of state, sorted oldest-to-newest by `createdAt` and
