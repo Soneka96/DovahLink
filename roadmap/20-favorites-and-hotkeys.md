@@ -12,7 +12,7 @@ The player reviews favorites and hotkey assignments.
 
 ### Scope and behavior
 
-- Show supported favorited items and abilities.
+- Own and show supported favorite state and hotkey assignments for items and abilities.
 - Represent native assignments and conflicts where reliable.
 - Link entries to inventory, equipment, and magic identities.
 - Reconcile game and mod-driven changes.

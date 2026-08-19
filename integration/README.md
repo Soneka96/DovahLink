@@ -65,5 +65,3 @@ the transport/security/session machinery around it. Live, unprompted `state_even
 already-subscribed client and genuine reconnect after a successful session are both out of scope
 for Phase 1 by design — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
 "Known limitation: no reconnect after a successful session" for why, and the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries for where each is planned.
-
-undefined

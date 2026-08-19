@@ -375,6 +375,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "PRODUCT.md"',
             '- "ARCHITECTURE.md"',
             '- "ROADMAP.md"',
+            '- "roadmap/**"',
             '- "CONTRIBUTING.md"',
             '- "CHANGELOG.md"',
             '- ".github/workflows/**"',
@@ -627,7 +628,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
-        self.assertEqual(entry_versions[-1], manifest["version-string"])
+        self.assertEqual(entry_versions[0], manifest["version-string"])
         for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1"):
             self.assertIn(known_version, entry_versions)
         self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")

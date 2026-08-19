@@ -13,7 +13,9 @@ The player browses learned abilities and current selection or usability state.
 ### Scope and behavior
 
 - Separate spells, shouts, powers, and approved ability types.
-- Present supported category, cost, cooldown, effect, selection, favorite, and hotkey metadata.
+- Present supported category, cost, cooldown, effect, selection, favorite, and hotkey metadata
+  supplied by the owning capabilities; favorite state and hotkey assignment semantics belong to
+  Stage 20.
 - Handle mod-added abilities and incomplete metadata.
 - Keep reference enrichment separate from live state.
 
