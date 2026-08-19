@@ -277,6 +277,10 @@ class ValidateAllTests(unittest.TestCase):
             "state/character/state-snapshot-unknown-field.json",
             "connection/ping.json",
             "connection/pong.json",
+            "rename/rename-outcome-invalid-display-name.json",
+            "rename/rename-outcome-not-trusted.json",
+            "rename/rename-outcome-renamed.json",
+            "rename/rename-request.json",
         }
         self.assertEqual(set(checked), expected)
 
