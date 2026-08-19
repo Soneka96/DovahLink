@@ -112,7 +112,7 @@ public static class BridgeScenario
             // character state, not because of anything specific to
             // authentication or capabilities.
             await harness.WriteLineAsync("new_game");
-            await ReadPlayContextReportAsync(harness);
+            harness.PlayContextId = await ReadPlayContextReportAsync(harness);
 
             connection = connectionFactory is null
                 ? await BridgeConnection.ConnectWithRetryAsync(BridgeUri)
@@ -175,7 +175,7 @@ public static class BridgeScenario
             // See ConnectAndAuthenticateAsync's matching comment: a play context gives every
             // scenario using this shared setup a real, non-"unavailable" character state.
             await harness.WriteLineAsync("new_game");
-            await ReadPlayContextReportAsync(harness);
+            harness.PlayContextId = await ReadPlayContextReportAsync(harness);
 
             connection = await BridgeConnection.ConnectWithRetryAsync(BridgeUri);
             await connection.SendAsync(UnpairedHelloEnvelope());

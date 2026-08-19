@@ -68,6 +68,9 @@ public sealed class HarnessProcess : IDisposable
     /// <summary>The bridge instance identifier reported by the harness during <see cref="WaitForReadyAsync"/>, or <c>null</c> before that completes.</summary>
     public string? BridgeInstanceId { get; private set; }
 
+    /// <summary>The play-context identifier reported for the harness's current <c>new_game</c>, or <c>null</c> before setup records it.</summary>
+    public string? PlayContextId { get; internal set; }
+
     /// <summary>
     /// Reads and validates the harness startup handshake: the <c>READY</c> line followed by its <c>BRIDGE_INSTANCE &lt;id&gt;</c> line.
     /// </summary>
