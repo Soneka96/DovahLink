@@ -143,17 +143,30 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
     if (displayName.has_value() && !IsValidDisplayName(*displayName)) {
         return std::nullopt;
     }
-    auto shortId = GenerateUniqueShortId();
-    if (!shortId.has_value()) {
-        return std::nullopt;
+
+    // A known device (in any prior state) keeps its shortId and createdAt for the lifetime of its
+    // record; only a genuinely new clientId mints fresh ones.
+    auto existing = devices_.find(clientId);
+    std::string shortId;
+    std::chrono::system_clock::time_point createdAt;
+    if (existing != devices_.end()) {
+        shortId = existing->second.shortId;
+        createdAt = existing->second.createdAt;
+    } else {
+        auto generated = GenerateUniqueShortId();
+        if (!generated.has_value()) {
+            return std::nullopt;
+        }
+        shortId = std::move(*generated);
+        createdAt = std::chrono::system_clock::now();
     }
 
     KnownDeviceRecord device{.clientId = clientId,
                               .credential = std::move(credential),
-                              .shortId = std::move(*shortId),
+                              .shortId = std::move(shortId),
                               .displayName = std::move(displayName),
                               .state = KnownDeviceState::kTrusted,
-                              .createdAt = std::chrono::system_clock::now()};
+                              .createdAt = createdAt};
 
     auto previousDevices = devices_;
     auto it = devices_.insert_or_assign(clientId, std::move(device)).first;

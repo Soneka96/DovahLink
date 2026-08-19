@@ -236,6 +236,49 @@ TEST_CASE("re-pairing a previously revoked clientId returns it to kTrusted",
     CHECK_FALSE(store.IsRevoked("client-1"));
 }
 
+TEST_CASE("re-pairing a previously revoked clientId reuses its exact shortId and createdAt",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    auto original = store.Persist("client-1", MakeCredential(1), std::nullopt);
+    REQUIRE(original.has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::nullopt);
+
+    REQUIRE(repaired.has_value());
+    CHECK(repaired->shortId == original->shortId);
+    CHECK(repaired->createdAt == original->createdAt);
+}
+
+TEST_CASE("re-pairing a previously revoked clientId consumes no new shortId candidate",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    // Only one candidate is queued for client-1's two Persist calls (initial + re-pair); a second
+    // candidate is queued only for client-2, a genuinely new clientId.
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Revoke("client-1"));
+    REQUIRE(store.Persist("client-1", MakeCredential(3), std::nullopt).has_value());
+
+    auto second = store.Persist("client-2", MakeCredential(2), std::nullopt);
+
+    REQUIRE(second.has_value());
+    CHECK(second->shortId == "22222");
+}
+
+TEST_CASE("Persist still mints a fresh shortId and createdAt for a genuinely new clientId",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+
+    auto second = store.Persist("client-2", MakeCredential(2), std::nullopt);
+
+    REQUIRE(second.has_value());
+    CHECK(second->shortId == "22222");
+}
+
 TEST_CASE("Revoke on an unknown clientId is a no-op", "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({}));

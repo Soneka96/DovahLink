@@ -57,9 +57,12 @@ public:
     [[nodiscard]] bool Authenticate(const std::string& clientId,
                                      const std::vector<std::uint8_t>& presentedCredential);
 
-    /// Binds `credential` to `clientId` and transitions it to `kTrusted`, assigning a unique
-    /// `shortId` and a fresh `createdAt`. Rejects an empty `clientId` or `credential`, and rejects
-    /// a `displayName` that exceeds the configured length bound or contains a control character.
+    /// Binds `credential` to `clientId` and transitions it to `kTrusted`. When `clientId` already
+    /// has a known device record (in any prior state), reuses its existing `shortId` and
+    /// `createdAt` -- re-pairing never changes a device's identity or mints a second `shortId` for
+    /// it. Otherwise assigns a newly generated unique `shortId` and a fresh `createdAt`. Rejects an
+    /// empty `clientId` or `credential`, and rejects a `displayName` that exceeds the configured
+    /// length bound or contains a control character.
     /// @return The new record, or `std::nullopt` when validation, `shortId` generation, or the
     ///     underlying `Save` fails. On any failure the in-memory state is left unchanged.
     [[nodiscard]] std::optional<KnownDeviceRecord> Persist(
