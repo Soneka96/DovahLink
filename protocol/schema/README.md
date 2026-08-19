@@ -296,9 +296,10 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 `credential` is present only for `"credential_issued"`, `"trusted"`, and `"already_trusted"`.
 `shortId` (an administration-only identifier, not a trust credential) is present only for `"trusted"`
 and `"already_trusted"`. `displayName` echoes the client-supplied label and is present only alongside
-`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the remaining wait, present
-for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and `"renotify_cooldown"` (next
-manual `pairing_renotify`).
+`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the minimum safe number of
+whole seconds to wait before retrying, rounded upward whenever a positive fractional wait remains.
+It is present for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and
+`"renotify_cooldown"` (next manual `pairing_renotify`).
 
 Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
 are always present in the payload as `null` unless the note above says otherwise.

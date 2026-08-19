@@ -11,7 +11,8 @@ namespace dovahlink::security {
 struct RenotifyResult {
     /// Which of the three documented outcomes occurred.
     RenotifyOutcome outcome;
-    /// The remaining cooldown, populated only when `outcome == RenotifyOutcome::kCooldown`.
+    /// The minimum safe whole-second wait before retrying, populated only when
+    /// `outcome == RenotifyOutcome::kCooldown`.
     std::optional<std::chrono::seconds> retryAfterSeconds;
 };
 
