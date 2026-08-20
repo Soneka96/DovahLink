@@ -234,6 +234,13 @@ std::string TrustAdminService::ResetTrust() const {
     if (!trustStore_.ResetTrust()) {
         return "Failed to reset trust: trust-store save failed.";
     }
+    // Reached only once the trust-store mutation above has actually landed, matching the existing
+    // atomicity guarantee this method already provided (a save failure leaves pairing untouched too,
+    // not just trust state) -- this ordering is unrelated to the pending-credential race
+    // HandlePairingAck now closes (pairing_handler.cpp's PeekPending/CommitPending/Persist
+    // reordering): CommitPending and CancelAll share PairingSession's one mutex regardless of when,
+    // relative to this call, CancelAll happens to run, since trustStore_.ResetTrust() above never
+    // touches PairingSession and cannot itself race a pending credential that isn't kTrusted yet.
     pairingSession_.CancelAll();
     // Only the devices this call actually revoked may lose their session -- unlike Factory Reset,
     // Reset Trust must leave an unrelated active session (a developer-token connection, in

@@ -742,22 +742,25 @@ TEST_CASE("PeekPending does not consume the pending credential", "[security][pai
     CHECK(second->displayName == first->displayName);
 }
 
-TEST_CASE("a failed persist after PeekPending leaves the pending credential in place for a retry",
+TEST_CASE("PeekPending is safe to repeat without CommitPending, and a later CommitPending still "
+          "succeeds",
           "[security][pairing_session]") {
+    // Tests PairingSession's own Peek/Commit primitives in isolation, not a particular caller's
+    // ordering of them: PeekPending never consumes, so repeating it (for example across a
+    // caller-side retry loop) is always safe, and the pending credential remains committable until
+    // something -- CommitPending or CancelAll -- actually consumes it.
     PairingSession session(FixedCode("111111"));
     auto now = std::chrono::steady_clock::now();
     REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
     REQUIRE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt).outcome ==
             ConfirmResult::kConfirmed);
 
-    // Simulates the caller peeking, then TrustStore::Persist failing -- CommitPending is
-    // deliberately never called on this attempt.
     REQUIRE(session.PeekPending("client-1", MakeCredential(1), now).has_value());
 
     // Still PENDING_CREDENTIAL: a new challenge attempt from the same client just resumes it.
     CHECK(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kResumed);
 
-    // The retry: peek again (still there), and this time persistence is simulated as succeeding.
+    // A second peek still finds it, and this time the caller commits.
     REQUIRE(session.PeekPending("client-1", MakeCredential(1), now).has_value());
     CHECK(session.CommitPending("client-1", MakeCredential(1), now));
     CHECK(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
