@@ -183,11 +183,19 @@ public class PairingScenarioTests
         await harness.WriteLineAsync("revoke client-1");
         Assert.Equal("REVOKED client-1", await harness.ReadLineAsync());
 
-        // The still-open connection closes on its own, without the client ever sending anything new.
-        // Asserts the specific message BridgeConnection.ReceiveAsync's WebSocketException branch
-        // produces, distinct from its graceful-close-frame branch's wording -- confirming this was
-        // genuinely the silent, raw TCP-level cancel-and-close DisconnectIfClientActive performs
-        // (no application-level explanation message; deliberately out of this stage's scope), not an
+        // The Bridge sends session_invalidated(reason: "revoked") before force-closing (Stage 7,
+        // ai/context/protocol/security.md's "Administrative session invalidation") -- the still-open
+        // connection receives it without the client ever sending anything new.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("revoked", invalidated.Payload["reason"]!.GetValue<string>());
+
+        // The connection then closes on its own. Asserts the specific message
+        // BridgeConnection.ReceiveAsync's WebSocketException branch produces, distinct from its
+        // graceful-close-frame branch's wording -- confirming this was the raw TCP-level
+        // cancel-and-close DisconnectIfClientActive performs after the notification above, not an
         // accidental graceful close.
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
@@ -245,6 +253,15 @@ public class PairingScenarioTests
         // force-closed, not merely that a later reconnect attempt would be rejected.
         await harness.WriteLineAsync("block client-1");
         Assert.Equal("BLOCKED client-1", await harness.ReadLineAsync());
+
+        // The Bridge sends session_invalidated(reason: "blocked") before force-closing (Stage 7,
+        // ai/context/protocol/security.md's "Administrative session invalidation"), mirroring
+        // RevokeWhileConnectedClosesTheLiveSessionImmediately's same proof for revoke.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("blocked", invalidated.Payload["reason"]!.GetValue<string>());
 
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
