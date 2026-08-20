@@ -70,7 +70,7 @@ public:
 
     /// Advances a state area for its next event. Unconditional by design -- an event represents a
     /// change the caller has already confirmed, unlike a snapshot pull which may or may not reflect
-    /// one. Has no production caller yet (event delivery is Phase 4 scope; see ROADMAP.md); leaves
+    /// one. Has no production caller yet (event delivery is Phase 4 scope; see roadmap/04-live-state-synchronization-foundation.md); leaves
     /// the area's stored fingerprint untouched, so how it should interact with `StartSnapshot`'s
     /// fingerprint comparison is left for whichever phase wires event delivery to decide.
     /// @param stateArea Canonical state-area identifier.

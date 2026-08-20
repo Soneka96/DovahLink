@@ -296,9 +296,10 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 `credential` is present only for `"credential_issued"`, `"trusted"`, and `"already_trusted"`.
 `shortId` (an administration-only identifier, not a trust credential) is present only for `"trusted"`
 and `"already_trusted"`. `displayName` echoes the client-supplied label and is present only alongside
-`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the remaining wait, present
-for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and `"renotify_cooldown"` (next
-manual `pairing_renotify`).
+`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the minimum safe number of
+whole seconds to wait before retrying, rounded upward whenever a positive fractional wait remains.
+It is present for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and
+`"renotify_cooldown"` (next manual `pairing_renotify`).
 
 Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
 are always present in the payload as `null` unless the note above says otherwise.
@@ -422,11 +423,12 @@ Reports a structured failure without exposing infrastructure exceptions:
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
 
 Canonical error codes include `malformed_message`, `frame_too_large`, `unsupported_capability`,
-`unauthenticated`, `unauthorized`, `revoked`, `replayed_message`, `stale_session`, `rate_limited`,
+`unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`, `rate_limited`,
 and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected because the
 presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never paired or
-wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust". Error codes are
-for branching; diagnostic messages are not. There is no
+wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust". `blocked` is a
+`trusted_device_credential` hello rejected because the presented `clientId` belongs to a Known Device
+that is currently blocked. Error codes are for branching; diagnostic messages are not. There is no
 Bridge-version-incompatibility wire error code: a client detects incompatibility itself from
 `hello_ack.bridgeVersion` and fails without completing the rest of the exchange, per
 `ai/context/protocol/compatibility.md`.
@@ -434,6 +436,25 @@ Bridge-version-incompatibility wire error code: a client detects incompatibility
 If no session has been established on a socket, an `error`'s `sessionId` is `null`; this includes
 authentication failures and violations detected before decoding completes. After a successful
 `hello_ack`, errors carry the active session identity.
+
+### `session_invalidated`
+
+An unsolicited, Bridge-originated terminal event for an authenticated session that an administrator
+deliberately invalidated. It is sent best-effort before the Bridge force-closes the affected socket;
+the event is not a security boundary, requires no acknowledgement, and may be absent when delivery
+is impossible.
+
+```json
+{
+  "reason": "revoked"
+}
+```
+
+Required payload field: `reason`. It is one of `"revoked"`, `"blocked"`, `"trust_reset"`, or
+`"factory_reset"`. The event's `correlationId` is `null`. `"trust_reset"` means a Trusted Known
+Device became Revoked; `"factory_reset"` may terminate developer-token sessions even though the
+configured developer token remains valid. Clients must treat the event as terminal for the current
+session and must not wait for an acknowledgement before local cleanup or disconnect handling.
 
 ### `ping` and `pong`
 
@@ -453,7 +474,8 @@ Carry no application state. They prove liveness for the current `sessionId`.
 4. The client sends `subscribe` and receives `subscription_ack`.
 5. The bridge sends a snapshot before events for each accepted state area.
 6. Each authenticated socket receives a unique `sessionId`. The session is bound exclusively to
-   that socket and is invalidated when the socket closes for any reason.
+   that socket and is invalidated when the socket closes for any reason; an administrative
+   `session_invalidated` event may be sent before the force-close, but delivery is best-effort.
 7. A session cannot be transferred, resumed, or reused on another socket. A reconnect creates a
    new session, and messages carrying an invalidated or foreign session ID are rejected as
    `stale_session` before application handling.

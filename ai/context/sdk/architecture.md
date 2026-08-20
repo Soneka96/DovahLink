@@ -1,7 +1,7 @@
 # SDK architecture
 
 These conventions govern the Dart Client SDK (`sdk/dart/dovahlink_client/`, once it exists — see
-`sdk/README.md` and `ROADMAP.md`'s Phase 5). Shared Dart-language rules live in
+`sdk/README.md` and `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5). Shared Dart-language rules live in
 `ai/context/dart/dart-style.md`; do not duplicate them here.
 
 ## Dependency direction

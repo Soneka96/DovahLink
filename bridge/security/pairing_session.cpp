@@ -142,7 +142,7 @@ ConfirmCodeResult PairingSession::TryConfirmCode(const std::string& presentedCod
         return {.outcome = ConfirmResult::kExpired, .shouldAutoRenotify = false};
     }
     if (lastConfirmAttemptAt_.has_value() && now - *lastConfirmAttemptAt_ < kPairingConfirmPacingInterval) {
-        auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
+        auto remaining = std::chrono::ceil<std::chrono::seconds>(
             kPairingConfirmPacingInterval - (now - *lastConfirmAttemptAt_));
         return {.outcome = ConfirmResult::kPacingLimited, .shouldAutoRenotify = false,
                 .retryAfterSeconds = remaining};
@@ -215,7 +215,7 @@ RenotifyResult PairingSession::TryRenotify(const std::string& clientId,
         return {.outcome = RenotifyOutcome::kNotActive, .retryAfterSeconds = std::nullopt};
     }
     if (renotifyCooldownUntil_.has_value() && now < *renotifyCooldownUntil_) {
-        auto remaining = std::chrono::duration_cast<std::chrono::seconds>(*renotifyCooldownUntil_ - now);
+        auto remaining = std::chrono::ceil<std::chrono::seconds>(*renotifyCooldownUntil_ - now);
         return {.outcome = RenotifyOutcome::kCooldown, .retryAfterSeconds = remaining};
     }
     renotifyCooldownUntil_ = now + kPairingRenotifyCooldown;
