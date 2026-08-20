@@ -389,11 +389,13 @@ TEST_CASE("BridgeWorkerPool DisconnectActive is a no-op when no connection was e
     fixture.pool.Join();
 }
 
-TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated session blocked "
-          "on an idle read when the clientId matches",
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves a developer-authenticated session "
+          "running even when the clientId matches",
           "[application][bridge_worker_pool]") {
-    using namespace std::chrono_literals;
-
+    // A one_time_local_token (developer) session is never treated as a Known Device
+    // (ai/context/protocol/security.md's "Developer authentication"), so a clientId match alone must
+    // not disconnect it -- see the next test for the equivalent trusted_device_credential case,
+    // which still must disconnect.
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
@@ -411,6 +413,91 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated
     clientWs.text(true);
     boost::system::error_code writeEc;
     clientWs.write(boost::asio::buffer(ValidHello()), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer helloBuffer;
+    boost::system::error_code helloReadEc;
+    clientWs.read(helloBuffer, helloReadEc);
+    REQUIRE_FALSE(helloReadEc);
+    auto parsedHello = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(helloBuffer.data()));
+    REQUIRE(parsedHello.has_value());
+    auto helloAck = dovahlink::protocol::DecodeEnvelope(*parsedHello);
+    REQUIRE(helloAck.has_value());
+    REQUIRE(helloAck->sessionId.has_value());
+    std::string sessionId = *helloAck->sessionId;
+
+    boost::beast::flat_buffer capabilitiesBuffer;
+    boost::system::error_code capabilitiesReadEc;
+    clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
+    REQUIRE_FALSE(capabilitiesReadEc);
+
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+
+    // Proves the exemption genuinely left the session alone, rather than merely not yet having torn
+    // it down: a ping sent afterward still round-trips over the same connection.
+    std::string ping = R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": ")" + sessionId +
+                       R"(", "correlationId": null, "payload": {}, )"
+                       R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    clientWs.write(boost::asio::buffer(ping), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer pongBuffer;
+    boost::system::error_code pongReadEc;
+    clientWs.read(pongBuffer, pongReadEc);
+    REQUIRE_FALSE(pongReadEc);
+    auto parsedPong = dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(pongBuffer.data()));
+    REQUIRE(parsedPong.has_value());
+    auto pong = dovahlink::protocol::DecodeEnvelope(*parsedPong);
+    REQUIRE(pong.has_value());
+    CHECK(pong->messageType == "pong");
+    CHECK(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    // The exemption is specific to DisconnectIfClientActive: DisconnectActive (Factory Reset's
+    // unconditional path) intentionally has no equivalent check and still tears this same developer
+    // session down, proving the two methods' exemption boundary directly on one live connection
+    // rather than only in separate tests.
+    using namespace std::chrono_literals;
+    fixture.pool.DisconnectActive("factory_reset");
+    auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts a trusted-device-authenticated "
+          "session blocked on an idle read when the clientId matches",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    std::vector<std::uint8_t> credential{1, 2, 3, 4, 5, 6, 7, 8};
+    REQUIRE(fixture.trustStore.Persist("client-1", credential, std::nullopt).has_value());
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    std::string hello = R"({"messageType": "hello", "messageId": "message-hello-1", )"
+                        R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
+                        R"("clientId": "client-1", "auth": {"method": "trusted_device_credential", )"
+                        R"("token": ")" +
+                        EncodeHex(credential) + R"("}}, )"
+                        R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(hello), writeEc);
     REQUIRE_FALSE(writeEc);
 
     boost::beast::flat_buffer helloBuffer;
@@ -450,9 +537,6 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated
         CHECK(*notification->sessionId == sessionId);
         REQUIRE(notification->payload.contains("reason"));
         CHECK(notification->payload.at("reason").as_string() == "revoked");
-        // The fixture configures no bridgeInstanceId and no active play context, so both stamped
-        // fields are correctly absent rather than merely never touched -- proves the stamping code
-        // path actually ran (a bug leaving them at a stale default would not otherwise be visible).
         CHECK_FALSE(notification->bridgeInstanceId.has_value());
         CHECK_FALSE(notification->playContextId.has_value());
     }

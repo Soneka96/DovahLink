@@ -17,7 +17,10 @@ public:
 
     /// Force-closes the active session if its authenticated client identity is `clientId`, after
     /// best-effort sending it a `session_invalidated(reason)` event. A no-op when no session is
-    /// active or the active session belongs to a different client.
+    /// active, the active session belongs to a different client, or the active session authenticated
+    /// via the `one_time_local_token` developer-authentication provider -- a developer-token session
+    /// is never treated as a Known Device (`ai/context/protocol/security.md`'s "Developer
+    /// authentication"), even when its self-declared `clientId` happens to match `clientId` here.
     ///
     /// ponytail: reads the active client identity and shuts down the active socket as two separate,
     /// unsynchronized steps; a session change landing in that narrow window could in principle shut

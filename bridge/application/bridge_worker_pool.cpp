@@ -130,6 +130,14 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId, std::
         if (!activeClientId.has_value() || *activeClientId != clientId) {
             return;
         }
+        // A developer-token (one_time_local_token) session is never treated as a Known Device
+        // (ai/context/protocol/security.md's "Developer authentication"), so it stays connected even
+        // when its self-declared clientId happens to match the device this call targets.
+        // DisconnectActive (Factory Reset's unconditional path) intentionally has no equivalent
+        // check: Factory Reset invalidates every session, developer-token sessions included.
+        if (sessionManager_.IsDeveloperAuthenticated(activeConnectionId_)) {
+            return;
+        }
         activeSessionId = sessionManager_.ActiveSessionId();
         activeSocket = std::move(socket);
     }
