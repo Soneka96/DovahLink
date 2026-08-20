@@ -231,6 +231,36 @@ TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake", "[transp
     CHECK(handshake.error() == SessionError::kHandshakeFailed);
 }
 
+TEST_CASE("ShutdownWithNotification skips the notification but still force-closes an "
+          "already-pending WebSocket handshake",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    std::expected<void, SessionError> handshake = std::unexpected(SessionError::kHandshakeFailed);
+    std::binary_semaphore acceptPending{0};
+    LoopbackWebSocketServer server([&](WebSocketSession& session, boost::asio::io_context& serverIoc) {
+        // See "Shutdown interrupts an already-pending WebSocket handshake" above: this marker
+        // cannot run until async_accept is genuinely pending, proving handshakeSettled_ is still
+        // false when NotifyAndShutdownActiveSession below fires.
+        boost::asio::post(serverIoc, [&acceptPending] { acceptPending.release(); });
+        handshake = session.Accept();
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    REQUIRE(acceptPending.try_acquire_for(2s));
+    server.NotifyAndShutdownActiveSession("must not be delivered mid-handshake");
+
+    REQUIRE(server.WaitFor(2s));
+    server.Join();
+    REQUIRE_FALSE(handshake.has_value());
+    CHECK(handshake.error() == SessionError::kHandshakeFailed);
+}
+
 TEST_CASE("Accept times out when a TCP peer never sends a WebSocket upgrade", "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
@@ -812,10 +842,15 @@ TEST_CASE("a binary frame from the client is rejected, not returned as a message
 
 TEST_CASE("ShutdownWithNotification delivers the message before the peer observes closure",
           "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
     std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
     std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
     LoopbackWebSocketServer server([&](WebSocketSession& session) {
         serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
         if (!serverHandshakeResult.has_value()) {
             return;
         }
@@ -835,8 +870,10 @@ TEST_CASE("ShutdownWithNotification delivers the message before the peer observe
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    // The handshake only returns once the server side has completed Accept(), so the server is
-    // already blocked in (or about to reach) ReadMessage() -- never mid-handshake.
+    // The client's own handshake return does not guarantee the server side has returned from its
+    // Accept() call too -- wait for that explicitly rather than assuming it, so this notification
+    // is never started while Accept() might still be using stream_ itself.
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("session invalidated notice");
 
     boost::beast::flat_buffer buffer;
@@ -898,10 +935,15 @@ TEST_CASE("ShutdownWithNotification is a no-op once Shutdown already fired",
 
 TEST_CASE("Shutdown after ShutdownWithNotification does not re-close and does not disturb delivery",
           "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
     std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
     std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
     LoopbackWebSocketServer server([&](WebSocketSession& session) {
         serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
         if (!serverHandshakeResult.has_value()) {
             return;
         }
@@ -919,6 +961,9 @@ TEST_CASE("Shutdown after ShutdownWithNotification does not re-close and does no
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
+    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // for why this wait is necessary rather than assuming the client's handshake return proves it.
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("session invalidated notice");
     // ShutdownWithNotification already won the single-fire guard; this is a harmless no-op.
     server.ShutdownActiveSession();
@@ -941,8 +986,11 @@ TEST_CASE("ShutdownWithNotification still closes the connection when the write i
 
     std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
     std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
     LoopbackWebSocketServer server([&](WebSocketSession& session) {
         serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
         if (!serverHandshakeResult.has_value()) {
             return;
         }
@@ -960,6 +1008,12 @@ TEST_CASE("ShutdownWithNotification still closes the connection when the write i
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
     clientWs.next_layer().set_option(boost::asio::socket_base::receive_buffer_size(1024));
+
+    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // for why this wait is necessary rather than assuming the client's handshake return proves it
+    // -- without it, this test could nondeterministically hit the handshake-still-in-flight skip
+    // path instead of the stalled-write path it means to exercise.
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
 
     // A payload large enough against a deliberately tiny client receive buffer, with the client
     // never reading it, stalls the underlying write -- proving the armed write timeout still
@@ -982,10 +1036,15 @@ TEST_CASE("ShutdownWithNotification still closes the connection when the write i
 
 TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a second message",
           "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
     std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
     std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
     LoopbackWebSocketServer server([&](WebSocketSession& session) {
         serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
         if (!serverHandshakeResult.has_value()) {
             return;
         }
@@ -1003,6 +1062,9 @@ TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a sec
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
+    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // for why this wait is necessary rather than assuming the client's handshake return proves it.
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("first notice");
     server.NotifyAndShutdownActiveSession("second notice");
 
@@ -1026,10 +1088,15 @@ TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a sec
 
 TEST_CASE("ShutdownWithNotification delivers an empty message as a zero-length text frame",
           "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
     std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
     std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
     LoopbackWebSocketServer server([&](WebSocketSession& session) {
         serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
         if (!serverHandshakeResult.has_value()) {
             return;
         }
@@ -1047,6 +1114,9 @@ TEST_CASE("ShutdownWithNotification delivers an empty message as a zero-length t
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
+    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // for why this wait is necessary rather than assuming the client's handshake return proves it.
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("");
 
     boost::beast::flat_buffer buffer;

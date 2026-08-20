@@ -24,7 +24,7 @@ final Uri _bridgeUri = Uri.parse('ws://127.0.0.1:58231/');
 const Duration _socketTimeout = Duration(seconds: 5);
 
 /// Builds an isolated trust-store file path so this test never touches the developer's real
-/// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation.
+/// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation. 
 String _isolatedTrustStorePath() =>
     '${Directory.systemTemp.path}${Platform.pathSeparator}'
     'dovahlink-trust-${DateTime.now().microsecondsSinceEpoch}.json';

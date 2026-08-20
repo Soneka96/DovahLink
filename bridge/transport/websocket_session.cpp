@@ -93,6 +93,22 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
             if (!activeSocket) {
                 return;
             }
+            auto cancelAndClose = [](Socket& target) noexcept {
+                try {
+                    auto& tcpStream = target.stream_.next_layer();
+                    tcpStream.cancel();
+                    tcpStream.close();
+                } catch (...) {
+                    // Cancellation remains best-effort at this noexcept boundary.
+                }
+            };
+            if (!activeSocket->handshakeSettled_.load(std::memory_order_acquire)) {
+                // Accept()'s own handshake operation may still be using stream_ -- starting a
+                // websocket-level write now would race it unsafely. Best-effort delivery permits
+                // skipping the notification here; the connection is still force-closed.
+                cancelAndClose(*activeSocket);
+                return;
+            }
             try {
                 // The connection's own read loop may currently be blocked inside ReadMessage,
                 // which explicitly disables the write timeout for its own duration
@@ -102,18 +118,12 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
                 activeSocket->stream_.text(true);
                 activeSocket->stream_.async_write(
                     boost::asio::buffer(*sharedMessage),
-                    [socket, sharedMessage](boost::beast::error_code, std::size_t) {
+                    [socket, sharedMessage, cancelAndClose](boost::beast::error_code, std::size_t) {
                         auto activeSocket = socket.lock();
                         if (!activeSocket) {
                             return;
                         }
-                        try {
-                            auto& tcpStream = activeSocket->stream_.next_layer();
-                            tcpStream.cancel();
-                            tcpStream.close();
-                        } catch (...) {
-                            // Cancellation remains best-effort at this noexcept boundary.
-                        }
+                        cancelAndClose(*activeSocket);
                     });
             } catch (...) {
                 // The write itself failed to even start; still best-effort, matching Shutdown()'s
@@ -190,6 +200,9 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
 
     auto ec = RunOperation(socket_->ioContext_,
                            [this](auto completion) { socket_->stream_.async_accept(std::move(completion)); });
+    // No further operation belonging to the handshake itself remains in flight on stream_,
+    // regardless of outcome -- safe for ShutdownWithNotification to start its own write now.
+    socket_->handshakeSettled_.store(true, std::memory_order_release);
     if (ec) {
         return std::unexpected(SessionError::kHandshakeFailed);
     }
