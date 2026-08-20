@@ -41,6 +41,17 @@ public:
         /// from the caller.
         void Shutdown() noexcept;
 
+        /// Best-effort sends `message` as one text frame, then shuts down exactly like
+        /// `Shutdown()` -- one coupled, cross-thread-safe operation for an administrative
+        /// terminal event (`ai/context/protocol/security.md`'s "Administrative session
+        /// invalidation": "best-effort send and flush... then force-close"). Shuts down only once
+        /// the write's own completion handler fires (success or failure), so shutdown never races
+        /// ahead of a write still in flight; whether the peer actually receives it beyond that is
+        /// still never awaited, acknowledged, or guaranteed. Shares `Shutdown()`'s single-fire
+        /// guard, so whichever of the two is called first wins and the other becomes a no-op.
+        /// @param message Pre-encoded UTF-8 text to send before shutting down.
+        void ShutdownWithNotification(std::string message) noexcept;
+
     private:
         friend class WebSocketSession;
 

@@ -73,6 +73,51 @@ void WebSocketSession::Socket::Shutdown() noexcept {
     }
 }
 
+void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noexcept {
+    if (shutdownRequested_.exchange(true, std::memory_order_acq_rel)) {
+        return;
+    }
+
+    try {
+        auto socket = weak_from_this();
+        boost::asio::post(ioContext_, [socket = std::move(socket), message = std::move(message)] {
+            auto activeSocket = socket.lock();
+            if (!activeSocket) {
+                return;
+            }
+            try {
+                // The connection's own read loop may currently be blocked inside ReadMessage,
+                // which explicitly disables the write timeout for its own duration
+                // (DisableWriteTimeout) -- this write needs its own bounded deadline so a stalled
+                // peer still cannot prevent the force-close this method exists to guarantee.
+                boost::beast::get_lowest_layer(activeSocket->stream_).expires_after(security::kHandshakeTimeout);
+                activeSocket->stream_.text(true);
+                activeSocket->stream_.async_write(
+                    boost::asio::buffer(message), [socket](boost::beast::error_code, std::size_t) {
+                        auto activeSocket = socket.lock();
+                        if (!activeSocket) {
+                            return;
+                        }
+                        try {
+                            auto& tcpStream = activeSocket->stream_.next_layer();
+                            tcpStream.cancel();
+                            tcpStream.close();
+                        } catch (...) {
+                            // Cancellation remains best-effort at this noexcept boundary.
+                        }
+                    });
+            } catch (...) {
+                // The write itself failed to even start; still best-effort, matching Shutdown()'s
+                // own noexcept boundary. The socket is left without a scheduled shutdown in this
+                // rare case -- acceptable since ShutdownWithNotification's real caller always
+                // targets an authenticated session that idle-timeout/normal teardown still reaches.
+            }
+        });
+    } catch (...) {
+        // Best-effort noexcept boundary, matching Shutdown().
+    }
+}
+
 WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket)
     : WebSocketSession(CreateSocket(std::move(socket))) {}
 

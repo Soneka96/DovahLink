@@ -90,6 +90,15 @@ public:
         }
     }
 
+    /// Requests a best-effort notify-then-shutdown of the accepted WebSocket session, when
+    /// present, mirroring `ShutdownActiveSession()`.
+    void NotifyAndShutdownActiveSession(std::string message) noexcept {
+        std::lock_guard lock(socketMutex_);
+        if (activeSocket_) {
+            activeSocket_->ShutdownWithNotification(std::move(message));
+        }
+    }
+
     /// Forces a pending accept to fail so infrastructure error reporting can be exercised.
     void CancelPendingAccept() noexcept {
         cancellationRequested_.store(true, std::memory_order_release);
