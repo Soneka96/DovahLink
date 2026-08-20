@@ -111,7 +111,10 @@ public:
     ///     any non-`kUnblocked` outcome the in-memory state is unchanged.
     [[nodiscard]] UnblockOutcome Unblock(const std::string& clientId);
 
-    /// Removes every known device record, securely clearing every removed credential.
+    /// Removes every known device record, securely clearing every removed credential. This is
+    /// Factory Reset's destructive wipe; `TrustAdminService` gates it behind a confirmation
+    /// challenge before calling it. See `ResetTrust` for the recoverable, identity-preserving
+    /// alternative.
     /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
     ///     unchanged.
     [[nodiscard]] bool Reset();
@@ -132,6 +135,15 @@ public:
     /// @return `kRenamed` on success; `kInvalidDisplayName`, `kNotEligible`, `kNotFound`, or
     ///     `kSaveFailed` otherwise. On any non-`kRenamed` outcome the in-memory state is unchanged.
     [[nodiscard]] RenameOutcome Rename(const std::string& clientId, std::string displayName);
+
+    /// Transitions every currently `kTrusted` device to `kRevoked`, securely clearing each
+    /// credential, while leaving every `kRevoked`, `kBlocked`, and `kUnpaired` device -- and every
+    /// device's identity fields (`clientId`, `shortId`, `displayName`, `createdAt`, `blockedAt`) --
+    /// completely untouched. This is Reset Trust: recoverable and non-destructive to Known Device
+    /// records, unlike `Reset`.
+    /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
+    ///     unchanged.
+    [[nodiscard]] bool ResetTrust();
 
 private:
     /// Constructs a store from already-loaded state.

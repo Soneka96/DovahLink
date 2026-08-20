@@ -340,4 +340,21 @@ RenameOutcome TrustStore::Rename(const std::string& clientId, std::string displa
     return RenameOutcome::kRenamed;
 }
 
+bool TrustStore::ResetTrust() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto previousDevices = devices_;
+    for (auto& [clientId, device] : devices_) {
+        if (device.state == KnownDeviceState::kTrusted) {
+            device.state = KnownDeviceState::kRevoked;
+            SecureClear(device.credential);
+        }
+    }
+
+    if (!persistence_->Save(BuildSnapshot())) {
+        devices_ = std::move(previousDevices);
+        return false;
+    }
+    return true;
+}
+
 }  // namespace dovahlink::security

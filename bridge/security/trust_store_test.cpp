@@ -1159,3 +1159,87 @@ TEST_CASE("re-pairing a clientId after Forget mints a brand-new shortId and crea
     CHECK(repaired->shortId != original->shortId);
     CHECK(repaired->shortId == "22222");
 }
+
+TEST_CASE("ResetTrust revokes every trusted device while preserving its identity",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("My PC")).has_value());
+
+    CHECK(store.ResetTrust());
+
+    CHECK_FALSE(store.Query("client-1").has_value());
+    CHECK(store.IsRevoked("client-1"));
+    CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
+    auto found = store.FindByShortId("11111");
+    REQUIRE(found.has_value());
+    CHECK(found->clientId == "client-1");
+    CHECK(found->shortId == "11111");
+    REQUIRE(found->displayName.has_value());
+    CHECK(*found->displayName == "My PC");
+}
+
+TEST_CASE("ResetTrust revokes every trusted device together in one call, leaving already-revoked, "
+          "blocked, and unpaired devices completely untouched",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222", "33333", "44444"}));
+    REQUIRE(store.Persist("trusted-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Persist("trusted-2", MakeCredential(2), std::nullopt).has_value());
+    REQUIRE(store.Persist("already-revoked", MakeCredential(3), std::nullopt).has_value());
+    REQUIRE(store.Revoke("already-revoked"));
+    REQUIRE(store.Persist("blocked", MakeCredential(4), std::nullopt).has_value());
+    REQUIRE(store.Block("blocked") == BlockOutcome::kBlocked);
+    auto blockedBefore = store.FindByShortId("44444");
+    REQUIRE(blockedBefore.has_value());
+
+    CHECK(store.ResetTrust());
+
+    CHECK(store.IsRevoked("trusted-1"));
+    CHECK(store.IsRevoked("trusted-2"));
+    CHECK_FALSE(store.Authenticate("trusted-1", MakeCredential(1)));
+    CHECK_FALSE(store.Authenticate("trusted-2", MakeCredential(2)));
+    CHECK(store.IsRevoked("already-revoked"));
+    auto blockedAfter = store.FindByShortId("44444");
+    REQUIRE(blockedAfter.has_value());
+    CHECK(blockedAfter->state == KnownDeviceState::kBlocked);
+    CHECK(blockedAfter->blockedAt == blockedBefore->blockedAt);
+}
+
+TEST_CASE("ResetTrust with no trusted devices is a harmless no-op", "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+
+    CHECK(store.ResetTrust());
+
+    CHECK(store.ListAll().empty());
+}
+
+TEST_CASE("ResetTrust is idempotent: a second call finds nothing left to revoke",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.ResetTrust());
+
+    CHECK(store.ResetTrust());
+
+    CHECK(store.IsRevoked("client-1"));
+}
+
+TEST_CASE("ResetTrust surfaces a Save failure without corrupting in-memory state, for every "
+          "trusted device in the call",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    REQUIRE(store.Persist("client-2", MakeCredential(2), std::nullopt).has_value());
+
+    persistence.FailNextSave();
+    CHECK_FALSE(store.ResetTrust());
+
+    CHECK(store.Query("client-1").has_value());
+    CHECK(store.Query("client-2").has_value());
+    CHECK_FALSE(store.IsRevoked("client-1"));
+    CHECK_FALSE(store.IsRevoked("client-2"));
+}
