@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <future>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -80,7 +81,14 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
 
     try {
         auto socket = weak_from_this();
-        boost::asio::post(ioContext_, [socket = std::move(socket), message = std::move(message)] {
+        // Shared, not captured by value in only the outer lambda: boost::asio::buffer(*sharedMessage)
+        // below is a non-owning view, and async_write only registers the write before returning --
+        // the actual bytes are copied later, on a subsequent io_context turn. A message captured only
+        // by the outer lambda would be destroyed the moment that lambda returns, leaving async_write
+        // reading from a freed buffer. Sharing ownership with the completion lambda keeps it alive for
+        // the write's whole duration.
+        auto sharedMessage = std::make_shared<std::string>(std::move(message));
+        boost::asio::post(ioContext_, [socket = std::move(socket), sharedMessage] {
             auto activeSocket = socket.lock();
             if (!activeSocket) {
                 return;
@@ -93,7 +101,8 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
                 boost::beast::get_lowest_layer(activeSocket->stream_).expires_after(security::kHandshakeTimeout);
                 activeSocket->stream_.text(true);
                 activeSocket->stream_.async_write(
-                    boost::asio::buffer(message), [socket](boost::beast::error_code, std::size_t) {
+                    boost::asio::buffer(*sharedMessage),
+                    [socket, sharedMessage](boost::beast::error_code, std::size_t) {
                         auto activeSocket = socket.lock();
                         if (!activeSocket) {
                             return;

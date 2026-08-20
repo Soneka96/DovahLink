@@ -1023,3 +1023,40 @@ TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a sec
     REQUIRE(serverHandshakeResult.has_value());
     CHECK_FALSE(serverReadResult.has_value());
 }
+
+TEST_CASE("ShutdownWithNotification delivers an empty message as a zero-length text frame",
+          "[transport][websocket_session]") {
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        serverReadResult = session.ReadMessage();
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    server.NotifyAndShutdownActiveSession("");
+
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    REQUIRE_FALSE(readEc);
+    CHECK(boost::beast::buffers_to_string(buffer.data()).empty());
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+}
