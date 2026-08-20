@@ -263,7 +263,7 @@ int main() {
             // session immediately, not just the next reconnect attempt.
             std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
             if (trustStore.Revoke(revokedClientId)) {
-                bridgeWorkerPool.DisconnectIfClientActive(revokedClientId);
+                bridgeWorkerPool.DisconnectIfClientActive(revokedClientId, "revoked");
                 std::cout << "REVOKED " << revokedClientId << std::endl;
             } else {
                 std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;
@@ -279,7 +279,7 @@ int main() {
             std::string blockedClientId = line.substr(kBlockCommandPrefix.size());
             if (trustStore.Block(blockedClientId) == dovahlink::security::BlockOutcome::kBlocked) {
                 (void)pairingSession.TryCancel(blockedClientId, std::chrono::steady_clock::now());
-                bridgeWorkerPool.DisconnectIfClientActive(blockedClientId);
+                bridgeWorkerPool.DisconnectIfClientActive(blockedClientId, "blocked");
                 std::cout << "BLOCKED " << blockedClientId << std::endl;
             } else {
                 std::cout << "BLOCK_FAILED " << blockedClientId << std::endl;

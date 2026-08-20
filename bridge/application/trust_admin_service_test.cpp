@@ -36,12 +36,12 @@ namespace {
 class RecordingSessionDisconnector : public ActiveSessionDisconnector {
 public:
     /// Appends `clientId` to `disconnectedClientIds`.
-    void DisconnectIfClientActive(std::string_view clientId) override {
+    void DisconnectIfClientActive(std::string_view clientId, std::string_view /*reason*/) override {
         disconnectedClientIds.emplace_back(clientId);
     }
 
     /// Increments `disconnectActiveCallCount`.
-    void DisconnectActive() override { disconnectActiveCallCount++; }
+    void DisconnectActive(std::string_view /*reason*/) override { disconnectActiveCallCount++; }
 
     /// Every clientId passed to `DisconnectIfClientActive`, in order.
     std::vector<std::string> disconnectedClientIds;

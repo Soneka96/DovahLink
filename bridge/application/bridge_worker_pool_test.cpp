@@ -357,6 +357,14 @@ TEST_CASE("BridgeWorkerPool Stop interrupts an authenticated session blocked "
     shutdown.get();
     CHECK_FALSE(fixture.slot.IsOccupied());
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
+
+    // Ordinary plugin/transport shutdown is not an administrative invalidation: unlike
+    // DisconnectIfClientActive/DisconnectActive, Stop() sends no session_invalidated notice --
+    // the client's next read observes a bare connection failure, not a decodable frame.
+    boost::beast::flat_buffer notificationBuffer;
+    boost::system::error_code notificationReadEc;
+    clientWs.read(notificationBuffer, notificationReadEc);
+    CHECK(notificationReadEc);
 }
 
 TEST_CASE("BridgeWorkerPool DisconnectIfClientActive is a no-op when no session is active",
@@ -364,7 +372,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive is a no-op when no session 
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
-    fixture.pool.DisconnectIfClientActive("client-1");
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
 
     fixture.pool.Stop();
     fixture.pool.Join();
@@ -375,7 +383,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive is a no-op when no connection was e
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
-    fixture.pool.DisconnectActive();
+    fixture.pool.DisconnectActive("trust_reset");
 
     fixture.pool.Stop();
     fixture.pool.Join();
@@ -421,7 +429,27 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectIfClientActive("client-1");
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+
+    boost::beast::flat_buffer notificationBuffer;
+    boost::system::error_code notificationReadEc;
+    clientWs.read(notificationBuffer, notificationReadEc);
+    REQUIRE_FALSE(notificationReadEc);
+    auto parsedNotification =
+        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
+    REQUIRE(parsedNotification.has_value());
+    auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
+    REQUIRE(notification.has_value());
+    CHECK(notification->messageType == "session_invalidated");
+    REQUIRE(notification->sessionId.has_value());
+    CHECK(*notification->sessionId == sessionId);
+    REQUIRE(notification->payload.contains("reason"));
+    CHECK(notification->payload.at("reason").as_string() == "revoked");
+    // The fixture configures no bridgeInstanceId and no active play context, so both stamped
+    // fields are correctly absent rather than merely never touched -- proves the stamping code
+    // path actually ran (a bug leaving them at a stale default would not otherwise be visible).
+    CHECK_FALSE(notification->bridgeInstanceId.has_value());
+    CHECK_FALSE(notification->playContextId.has_value());
 
     auto deadline = std::chrono::steady_clock::now() + 2s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
@@ -471,7 +499,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves the active session r
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectIfClientActive("someone-else");
+    fixture.pool.DisconnectIfClientActive("someone-else", "revoked");
 
     // Proves the mismatch genuinely left the session alone, rather than merely not yet having
     // torn it down: a ping sent afterward still round-trips over the same connection.
@@ -589,7 +617,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new c
 
     // The stale identity from the connection that already ended above must not match the
     // connection now active, even though both connections were published as activeSocket_ in turn.
-    fixture.pool.DisconnectIfClientActive("client-1");
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
 
     // Proves the mismatch genuinely left the session alone, rather than merely not yet having torn
     // it down: a ping sent afterward still round-trips over the same connection.
@@ -614,7 +642,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new c
 
     // The negative result above isn't proof activeConnectionId_ tracks the new connection at all --
     // confirm the matching id, "client-2", still tears the session down correctly.
-    fixture.pool.DisconnectIfClientActive("client-2");
+    fixture.pool.DisconnectIfClientActive("client-2", "revoked");
 
     auto revokedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (fixture.sessionManager.IsValidForConnection(secondSessionId, 2) &&
@@ -667,7 +695,20 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated session
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectActive();
+    fixture.pool.DisconnectActive("trust_reset");
+
+    boost::beast::flat_buffer notificationBuffer;
+    boost::system::error_code notificationReadEc;
+    clientWs.read(notificationBuffer, notificationReadEc);
+    REQUIRE_FALSE(notificationReadEc);
+    auto parsedNotification =
+        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
+    REQUIRE(parsedNotification.has_value());
+    auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
+    REQUIRE(notification.has_value());
+    CHECK(notification->messageType == "session_invalidated");
+    REQUIRE(notification->payload.contains("reason"));
+    CHECK(notification->payload.at("reason").as_string() == "trust_reset");
 
     auto deadline = std::chrono::steady_clock::now() + 2s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
@@ -678,8 +719,8 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated session
     // A second call after the session already ended finds activeSocket_'s weak_ptr expired rather
     // than merely unset -- a distinct guard path from "never had a connection at all," and must be
     // just as safe to call again (for example a double revoke).
-    fixture.pool.DisconnectActive();
-    fixture.pool.DisconnectIfClientActive("client-1");
+    fixture.pool.DisconnectActive("trust_reset");
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
 
     fixture.pool.Stop();
     fixture.pool.Join();

@@ -1,9 +1,13 @@
 #include "application/bridge_worker_pool.hpp"
 
+#include "protocol/envelope.hpp"
+#include "protocol/session_invalidated_payload.hpp"
 #include "transport/websocket_session.hpp"
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <string>
 
 namespace dovahlink::application {
 
@@ -107,7 +111,7 @@ void BridgeWorkerPool::Stop() {
     ShutdownActiveSocket();
 }
 
-void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
+void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId, std::string_view reason) {
     transport::WebSocketSession::SocketHandle activeSocket;
     {
         // Holding activeSocketMutex_ across both the identity check and the socket read makes
@@ -124,11 +128,18 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
         }
         activeSocket = std::move(socket);
     }
-    activeSocket->Shutdown();
+    NotifyAndShutdownActiveSocket(activeSocket, reason);
 }
 
-void BridgeWorkerPool::DisconnectActive() {
-    ShutdownActiveSocket();
+void BridgeWorkerPool::DisconnectActive(std::string_view reason) {
+    transport::WebSocketSession::SocketHandle activeSocket;
+    {
+        std::lock_guard<std::mutex> lock(activeSocketMutex_);
+        activeSocket = activeSocket_.lock();
+    }
+    if (activeSocket) {
+        NotifyAndShutdownActiveSocket(activeSocket, reason);
+    }
 }
 
 void BridgeWorkerPool::ShutdownActiveSocket() {
@@ -140,6 +151,15 @@ void BridgeWorkerPool::ShutdownActiveSocket() {
     if (activeSocket) {
         activeSocket->Shutdown();
     }
+}
+
+void BridgeWorkerPool::NotifyAndShutdownActiveSocket(const transport::WebSocketSession::SocketHandle& socket,
+                                                      std::string_view reason) {
+    auto envelope = protocol::BuildSessionInvalidatedEnvelope(sessionManager_.ActiveSessionId(), std::string(reason));
+    envelope.bridgeInstanceId = bridgeInstanceId_;
+    auto context = activePlayContext_.AcquireCurrent();
+    envelope.playContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+    socket->ShutdownWithNotification(protocol::EncodeEnvelope(envelope));
 }
 
 void BridgeWorkerPool::Join() {

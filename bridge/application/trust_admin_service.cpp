@@ -127,7 +127,7 @@ std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {
     if (!trustStore_.Revoke(it->clientId)) {
         return "Failed to revoke client " + std::string(shortId) + ": trust-store save failed.";
     }
-    sessionDisconnector_.DisconnectIfClientActive(it->clientId);
+    sessionDisconnector_.DisconnectIfClientActive(it->clientId, "revoked");
     return "Revoked client " + std::string(shortId) + " (" + displayName + ").";
 }
 
@@ -151,7 +151,7 @@ std::string TrustAdminService::BlockByShortId(std::string_view shortId,
     switch (trustStore_.Block(device->clientId)) {
         case security::BlockOutcome::kBlocked:
             pairingSession_.TryCancel(device->clientId, now);
-            sessionDisconnector_.DisconnectIfClientActive(device->clientId);
+            sessionDisconnector_.DisconnectIfClientActive(device->clientId, "blocked");
             return "Blocked device " + std::string(shortId) + " (" + displayName + ").";
         case security::BlockOutcome::kAlreadyBlocked:
             return "Device " + std::string(shortId) + " is already blocked.";
@@ -216,7 +216,7 @@ std::string TrustAdminService::ConfirmFactoryReset(std::string_view presentedCod
                 return "Failed to complete Factory Reset: trust-store save failed.";
             }
             pairingSession_.CancelAll();
-            sessionDisconnector_.DisconnectActive();
+            sessionDisconnector_.DisconnectActive("factory_reset");
             return "Factory Reset complete (" + std::to_string(previousCount) +
                    (previousCount == 1 ? " trusted device erased)." : " trusted devices erased).");
         }
@@ -235,7 +235,7 @@ std::string TrustAdminService::ResetTrust() const {
         return "Failed to reset trust: trust-store save failed.";
     }
     pairingSession_.CancelAll();
-    sessionDisconnector_.DisconnectActive();
+    sessionDisconnector_.DisconnectActive("trust_reset");
     return "Reset Trust complete (" + std::to_string(previousCount) +
            (previousCount == 1 ? " device revoked)." : " devices revoked).");
 }
