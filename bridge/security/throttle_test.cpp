@@ -75,7 +75,7 @@ TEST_CASE("RateWindowCounter is safe under concurrent recording", "[security][th
             readyCount.fetch_add(1, std::memory_order_relaxed);
             while (!go.load(std::memory_order_acquire)) {
             }
-            counter.RecordEvent(Clock::now());
+            (void)counter.RecordEvent(Clock::now());
         });
     }
 

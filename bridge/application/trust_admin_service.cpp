@@ -150,7 +150,7 @@ std::string TrustAdminService::BlockByShortId(std::string_view shortId,
 
     switch (trustStore_.Block(device->clientId)) {
         case security::BlockOutcome::kBlocked:
-            pairingSession_.TryCancel(device->clientId, now);
+            (void)pairingSession_.TryCancel(device->clientId, now);
             sessionDisconnector_.DisconnectIfClientActive(device->clientId, "blocked");
             return "Blocked device " + std::string(shortId) + " (" + displayName + ").";
         case security::BlockOutcome::kAlreadyBlocked:

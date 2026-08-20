@@ -114,7 +114,7 @@ TEST_CASE("the full reconnect flow establishes an independent session end to end
     ReplayGuard replayA;
     revisionsA.StartSnapshot(kCharacter, kFingerprint);
     revisionsA.NextEvent(kCharacter);
-    replayA.RecordMessage("message-1");
+    (void)replayA.RecordMessage("message-1");
 
     // Connection A is gone; its session is invalidated and its per-session state
     // (owned by whatever constructed it, e.g. the coordinator) is simply dropped.
