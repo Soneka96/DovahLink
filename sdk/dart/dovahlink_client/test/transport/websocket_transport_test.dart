@@ -160,7 +160,23 @@ void main() {
       await transport.close();
       await firstConnect;
 
-      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+      // The bridge's connection slot is released once its own worker thread notices the closed
+      // socket, not the instant this client's close() call returns -- a real, if usually brief,
+      // delay. Retry briefly rather than requiring the first attempt to land, mirroring
+      // dovahlink_bridge_harness_test.cpp's own "binding a real OS port can still lag a moment
+      // behind that; retry briefly" pattern.
+      const int maxAttempts = 20;
+      for (int attempt = 1; ; attempt++) {
+        try {
+          await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+          break;
+        } on IOException {
+          if (attempt >= maxAttempts) {
+            rethrow;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }
 
       // Proves the new socket was actually adopted this time, not discarded like the first.
       await transport.send('probe');
