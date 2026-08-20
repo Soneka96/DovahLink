@@ -258,6 +258,38 @@ TEST_CASE("Persist rejects a displayName containing a control character",
     CHECK_FALSE(result.has_value());
 }
 
+TEST_CASE("Persist with an explicit empty displayName clears an existing display name on re-pair",
+          "[security][trust_store]") {
+    // Distinguishes an explicit empty string (clears the name, matching Rename's own "an empty
+    // displayName clears the name" canonical representation) from an omitted displayName (which
+    // preserves whatever the record already held on re-pair -- see the "reuses its exact shortId
+    // and createdAt" family of tests, none of which pass an explicit empty string).
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::string("Old Name")).has_value());
+    REQUIRE(store.Revoke("client-1"));
+
+    auto repaired = store.Persist("client-1", MakeCredential(3), std::string(""));
+
+    REQUIRE(repaired.has_value());
+    CHECK_FALSE(repaired->displayName.has_value());
+    auto found = store.Query("client-1");
+    REQUIRE(found.has_value());
+    CHECK_FALSE(found->displayName.has_value());
+}
+
+TEST_CASE("Persist with an explicit empty displayName stores no display name for a genuinely new "
+          "clientId",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+
+    auto result = store.Persist("client-1", MakeCredential(1), std::string(""));
+
+    REQUIRE(result.has_value());
+    CHECK_FALSE(result->displayName.has_value());
+}
+
 TEST_CASE("Persist surfaces a Save failure without corrupting in-memory state",
           "[security][trust_store]") {
     FakePersistence persistence;
@@ -325,12 +357,21 @@ TEST_CASE("Persist still mints a fresh shortId and createdAt for a genuinely new
           "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
-    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    auto first = store.Persist("client-1", MakeCredential(1), std::nullopt);
+    REQUIRE(first.has_value());
 
+    auto before = std::chrono::system_clock::now();
     auto second = store.Persist("client-2", MakeCredential(2), std::nullopt);
+    auto after = std::chrono::system_clock::now();
 
     REQUIRE(second.has_value());
     CHECK(second->shortId == "22222");
+    CHECK(second->createdAt >= before);
+    CHECK(second->createdAt <= after);
+    // Not merely a fresh timestamp -- a genuinely independent one from client-1's own, unlike a
+    // re-pair (see "reuses its exact shortId and createdAt" above), which this bracket alone
+    // wouldn't distinguish from an implementation that accidentally copied client-1's createdAt.
+    CHECK(second->createdAt != first->createdAt);
 }
 
 TEST_CASE("Revoke on an unknown clientId is a no-op", "[security][trust_store]") {

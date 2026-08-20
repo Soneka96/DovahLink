@@ -9,6 +9,7 @@
 #include <cctype>
 #include <chrono>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace dovahlink::security {
@@ -21,6 +22,17 @@ void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
         SecureZeroMemory(buffer.data(), buffer.size());
     }
     buffer.clear();
+}
+
+/// Overwrites every device's credential in a whole-map rollback copy that a successful mutation no
+/// longer needs. A copy taken only to restore `devices_` on a `Save` failure still holds whatever
+/// credential bytes the live map held at that moment; once the mutation succeeds and the copy is
+/// discarded instead, those bytes must not linger un-zeroed in memory until the copy's backing
+/// allocation happens to be reused.
+void SecureClearDevices(std::unordered_map<std::string, KnownDeviceRecord>& devices) noexcept {
+    for (auto& [clientId, device] : devices) {
+        SecureClear(device.credential);
+    }
 }
 
 }  // namespace
@@ -198,6 +210,12 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
         createdAt = std::chrono::system_clock::now();
     }
 
+    // An explicit empty string clears the name -- stored as std::nullopt, never an empty string, so
+    // "no display name" stays one canonical representation, matching Rename's own normalization.
+    if (displayName.has_value() && displayName->empty()) {
+        displayName.reset();
+    }
+
     KnownDeviceRecord device{.clientId = clientId,
                               .credential = std::move(credential),
                               .shortId = std::move(shortId),
@@ -212,6 +230,7 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
         devices_ = std::move(previousDevices);
         return std::nullopt;
     }
+    SecureClearDevices(previousDevices);
     return it->second;
 }
 
@@ -232,6 +251,7 @@ bool TrustStore::Revoke(const std::string& clientId) {
         it->second = std::move(previousDevice);
         return false;
     }
+    SecureClear(previousDevice.credential);
     return true;
 }
 
@@ -258,6 +278,7 @@ BlockOutcome TrustStore::Block(const std::string& clientId) {
         it->second = std::move(previousDevice);
         return BlockOutcome::kSaveFailed;
     }
+    SecureClear(previousDevice.credential);
     return BlockOutcome::kBlocked;
 }
 
@@ -314,6 +335,7 @@ ForgetOutcome TrustStore::Forget(const std::string& clientId) {
         devices_ = std::move(previousDevices);
         return ForgetOutcome::kSaveFailed;
     }
+    SecureClearDevices(previousDevices);
     return ForgetOutcome::kForgotten;
 }
 
@@ -354,6 +376,7 @@ bool TrustStore::ResetTrust() {
         devices_ = std::move(previousDevices);
         return false;
     }
+    SecureClearDevices(previousDevices);
     return true;
 }
 
