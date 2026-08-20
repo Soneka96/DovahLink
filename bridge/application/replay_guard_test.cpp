@@ -35,10 +35,10 @@ TEST_CASE("a replayed message does not block a later distinct message", "[applic
 
 TEST_CASE("Count reflects only distinct accepted messageIds", "[application][replay_guard]") {
     ReplayGuard guard;
-    guard.RecordMessage("message-1");
-    guard.RecordMessage("message-1");  // replay, not counted again
-    guard.RecordMessage("message-1");  // replayed repeatedly, still not counted again
-    guard.RecordMessage("message-2");
+    (void)guard.RecordMessage("message-1");
+    (void)guard.RecordMessage("message-1");  // replay, not counted again
+    (void)guard.RecordMessage("message-1");  // replayed repeatedly, still not counted again
+    (void)guard.RecordMessage("message-2");
     CHECK(guard.Count() == 2);
 }
 

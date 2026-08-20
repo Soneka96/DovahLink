@@ -12,6 +12,7 @@ using dovahlink::protocol::DecodeNonEmptyString;
 using dovahlink::protocol::DecodeNonNegativeInt;
 using dovahlink::protocol::DecodeOptionalNonNegativeInt;
 using dovahlink::protocol::DecodeOptionalString;
+using dovahlink::protocol::DecodeString;
 using dovahlink::protocol::DecodeStringArray;
 using dovahlink::protocol::Fail;
 using dovahlink::protocol::RequireField;
@@ -44,6 +45,49 @@ TEST_CASE("DecodeNonEmptyString rejects an empty string", "[protocol][json_field
 TEST_CASE("DecodeNonEmptyString rejects a non-string value", "[protocol][json_field_decoders]") {
     boost::json::value value = Json("5");
     auto result = DecodeNonEmptyString(&value, "field");
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("DecodeString accepts a non-empty string", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json(R"("hello")");
+    auto result = DecodeString(&value, "field");
+    REQUIRE(result.has_value());
+    CHECK(*result == "hello");
+}
+
+TEST_CASE("DecodeString accepts an empty string", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json(R"("")");
+    auto result = DecodeString(&value, "field");
+    REQUIRE(result.has_value());
+    CHECK(result->empty());
+}
+
+TEST_CASE("DecodeString rejects a null field pointer (missing field)", "[protocol][json_field_decoders]") {
+    auto result = DecodeString(nullptr, "field");
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("DecodeString rejects a non-string value", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json("5");
+    auto result = DecodeString(&value, "field");
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("DecodeString rejects a JSON null value", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json("null");
+    auto result = DecodeString(&value, "field");
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("DecodeString rejects a boolean value", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json("true");
+    auto result = DecodeString(&value, "field");
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("DecodeString rejects an array value", "[protocol][json_field_decoders]") {
+    boost::json::value value = Json(R"(["a"])");
+    auto result = DecodeString(&value, "field");
     REQUIRE_FALSE(result.has_value());
 }
 

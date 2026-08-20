@@ -21,6 +21,7 @@ using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
 using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
+using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
 using dovahlink::security::ITrustStorePersistence;
@@ -75,10 +76,10 @@ Envelope BuildHelloEnvelope(const std::string& token, std::string messageId = "m
 }
 
 /// Builds a hello envelope using the bootstrap `unpaired` auth method (no `auth.token` field).
-Envelope BuildUnpairedHelloEnvelope(std::string messageId = "message-hello-1") {
+Envelope BuildUnpairedHelloEnvelope(std::string messageId = "message-hello-1", std::string clientId = "client-1") {
     boost::json::object payload;
     payload["endpoint"] = "client";
-    payload["clientId"] = "client-1";
+    payload["clientId"] = clientId;
     boost::json::object auth;
     auth["method"] = "unpaired";
     payload["auth"] = auth;
@@ -546,6 +547,139 @@ TEST_CASE("HandleHello reports revoked for a revoked clientId even when the cred
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
     REQUIRE(error.has_value());
     CHECK(error->code == "revoked");
+}
+
+TEST_CASE("HandleHello rejects an unpaired hello from a blocked clientId",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::string("My PC")).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildUnpairedHelloEnvelope();
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    CHECK_FALSE(result.sessionLease.has_value());
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "blocked");
+    CHECK_FALSE(error->retryable);
+    CHECK_FALSE(error->message.find("My PC") != std::string::npos);
+    // The check runs before any auth-method-specific work, so neither throttle is touched and the
+    // one-time token stays available.
+    CHECK_FALSE(throttle.IsBlocked(now));
+    CHECK_FALSE(credentialThrottle.IsBlocked(now));
+    CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("HandleHello rejects a trusted_device_credential hello from a blocked clientId, not revoked",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    // The device's real credential was destroyed by Block; presenting it back proves blocked wins
+    // even against a credential that used to be valid, not just an obviously-wrong guess.
+    auto hello = BuildTrustedCredentialHelloEnvelope(dovahlink::security::EncodeHex(credentialBytes));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    CHECK_FALSE(result.sessionLease.has_value());
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "blocked");
+    CHECK_FALSE(error->retryable);
+    CHECK_FALSE(throttle.IsBlocked(now));
+    CHECK_FALSE(credentialThrottle.IsBlocked(now));
+    CHECK(tokenStore.IsAvailable());
+}
+
+TEST_CASE("HandleHello rejects a blocked clientId's trusted_device_credential hello even with a "
+          "structurally malformed credential",
+          "[application][handshake_handler]") {
+    // Proves the blocked gate runs before hex-decoding the presented credential, not just before a
+    // well-formed-but-wrong one -- mirroring the existing revoked-vs-malformed-credential proof.
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope("not-valid-hex!!");
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "blocked");
+}
+
+TEST_CASE("HandleHello does not reject a hello from a different, never-blocked clientId",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildUnpairedHelloEnvelope("message-hello-1", "client-2");
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
+}
+
+TEST_CASE("HandleHello's one_time_local_token path is unaffected by a blocked clientId",
+          "[application][handshake_handler]") {
+    // Developer-token authentication stays a separate provider, never redefined as a paired device
+    // by Known Device blocking (security.md's "Developer authentication").
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken, "message-hello-1", std::string("client-1"));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
+                              /*connection=*/1, timeout, now);
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
+    CHECK(sessions.IsFullyTrusted(/*connection=*/1));
 }
 
 TEST_CASE("HandleHello rejects a trusted_device_credential hello for an unknown clientId",

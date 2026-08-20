@@ -46,9 +46,9 @@ struct SubscriptionState {
 /// @param sessionId Authenticated session identifier.
 /// @param connection Transport connection identifier.
 /// @param sessionManager Session registry. Also determines this call's allowed message types: a
-///     `Restricted` session may only exchange `ping`/`capabilities`/the three pairing message
-///     types; a `Full` session may only exchange `ping`/`capabilities`/`subscribe`/
-///     `snapshot_request` (pairing messages are pointless once already trusted).
+///     `Restricted` session may only exchange `ping`/`capabilities`/the pairing message types; a
+///     `Full` session may exchange `ping`/`capabilities`/`subscribe`/`snapshot_request`/
+///     `rename_request` (pairing messages are pointless once already trusted).
 /// @param replayGuard Per-session message-ID guard.
 /// @param violations Per-connection protocol-violation tracker.
 /// @param rateLimiter Per-connection inbound rate limiter.

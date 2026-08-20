@@ -2,6 +2,8 @@
 
 DovahLink is a maintainer-owned project developed with AI assistance. The maintainer owns the product direction, architecture, protocol decisions, and final approval of every change.
 
+> **CodeGraph tells you where to investigate. The repository tells you what is true.**
+
 ## Read first
 
 - `README.md` — project overview and documentation map
@@ -40,13 +42,36 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 ## How AI should work
 
 1. Read the relevant project documents before proposing or changing a design.
-2. Inspect existing code and the conventions documented in this repository before creating new patterns.
-3. Prefer the smallest complete change that fits the existing architecture.
-4. Follow the decision-documentation workflow in `CONTRIBUTING.md`.
-5. Follow the test requirements in `CONTRIBUTING.md` and the relevant area testing documents.
-6. Check the diff for unrelated changes before presenting the work.
-7. Before handoff, verify that intended changes are on the feature branch, no unintended working-tree or staged changes remain, and `main` was not modified.
-8. Summarize the branch, checks, and remaining limitations.
+2. If the repository has a `.codegraph/` index, use CodeGraph to discover relevant symbols,
+   callers, callees, dependencies, related types, code paths, and likely blast radius. Use its
+   results to identify files that need investigation, not to avoid reading them.
+3. Directly read the relevant implementation, tests, and applicable architecture and convention
+   documentation before modifying behavior. For a cross-layer change, inspect every affected
+   boundary directly. CodeGraph context, edit context, and persistent memory are not sufficient
+   implementation context.
+4. Establish current behavior and invariants from the repository before planning and implementing
+   the change. Current implementation and tests establish what is implemented; explicit project
+   decisions establish intended behavior. CodeGraph output and memory are hints, not authoritative
+   facts. If they disagree, investigate the discrepancy rather than silently trusting CodeGraph.
+5. Never rely on remembered architectural, protocol, lifecycle, concurrency, security, or
+   state-management facts without checking the current repository.
+6. For substantial changes, follow this order: read applicable instructions and documentation;
+   use CodeGraph to discover the affected area and dependencies; directly read implementation and
+   tests; establish behavior and invariants; plan and implement; run or update relevant tests; then
+   use CodeGraph again to check blast radius and missed dependencies.
+7. Treat SKSE/game integration, Bridge/Core, WebSocket and session lifecycle, pairing/trust/security,
+   protocol/messages, the Dart SDK, the Flutter app, persistence, concurrency/threading, and
+   tests/documentation contracts as boundaries where graph structure alone is insufficient.
+   Verify ownership, lifecycle ordering, protocol semantics, timeout and error behavior,
+   state-transition rules, security invariants, and intended architectural boundaries from source,
+   tests, and documentation.
+8. Inspect existing code and the conventions documented in this repository before creating new patterns.
+9. Prefer the smallest complete change that fits the existing architecture.
+10. Follow the decision-documentation workflow in `CONTRIBUTING.md`.
+11. Follow the test requirements in `CONTRIBUTING.md` and the relevant area testing documents.
+12. Check the diff for unrelated changes before presenting the work.
+13. Before handoff, verify that intended changes are on the feature branch, no unintended working-tree or staged changes remain, and `main` was not modified.
+14. Summarize the branch, checks, and remaining limitations.
 
 ## Local convention authority
 

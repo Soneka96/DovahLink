@@ -18,6 +18,8 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 
@@ -75,10 +77,10 @@ public:
     void Join() override;
 
     /// @copydoc ActiveSessionDisconnector::DisconnectIfClientActive
-    void DisconnectIfClientActive(std::string_view clientId) override;
+    void DisconnectIfClientActive(std::string_view clientId, std::string_view reason) override;
 
     /// @copydoc ActiveSessionDisconnector::DisconnectActive
-    void DisconnectActive() override;
+    void DisconnectActive(std::string_view reason) override;
 
 private:
     /// Accepts connections from one loopback listener until stopping.
@@ -113,9 +115,23 @@ private:
 
     /// Shuts down the active session socket, if one is currently published, independent of the
     /// caller's thread -- the same cross-thread-safe path `Socket::Shutdown()` itself provides.
-    /// Shared by `Stop()`, `DisconnectIfClientActive()`, and `DisconnectActive()` so all three tear
-    /// down the active socket exactly the same way.
+    /// Used only by `Stop()`: ordinary plugin/transport shutdown is not an administrative
+    /// invalidation and sends no `session_invalidated` notice, unlike
+    /// `NotifyAndShutdownActiveSocket()` below.
     void ShutdownActiveSocket();
+
+    /// Best-effort sends the active session a `session_invalidated(reason)` event, then shuts it
+    /// down -- the same cross-thread-safe path `Socket::ShutdownWithNotification()` provides.
+    /// Shared by `DisconnectIfClientActive()` and `DisconnectActive()` so both tear down the active
+    /// socket, after the same notification, exactly the same way.
+    /// @param socket The active session's socket, already resolved and locked by the caller.
+    /// @param sessionId The session identifier to invalidate, resolved by the caller under the same
+    ///     `activeSocketMutex_` critical section that resolved `socket` -- never re-queried here,
+    ///     since `sessionManager_.ActiveSessionId()` is unscoped and could by then belong to a
+    ///     different session than the one `socket` was just resolved for.
+    /// @param reason One of `"revoked"`, `"blocked"`, `"trust_reset"`, `"factory_reset"`.
+    void NotifyAndShutdownActiveSocket(const transport::WebSocketSession::SocketHandle& socket,
+                                        std::optional<std::string> sessionId, std::string_view reason);
 
     /// IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;

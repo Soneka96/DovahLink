@@ -137,12 +137,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 ## Administrative session invalidation
 
 Phase 3.2 extends persistent local trust with Bridge-owned Known Device states: `Trusted`, `Revoked`,
-`Blocked`, and `Unpaired`. Block applies to any existing non-`Blocked` Known Device, including
-`Unpaired`, but never creates a record for an unknown `clientId`; a repeated block reports the
-already-blocked state. Blocked stale credentials are rejected explicitly as `blocked`, while revoked
-stale credentials are rejected explicitly as `revoked`. These administrative truths are available to
-the authenticated/admin surfaces and SDKs; the official Flutter UI may intentionally present them
-identically.
+`Blocked`, and `Unpaired`. Block applies to a `Trusted` or `Revoked` Known Device -- never an
+`Unpaired` one, which stays not eligible, and never creates a record for an unknown `clientId`; a
+repeated block reports the already-blocked state. Blocked stale credentials are rejected explicitly
+as `blocked`, while revoked stale credentials are rejected explicitly as `revoked`. These
+administrative truths are available to the authenticated/admin surfaces and SDKs; the official
+Flutter UI may intentionally present them identically.
 
 When an administrator deliberately invalidates an authenticated session, the Bridge uses one
 canonical unsolicited terminal event, `session_invalidated`, with a typed reason of `revoked`,
@@ -189,7 +189,12 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     parses in-game console text into named commands/subcommands/arguments from a YAML config and
     calls a matching Papyrus `global` function per subcommand. Its documented syntax
     (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
-    `dovahlink revoke -id <shortId>`, and `dovahlink reset` directly.
+    `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
+    `dovahlink revoke -id <shortId>`, `dovahlink block -id <shortId>`,
+    `dovahlink unblock -id <shortId>`, `dovahlink forget -id <shortId>`, `dovahlink reset trust`
+    (Reset Trust, immediate, no confirmation), `dovahlink reset` (starts the Factory Reset
+    confirmation challenge; performs no mutation itself), and `dovahlink reset -confirm <code>`
+    (confirms it, executing the destructive wipe only on a matching code) directly.
   - DovahLink Bridge registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
     memory patching, no offsets, version-independent) that a short Papyrus glue script forwards to.
@@ -199,11 +204,13 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     own. This is the approved, narrow exception to `ai/context/skse/architecture.md`'s "do not
     introduce Papyrus into the core bridge" rule -- the Papyrus surface is glue only, never policy.
   - ConsoleUtil Extended is an **optional runtime dependency of this one feature only**, not of
-    DovahLink Bridge itself. The bridge's native Papyrus-function registration succeeds
+    DovahLink Bridge itself. The bridge attempts native Papyrus-function registration
     unconditionally (Papyrus mods are not introspectable from `SKSEPluginLoad`, so there is nothing
-    to version-check at bridge startup); every other bridge behavior -- connection, pairing, trust
+    to version-check at bridge startup); a registration failure is logged and remains isolated to
+    this optional adapter; every other bridge behavior -- connection, pairing, trust
     persistence -- is entirely unaffected if ConsoleUtil Extended, the glue script, or its YAML
-    config are absent. Without them, `dovahlink list`/`revoke`/`reset` are simply unrecognized
+    config are absent. Without them, `dovahlink list`/`dovahlink list trust`/`dovahlink list block`/
+    `dovahlink help` and the mutation commands are simply unrecognized
     console commands, exactly like any other unknown input; there is no error path and no degraded
     core behavior to account for.
 - All callers use the same authoritative service and must preserve the ordering and event semantics

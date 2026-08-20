@@ -105,6 +105,13 @@ public:
     /// @return The active session's client identity, or no value when no session is active.
     [[nodiscard]] std::optional<std::string> ActiveClientId() const;
 
+    /// Returns the identifier of the active session, independent of which connection owns it.
+    /// The session-identity counterpart of @ref ActiveClientId, needed by a caller (administrative
+    /// session invalidation) that must stamp the active session's own ID onto an outbound message
+    /// without already knowing a `ConnectionId`.
+    /// @return The active session's identifier, or no value when no session is active.
+    [[nodiscard]] std::optional<std::string> ActiveSessionId() const;
+
     /// Upgrades the active session to `kFull` tier, if `connection` and `sessionId` both match the
     /// active session -- the same stale-caller guard `InvalidateSession` uses, so a delayed
     /// upgrade call arriving after `connection`'s session was invalidated and replaced cannot

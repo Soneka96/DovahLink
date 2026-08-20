@@ -1,9 +1,13 @@
 #include "application/bridge_worker_pool.hpp"
 
+#include "protocol/envelope.hpp"
+#include "protocol/session_invalidated_payload.hpp"
 #include "transport/websocket_session.hpp"
 
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <string>
 
 namespace dovahlink::application {
 
@@ -107,12 +111,16 @@ void BridgeWorkerPool::Stop() {
     ShutdownActiveSocket();
 }
 
-void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
+void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId, std::string_view reason) {
     transport::WebSocketSession::SocketHandle activeSocket;
+    std::optional<std::string> activeSessionId;
     {
-        // Holding activeSocketMutex_ across both the identity check and the socket read makes
-        // this atomic: no new connection can publish itself as activeSocket_/activeConnectionId_
-        // while this decides whether the *current* one belongs to clientId.
+        // Holding activeSocketMutex_ across the identity check, the socket read, and the session-ID
+        // read makes all three atomic: no new connection can publish itself as
+        // activeSocket_/activeConnectionId_, and no session can be replaced, while this decides
+        // whether the *current* one belongs to clientId and which session ID it is. Resolving
+        // sessionManager_.ActiveSessionId() here -- rather than in NotifyAndShutdownActiveSocket
+        // after this lock releases -- keeps it from racing ahead to a different, newer session.
         std::lock_guard<std::mutex> lock(activeSocketMutex_);
         auto socket = activeSocket_.lock();
         if (!socket) {
@@ -122,13 +130,27 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId) {
         if (!activeClientId.has_value() || *activeClientId != clientId) {
             return;
         }
+        activeSessionId = sessionManager_.ActiveSessionId();
         activeSocket = std::move(socket);
     }
-    activeSocket->Shutdown();
+    NotifyAndShutdownActiveSocket(activeSocket, std::move(activeSessionId), reason);
 }
 
-void BridgeWorkerPool::DisconnectActive() {
-    ShutdownActiveSocket();
+void BridgeWorkerPool::DisconnectActive(std::string_view reason) {
+    transport::WebSocketSession::SocketHandle activeSocket;
+    std::optional<std::string> activeSessionId;
+    {
+        // Same atomicity reasoning as DisconnectIfClientActive: the session ID must be read under
+        // the same lock that resolved the socket, not afterward.
+        std::lock_guard<std::mutex> lock(activeSocketMutex_);
+        activeSocket = activeSocket_.lock();
+        if (activeSocket) {
+            activeSessionId = sessionManager_.ActiveSessionId();
+        }
+    }
+    if (activeSocket) {
+        NotifyAndShutdownActiveSocket(activeSocket, std::move(activeSessionId), reason);
+    }
 }
 
 void BridgeWorkerPool::ShutdownActiveSocket() {
@@ -140,6 +162,16 @@ void BridgeWorkerPool::ShutdownActiveSocket() {
     if (activeSocket) {
         activeSocket->Shutdown();
     }
+}
+
+void BridgeWorkerPool::NotifyAndShutdownActiveSocket(const transport::WebSocketSession::SocketHandle& socket,
+                                                      std::optional<std::string> sessionId,
+                                                      std::string_view reason) {
+    auto envelope = protocol::BuildSessionInvalidatedEnvelope(std::move(sessionId), std::string(reason));
+    envelope.bridgeInstanceId = bridgeInstanceId_;
+    auto context = activePlayContext_.AcquireCurrent();
+    envelope.playContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+    socket->ShutdownWithNotification(protocol::EncodeEnvelope(envelope));
 }
 
 void BridgeWorkerPool::Join() {

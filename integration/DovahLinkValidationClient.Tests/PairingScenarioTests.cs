@@ -183,11 +183,19 @@ public class PairingScenarioTests
         await harness.WriteLineAsync("revoke client-1");
         Assert.Equal("REVOKED client-1", await harness.ReadLineAsync());
 
-        // The still-open connection closes on its own, without the client ever sending anything new.
-        // Asserts the specific message BridgeConnection.ReceiveAsync's WebSocketException branch
-        // produces, distinct from its graceful-close-frame branch's wording -- confirming this was
-        // genuinely the silent, raw TCP-level cancel-and-close DisconnectIfClientActive performs
-        // (no application-level explanation message; deliberately out of this stage's scope), not an
+        // The Bridge sends session_invalidated(reason: "revoked") before force-closing (Stage 7,
+        // ai/context/protocol/security.md's "Administrative session invalidation") -- the still-open
+        // connection receives it without the client ever sending anything new.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("revoked", invalidated.Payload["reason"]!.GetValue<string>());
+
+        // The connection then closes on its own. Asserts the specific message
+        // BridgeConnection.ReceiveAsync's WebSocketException branch produces, distinct from its
+        // graceful-close-frame branch's wording -- confirming this was the raw TCP-level
+        // cancel-and-close DisconnectIfClientActive performs after the notification above, not an
         // accidental graceful close.
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
@@ -202,6 +210,115 @@ public class PairingScenarioTests
         Assert.Equal("hello_ack", healthyHelloAck.MessageType);
 
         await BridgeScenario.CloseAndQuitAsync(harness, healthyConnection);
+    }
+
+    /// <summary>
+    /// Verifies the Phase 3.2 Known Device block/unblock lifecycle end-to-end: blocking a
+    /// live-connected client force-closes its session immediately (not just the next reconnect,
+    /// mirroring <see cref="RevokeWhileConnectedClosesTheLiveSessionImmediately"/>'s proof for
+    /// revoke), a reconnect attempt with the old credential receives the distinct "blocked" wire
+    /// outcome rather than "revoked" (protocol/schema/README.md, ai/context/protocol/security.md's
+    /// "Known device blocking"), and unblocking returns the device to unpaired, requiring and
+    /// succeeding at a completely fresh pairing round trip under the same clientId.
+    /// </summary>
+    [Fact]
+    public async Task BlockWhileConnectedClosesTheSessionAndAFreshPairingSucceedsAfterUnblock()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Blocks the just-paired clientId through the harness's test-only block command
+        // (bridge/harness/dovahlink_bridge_harness.cpp), mirroring RevokeWhileConnectedClosesTheLiveSessionImmediately.
+        // The connection stays open through this call, proving the live session itself is
+        // force-closed, not merely that a later reconnect attempt would be rejected.
+        await harness.WriteLineAsync("block client-1");
+        Assert.Equal("BLOCKED client-1", await harness.ReadLineAsync());
+
+        // The Bridge sends session_invalidated(reason: "blocked") before force-closing (Stage 7,
+        // ai/context/protocol/security.md's "Administrative session invalidation"), mirroring
+        // RevokeWhileConnectedClosesTheLiveSessionImmediately's same proof for revoke.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("blocked", invalidated.Payload["reason"]!.GetValue<string>());
+
+        InvalidOperationException closeException =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
+        Assert.Contains("ended before a complete protocol message was received", closeException.Message);
+        await connection.CloseAsync();
+
+        // A reconnect with the old (now-destroyed) credential gets "blocked", distinct from
+        // "revoked" -- a revoked device may still re-pair, a blocked one may not until unblocked.
+        await using BridgeConnection reconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
+        Envelope blockedError = await reconnect.ReceiveAsync();
+        Assert.Equal("error", blockedError.MessageType);
+        Assert.Equal("blocked", blockedError.Payload["code"]!.GetValue<string>());
+        Assert.False(blockedError.Payload["retryable"]!.GetValue<bool>());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reconnect.ReceiveAsync());
+        await reconnect.CloseAsync();
+
+        // A blocked clientId is also rejected on the unpaired/bootstrap path, not just
+        // trusted_device_credential -- it cannot even re-enter pairing while still blocked.
+        await using BridgeConnection blockedPairingAttempt = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await blockedPairingAttempt.SendAsync(BridgeScenario.UnpairedHelloEnvelope());
+        Envelope blockedUnpairedError = await blockedPairingAttempt.ReceiveAsync();
+        Assert.Equal("error", blockedUnpairedError.MessageType);
+        Assert.Equal("blocked", blockedUnpairedError.Payload["code"]!.GetValue<string>());
+        await blockedPairingAttempt.CloseAsync();
+
+        await harness.WriteLineAsync("unblock client-1");
+        Assert.Equal("UNBLOCKED client-1", await harness.ReadLineAsync());
+
+        // Unblocking requires a completely fresh pairing flow, not a resumed old credential: the
+        // same clientId re-runs the full unpaired -> pairing_request -> pairing_confirm ->
+        // pairing_ack round trip and succeeds again.
+        await using BridgeConnection rePair = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await rePair.SendAsync(BridgeScenario.UnpairedHelloEnvelope());
+        Envelope rePairHelloAck = await rePair.ReceiveAsync();
+        Assert.Equal("hello_ack", rePairHelloAck.MessageType);
+        string rePairSessionId = rePairHelloAck.SessionId!;
+        await rePair.ReceiveAsync();  // capabilities
+
+        await rePair.SendAsync(new Envelope("pairing_request", "message-request-2", rePairSessionId, null, new JsonObject()));
+        Envelope rePairStatus = await rePair.ReceiveAsync();
+        Assert.Equal("available", rePairStatus.Payload["state"]!.GetValue<string>());
+
+        string rePairCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await rePair.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", rePairSessionId, null,
+            new JsonObject { ["code"] = rePairCode }));
+        Envelope rePairConfirmOutcome = await rePair.ReceiveAsync();
+        Assert.Equal("credential_issued", rePairConfirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string rePairCredential = rePairConfirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await rePair.SendAsync(new Envelope("pairing_ack", "message-ack-2", rePairSessionId, null,
+            new JsonObject { ["credential"] = rePairCredential }));
+        Envelope rePairAckOutcome = await rePair.ReceiveAsync();
+        Assert.Equal("trusted", rePairAckOutcome.Payload["outcome"]!.GetValue<string>());
+
+        await BridgeScenario.CloseAndQuitAsync(harness, rePair);
     }
 
     /// <summary>
@@ -675,8 +792,12 @@ public class PairingScenarioTests
         Assert.Null(invalidOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
 
         // Bridge auto-renotifies the code via in-game notification; harness signals this.
-        string autoRenotifySignal = await harness.ReadLineAsync();
-        Assert.NotNull(autoRenotifySignal);
+        string? autoRenotifySignal = await harness.ReadLineAsync();
+        if (autoRenotifySignal is null)
+        {
+            throw new InvalidOperationException(
+                $"Harness ended before the auto-renotify signal. Stderr: {harness.StandardError}");
+        }
         Assert.StartsWith("PAIRING_CODE_INCORRECT ", autoRenotifySignal);
         Assert.Equal(correctCode, autoRenotifySignal.AsSpan()["PAIRING_CODE_INCORRECT ".Length..].ToString());
 
@@ -811,7 +932,12 @@ public class PairingScenarioTests
             Assert.Equal("invalid", outcome.Payload["outcome"]!.GetValue<string>());
 
             // Each wrong attempt triggers auto-renotify: harness signals with PAIRING_CODE_INCORRECT.
-            string signal = await harness.ReadLineAsync();
+            string? signal = await harness.ReadLineAsync();
+            if (signal is null)
+            {
+                throw new InvalidOperationException(
+                    $"Harness ended before the auto-renotify signal for attempt {attempt}. Stderr: {harness.StandardError}");
+            }
             Assert.StartsWith("PAIRING_CODE_INCORRECT ", signal);
         }
 
@@ -836,7 +962,12 @@ public class PairingScenarioTests
         Assert.Null(hardLimitOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
 
         // Hard limit is signalled distinctly from per-attempt auto-renotify: harness prints PAIRING_ATTEMPTS_EXHAUSTED.
-        string exhaustedSignal = await harness.ReadLineAsync();
+        string? exhaustedSignal = await harness.ReadLineAsync();
+        if (exhaustedSignal is null)
+        {
+            throw new InvalidOperationException(
+                $"Harness ended before the attempts-exhausted signal. Stderr: {harness.StandardError}");
+        }
         Assert.Equal("PAIRING_ATTEMPTS_EXHAUSTED", exhaustedSignal);
 
         // Challenge is cleared by the hard limit: fresh pairing_request starts a new one with a fresh code.

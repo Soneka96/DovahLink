@@ -217,8 +217,11 @@ Client submission of the six-digit code the user read from Skyrim and entered:
 ```
 
 `code` is required. `displayName` is an optional, presentation-only label for the resulting trusted
-client; send `null` when omitted. The bridge responds with `pairing_outcome`
-(`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or `"hard_limit_reached"`).
+client; send `null` when omitted, which preserves the client's existing display name on a re-pair
+(a genuinely new client stays unnamed). A present value -- including an empty string, which clears
+the name -- always replaces whatever the client previously held. The bridge responds with
+`pairing_outcome` (`"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`, or
+`"hard_limit_reached"`).
 
 Required payload field: `code`.
 
@@ -306,6 +309,49 @@ are always present in the payload as `null` unless the note above says otherwise
 
 `pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm` or `pairing_ack` it
 answers.
+
+### `rename_request`
+
+Client request to rename itself. Sent on a Full session only -- an already-trusted device renames
+itself directly; an unpaired/restricted session has nothing to rename.
+
+```json
+{
+  "displayName": "New Name"
+}
+```
+
+`displayName` is required and may be empty; an empty value clears the device's display name,
+matching `ai/context/protocol/security.md`'s "displayName stays presentation-only metadata" rule. A
+non-empty value is subject to the trust store's length and control-character bound. The bridge
+responds with `rename_outcome`.
+
+Required payload field: `displayName`.
+
+### `rename_outcome`
+
+Bridge reply to `rename_request`:
+
+```json
+{
+  "outcome": "renamed",
+  "displayName": "New Name"
+}
+```
+
+`outcome` is one of `"renamed"`, `"invalid_display_name"`, or `"not_trusted"`. `"not_trusted"`
+covers both an unrecognized identity and one that is known but not currently trusted -- there is
+nothing actionable a connected client can do differently between those two cases, and this phase's
+trust-tier design (`ai/context/protocol/security.md`'s "Hello authentication and session trust
+tiers") makes it unreachable in practice: a Full session's owner is always currently trusted, since
+Block and Revoke immediately tear down the session that owns the credential being invalidated.
+`displayName` echoes the resulting name and is present only for `"renamed"`; `null` when the rename
+cleared the name or for any other outcome.
+
+Required payload field: `outcome`. `displayName` is always present in the payload as `null` unless
+the note above says otherwise.
+
+`rename_outcome.correlationId` is the `messageId` of the `rename_request` it answers.
 
 ### `capabilities`
 
@@ -423,12 +469,15 @@ Reports a structured failure without exposing infrastructure exceptions:
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
 
 Canonical error codes include `malformed_message`, `frame_too_large`, `unsupported_capability`,
-`unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`, `rate_limited`,
-and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected because the
-presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never paired or
-wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust". `blocked` is a
-`trusted_device_credential` hello rejected because the presented `clientId` belongs to a Known Device
-that is currently blocked. Error codes are for branching; diagnostic messages are not. There is no
+`unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`,
+`rate_limited`, and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected
+because the presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never
+paired or wrong credential" per `ai/context/protocol/security.md`'s "Persistent local trust".
+`blocked` is an `unpaired` or `trusted_device_credential` hello rejected because the presented
+`clientId` is a currently blocked Known Device -- distinct from `revoked` (blocking prevents both
+authentication and re-pairing, while a revoked device may still re-pair) and never issued for
+`one_time_local_token` (developer-token) authentication, which stays a separate provider unaffected
+by Known Device blocking. Error codes are for branching; diagnostic messages are not. There is no
 Bridge-version-incompatibility wire error code: a client detects incompatibility itself from
 `hello_ack.bridgeVersion` and fails without completing the rest of the exchange, per
 `ai/context/protocol/compatibility.md`.

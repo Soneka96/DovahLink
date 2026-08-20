@@ -78,4 +78,98 @@ enum class CancelOutcome {
     kAlreadyIdle,
 };
 
+// ---- Known device ----
+
+/// The four durable states one persistent `KnownDeviceRecord` can occupy. A Known Device is always
+/// in exactly one of these; only `kTrusted` carries a usable credential.
+enum class KnownDeviceState {
+    /// Holds a usable credential and can authenticate normally.
+    kTrusted,
+    /// Trust was removed; the device may re-pair to become `kTrusted` again under the same
+    /// identity.
+    kRevoked,
+    /// Rejected at `hello` and at pairing; requires an explicit unblock before it can do either
+    /// again.
+    kBlocked,
+    /// No longer blocked but not yet re-paired; requires a completely fresh pairing flow to become
+    /// `kTrusted` again.
+    kUnpaired,
+};
+
+/// Outcome of `TrustStore::Block`.
+enum class BlockOutcome {
+    /// The device transitioned from `kTrusted` or `kRevoked` to `kBlocked`.
+    kBlocked,
+    /// The device was already `kBlocked`; nothing changed.
+    kAlreadyBlocked,
+    /// A known device record exists for the identity, but its current state (`kUnpaired`) is not
+    /// eligible for blocking in this phase.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
+/// Outcome of `TrustStore::Unblock`.
+enum class UnblockOutcome {
+    /// The device transitioned from `kBlocked` to `kUnpaired`.
+    kUnblocked,
+    /// A known device record exists for the identity, but it is not currently `kBlocked`.
+    kNotBlocked,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
+/// Outcome of `TrustStore::Forget`.
+enum class ForgetOutcome {
+    /// The device record was deleted entirely; its `shortId` is now free for reuse.
+    kForgotten,
+    /// A known device record exists for the identity, but its current state (`kTrusted` or
+    /// `kBlocked`) is not eligible to be forgotten -- revoke or unblock it first.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The transition was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
+/// Outcome of `TrustStore::Rename`.
+enum class RenameOutcome {
+    /// The device's `displayName` was updated (or cleared, for an empty input).
+    kRenamed,
+    /// The supplied display name exceeds the configured length bound or contains a control
+    /// character.
+    kInvalidDisplayName,
+    /// A known device record exists for the identity, but its current state is not `kTrusted` --
+    /// only a currently trusted device may rename itself.
+    kNotEligible,
+    /// No known device record exists for the identity at all.
+    kNotFound,
+    /// The rename was valid but the underlying persistence `Save` failed; in-memory state was
+    /// rolled back.
+    kSaveFailed,
+};
+
+// ---- Factory reset ----
+
+/// Outcome of `FactoryResetChallenge::TryConfirm`. Unlike `ConfirmResult`, there is no pacing or
+/// wrong-attempt budget: Factory Reset is a single local admin operation, and `kInvalid` itself
+/// destroys the challenge outright rather than counting toward a limit.
+enum class FactoryResetConfirmOutcome {
+    /// The code matched and was consumed; the caller may now execute the destructive wipe.
+    kConfirmed,
+    /// No challenge is currently active -- it was never started, already expired, or was already
+    /// consumed or invalidated by an earlier attempt.
+    kExpired,
+    /// A challenge is active, but the presented code did not match it; the challenge is destroyed
+    /// as part of this outcome, requiring a fresh `TryStart` to try again.
+    kInvalid,
+};
+
 }  // namespace dovahlink::security

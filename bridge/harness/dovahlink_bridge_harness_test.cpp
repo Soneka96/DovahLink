@@ -18,6 +18,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string>
@@ -39,16 +40,20 @@ constexpr const char* kHarnessExePath = DOVAHLINK_HARNESS_EXE;
 // `tokenValue` (or omitted entirely if nullopt, to test the missing-token
 // path) rather than left set globally -- Catch2 runs test cases sequentially
 // in one process, so mutating this process's own environment would leak
-// between tests.
+// between tests. Also always forces DOVAHLINK_HARNESS_PORT_OVERRIDE=0, so
+// every harness this file spawns binds its own OS-assigned port instead of
+// the real, documented kBridgePort -- no test in this file ever contends for
+// that one shared port.
 /// Builds the complete environment block used by the child process.
 std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
     std::string block;
     LPCH currentEnv = GetEnvironmentStringsA();
     REQUIRE(currentEnv != nullptr);
     std::string tokenPrefix = std::string(dovahlink::application::kTokenEnvVar) + "=";
+    std::string portOverridePrefix = "DOVAHLINK_HARNESS_PORT_OVERRIDE=";
     for (LPCH entry = currentEnv; *entry != '\0'; entry += std::strlen(entry) + 1) {
         std::string_view line(entry);
-        if (!line.starts_with(tokenPrefix)) {
+        if (!line.starts_with(tokenPrefix) && !line.starts_with(portOverridePrefix)) {
             block.append(line);
             block.push_back('\0');
         }
@@ -59,6 +64,9 @@ std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
         block.append(*tokenValue);
         block.push_back('\0');
     }
+    block.append(portOverridePrefix);
+    block.append("0");
+    block.push_back('\0');
     block.push_back('\0');
     return block;
 }
@@ -248,6 +256,15 @@ std::string ReadBridgeInstanceId(HarnessProcess& harness) {
     return line.substr(kPrefix.size());
 }
 
+/// Reads and validates the harness's `PORT <n>` startup line, returning the
+/// port it actually bound.
+std::uint16_t ReadHarnessPort(HarnessProcess& harness) {
+    constexpr std::string_view kPrefix = "PORT ";
+    std::string line = harness.ReadLine();
+    REQUIRE(line.starts_with(kPrefix));
+    return static_cast<std::uint16_t>(std::stoi(line.substr(kPrefix.size())));
+}
+
 /// Reads and validates one `PLAY_CONTEXT <id-or-(none)>` acknowledgment line,
 /// returning the text after the prefix.
 std::string ReadPlayContext(HarnessProcess& harness) {
@@ -266,6 +283,9 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     std::string bridgeInstanceId = ReadBridgeInstanceId(harness);
     CHECK_FALSE(bridgeInstanceId.empty());
     CHECK(bridgeInstanceId != "(unavailable)");
+    // BuildEnvironmentBlock always forces DOVAHLINK_HARNESS_PORT_OVERRIDE=0, so this is an
+    // OS-assigned port private to this one harness instance, not the shared kBridgePort.
+    std::uint16_t port = ReadHarnessPort(harness);
 
     // A capture has nowhere to be attributed to before a play context exists
     // (ActivePlayContextLevelSink drops it, matching real play: main menu
@@ -282,15 +302,23 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     // still lag a moment behind that; retry briefly rather than requiring
     // the first attempt to land.
     for (int attempt = 0; attempt < 20; ++attempt) {
-        clientSocket.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"),
-                                                              dovahlink::application::kBridgePort),
-                              connectEc);
+        clientSocket.connect(
+            boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("127.0.0.1"), port), connectEc);
         if (!connectEc) {
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
     REQUIRE_FALSE(connectEc);
+
+    // Proves the IPv6 listener actually resolved to the same port number reported above, not just
+    // that the process started successfully.
+    boost::asio::ip::tcp::socket v6ProbeSocket(ioc);
+    boost::system::error_code v6ConnectEc;
+    v6ProbeSocket.connect(boost::asio::ip::tcp::endpoint(boost::asio::ip::make_address("::1"), port), v6ConnectEc);
+    CHECK_FALSE(v6ConnectEc);
+    boost::system::error_code v6CloseEc;
+    v6ProbeSocket.close(v6CloseEc);
 
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
     boost::system::error_code handshakeEc;
@@ -337,6 +365,28 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     CHECK(harness.ExitCode() == 0);
 }
 
+TEST_CASE("two harnesses alive at the same time bind distinct ports", "[harness]") {
+    // Proves the actual claim this override exists for: two harness processes running
+    // concurrently -- not sequentially, like the "fresh identity" test above -- never contend
+    // for the same port.
+    HarnessProcess first(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(first.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(first);
+    std::uint16_t firstPort = ReadHarnessPort(first);
+
+    HarnessProcess second(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(second.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(second);
+    std::uint16_t secondPort = ReadHarnessPort(second);
+
+    CHECK(firstPort != secondPort);
+
+    first.WriteLine("quit");
+    second.WriteLine("quit");
+    REQUIRE(first.WaitForExit(std::chrono::seconds(5)));
+    REQUIRE(second.WaitForExit(std::chrono::seconds(5)));
+}
+
 TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID across a relaunch",
           "[harness]") {
     // Proves the harness's own documented purpose for this ID (see its
@@ -349,6 +399,7 @@ TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID acros
         HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
         REQUIRE(harness.ReadLine() == "READY");
         firstId = ReadBridgeInstanceId(harness);
+        (void)ReadHarnessPort(harness);
         harness.WriteLine("quit");
         REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
     }
@@ -358,6 +409,7 @@ TEST_CASE("dovahlink_bridge_harness reports a different bridge instance ID acros
         HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
         REQUIRE(harness.ReadLine() == "READY");
         secondId = ReadBridgeInstanceId(harness);
+        (void)ReadHarnessPort(harness);
         harness.WriteLine("quit");
         REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
     }
@@ -377,6 +429,7 @@ TEST_CASE("dovahlink_bridge_harness's revoke command reports REVOKED for the giv
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
     REQUIRE(harness.ReadLine() == "READY");
     (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
 
     harness.WriteLine("revoke never-paired-client");
     CHECK(harness.ReadLine() == "REVOKED never-paired-client");
@@ -391,6 +444,7 @@ TEST_CASE("dovahlink_bridge_harness's revoke command handles an empty clientId a
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
     REQUIRE(harness.ReadLine() == "READY");
     (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
 
     // Nothing after the "revoke " prefix: the substr parse yields an empty clientId rather than
     // failing to match the "revoke " branch at all.
@@ -409,12 +463,64 @@ TEST_CASE("dovahlink_bridge_harness's revoke command handles an empty clientId a
     CHECK(harness.ExitCode() == 0);
 }
 
+TEST_CASE("dovahlink_bridge_harness's block command reports BLOCK_FAILED for a never-paired clientId",
+          "[harness]") {
+    // Unlike TrustStore::Revoke, TrustStore::Block is not idempotent-success for an unknown
+    // clientId (bridge/security/trust_store.cpp): blocking targets an existing Known Device
+    // record, not a bare identity string, so a never-paired clientId reports kNotFound and this
+    // command reports BLOCK_FAILED. The .NET validator's PairingScenarioTests.cs additionally
+    // proves the real block-while-connected/reconnect-rejected round trip against an actually
+    // trusted device, using machinery this harness test file has no equivalent of on its own
+    // (matching the existing revoke tests' own documented scope split).
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
+
+    // An empty clientId (nothing after the "block " prefix) still matches the branch and reports
+    // failure the same way, mirroring the equivalent "revoke " test.
+    harness.WriteLine("block ");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED ");
+
+    // Repeating the same never-paired clientId stays BLOCK_FAILED every time: kNotFound is
+    // consistently reported, not just on the first attempt.
+    harness.WriteLine("block never-paired-client");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED never-paired-client");
+    harness.WriteLine("block never-paired-client");
+    CHECK(harness.ReadLine() == "BLOCK_FAILED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness's unblock command reports UNBLOCK_FAILED for a never-paired clientId",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
+
+    harness.WriteLine("unblock ");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED ");
+
+    harness.WriteLine("unblock never-paired-client");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED never-paired-client");
+    harness.WriteLine("unblock never-paired-client");
+    CHECK(harness.ReadLine() == "UNBLOCK_FAILED never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
 TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
           "lifecycle",
           "[harness]") {
     HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
     REQUIRE(harness.ReadLine() == "READY");
     (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
 
     // No context before any load, matching GameLifecycleTracker's fresh
     // kNoContext state; revert is idempotent there.

@@ -165,6 +165,14 @@ public:
     /// @param now Current monotonic time, for the lazy-expiry checks.
     [[nodiscard]] CancelOutcome TryCancel(const std::string& clientId, std::chrono::steady_clock::time_point now);
 
+    /// Unconditionally discards any active challenge and any pending credential, regardless of
+    /// which `clientId` owns it. Unlike `TryCancel`, which only ever affects the calling
+    /// `clientId`'s own ownership, this is for an administrative bulk operation (Reset Trust,
+    /// Factory Reset) that must cancel every pairing attempt in progress at once. Never touches
+    /// `TrustStore` or any already-committed trust; only ever clears in-memory challenge/pending
+    /// state. A harmless no-op when nothing is active.
+    void CancelAll();
+
 private:
     /// Clears `activeChallenge_` and `ownerClientId_` once `disconnectedAt_` is set and
     /// `now - *disconnectedAt_ >= kPairingReconnectGracePeriod`, per

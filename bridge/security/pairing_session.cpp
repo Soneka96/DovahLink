@@ -239,4 +239,10 @@ CancelOutcome PairingSession::TryCancel(const std::string& clientId, std::chrono
     return CancelOutcome::kAlreadyIdle;
 }
 
+void PairingSession::CancelAll() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ClearChallengeLocked();
+    pendingCredential_.reset();
+}
+
 }  // namespace dovahlink::security

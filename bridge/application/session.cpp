@@ -82,6 +82,11 @@ std::optional<std::string> SessionManager::ActiveClientId() const {
     return activeClientId_;
 }
 
+std::optional<std::string> SessionManager::ActiveSessionId() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return activeSessionId_;
+}
+
 void SessionManager::UpgradeToFullTrust(ConnectionId connection, const std::string& sessionId) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value() && activeSessionId_.has_value() && *activeConnection_ == connection &&

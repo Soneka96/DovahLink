@@ -2,6 +2,7 @@
 
 #include "application/handshake_handler.hpp"
 #include "application/pairing_handler.hpp"
+#include "application/rename_handler.hpp"
 #include "application/revision_tracker.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
@@ -66,11 +67,12 @@ constexpr std::array<std::string_view, 7> kRestrictedAllowedMessageTypes = {
     protocol::message_type::kPairingCancel,
 };
 
-constexpr std::array<std::string_view, 4> kFullAllowedMessageTypes = {
+constexpr std::array<std::string_view, 5> kFullAllowedMessageTypes = {
     protocol::message_type::kPing,
     protocol::message_type::kCapabilities,
     protocol::message_type::kSubscribe,
     protocol::message_type::kSnapshotRequest,
+    protocol::message_type::kRenameRequest,
 };
 
 /// Reports whether an inbound message type is allowed after authentication, given the
@@ -347,6 +349,11 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         assert(clientId.has_value());
         result = FromHandlerResponse(HandlePairingCancel(*envelope, sessionId, *clientId, pairingSession, steadyNow),
                                      violations, steadyNow);
+    } else if (envelope->messageType == protocol::message_type::kRenameRequest) {
+        auto clientId = sessionManager.ClientIdForConnection(connection);
+        assert(clientId.has_value());
+        result = FromHandlerResponse(HandleRenameRequest(*envelope, sessionId, *clientId, trustStore), violations,
+                                     steadyNow);
     } else {
         // Only kSnapshotRequest remains, per kFullAllowedMessageTypes -- unreachable for a
         // Restricted session, since every Restricted-allowed type is handled explicitly above.

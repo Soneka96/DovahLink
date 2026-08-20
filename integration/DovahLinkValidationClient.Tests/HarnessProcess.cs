@@ -68,12 +68,19 @@ public sealed class HarnessProcess : IDisposable
     /// <summary>The bridge instance identifier reported by the harness during <see cref="WaitForReadyAsync"/>, or <c>null</c> before that completes.</summary>
     public string? BridgeInstanceId { get; private set; }
 
+    /// <summary>The play-context identifier reported for the harness's current <c>new_game</c>, or <c>null</c> before setup records it.</summary>
+    public string? PlayContextId { get; internal set; }
+
+    /// <summary>The loopback port the harness reported binding during <see cref="WaitForReadyAsync"/>, or <c>null</c> before that completes.</summary>
+    public int? Port { get; private set; }
+
     /// <summary>
-    /// Reads and validates the harness startup handshake: the <c>READY</c> line followed by its <c>BRIDGE_INSTANCE &lt;id&gt;</c> line.
+    /// Reads and validates the harness startup handshake: the <c>READY</c> line, its <c>BRIDGE_INSTANCE &lt;id&gt;</c> line, then its
+    /// <c>PORT &lt;n&gt;</c> line.
     /// </summary>
     /// <param name="timeout">The maximum time to wait for each line, or the default read timeout when omitted.</param>
     /// <returns>The bridge instance ID reported by the harness, which is also stored in <see cref="BridgeInstanceId"/>.</returns>
-    /// <exception cref="InvalidOperationException">Thrown when the harness does not report READY followed by its bridge instance ID.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the harness does not report READY followed by its bridge instance ID and port.</exception>
     public async Task<string> WaitForReadyAsync(TimeSpan? timeout = null)
     {
         string? ready = await ReadLineAsync(timeout);
@@ -82,15 +89,15 @@ public sealed class HarnessProcess : IDisposable
             throw new InvalidOperationException($"Harness did not report READY: {ready}. Stderr: {StandardError}");
         }
 
-        const string prefix = "BRIDGE_INSTANCE ";
+        const string instancePrefix = "BRIDGE_INSTANCE ";
         string? instanceLine = await ReadLineAsync(timeout);
-        if (instanceLine is null || !instanceLine.StartsWith(prefix, StringComparison.Ordinal))
+        if (instanceLine is null || !instanceLine.StartsWith(instancePrefix, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 $"Harness did not report its bridge instance ID: {instanceLine}. Stderr: {StandardError}");
         }
 
-        string instanceId = instanceLine[prefix.Length..];
+        string instanceId = instanceLine[instancePrefix.Length..];
         if (string.IsNullOrWhiteSpace(instanceId))
         {
             throw new InvalidOperationException(
@@ -98,6 +105,17 @@ public sealed class HarnessProcess : IDisposable
         }
 
         BridgeInstanceId = instanceId;
+
+        const string portPrefix = "PORT ";
+        string? portLine = await ReadLineAsync(timeout);
+        if (portLine is null || !portLine.StartsWith(portPrefix, StringComparison.Ordinal) ||
+            !int.TryParse(portLine[portPrefix.Length..], out int port) || port is < 0 or > 65535)
+        {
+            throw new InvalidOperationException(
+                $"Harness did not report the port it bound: {portLine}. Stderr: {StandardError}");
+        }
+
+        Port = port;
         return BridgeInstanceId;
     }
 

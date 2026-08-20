@@ -184,14 +184,28 @@ protocol::Envelope HandlePairingAck(const protocol::Envelope& pairingAckEnvelope
                                     protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
     }
 
+    // Consumes the pending credential before persisting it, not after: CommitPending is the only
+    // operation that atomically checks-and-clears PairingSession's pending state, and PairingSession
+    // shares its one mutex with CancelAll (TrustAdminService::ResetTrust/ConfirmFactoryReset). Doing
+    // this first makes CommitPending and a concurrent CancelAll mutually exclusive -- whichever runs
+    // first wins deterministically -- so an admin operation cancelling every pending pairing can no
+    // longer be defeated by a pairing_ack that peeked the pending record before the cancel but
+    // committed it to TrustStore after. Committing after Persist (the previous order) let Persist
+    // durably create a Trusted device from a pending credential CancelAll had already cleared,
+    // since nothing checked PairingSession's state again before that write landed.
+    if (!pairingSession.CommitPending(clientId, *credentialBytes, now)) {
+        return BuildPairingOutcome(sessionId, pairingAckEnvelope.messageId,
+                                    protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
+    }
+
     auto persisted = trustStore.Persist(pending->clientId, pending->credential, pending->displayName);
     if (!persisted.has_value()) {
-        // Deliberately not committed: leaving the pending credential in place lets a retried
-        // pairing_ack try again instead of losing it to this transient failure.
+        // Unlike the previous order, the pending credential is already consumed at this point: a
+        // retried pairing_ack after this transient failure gets pending_not_found, not another shot
+        // at the same pending record -- the client must restart pairing from pairing_confirm.
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId, "internal_error",
                                              "Unable to commit trust", false);
     }
-    static_cast<void>(pairingSession.CommitPending(clientId, *credentialBytes, now));
 
     sessionManager.UpgradeToFullTrust(connection, sessionId);
 

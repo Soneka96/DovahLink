@@ -40,6 +40,7 @@ add_library(dovahlink_bridge_core STATIC
     application/subscription_handler.cpp
     application/timestamp.cpp
     application/trust_admin_service.cpp
+    application/rename_handler.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -54,6 +55,9 @@ add_library(dovahlink_bridge_core STATIC
     protocol/pairing_confirm_payload.cpp
     protocol/pairing_outcome_payload.cpp
     protocol/pairing_status_payload.cpp
+    protocol/rename_outcome_payload.cpp
+    protocol/rename_request_payload.cpp
+    protocol/session_invalidated_payload.cpp
     protocol/snapshot_request_payload.cpp
     protocol/state_event_payload.cpp
     protocol/state_snapshot_payload.cpp
@@ -62,6 +66,7 @@ add_library(dovahlink_bridge_core STATIC
     security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
+    security/factory_reset_challenge.cpp
     security/hex.cpp
     security/pairing_session.cpp
     security/throttle.cpp
@@ -147,9 +152,11 @@ add_executable(dovahlink_bridge_tests
     application/subscription_handler_test.cpp
     application/timestamp_test.cpp
     application/trust_admin_service_test.cpp
+    application/rename_handler_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
+    game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
     plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
@@ -158,6 +165,7 @@ add_executable(dovahlink_bridge_tests
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/factory_reset_challenge_test.cpp
     security/hex_test.cpp
     security/pairing_session_test.cpp
     security/throttle_test.cpp
@@ -177,6 +185,9 @@ add_executable(dovahlink_bridge_tests
     protocol/pairing_confirm_payload_test.cpp
     protocol/pairing_outcome_payload_test.cpp
     protocol/pairing_status_payload_test.cpp
+    protocol/rename_outcome_payload_test.cpp
+    protocol/rename_request_payload_test.cpp
+    protocol/session_invalidated_payload_test.cpp
     protocol/snapshot_request_payload_test.cpp
     protocol/state_event_payload_test.cpp
     protocol/state_snapshot_payload_test.cpp
@@ -193,6 +204,7 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
     DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
+    DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
 )
 
 include(CTest)

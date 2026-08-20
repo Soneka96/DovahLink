@@ -190,6 +190,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         expected_paths = {
             '- "app/**"',
             '- "protocol/**"',
+            '- "sdk/dart/dovahlink_client/**"',
             '- ".github/workflows/app-ci.yml"',
         }
 
@@ -229,16 +230,22 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("channel: stable", workflow)
         self.assertIn("cache: true", workflow)
         step_names_and_commands = (
-            ("Restore Flutter dependencies", "flutter pub get"),
-            ("Generate Dart sources", "dart run build_runner build"),
-            ("Analyze Flutter client", "flutter analyze"),
-            ("Test Flutter client", "flutter test"),
-            ("Build Windows client", "flutter build windows --debug"),
+            ("Restore Dart SDK dependencies", "sdk/dart/dovahlink_client", "dart pub get"),
+            (
+                "Generate Dart SDK sources",
+                "sdk/dart/dovahlink_client",
+                "dart run build_runner build",
+            ),
+            ("Restore Flutter dependencies", "app", "flutter pub get"),
+            ("Generate Dart sources", "app", "dart run build_runner build"),
+            ("Analyze Flutter client", "app", "flutter analyze"),
+            ("Test Flutter client", "app", "flutter test"),
+            ("Build Windows client", "app", "flutter build windows --debug"),
         )
         step_positions = []
-        for step_name, command in step_names_and_commands:
+        for step_name, working_directory, command in step_names_and_commands:
             step = self._yaml_block(workflow, f"      - name: {step_name}")
-            self.assertIn("        working-directory: app", step)
+            self.assertIn(f"        working-directory: {working_directory}", step)
             self.assertIn(f"        run: {command}", step)
             self.assertNotIn("continue-on-error:", step)
             step_positions.append(workflow.index(f"      - name: {step_name}"))
@@ -959,6 +966,51 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn(
             "do not invent persistence during the connection proof", secrets_and_logging
         )
+
+    def test_trust_admin_console_surface_uses_only_canonical_commands(self) -> None:
+        """Keep the Papyrus, YAML, and documentation command names synchronized."""
+        console_readme = self._read("console-admin/README.md")
+        security = self._read("ai/context/protocol/security.md")
+        bridge_readme = self._read("bridge/README.md")
+        papyrus = self._read("console-admin/DovahLinkAdmin.psc")
+        yaml = self._read("console-admin/dovahlink.yaml")
+
+        canonical_commands = (
+            "dovahlink list",
+            "dovahlink list trust",
+            "dovahlink list block",
+            "dovahlink help",
+            "dovahlink revoke -id <shortId>",
+            "dovahlink reset trust",
+            "dovahlink reset",
+            "dovahlink reset -confirm <code>",
+            "dovahlink block -id <shortId>",
+            "dovahlink unblock -id <shortId>",
+            "dovahlink forget -id <shortId>",
+        )
+        for command in canonical_commands:
+            self.assertIn(command, console_readme)
+            self.assertIn(f"`{command}`", security)
+
+        for retired_command in ("dovahlink devices", "dovahlink blocklist"):
+            self.assertNotIn(retired_command, console_readme)
+            self.assertNotIn(retired_command, security)
+            self.assertNotIn(retired_command, bridge_readme)
+
+        self.assertIn("String Function List(String akScope) global native", papyrus)
+        self.assertIn("String Function Help() global native", papyrus)
+        self.assertNotIn("Function Devices", papyrus)
+        self.assertNotIn("Function Blocked", papyrus)
+
+        self.assertEqual(
+            re.findall(r"(?m)^  - name: ([A-Za-z]+)$", yaml),
+            ["list", "help", "revoke", "block", "unblock", "forget", "reset", "reset"],
+        )
+        self.assertIn("name: scope", yaml)
+        self.assertIn("required: false", yaml)
+        self.assertIn("default: all", yaml)
+        self.assertNotIn("name: devices", yaml)
+        self.assertNotIn("name: blocklist", yaml)
 
     def test_architecture_establishes_sdk_boundary_and_replaces_client_non_goal(self) -> None:
         """Guard the sdk/ repository boundary and the retired single-client non-goal."""

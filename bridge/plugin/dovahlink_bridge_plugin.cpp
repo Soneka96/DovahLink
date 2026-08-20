@@ -24,6 +24,7 @@
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
+#include "security/factory_reset_challenge.hpp"
 #include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
@@ -277,13 +278,16 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
         kBridgeVersion);
 
     // Registers the optional trust-administration console adapter
-    // (ai/context/protocol/security.md's "Trust administration surface"). Registration succeeds
-    // unconditionally; the native functions simply go unused if ConsoleUtil Extended and its
-    // Papyrus glue script are not installed. Constructed after bridgeWorkerPool, which it depends on
+    // (ai/context/protocol/security.md's "Trust administration surface"). Registration is attempted
+    // unconditionally; a failure is logged and remains isolated to this optional adapter, while the
+    // native functions simply go unused if ConsoleUtil Extended and its Papyrus glue script are not
+    // installed. Constructed after bridgeWorkerPool, which it depends on
     // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
     // (security.md's "Persistent local trust") against an already-connected session, not just the
     // persisted trust record.
-    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool);
+    static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool, pairingSession,
+                                                                        factoryResetChallenge);
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);

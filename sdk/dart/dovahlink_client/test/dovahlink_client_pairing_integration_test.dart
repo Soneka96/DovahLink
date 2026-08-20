@@ -12,9 +12,6 @@ import 'harness_process.dart';
 const String _validHexToken =
     '0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344';
 
-/// The documented Phase 1 loopback bridge endpoint (`bridge/README.md`'s "Default loopback port").
-final Uri _bridgeUri = Uri.parse('ws://127.0.0.1:58231/');
-
 /// Builds an isolated trust-store file path so this test never touches the developer's real
 /// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation.
 String _isolatedTrustStorePath() =>
@@ -51,14 +48,19 @@ Future<HarnessProcess> _startHarness() async {
 /// `InMemoryClientStorage` shared across every client constructed for the same simulated
 /// installation, so a later "relaunch" (a new `DovahLinkClient` instance reusing the same
 /// [storage]) resolves the same persisted `clientId` and credential a real app restart would.
+/// Connects to [bridgeUri] -- the calling test's own harness instance, since each harness now
+/// binds its own private port.
 ///
 /// Registers teardown for the client immediately after construction, before anything that can
 /// throw, so a failure partway through this setup (e.g. `hello` rejecting) still cleans up rather
 /// than leaking the socket.
-Future<DovahLinkClient> _startUnpairedSession(ClientStorage storage) async {
+Future<DovahLinkClient> _startUnpairedSession(
+  ClientStorage storage,
+  Uri bridgeUri,
+) async {
   final DovahLinkClient client = DovahLinkClient(storage: storage);
   addTearDown(client.disconnect);
-  await client.connect(_bridgeUri);
+  await client.connect(bridgeUri);
   final HelloResult result = await client.hello();
   expect(result.trustState, DovahLinkTrustState.unpaired);
   return client;
@@ -71,7 +73,10 @@ void main() {
       () async {
         final HarnessProcess harness = await _startHarness();
         final ClientStorage storage = InMemoryClientStorage();
-        final DovahLinkClient client = await _startUnpairedSession(storage);
+        final DovahLinkClient client = await _startUnpairedSession(
+          storage,
+          harness.bridgeUri,
+        );
 
         final PairingChallengeStatus status = await client.requestPairing();
         expect(status.availability, PairingAvailability.available);
@@ -93,7 +98,7 @@ void main() {
         await client.disconnect();
         final DovahLinkClient reconnected = DovahLinkClient(storage: storage);
         addTearDown(reconnected.disconnect);
-        await reconnected.connect(_bridgeUri);
+        await reconnected.connect(harness.bridgeUri);
         final HelloResult reconnectResult = await reconnected.hello();
 
         expect(reconnectResult.trustState, DovahLinkTrustState.trusted);
@@ -106,6 +111,7 @@ void main() {
         final HarnessProcess harness = await _startHarness();
         final DovahLinkClient client = await _startUnpairedSession(
           InMemoryClientStorage(),
+          harness.bridgeUri,
         );
 
         final PairingChallengeStatus status = await client.requestPairing();
@@ -142,7 +148,10 @@ void main() {
         // concern, not this SDK-persistence recovery scenario.
         final HarnessProcess harness = await _startHarness();
         final ClientStorage storage = InMemoryClientStorage();
-        final DovahLinkClient client = await _startUnpairedSession(storage);
+        final DovahLinkClient client = await _startUnpairedSession(
+          storage,
+          harness.bridgeUri,
+        );
 
         final PairingChallengeStatus status = await client.requestPairing();
         expect(status.availability, PairingAvailability.available);
@@ -164,7 +173,7 @@ void main() {
         // pending credential as trusted yet -- then recover the interrupted confirmation.
         final DovahLinkClient relaunched = DovahLinkClient(storage: storage);
         addTearDown(relaunched.disconnect);
-        await relaunched.connect(_bridgeUri);
+        await relaunched.connect(harness.bridgeUri);
         final HelloResult helloResult = await relaunched.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
 
@@ -184,7 +193,10 @@ void main() {
       () async {
         final HarnessProcess firstHarness = await _startHarness();
         final ClientStorage storage = InMemoryClientStorage();
-        final DovahLinkClient client = await _startUnpairedSession(storage);
+        final DovahLinkClient client = await _startUnpairedSession(
+          storage,
+          firstHarness.bridgeUri,
+        );
 
         final PairingChallengeStatus status = await client.requestPairing();
         expect(status.availability, PairingAvailability.available);
@@ -207,7 +219,7 @@ void main() {
 
         final DovahLinkClient relaunched = DovahLinkClient(storage: storage);
         addTearDown(relaunched.disconnect);
-        await relaunched.connect(_bridgeUri);
+        await relaunched.connect(secondHarness.bridgeUri);
         final HelloResult helloResult = await relaunched.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
 

@@ -4,6 +4,12 @@ __pycache__/
 **/bin/
 **/obj/
 tooling/out/
+/out/
+
+# Visual Studio per-developer user-settings files (machine-specific paths, build history) --
+# never committed, regardless of which project they belong to.
+*.csproj.user
+*.pubxml.user
 
 # Generated Dart files
 *.g.dart

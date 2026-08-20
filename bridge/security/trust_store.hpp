@@ -1,65 +1,23 @@
 #pragma once
 
+#include "security/i_trust_store_persistence.hpp"
+#include "security/known_device_record.hpp"
+#include "security/trust_store_snapshot.hpp"
+
 #include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace dovahlink::security {
 
-/// One persistently trusted client's credential and administration metadata.
-struct TrustedClientRecord {
-    /// The client's stable protocol identity.
-    std::string clientId;
-    /// The strong device-scoped credential bound to `clientId`.
-    std::vector<std::uint8_t> credential;
-    /// Five-digit administration-only identifier, unique among currently trusted clients. Never
-    /// authentication or authorization material.
-    std::string shortId;
-    /// Optional bounded, control-character-free, presentation-only label. Never authentication or
-    /// authorization material and never a substitute for `clientId`.
-    std::optional<std::string> displayName;
-};
-
-/// Marks a `clientId` as intentionally revoked without retaining its credential.
-struct RevocationTombstone {
-    /// The revoked client's stable protocol identity.
-    std::string clientId;
-};
-
-/// The durable state a `TrustStore` loads from and saves to persistent storage.
-struct TrustStoreSnapshot {
-    /// Currently trusted clients.
-    std::vector<TrustedClientRecord> records;
-    /// Clients explicitly revoked and not yet re-paired.
-    std::vector<RevocationTombstone> tombstones;
-};
-
-/// Persistence boundary a `TrustStore` reads from and writes to. Implementations own the actual
-/// storage mechanism (for example per-user secure storage); `TrustStore` never assumes a file
-/// format or storage location.
-class ITrustStorePersistence {
-public:
-    /// Allows derived storage backends to be destroyed through this interface.
-    virtual ~ITrustStorePersistence() = default;
-
-    /// Loads the durable trust snapshot, or `std::nullopt` when storage is corrupt or
-    /// inaccessible. A missing-but-valid empty store is a successful load of an empty snapshot,
-    /// not a `std::nullopt` result.
-    [[nodiscard]] virtual std::optional<TrustStoreSnapshot> Load() = 0;
-
-    /// Durably saves the given snapshot.
-    /// @return Whether the save succeeded.
-    [[nodiscard]] virtual bool Save(const TrustStoreSnapshot& snapshot) = 0;
-};
-
 /// Thread-safe persistent-trust domain service: load, persist, revoke, reset, query. Fails closed
 /// on corrupt or inaccessible persistence -- it never crashes, never silently trusts a client, and
-/// always supports a clean reset-and-re-pair path. `TrustedClientRecord::displayName`'s bound and
+/// always supports a clean reset-and-re-pair path. `KnownDeviceRecord::displayName`'s bound and
 /// character invariants are enforced only by `Persist`, the sole production construction path;
 /// records obtained any other way are trusted as already valid.
 class TrustStore {
@@ -85,49 +43,116 @@ public:
     /// back to an empty store.
     [[nodiscard]] bool WasCorruptOnLoad() const noexcept;
 
-    /// Returns the trusted client record for `clientId`, if currently trusted.
-    [[nodiscard]] std::optional<TrustedClientRecord> Query(const std::string& clientId);
+    /// Returns the known device record for `clientId`, if it is currently in the `kTrusted` state.
+    [[nodiscard]] std::optional<KnownDeviceRecord> Query(const std::string& clientId);
 
-    /// Returns every currently trusted client, for administration listings.
-    [[nodiscard]] std::vector<TrustedClientRecord> ListTrusted();
+    /// Returns every currently trusted (`kTrusted`) device, for administration listings.
+    [[nodiscard]] std::vector<KnownDeviceRecord> ListTrusted();
 
-    /// Reports whether `clientId` was explicitly revoked and has not been re-paired since.
+    /// Returns every known device, regardless of its current durable state, for administration
+    /// listings.
+    [[nodiscard]] std::vector<KnownDeviceRecord> ListAll();
+
+    /// Reports whether `clientId` is a known device currently in the `kRevoked` state.
     [[nodiscard]] bool IsRevoked(const std::string& clientId);
 
+    /// Reports whether `clientId` is a known device currently in the `kBlocked` state.
+    [[nodiscard]] bool IsBlocked(const std::string& clientId);
+
+    /// Returns the known device record for `shortId`, regardless of its current state. Unlike
+    /// `Query`/`ListTrusted`, this is not restricted to `kTrusted` devices -- administration
+    /// targets a device by `shortId` without knowing its current state in advance.
+    [[nodiscard]] std::optional<KnownDeviceRecord> FindByShortId(std::string_view shortId);
+
     /// Reports whether `presentedCredential` matches the credential currently trusted for
-    /// `clientId`, using a constant-time comparison. `false` for an unknown or revoked `clientId`,
-    /// or an empty `presentedCredential`.
+    /// `clientId`, using a constant-time comparison. `false` for an unknown clientId, a clientId
+    /// not currently `kTrusted`, or an empty `presentedCredential`.
     [[nodiscard]] bool Authenticate(const std::string& clientId,
                                      const std::vector<std::uint8_t>& presentedCredential);
 
-    /// Binds `credential` to `clientId`, assigning a unique `shortId` and clearing any revocation
-    /// tombstone for `clientId`. Rejects an empty `clientId` or `credential`, and rejects a
-    /// `displayName` that exceeds the configured length bound or contains a control character.
+    /// Binds `credential` to `clientId` and transitions it to `kTrusted`. When `clientId` already
+    /// has a known device record (in any prior state except `kBlocked`), reuses its existing
+    /// `shortId` and `createdAt` -- re-pairing never changes a device's identity or mints a second
+    /// `shortId` for it. Otherwise assigns a newly generated unique `shortId` and a fresh
+    /// `createdAt`. `displayName` of `std::nullopt` means the field was omitted: for a genuinely
+    /// new `clientId` this leaves no display name; for a re-pairing `clientId` this preserves its
+    /// existing `displayName` unchanged. A supplied `displayName` (including an explicit empty
+    /// string, which clears the name) always replaces whatever the record previously held. Rejects
+    /// an empty `clientId` or `credential`, rejects a `displayName` that exceeds the configured
+    /// length bound or contains a control character, and rejects a currently `kBlocked` `clientId`
+    /// outright -- it must be transitioned to `kUnpaired` via `Unblock` before it can re-pair.
     /// @return The new record, or `std::nullopt` when validation, `shortId` generation, or the
     ///     underlying `Save` fails. On any failure the in-memory state is left unchanged.
-    [[nodiscard]] std::optional<TrustedClientRecord> Persist(
+    [[nodiscard]] std::optional<KnownDeviceRecord> Persist(
         std::string clientId, std::vector<std::uint8_t> credential,
         std::optional<std::string> displayName);
 
-    /// Removes `clientId`'s trust and records a revocation tombstone, securely clearing the
-    /// removed credential. A `clientId` that was never trusted is a no-op.
+    /// Transitions a currently `kTrusted` `clientId` to `kRevoked`, securely clearing its
+    /// credential while keeping its record (identity, `shortId`, `displayName`, `createdAt`). A
+    /// `clientId` that is unknown or already not `kTrusted` is a no-op.
     /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
     ///     unchanged.
     [[nodiscard]] bool Revoke(const std::string& clientId);
 
-    /// Removes every trusted client and every revocation tombstone, securely clearing every
-    /// removed credential.
+    /// Transitions a currently `kTrusted` or `kRevoked` `clientId` to `kBlocked`, securely
+    /// clearing its credential and recording `blockedAt`. Blocking targets an existing known
+    /// device record, not a bare identity string: an unknown `clientId` reports `kNotFound` rather
+    /// than being blocked. Does not disconnect active sessions or cancel owned pairing challenges;
+    /// callers that need those effects perform them separately (mirroring `Revoke`'s own division
+    /// of responsibility with `ActiveSessionDisconnector`).
+    /// @return `kBlocked` on success; `kAlreadyBlocked`, `kNotEligible`, `kNotFound`, or
+    ///     `kSaveFailed` otherwise. On any non-`kBlocked` outcome the in-memory state is unchanged.
+    [[nodiscard]] BlockOutcome Block(const std::string& clientId);
+
+    /// Transitions a currently `kBlocked` `clientId` to `kUnpaired`, clearing `blockedAt` and
+    /// requiring a completely fresh pairing flow to become `kTrusted` again. Does not restore any
+    /// previous credential.
+    /// @return `kUnblocked` on success; `kNotBlocked`, `kNotFound`, or `kSaveFailed` otherwise. On
+    ///     any non-`kUnblocked` outcome the in-memory state is unchanged.
+    [[nodiscard]] UnblockOutcome Unblock(const std::string& clientId);
+
+    /// Removes every known device record, securely clearing every removed credential. This is
+    /// Factory Reset's destructive wipe; `TrustAdminService` gates it behind a confirmation
+    /// challenge before calling it. See `ResetTrust` for the recoverable, identity-preserving
+    /// alternative.
     /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
     ///     unchanged.
     [[nodiscard]] bool Reset();
+
+    /// Deletes a currently `kRevoked` or `kUnpaired` `clientId`'s known device record entirely --
+    /// identity, `shortId`, `displayName`, `createdAt`, and revocation history -- freeing its
+    /// `shortId` for future allocation. Forgetting a `kTrusted` device requires revoking it first;
+    /// forgetting a `kBlocked` device requires unblocking it first, since forgetting never
+    /// implicitly lifts a block.
+    /// @return `kForgotten` on success; `kNotEligible`, `kNotFound`, or `kSaveFailed` otherwise. On
+    ///     any non-`kForgotten` outcome the in-memory state is unchanged.
+    [[nodiscard]] ForgetOutcome Forget(const std::string& clientId);
+
+    /// Renames a currently `kTrusted` `clientId`'s `displayName`. An empty `displayName` clears
+    /// the name (stored as `std::nullopt`, never an empty string -- "no display name" stays one
+    /// canonical representation); a non-empty `displayName` replaces it after the same length and
+    /// control-character validation `Persist` applies.
+    /// @return `kRenamed` on success; `kInvalidDisplayName`, `kNotEligible`, `kNotFound`, or
+    ///     `kSaveFailed` otherwise. On any non-`kRenamed` outcome the in-memory state is unchanged.
+    [[nodiscard]] RenameOutcome Rename(const std::string& clientId, std::string displayName);
+
+    /// Transitions every currently `kTrusted` device to `kRevoked`, securely clearing each
+    /// credential, while leaving every `kRevoked`, `kBlocked`, and `kUnpaired` device -- and every
+    /// device's identity fields (`clientId`, `shortId`, `displayName`, `createdAt`, `blockedAt`) --
+    /// completely untouched. This is Reset Trust: recoverable and non-destructive to Known Device
+    /// records, unlike `Reset`.
+    /// @return Whether the underlying `Save` succeeded. On failure the in-memory state is left
+    ///     unchanged.
+    [[nodiscard]] bool ResetTrust();
 
 private:
     /// Constructs a store from already-loaded state.
     TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator shortIdGenerator,
                TrustStoreSnapshot snapshot, bool wasCorruptOnLoad);
 
-    /// Generates a `shortId` not currently used by any trusted record, retrying on collision up
-    /// to a bounded attempt count.
+    /// Generates a `shortId` not currently used by any known device record in any state, retrying
+    /// on collision up to a bounded attempt count -- a `shortId` stays reserved for as long as its
+    /// record exists, regardless of that record's current state.
     /// @return The generated `shortId`, or `std::nullopt` on generator failure or attempt
     ///     exhaustion.
     [[nodiscard]] std::optional<std::string> GenerateUniqueShortId();
@@ -148,11 +173,8 @@ private:
     /// Serializes access to in-memory trust state.
     std::mutex mutex_;
 
-    /// Currently trusted clients, keyed by `clientId`.
-    std::unordered_map<std::string, TrustedClientRecord> records_;
-
-    /// Revoked client identifiers with no current trust.
-    std::unordered_set<std::string> tombstones_;
+    /// Every known device, keyed by `clientId`, regardless of state.
+    std::unordered_map<std::string, KnownDeviceRecord> devices_;
 
     /// Whether the most recent load fell back to empty due to corrupt/inaccessible persistence.
     bool wasCorruptOnLoad_;

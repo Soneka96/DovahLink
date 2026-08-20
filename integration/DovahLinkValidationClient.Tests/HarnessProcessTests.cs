@@ -70,16 +70,18 @@ public class HarnessProcessTests
         Assert.Equal("diagnostic-2000", lines[^1].TrimEnd());
     }
 
-    /// <summary>Verifies that a valid startup handshake yields the reported bridge instance ID.</summary>
+    /// <summary>Verifies that a valid startup handshake yields the reported bridge instance ID and port.</summary>
     [Fact]
     public async Task WaitForReadyAsyncReturnsTheBridgeInstanceIdAfterReady()
     {
-        using var harness = new HarnessProcess(HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123"));
+        using var harness = new HarnessProcess(
+            HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123", "PORT 58231"));
 
         string bridgeInstanceId = await harness.WaitForReadyAsync();
 
         Assert.Equal("abc123", bridgeInstanceId);
         Assert.Equal("abc123", harness.BridgeInstanceId);
+        Assert.Equal(58231, harness.Port);
     }
 
     /// <summary>Verifies that a non-READY first line fails the handshake clearly.</summary>
@@ -112,5 +114,43 @@ public class HarnessProcessTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
         Assert.Contains("reported an empty bridge instance ID", exception.Message);
         Assert.Null(harness.BridgeInstanceId);
+    }
+
+    /// <summary>Verifies that a port line missing its prefix fails the handshake clearly.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenThePortLineIsMissingItsPrefix()
+    {
+        using var harness = new HarnessProcess(
+            HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123", "NOT_THE_RIGHT_PREFIX"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report the port it bound", exception.Message);
+        Assert.Null(harness.Port);
+    }
+
+    /// <summary>Verifies that a port line whose value is not a number fails the handshake clearly instead of
+    /// yielding a bogus port.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenThePortIsNotANumber()
+    {
+        using var harness = new HarnessProcess(
+            HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123", "PORT not-a-number"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report the port it bound", exception.Message);
+        Assert.Null(harness.Port);
+    }
+
+    /// <summary>Verifies that a negative port number fails the handshake clearly instead of yielding an
+    /// unusable port value -- <c>int.TryParse</c> alone accepts "-1", so this needs its own range check.</summary>
+    [Fact]
+    public async Task WaitForReadyAsyncThrowsWhenThePortIsNegative()
+    {
+        using var harness = new HarnessProcess(
+            HarnessProcess.CreateEchoingStartInfo("READY", "BRIDGE_INSTANCE abc123", "PORT -1"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.WaitForReadyAsync());
+        Assert.Contains("did not report the port it bound", exception.Message);
+        Assert.Null(harness.Port);
     }
 }

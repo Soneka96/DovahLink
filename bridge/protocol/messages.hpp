@@ -26,6 +26,8 @@
 #include "protocol/state_event_payload.hpp"
 #include "protocol/state_snapshot_payload.hpp"
 #include "protocol/subscribe_payload.hpp"
+#include "protocol/rename_outcome_payload.hpp"
+#include "protocol/rename_request_payload.hpp"
 #include "protocol/subscription_ack_payload.hpp"
 
 // `pairing_request` carries no payload (like `ping`), so it has no dedicated struct or decode
