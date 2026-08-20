@@ -1,9 +1,9 @@
 // Skyrim-independent process harness for the real bridge stack. It uses a
 // deterministic character level, accepts the same authentication token as the
-// plugin, prints READY followed by its generated bridge instance ID after
-// startup, and handles increase_level, new_game, load_game, load_game_fail,
-// revert, revoke <clientId>, block <clientId>, unblock <clientId>, and quit
-// commands on standard input.
+// plugin, prints READY followed by its generated bridge instance ID and the
+// loopback port it actually bound after startup, and handles increase_level,
+// new_game, load_game, load_game_fail, revert, revoke <clientId>,
+// block <clientId>, unblock <clientId>, and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -43,6 +44,7 @@ using dovahlink::application::kTokenEnvVar;
 constexpr const char* kTokenTtlEnvVar = "DOVAHLINK_HARNESS_TOKEN_TTL_SECONDS";
 constexpr const char* kPlayContextIdOverrideEnvVar = "DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE";
 constexpr const char* kTrustStorePathOverrideEnvVar = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE";
+constexpr const char* kPortOverrideEnvVar = "DOVAHLINK_HARNESS_PORT_OVERRIDE";
 constexpr std::string_view kRevokeCommandPrefix = "revoke ";
 constexpr std::string_view kBlockCommandPrefix = "block ";
 constexpr std::string_view kUnblockCommandPrefix = "unblock ";
@@ -121,6 +123,27 @@ std::optional<std::string> ReadPlayContextIdOverride(const dovahlink::security::
     return raw;
 }
 
+/// Reads a harness-only loopback port override from the environment, so each test run can bind
+/// its own OS-assigned port (a value of `"0"`) instead of every invocation sharing the real,
+/// documented `kBridgePort` -- eliminating the bind collisions concurrent harness-spawning test
+/// runs would otherwise race on. Absent in real play; the real Skyrim plugin never reads this
+/// variable and always binds `kBridgePort`.
+std::optional<std::uint16_t> ReadPortOverride(const dovahlink::security::EnvironmentReader& env) {
+    auto raw = env.Read(kPortOverrideEnvVar);
+    if (!raw.has_value() || raw->empty()) {
+        return std::nullopt;
+    }
+    try {
+        int parsed = std::stoi(*raw);
+        if (parsed < 0 || parsed > std::numeric_limits<std::uint16_t>::max()) {
+            return std::nullopt;
+        }
+        return static_cast<std::uint16_t>(parsed);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
 /// Reads a harness-only trust-store path override from the environment, so each test run can
 /// isolate its trust store instead of every invocation sharing the real per-user production file
 /// (`security::ResolveDefaultTrustStorePath`) across runs.
@@ -144,19 +167,29 @@ int main() {
     }
 
     boost::asio::io_context ioc;
+    // An override of "0" asks the OS for any free port instead of the fixed, documented
+    // kBridgePort -- harness-only, so concurrent test runs each get their own isolated bind
+    // instead of racing for the one real port. The real Skyrim plugin never sets this and always
+    // binds kBridgePort unconditionally.
+    std::uint16_t requestedPortV4 = ReadPortOverride(environmentReader).value_or(kBridgePort);
     auto listenerV4Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4, kBridgePort);
+        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4, requestedPortV4);
     if (!listenerV4Result.has_value()) {
-        std::cerr << "Failed to bind the IPv4 loopback listener on port " << kBridgePort << ".\n";
-        return 1;
-    }
-    auto listenerV6Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV6, kBridgePort);
-    if (!listenerV6Result.has_value()) {
-        std::cerr << "Failed to bind the IPv6 loopback listener on port " << kBridgePort << ".\n";
+        std::cerr << "Failed to bind the IPv4 loopback listener on port " << requestedPortV4 << ".\n";
         return 1;
     }
     auto listenerV4 = std::move(*listenerV4Result);
+    // Resolves to the OS-assigned value when requestedPortV4 was 0, or otherwise echoes it back
+    // unchanged -- either way, the single source of truth for what port this process actually
+    // bound, reported to the caller below rather than assumed.
+    std::uint16_t resolvedPort = listenerV4.LocalEndpoint().port();
+
+    auto listenerV6Result = dovahlink::transport::LoopbackListener::Create(
+        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV6, resolvedPort);
+    if (!listenerV6Result.has_value()) {
+        std::cerr << "Failed to bind the IPv6 loopback listener on port " << resolvedPort << ".\n";
+        return 1;
+    }
     auto listenerV6 = std::move(*listenerV6Result);
 
     dovahlink::transport::ConnectionSlot connectionSlot;
@@ -215,6 +248,7 @@ int main() {
     coordinator.Start();
     std::cout << "READY" << std::endl;
     std::cout << "BRIDGE_INSTANCE " << bridgeInstanceId.value_or("(unavailable)") << std::endl;
+    std::cout << "PORT " << resolvedPort << std::endl;
 
     std::int64_t level = 5;
 
