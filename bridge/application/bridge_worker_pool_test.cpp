@@ -431,25 +431,31 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated
 
     fixture.pool.DisconnectIfClientActive("client-1", "revoked");
 
+    // Delivery is best-effort (`ai/context/protocol/security.md`'s "Administrative session
+    // invalidation": "best-effort send/flush... then forced close"); see the equivalent comment in
+    // websocket_session_test.cpp. Field-stamping correctness itself has dedicated, non-racy
+    // coverage in session_invalidated_payload_test.cpp regardless of whether this run observes
+    // delivery.
     boost::beast::flat_buffer notificationBuffer;
     boost::system::error_code notificationReadEc;
     clientWs.read(notificationBuffer, notificationReadEc);
-    REQUIRE_FALSE(notificationReadEc);
-    auto parsedNotification =
-        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
-    REQUIRE(parsedNotification.has_value());
-    auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
-    REQUIRE(notification.has_value());
-    CHECK(notification->messageType == "session_invalidated");
-    REQUIRE(notification->sessionId.has_value());
-    CHECK(*notification->sessionId == sessionId);
-    REQUIRE(notification->payload.contains("reason"));
-    CHECK(notification->payload.at("reason").as_string() == "revoked");
-    // The fixture configures no bridgeInstanceId and no active play context, so both stamped
-    // fields are correctly absent rather than merely never touched -- proves the stamping code
-    // path actually ran (a bug leaving them at a stale default would not otherwise be visible).
-    CHECK_FALSE(notification->bridgeInstanceId.has_value());
-    CHECK_FALSE(notification->playContextId.has_value());
+    if (!notificationReadEc) {
+        auto parsedNotification =
+            dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
+        REQUIRE(parsedNotification.has_value());
+        auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
+        REQUIRE(notification.has_value());
+        CHECK(notification->messageType == "session_invalidated");
+        REQUIRE(notification->sessionId.has_value());
+        CHECK(*notification->sessionId == sessionId);
+        REQUIRE(notification->payload.contains("reason"));
+        CHECK(notification->payload.at("reason").as_string() == "revoked");
+        // The fixture configures no bridgeInstanceId and no active play context, so both stamped
+        // fields are correctly absent rather than merely never touched -- proves the stamping code
+        // path actually ran (a bug leaving them at a stale default would not otherwise be visible).
+        CHECK_FALSE(notification->bridgeInstanceId.has_value());
+        CHECK_FALSE(notification->playContextId.has_value());
+    }
 
     auto deadline = std::chrono::steady_clock::now() + 5s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
@@ -725,18 +731,21 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated session
 
     fixture.pool.DisconnectActive("trust_reset");
 
+    // Delivery is best-effort; see the equivalent comment above and in
+    // websocket_session_test.cpp.
     boost::beast::flat_buffer notificationBuffer;
     boost::system::error_code notificationReadEc;
     clientWs.read(notificationBuffer, notificationReadEc);
-    REQUIRE_FALSE(notificationReadEc);
-    auto parsedNotification =
-        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
-    REQUIRE(parsedNotification.has_value());
-    auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
-    REQUIRE(notification.has_value());
-    CHECK(notification->messageType == "session_invalidated");
-    REQUIRE(notification->payload.contains("reason"));
-    CHECK(notification->payload.at("reason").as_string() == "trust_reset");
+    if (!notificationReadEc) {
+        auto parsedNotification =
+            dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
+        REQUIRE(parsedNotification.has_value());
+        auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
+        REQUIRE(notification.has_value());
+        CHECK(notification->messageType == "session_invalidated");
+        REQUIRE(notification->payload.contains("reason"));
+        CHECK(notification->payload.at("reason").as_string() == "trust_reset");
+    }
 
     auto deadline = std::chrono::steady_clock::now() + 5s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
@@ -854,19 +863,36 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's ses
 
     fixture.pool.DisconnectActive("trust_reset");
 
+    // Delivery is best-effort; see the equivalent comment above and in
+    // websocket_session_test.cpp. The handoff property this test exists to prove -- the
+    // notification never carries the stale firstSessionId -- can only be checked when a
+    // notification is actually observed; on a run where it isn't, only that specific proof is
+    // skipped, not the stamping logic itself (covered independently by
+    // session_invalidated_payload_test.cpp).
     boost::beast::flat_buffer notificationBuffer;
     boost::system::error_code notificationReadEc;
     secondClientWs.read(notificationBuffer, notificationReadEc);
-    REQUIRE_FALSE(notificationReadEc);
-    auto parsedNotification =
-        dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
-    REQUIRE(parsedNotification.has_value());
-    auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
-    REQUIRE(notification.has_value());
-    CHECK(notification->messageType == "session_invalidated");
-    REQUIRE(notification->sessionId.has_value());
-    CHECK(*notification->sessionId == secondSessionId);
-    CHECK(*notification->sessionId != firstSessionId);
+    if (!notificationReadEc) {
+        auto parsedNotification =
+            dovahlink::protocol::ParseBoundedJson(boost::beast::buffers_to_string(notificationBuffer.data()));
+        REQUIRE(parsedNotification.has_value());
+        auto notification = dovahlink::protocol::DecodeEnvelope(*parsedNotification);
+        REQUIRE(notification.has_value());
+        CHECK(notification->messageType == "session_invalidated");
+        REQUIRE(notification->sessionId.has_value());
+        CHECK(*notification->sessionId == secondSessionId);
+        CHECK(*notification->sessionId != firstSessionId);
+    }
+
+    // Guaranteed regardless of whether the notification was observed above, matching the sibling
+    // "interrupts..." tests: DisconnectActive's actual security effect on the current (second)
+    // session never depends on best-effort delivery.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (fixture.sessionManager.IsValidForConnection(secondSessionId, 1) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 1));
 
     fixture.pool.Stop();
     fixture.pool.Join();
