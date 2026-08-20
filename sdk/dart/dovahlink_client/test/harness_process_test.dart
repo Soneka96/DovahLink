@@ -39,4 +39,95 @@ void main() {
       expect(first.bridgeUri.port, isNot(second.bridgeUri.port));
     });
   });
+
+  group('parseBridgeInstanceId', () {
+    test('returns the id text after a well-formed line', () {
+      expect(parseBridgeInstanceId('BRIDGE_INSTANCE abc123', ''), 'abc123');
+    });
+
+    test('throws for a line missing the expected prefix', () {
+      expect(
+        () => parseBridgeInstanceId('NOT_AN_INSTANCE_LINE', ''),
+        throwsStateError,
+      );
+    });
+
+    test('throws for a blank id', () {
+      expect(
+        () => parseBridgeInstanceId('BRIDGE_INSTANCE ', ''),
+        throwsStateError,
+      );
+    });
+
+    test('throws for a whitespace-only id', () {
+      expect(
+        () => parseBridgeInstanceId('BRIDGE_INSTANCE    ', ''),
+        throwsStateError,
+      );
+    });
+
+    test('embeds stderrOutput in the thrown message for diagnostics', () {
+      expect(
+        () => parseBridgeInstanceId('BRIDGE_INSTANCE ', 'boom'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('boom'),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('parsePort', () {
+    test('returns the parsed port for a well-formed line', () {
+      expect(parsePort('PORT 58231', ''), 58231);
+    });
+
+    test('accepts the lowest valid port, 1', () {
+      expect(parsePort('PORT 1', ''), 1);
+    });
+
+    test('accepts the highest valid port, 65535', () {
+      expect(parsePort('PORT 65535', ''), 65535);
+    });
+
+    test('throws for a line missing the expected prefix', () {
+      expect(() => parsePort('NOT_A_PORT_LINE', ''), throwsStateError);
+    });
+
+    test('throws for a non-numeric value', () {
+      expect(() => parsePort('PORT not-a-number', ''), throwsStateError);
+    });
+
+    test('throws for port 0', () {
+      expect(() => parsePort('PORT 0', ''), throwsStateError);
+    });
+
+    test('throws for a negative port', () {
+      expect(() => parsePort('PORT -1', ''), throwsStateError);
+    });
+
+    test('throws for a port above 65535', () {
+      expect(() => parsePort('PORT 65536', ''), throwsStateError);
+    });
+
+    test('throws for a decimal value', () {
+      expect(() => parsePort('PORT 80.5', ''), throwsStateError);
+    });
+
+    test('embeds stderrOutput in the thrown message for diagnostics', () {
+      expect(
+        () => parsePort('PORT 0', 'boom'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('boom'),
+          ),
+        ),
+      );
+    });
+  });
 }
