@@ -126,10 +126,10 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
                         cancelAndClose(*activeSocket);
                     });
             } catch (...) {
-                // The write itself failed to even start; still best-effort, matching Shutdown()'s
-                // own noexcept boundary. The socket is left without a scheduled shutdown in this
-                // rare case -- acceptable since ShutdownWithNotification's real caller always
-                // targets an authenticated session that idle-timeout/normal teardown still reaches.
+                // The write itself failed to even start -- best-effort delivery permits skipping
+                // the notification, matching the handshake-not-settled branch above, but the
+                // connection must still be force-closed rather than left open on this rare path.
+                cancelAndClose(*activeSocket);
             }
         });
     } catch (...) {
