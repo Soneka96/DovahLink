@@ -137,12 +137,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
 ## Administrative session invalidation
 
 Phase 3.2 extends persistent local trust with Bridge-owned Known Device states: `Trusted`, `Revoked`,
-`Blocked`, and `Unpaired`. Block applies to any existing non-`Blocked` Known Device, including
-`Unpaired`, but never creates a record for an unknown `clientId`; a repeated block reports the
-already-blocked state. Blocked stale credentials are rejected explicitly as `blocked`, while revoked
-stale credentials are rejected explicitly as `revoked`. These administrative truths are available to
-the authenticated/admin surfaces and SDKs; the official Flutter UI may intentionally present them
-identically.
+`Blocked`, and `Unpaired`. Block applies to a `Trusted` or `Revoked` Known Device -- never an
+`Unpaired` one, which stays not eligible, and never creates a record for an unknown `clientId`; a
+repeated block reports the already-blocked state. Blocked stale credentials are rejected explicitly
+as `blocked`, while revoked stale credentials are rejected explicitly as `revoked`. These
+administrative truths are available to the authenticated/admin surfaces and SDKs; the official
+Flutter UI may intentionally present them identically.
 
 When an administrator deliberately invalidates an authenticated session, the Bridge uses one
 canonical unsolicited terminal event, `session_invalidated`, with a typed reason of `revoked`,

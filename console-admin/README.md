@@ -21,10 +21,12 @@ dovahlink list trust
 dovahlink list block
 dovahlink help
 dovahlink revoke -id <shortId>
-dovahlink reset
 dovahlink block -id <shortId>
 dovahlink unblock -id <shortId>
 dovahlink forget -id <shortId>
+dovahlink reset trust
+dovahlink reset
+dovahlink reset -confirm <code>
 ```
 
 `<shortId>` is the five-digit administration-only identifier printed by `dovahlink list` — never
@@ -32,11 +34,21 @@ the client's real (long) identity, and never a credential. `dovahlink list` list
 with its current state, sorted oldest-to-newest by creation time; repeated display names receive
 temporary `#1`, `#2`, ... suffixes in that presentation only. `dovahlink list trust` shows only
 trusted devices, and `dovahlink list block` shows only blocked devices. `dovahlink help` prints
-descriptions for every command. `block`/`unblock` target a known device by `<shortId>` regardless
-of its current state (trusted, revoked, or already blocked).
+descriptions for every command. `block` targets a trusted or revoked known device by `<shortId>` —
+an unpaired device is not eligible; `unblock` targets a blocked device by `<shortId>`, returning it
+to unpaired.
 `forget` deletes a known device's record entirely and frees its `<shortId>` for future allocation,
 but only from revoked or unpaired — a trusted device must be revoked first, and a blocked device
 must be explicitly unblocked first; `forget` never implicitly lifts a block.
+`reset trust` (Reset Trust) immediately converts every currently trusted device to revoked, cancels
+any pending pairing, and disconnects each affected session; recoverable, since every device stays
+known and can re-pair. `reset` starts the separate Factory Reset confirmation challenge (a six-digit
+code, printed in Skyrim, expiring after 60 seconds) without changing anything yet; `reset -confirm
+<code>` confirms it with a matching code, permanently erasing every known device record and
+revocation tombstone and invalidating every session, including developer-token ones. A wrong
+confirmation code cancels the challenge; start over with `reset`. See
+[`ai/context/protocol/security.md`](../ai/context/protocol/security.md)'s "Administrative session
+invalidation" for the full Reset Trust/Factory Reset distinction.
 
 ## Dependency
 
@@ -81,7 +93,8 @@ cannot exercise a live Papyrus VM or a third-party plugin
 relying on this adapter, confirm in-game that:
 
 - `dovahlink list`, `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
-  `dovahlink revoke -id <shortId>`, `dovahlink reset`, `dovahlink block -id <shortId>`,
+  `dovahlink revoke -id <shortId>`, `dovahlink reset trust`, `dovahlink reset`,
+  `dovahlink reset -confirm <code>`, `dovahlink block -id <shortId>`,
   `dovahlink unblock -id <shortId>`, and `dovahlink forget -id <shortId>` are recognized and
   produce the expected output.
 - ConsoleUtil Extended tolerates a `global native` Papyrus function body (its own documentation
@@ -91,5 +104,10 @@ relying on this adapter, confirm in-game that:
   the CommonLibSSE branch-lineage difference noted above.
 - Whether ConsoleUtil Extended requires `dovahlink.yaml`'s filename to match its own `name: dovahlink`
   field, or accepts any filename — its documentation does not state this either way.
+- Whether ConsoleUtil Extended actually supports a two-word sub-command name (`reset trust`) and
+  registering the same sub-command name twice with different required arguments (`reset` bare
+  versus `reset -confirm <code>`) routing to the distinct native functions `dovahlink.yaml` binds
+  them to — this file's best reading of ConsoleUtil Extended's documented syntax, not yet confirmed
+  against its actual parser.
 
 Record the outcome using `bridge/README.md`'s "Manual verification record template" pattern.
