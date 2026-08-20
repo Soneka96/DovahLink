@@ -134,8 +134,11 @@ std::optional<std::uint16_t> ReadPortOverride(const dovahlink::security::Environ
         return std::nullopt;
     }
     try {
-        int parsed = std::stoi(*raw);
-        if (parsed < 0 || parsed > std::numeric_limits<std::uint16_t>::max()) {
+        std::size_t consumed = 0;
+        int parsed = std::stoi(*raw, &consumed);
+        // std::stoi silently ignores trailing non-numeric characters (e.g. "8080xyz" parses as
+        // 8080); requiring the whole string to be consumed rejects that instead of accepting it.
+        if (consumed != raw->size() || parsed < 0 || parsed > std::numeric_limits<std::uint16_t>::max()) {
             return std::nullopt;
         }
         return static_cast<std::uint16_t>(parsed);
