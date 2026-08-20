@@ -982,3 +982,89 @@ TEST_CASE("HandleHello rejects a second connection while a session is already ac
     CHECK(retry.sessionLease.has_value());
     CHECK_FALSE(tokenStore.IsAvailable());
 }
+
+TEST_CASE("HandleHello marks a one_time_local_token session as developer-authenticated",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
+                              /*connection=*/1, timeout, now);
+
+    REQUIRE(result.sessionLease.has_value());
+    CHECK(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+}
+
+TEST_CASE("HandleHello does not mark an unpaired session as developer-authenticated",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildUnpairedHelloEnvelope();
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    REQUIRE(result.sessionLease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+}
+
+TEST_CASE("HandleHello does not mark a trusted_device_credential session as developer-authenticated",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt).has_value());
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope(dovahlink::security::EncodeHex(credentialBytes));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    REQUIRE(result.sessionLease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+}
+
+TEST_CASE("HandleHello updates IsDeveloperAuthenticated on reconnect rather than retaining a stale value "
+          "from the previous session on the same connection",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+
+    ConnectionTimeoutTracker firstTimeout(now);
+    auto firstHello = BuildUnpairedHelloEnvelope();
+    auto firstResult =
+        HandleHello(firstHello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, firstTimeout, now);
+    REQUIRE(firstResult.sessionLease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    firstResult.sessionLease.reset();
+
+    ConnectionTimeoutTracker secondTimeout(now);
+    auto secondHello = BuildHelloEnvelope(kValidHexToken, "message-hello-2");
+    auto secondResult = HandleHello(secondHello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1,
+                                    secondTimeout, now);
+
+    REQUIRE(secondResult.sessionLease.has_value());
+    CHECK(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+}
