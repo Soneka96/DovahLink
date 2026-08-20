@@ -36,7 +36,8 @@ void SessionManager::Lease::Reset() noexcept {
 }
 
 std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
-    ConnectionId connection, const std::string& sessionId, std::string clientId, SessionTrustTier trustTier) {
+    ConnectionId connection, const std::string& sessionId, std::string clientId, SessionTrustTier trustTier,
+    bool isDeveloperAuthenticated) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeConnection_.has_value()) {
         return std::nullopt;
@@ -49,6 +50,7 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
     activeSessionId_.emplace(std::move(activeSessionId));
     activeClientId_.emplace(std::move(clientId));
     activeTrustTier_ = trustTier;
+    activeIsDeveloperAuthenticated_ = isDeveloperAuthenticated;
     activeConnection_ = connection;
     return Lease(*this, connection, std::move(leaseSessionId));
 }
@@ -103,6 +105,7 @@ void SessionManager::InvalidateSession(ConnectionId connection, const std::strin
         activeSessionId_.reset();
         activeClientId_.reset();
         activeTrustTier_.reset();
+        activeIsDeveloperAuthenticated_.reset();
     }
 }
 
@@ -112,6 +115,15 @@ void SessionManager::InvalidateAll() {
     activeSessionId_.reset();
     activeClientId_.reset();
     activeTrustTier_.reset();
+    activeIsDeveloperAuthenticated_.reset();
+}
+
+bool SessionManager::IsDeveloperAuthenticated(ConnectionId connection) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
+        return false;
+    }
+    return activeIsDeveloperAuthenticated_.value_or(false);
 }
 
 }  // namespace dovahlink::application

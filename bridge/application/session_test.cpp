@@ -569,3 +569,107 @@ TEST_CASE("a stale lease cannot clear ActiveSessionId for a replacement session 
     REQUIRE(sessionId.has_value());
     CHECK(*sessionId == kSessionTwo);
 }
+
+TEST_CASE("TryCreateSession defaults to not developer-authenticated for callers that predate the "
+          "distinction",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    REQUIRE(lease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("TryCreateSession honors an explicit developer-authenticated session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("IsDeveloperAuthenticated is false when no session is active", "[application][session]") {
+    SessionManager sessions;
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("IsDeveloperAuthenticated is false for a connection that does not own the active developer "
+          "session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionB));
+}
+
+TEST_CASE("IsDeveloperAuthenticated is cleared when the session is invalidated", "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+    lease.reset();
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("IsDeveloperAuthenticated is cleared by InvalidateAll", "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+    sessions.InvalidateAll();
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("a session created after a developer-authenticated one is invalidated is not "
+          "developer-authenticated by default",
+          "[application][session]") {
+    SessionManager sessions;
+    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                 /*isDeveloperAuthenticated=*/true);
+    REQUIRE(firstLease.has_value());
+    firstLease.reset();
+
+    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    REQUIRE(secondLease.has_value());
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("IsDeveloperAuthenticated is independent of trust tier: a kRestricted developer session "
+          "reports both",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("UpgradeToFullTrust does not change IsDeveloperAuthenticated", "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                            /*isDeveloperAuthenticated=*/true);
+    REQUIRE(lease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
+
+TEST_CASE("a stale lease cannot clear IsDeveloperAuthenticated for a replacement session on the same "
+          "connection",
+          "[application][session]") {
+    SessionManager sessions;
+    auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                 /*isDeveloperAuthenticated=*/true);
+    REQUIRE(staleLease.has_value());
+    sessions.InvalidateAll();
+
+    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    REQUIRE(replacementLease.has_value());
+    staleLease.reset();
+
+    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+}
