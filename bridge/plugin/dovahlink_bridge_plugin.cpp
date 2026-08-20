@@ -24,6 +24,7 @@
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
+#include "security/factory_reset_challenge.hpp"
 #include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_provider.hpp"
@@ -284,7 +285,9 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // as its ActiveSessionDisconnector -- the capability that enforces "Revocation is immediate"
     // (security.md's "Persistent local trust") against an already-connected session, not just the
     // persisted trust record.
-    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool, pairingSession);
+    static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
+    static dovahlink::application::TrustAdminService trustAdminService(trustStore, bridgeWorkerPool, pairingSession,
+                                                                        factoryResetChallenge);
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
 
     static dovahlink::application::Coordinator coordinator(callbackRegistry, bridgeWorkerPool, bridgeTransport);

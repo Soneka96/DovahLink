@@ -67,8 +67,12 @@ std::string FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> re
 }  // namespace
 
 TrustAdminService::TrustAdminService(security::TrustStore& trustStore, ActiveSessionDisconnector& sessionDisconnector,
-                                      security::PairingSession& pairingSession)
-    : trustStore_(trustStore), sessionDisconnector_(sessionDisconnector), pairingSession_(pairingSession) {}
+                                      security::PairingSession& pairingSession,
+                                      security::FactoryResetChallenge& factoryResetChallenge)
+    : trustStore_(trustStore),
+      sessionDisconnector_(sessionDisconnector),
+      pairingSession_(pairingSession),
+      factoryResetChallenge_(factoryResetChallenge) {}
 
 std::string TrustAdminService::List(std::string_view scope) const {
     std::string normalizedScope(scope);
@@ -90,8 +94,8 @@ std::string TrustAdminService::List(std::string_view scope) const {
 std::string TrustAdminService::Help() const {
     return "DovahLink commands:\n"
            " list [all|trust|block]\n"
-           " revoke -id <id> | reset | block -id <id>\n"
-           " unblock -id <id> | forget -id <id> | help";
+           " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n"
+           " reset trust | reset | reset -confirm <code> | help";
 }
 
 std::string TrustAdminService::ListTrusted() const {
@@ -127,14 +131,13 @@ std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {
     return "Revoked client " + std::string(shortId) + " (" + displayName + ").";
 }
 
-std::string TrustAdminService::Reset() const {
-    std::size_t previousCount = trustStore_.ListTrusted().size();
-    if (!trustStore_.Reset()) {
-        return "Failed to reset trust: trust-store save failed.";
+std::string TrustAdminService::StartFactoryReset() const {
+    auto code = factoryResetChallenge_.TryStart();
+    if (!code.has_value()) {
+        return "Failed to start Factory Reset: could not generate a confirmation code.";
     }
-    sessionDisconnector_.DisconnectActive();
-    return "Reset all trust (" + std::to_string(previousCount) +
-           (previousCount == 1 ? " client removed)." : " clients removed).");
+    return "Factory Reset requested. Confirm with code " + *code +
+           " within 60 seconds to permanently erase all trust.";
 }
 
 std::string TrustAdminService::BlockByShortId(std::string_view shortId,
@@ -203,6 +206,38 @@ std::string TrustAdminService::ForgetByShortId(std::string_view shortId) const {
     }
     // Unreachable: every enumerator is handled above.
     return "Failed to forget device " + std::string(shortId) + ": unexpected outcome.";
+}
+
+std::string TrustAdminService::ConfirmFactoryReset(std::string_view presentedCode) const {
+    switch (factoryResetChallenge_.TryConfirm(std::string(presentedCode))) {
+        case security::FactoryResetConfirmOutcome::kConfirmed: {
+            std::size_t previousCount = trustStore_.ListTrusted().size();
+            if (!trustStore_.Reset()) {
+                return "Failed to complete Factory Reset: trust-store save failed.";
+            }
+            pairingSession_.CancelAll();
+            sessionDisconnector_.DisconnectActive();
+            return "Factory Reset complete (" + std::to_string(previousCount) +
+                   (previousCount == 1 ? " trusted device erased)." : " trusted devices erased).");
+        }
+        case security::FactoryResetConfirmOutcome::kExpired:
+            return "No Factory Reset confirmation is pending; start one with 'reset' first.";
+        case security::FactoryResetConfirmOutcome::kInvalid:
+            return "Wrong Factory Reset confirmation code; the challenge was cancelled. Start over with 'reset'.";
+    }
+    // Unreachable: every enumerator is handled above.
+    return "Failed to confirm Factory Reset: unexpected outcome.";
+}
+
+std::string TrustAdminService::ResetTrust() const {
+    std::size_t previousCount = trustStore_.ListTrusted().size();
+    if (!trustStore_.ResetTrust()) {
+        return "Failed to reset trust: trust-store save failed.";
+    }
+    pairingSession_.CancelAll();
+    sessionDisconnector_.DisconnectActive();
+    return "Reset Trust complete (" + std::to_string(previousCount) +
+           (previousCount == 1 ? " device revoked)." : " devices revoked).");
 }
 
 }  // namespace dovahlink::application
