@@ -855,10 +855,8 @@ public class PairingScenarioTests
         Assert.Equal("message-confirm-2", pacedOutcome.CorrelationId);
         Assert.Equal("pacing_limited", pacedOutcome.Payload["outcome"]!.GetValue<string>());
         int retryAfter = pacedOutcome.Payload["retryAfterSeconds"]!.GetValue<int>();
-        // Truncated to whole seconds: two attempts this close together leave well under a second
-        // of true remaining wait, which truncates to 0 -- not the full 1-second interval.
-        Assert.True(retryAfter is >= 0 and <= 1,
-            $"Pacing retryAfterSeconds {retryAfter}s should be the true remaining wait, within kPairingConfirmPacingInterval (1s)");
+        // A positive fractional wait rounds up to the minimum safe whole-second wait.
+        Assert.Equal(1, retryAfter);
         // pacing_limited carries no credential (never evaluated, so nothing was issued or consumed).
         Assert.Null(pacedOutcome.Payload["credential"]?.GetValue<string>());
 

@@ -401,14 +401,28 @@ TEST_CASE("kPacingLimited reports the actual remaining wait, not the full pacing
     REQUIRE(session.TryConfirmCode("000000", now, "client-1", MakeCredential(1), std::nullopt).outcome ==
             ConfirmResult::kInvalid);
 
-    // 400ms later: well past the pacing interval's start, so the true remaining wait (600ms,
-    // truncated to 0 whole seconds) differs from the full 1-second interval a hardcoded constant
-    // would have reported instead.
+    // 400ms later: well past the pacing interval's start, so the true remaining wait (600ms)
+    // rounds up to the minimum safe whole-second wait of 1 second.
     auto paced = session.TryConfirmCode("111111", now + std::chrono::milliseconds(400), "client-1",
                                          MakeCredential(1), std::nullopt);
     REQUIRE(paced.outcome == ConfirmResult::kPacingLimited);
     REQUIRE(paced.retryAfterSeconds.has_value());
-    CHECK(*paced.retryAfterSeconds == std::chrono::seconds(0));
+    CHECK(*paced.retryAfterSeconds == std::chrono::seconds(1));
+}
+
+TEST_CASE("TryRenotify reports a safe whole-second wait for fractional cooldowns",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryRenotify("client-1", now).outcome == RenotifyOutcome::kRenotified);
+
+    auto cooldown = session.TryRenotify("client-1", now + std::chrono::milliseconds(1));
+    REQUIRE(cooldown.outcome == RenotifyOutcome::kCooldown);
+    REQUIRE(cooldown.retryAfterSeconds.has_value());
+    CHECK(*cooldown.retryAfterSeconds == std::chrono::seconds(5));
+    CHECK(session.TryRenotify("client-1", now + std::chrono::seconds(5)).outcome ==
+          RenotifyOutcome::kRenotified);
 }
 
 TEST_CASE("the fifth wrong evaluated attempt cancels the challenge and destroys the code",

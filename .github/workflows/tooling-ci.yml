@@ -9,6 +9,7 @@ on:
       - "PRODUCT.md"
       - "ARCHITECTURE.md"
       - "ROADMAP.md"
+      - "roadmap/**"
       - "CONTRIBUTING.md"
       - "CHANGELOG.md"
       - ".github/workflows/**"

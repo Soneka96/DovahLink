@@ -52,7 +52,7 @@ SKSE owns native response and application types. Flutter owns client models. Bot
 
 ### SDK
 
-Implements the canonical contract for Dart consumers and is not a second protocol authority: it maps the wire contract into typed client/domain models without those models becoming the contract itself. The official Flutter app is the SDK's first production consumer; after the Dart Client SDK Foundation phase (`ROADMAP.md`), normal DovahLink communication from the app goes through the SDK rather than through app-private transport, compatibility, authentication, pairing, reconnect, or session code. See `ai/context/sdk/` for SDK-specific conventions and `sdk/README.md` for its current planned status.
+Implements the canonical contract for Dart consumers and is not a second protocol authority: it maps the wire contract into typed client/domain models without those models becoming the contract itself. The official Flutter app is the SDK's first production consumer; after the Dart Client SDK Foundation phase (`roadmap/05-dart-client-sdk-foundation.md`), normal DovahLink communication from the app goes through the SDK rather than through app-private transport, compatibility, authentication, pairing, reconnect, or session code. See `ai/context/sdk/` for SDK-specific conventions and `sdk/README.md` for its current planned status.
 
 ### Clients
 
@@ -100,7 +100,7 @@ client and the Bridge, and survives Bridge, Skyrim, and Windows restarts. It doe
 `bridgeInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
 per-socket identity: a trusted client still authenticates into a fresh `sessionId` on every reconnect,
 and a bridge restart still creates a new `bridgeInstanceId`. `ai/context/protocol/security.md` and
-`ROADMAP.md`'s Phase 3 own the pairing, storage, and revocation design; this section only fixes where
+`roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, storage, and revocation design; this section only fixes where
 persistent trust sits relative to the four identifiers above.
 
 ## Authoritative state and revisions
@@ -120,7 +120,7 @@ changes, the bridge invalidates the previous context's state and establishes fre
 state before publication resumes.
 
 `protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
-`ROADMAP.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
+`roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
 the bridge and its clients. This ownership must not be implemented by silently reinterpreting
 messages from the previously published experimental release, which is archived rather than a
 supported compatibility target. The current contract has no independent runtime protocol-generation
@@ -190,7 +190,7 @@ Detection and adapters may supply supported presentation values; they must not r
 ## Architectural non-goals
 
 - No service layer before local connectivity is proven.
-- The Dart Client SDK Foundation phase (`ROADMAP.md`) intentionally introduces a shared client
+- The Dart Client SDK Foundation phase (`roadmap/05-dart-client-sdk-foundation.md`) intentionally introduces a shared client
   implementation before a second product client exists, replacing the earlier assumption that such
   an abstraction should wait for a second client: the reusable connection lifecycle, compatibility
   detection, authentication, pairing, reconnect, and state-identity behavior it consumes has grown

@@ -17,9 +17,9 @@ struct ConfirmCodeResult {
     /// The caller (the pairing handler) is responsible for actually redisplaying it;
     /// `PairingSession` never touches Skyrim or any notification sink itself.
     bool shouldAutoRenotify = false;
-    /// The actual remaining wait, populated only when `outcome == ConfirmResult::kPacingLimited`.
-    /// Matches `protocol/schema/README.md`'s "remaining wait" contract for `retryAfterSeconds`
-    /// rather than always reporting the full `kPairingConfirmPacingInterval`.
+    /// The minimum safe whole-second wait before retrying, populated only when
+    /// `outcome == ConfirmResult::kPacingLimited`. It is rounded upward when a positive
+    /// fractional wait remains rather than always reporting the full pacing interval.
     std::optional<std::chrono::seconds> retryAfterSeconds;
 };
 

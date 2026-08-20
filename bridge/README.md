@@ -153,7 +153,7 @@ client reconnecting after a network blip or app restart, or any other client -- 
 authenticate again until the bridge process itself restarts with a freshly generated token. A
 connection attempt that fails *before* session admission (wrong token, version mismatch, another
 active session, or internal setup failure) does not spend it, so a retry after a failed attempt
-still works; only a retry after a *successful* session does not. See `ROADMAP.md`'s Phase 3,
+still works; only a retry after a *successful* session does not. See [Stage 3 roadmap](../roadmap/03-local-device-pairing-and-reconnection.md),
 Local Device Pairing and Reconnection, for the
 planned fix -- a separate, device-scoped credential issued after a successful pairing, stored on
 the client, so a reconnect never needs the one-time bootstrap token again. That phase leaves this
@@ -208,7 +208,7 @@ Boost.Beast's "shared objects: unsafe" `websocket::stream`. `WebSocketSession` n
 operation through Beast's async API for safe cancellation and timeouts, but its public facade and
 `RunConnectionSession` remain deliberately linear. The full-duplex loop, along with the
 outbound-lane and rate-class design it enables, is
-[`ROADMAP.md`](../ROADMAP.md)'s Phase 4, Live State Synchronization Foundation. The architecture
+[Stage 4 roadmap](../roadmap/04-live-state-synchronization-foundation.md), Live State Synchronization Foundation. The architecture
 already agreed for that phase, recorded here so Phase 4 does not have to rediscover it:
 
 - Refactor the linear session facade and `RunConnectionSession` into a full-duplex async loop using

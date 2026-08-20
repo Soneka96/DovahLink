@@ -375,6 +375,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "PRODUCT.md"',
             '- "ARCHITECTURE.md"',
             '- "ROADMAP.md"',
+            '- "roadmap/**"',
             '- "CONTRIBUTING.md"',
             '- "CHANGELOG.md"',
             '- ".github/workflows/**"',
@@ -578,16 +579,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
         version = manifest["version-string"]
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
-        phase_zero = self._markdown_section("ROADMAP.md", "0. Documentation baseline")
-        phase_zero_five = self._markdown_section(
-            "ROADMAP.md", "0.5 Client and Protocol Foundation"
+        phase_zero = self._roadmap_section("0. Documentation baseline")
+        phase_zero_five = self._roadmap_section(
+            "0.5 Client and Protocol Foundation"
         )
-        phase_one = self._markdown_section("ROADMAP.md", "1. Skyrim Bridge Foundation")
-        phase_two = self._markdown_section(
-            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        phase_one = self._roadmap_section("1. Skyrim Bridge Foundation")
+        phase_two = self._roadmap_section(
+            "2. Bridge Identity and Authoritative State Foundation"
         )
-        phase_three = self._markdown_section("ROADMAP.md", "3. Local Device Pairing and Reconnection")
-        phase_three_one = self._markdown_section("ROADMAP.md", "3.1 Live Pairing Challenge UX")
+        phase_three = self._roadmap_section("3. Local Device Pairing and Reconnection")
+        phase_three_one = self._roadmap_section("3.1 Live Pairing Challenge UX")
 
         self.assertEqual(manifest["version-string"], version)
         for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two, phase_three, phase_three_one):
@@ -627,7 +628,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         entry_versions = re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", changelog)
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
-        self.assertEqual(entry_versions[-1], manifest["version-string"])
+        self.assertEqual(entry_versions[0], manifest["version-string"])
         for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1"):
             self.assertIn(known_version, entry_versions)
         self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")
@@ -654,7 +655,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
     def test_foundation_first_roadmap_order_and_boundaries_are_explicit(self) -> None:
         """Preserve the approved phase order and deferred-control boundary."""
-        roadmap = self._read("ROADMAP.md")
+        roadmap = self._roadmap_corpus()
         expected_headings = [
             "0. Documentation baseline",
             "0.5 Client and Protocol Foundation",
@@ -663,6 +664,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "3. Local Device Pairing and Reconnection",
             "3.1 Live Pairing Challenge UX",
             "3.2 Known Device & Trust Administration",
+            "3.3 Client Trust-State Integration",
             "4. Live State Synchronization Foundation",
             "5. Dart Client SDK Foundation",
             "6. PC / Second-Screen Baseline",
@@ -698,7 +700,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 6)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
@@ -710,7 +712,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(roadmap.count(phase_5_status), 1)
 
         for heading in expected_headings:
-            phase = self._markdown_section("ROADMAP.md", heading)
+            phase = self._roadmap_section(heading)
             if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ")):
                 expected_status = "**Status:** Complete"
             elif heading.startswith("5. "):
@@ -734,9 +736,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn("Phase 1.25", supporting_document)
             self.assertNotIn("Phase 1.5", supporting_document)
-        self.assertIn("See `ROADMAP.md`'s Phase 3", bridge_readme)
+        self.assertIn("[Stage 3 roadmap](../roadmap/03-local-device-pairing-and-reconnection.md)", bridge_readme)
         self.assertIn("## Live event delivery is deferred to Phase 4", bridge_readme)
-        self.assertIn("`ROADMAP.md`'s Phase 4\nand Phase 3 entries", integration_readme)
+        self.assertIn("the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries", integration_readme)
 
         ordering = {heading: roadmap.index(f"## {heading}") for heading in expected_headings}
         self.assertLess(
@@ -755,13 +757,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ordering["23. Mobile / Tablet Client"],
         )
 
-        identity = self._markdown_section(
-            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        identity = self._roadmap_section(
+            "2. Bridge Identity and Authoritative State Foundation"
         )
-        authorization = self._markdown_section(
-            "ROADMAP.md", "28. Safe Companion Authorization Foundation"
+        authorization = self._roadmap_section(
+            "28. Safe Companion Authorization Foundation"
         )
-        deferred = self._markdown_section("ROADMAP.md", "Deferred possibilities")
+        deferred = self._roadmap_section("Deferred possibilities")
         self.assertIn("does not add a separate\ngame-process identifier", identity)
         dependency_expectations = {
             "3. Local Device Pairing and Reconnection": "depends on Phase 2",
@@ -776,7 +778,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for heading, expected_dependency in dependency_expectations.items():
             self.assertIn(
                 expected_dependency,
-                self._markdown_section("ROADMAP.md", heading),
+                self._roadmap_section(heading),
                 heading,
             )
         self.assertIn("without exposing a generic command API", authorization)
@@ -789,7 +791,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
     def test_pairing_phase_establishes_persistent_per_user_trust(self) -> None:
         """Guard the persistent-trust pairing redesign and its retired restart-bound predecessor."""
-        pairing = self._markdown_section("ROADMAP.md", "3. Local Device Pairing and Reconnection")
+        pairing = self._roadmap_section("3. Local Device Pairing and Reconnection")
         normalized_pairing = self._normalize_whitespace(pairing)
 
         for required_phrase in (
@@ -844,7 +846,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_identity_model,
         )
         self.assertIn(
-            "`ai/context/protocol/security.md` and `ROADMAP.md`'s Phase 3 own the pairing, "
+            "`ai/context/protocol/security.md` and `roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, "
             "storage, and revocation design",
             normalized_identity_model,
         )
@@ -1083,9 +1085,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "the SDK implements\nthat contract for Dart consumers and is not a second protocol "
             "authority",
             "the SDK's first production consumer, not a privileged one — see",
-            "Partially implemented, pulled forward from `ROADMAP.md`'s Phase 5 (\"Dart Client "
+            "Partially implemented, pulled forward from `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 (\"Dart Client "
             "SDK Foundation\")\nahead of that phase's formal start, because Phase 3 (Local "
-            "Device Pairing and Reconnection) needed\nthe SDK's persistence boundary to avoid a "
+            "Device Pairing and Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed\nthe SDK's persistence boundary to avoid a "
             "larger later migration.",
             "sdk/\n  dart/\n    dovahlink_client/",
             "It currently provides the connect/hello/pairing/disconnect protocol client, proven "
@@ -1270,7 +1272,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("## SDK migration", app_readme)
         self.assertIn(
-            "Before `ROADMAP.md`'s Phase 5 (\"Dart Client SDK Foundation\"), this directory owns "
+            "Before `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 (\"Dart Client SDK Foundation\"), this directory owns "
             "its protocol and\nclient adapters directly",
             app_readme,
         )
@@ -1299,14 +1301,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn(
             "It also does not consume, wrap, or generate from the future Dart Client SDK\n"
-            "(`sdk/`, see `ROADMAP.md`'s Phase 5) once one exists; its value depends on staying "
+            "(`sdk/`, see `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5) once one exists; its value depends on staying "
             "an independent\nimplementation of the canonical contract.",
             integration_readme,
         )
 
     def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
-        live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
+        live_state = self._roadmap_section("4. Live State Synchronization Foundation")
         bridge_live_state = self._markdown_section(
             "bridge/README.md", "Live event delivery is deferred to Phase 4"
         )
@@ -1337,10 +1339,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
     def test_state_identity_and_snapshot_exceptions_are_explicit(self) -> None:
         """Keep bridge lifetime identity and snapshot delivery exceptions in the roadmap."""
-        identity = self._markdown_section(
-            "ROADMAP.md", "2. Bridge Identity and Authoritative State Foundation"
+        identity = self._roadmap_section(
+            "2. Bridge Identity and Authoritative State Foundation"
         )
-        live_state = self._markdown_section("ROADMAP.md", "4. Live State Synchronization Foundation")
+        live_state = self._roadmap_section("4. Live State Synchronization Foundation")
         normalized_identity = self._normalize_whitespace(identity)
         normalized_live_state = self._normalize_whitespace(live_state)
 
@@ -1373,7 +1375,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "release as already carrying this ownership",
             normalized_identity,
         )
-        roadmap = self._read("ROADMAP.md")
+        roadmap = self._roadmap_corpus()
         for retired_term in (
             "protocol-v2 flow",
             "versioned pairing flow",
@@ -1404,8 +1406,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
     def test_dependency_audit_targets_the_next_public_release(self) -> None:
         """Keep maintenance commitments meaningful after the initial public release."""
-        dependency_audit = self._markdown_section(
-            "ROADMAP.md", "30. CommonLib Dependency Maintenance Audit"
+        dependency_audit = self._roadmap_section(
+            "30. CommonLib Dependency Maintenance Audit"
         )
 
         self.assertNotIn("before public release", dependency_audit)
@@ -1446,6 +1448,27 @@ class RepositoryConsistencyTests(unittest.TestCase):
             integration_readme,
             r"(?m)^DOVAHLINK_BRIDGE_TOKEN=.*\bdotnet run$",
         )
+
+    @classmethod
+    def _roadmap_corpus(cls) -> str:
+        """Read the ordered roadmap stage documents as one validation corpus."""
+        stage_paths = sorted((REPOSITORY_ROOT / "roadmap").glob("*.md"))
+        return "\n".join(path.read_text(encoding="utf-8") for path in stage_paths)
+
+    @classmethod
+    def _roadmap_section(cls, heading: str) -> str:
+        """Return a phase section from its canonical roadmap stage document."""
+        if heading == "Deferred possibilities":
+            return cls._markdown_section("ROADMAP.md", heading)
+        for path in sorted((REPOSITORY_ROOT / "roadmap").glob("*.md")):
+            document = path.read_text(encoding="utf-8")
+            match = re.search(
+                rf"(?ms)^## {re.escape(heading)}\n(?P<body>.*?)(?=^## |\Z)",
+                document,
+            )
+            if match is not None:
+                return match.group("body")
+        raise AssertionError(f"Missing roadmap section: {heading}")
 
     @staticmethod
     def _read(relative_path: str) -> str:

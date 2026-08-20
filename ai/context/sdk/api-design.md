@@ -53,6 +53,12 @@ structured information for the app to distinguish "Bridge is older than supporte
 newer than supported" when that is safely knowable, per
 `ai/context/protocol/compatibility.md`.
 
+Administrative session invalidation is exposed as typed semantic information for SDK consumers:
+`revoked`, `blocked`, `trustReset`, and `factoryReset`. These reasons are not durable authoritative
+trust state and must not leak as raw string comparisons throughout consumers. The official Flutter
+app may map all four to one generic unavailable/disconnected presentation, while third-party SDK
+consumers remain free to inspect or display the precise reason.
+
 ## Subscription intent versus mechanics
 
 A consumer expresses intent ("I want player state"); the SDK owns whether satisfying it currently

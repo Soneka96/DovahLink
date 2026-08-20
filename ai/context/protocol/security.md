@@ -72,7 +72,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   payload, bridge replies with `pairing_outcome` bearing `cancelled`/`already_idle`). Phase 3.1 also
   replaced the single undifferentiated `rate_limited` outcome with `pacing_limited` (attempt too
   soon, doesn't count wrong) and `hard_limit_reached` (5th wrong attempt, cancels challenge), per
-  `ROADMAP.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`,
+  `roadmap/03-local-device-pairing-and-reconnection.md`'s "3.1 Live Pairing Challenge UX". `pairing_status` now carries `expiresInSeconds`,
   a number only while `clientId`'s own code is actively counting down (`available`, or `in_progress`
   while still `CHALLENGE_ACTIVE`) and `null` for `in_progress` while only a `PENDING_CREDENTIAL` is
   owned -- see `protocol/schema/README.md`'s `pairing_status` section for the exact
@@ -125,7 +125,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   Skyrim, never silently trusts a client, never invents or merges uncertain credentials, and always
   supports a clean reset-and-re-pair path. This phase's trust-store implementation only needs to
   satisfy a single Bridge process, but its boundary must not make later multi-process synchronization
-  (Phase 9) require rewriting the pairing protocol or trust-domain model.
+  (Phase 10, multi-Bridge) require rewriting the pairing protocol or trust-domain model.
 - Revocation is immediate: revoking a trusted client removes its active trust, invalidates its
   current authenticated session, closes that connection, and rejects reuse of the revoked credential;
   resetting all trust applies the same behavior to every trusted client. A revoked client that
@@ -134,17 +134,50 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   use a minimal revocation tombstone containing no credential; re-pairing an intentionally revoked
   `clientId` may remove or replace that tombstone and establish a new credential.
 
+## Administrative session invalidation
+
+Phase 3.2 extends persistent local trust with Bridge-owned Known Device states: `Trusted`, `Revoked`,
+`Blocked`, and `Unpaired`. Block applies to any existing non-`Blocked` Known Device, including
+`Unpaired`, but never creates a record for an unknown `clientId`; a repeated block reports the
+already-blocked state. Blocked stale credentials are rejected explicitly as `blocked`, while revoked
+stale credentials are rejected explicitly as `revoked`. These administrative truths are available to
+the authenticated/admin surfaces and SDKs; the official Flutter UI may intentionally present them
+identically.
+
+When an administrator deliberately invalidates an authenticated session, the Bridge uses one
+canonical unsolicited terminal event, `session_invalidated`, with a typed reason of `revoked`,
+`blocked`, `trust_reset`, or `factory_reset`. It is not named `credential_invalidated`, because
+Factory Reset terminates developer-token sessions while leaving the configured developer token
+valid. The security ordering is authoritative state change, credential invalidation where applicable,
+future authentication/pairing enforcement, best-effort send/flush of the event, then forced close.
+No client acknowledgement is required and event delivery is never a security dependency. A client
+that receives a duplicate or late `session_invalidated` for a session it has already torn down
+treats it as a no-op: the event is idempotent and never re-triggers credential cleanup or a second
+state transition.
+
+Reset Trust converts only `Trusted` to `Revoked`, destroys those device credentials, invalidates
+their sessions with `trust_reset`, cancels all pending pairing, preserves Known Device identity and
+metadata, and leaves developer-token configuration and sessions unaffected. Factory Reset uses an
+independent Skyrim/admin-only six-digit confirmation challenge with 60-second expiry and one-wrong-
+attempt invalidation; failed or expired confirmation performs no destructive change. Successful
+Factory Reset invalidates every session, including developer-token sessions, with `factory_reset`,
+but leaves developer-token configuration available for later authentication. Because Factory Reset
+deletes every Known Device record and revocation tombstone, a credential presented afterward has no
+matching record to classify against; the Bridge rejects it through the ordinary
+unrecognized-credential/unpaired path, the same as a device that was never paired, not through the
+`blocked`/`revoked` outcomes above.
+
 ## Trust administration surface
 
-- Trust administration (list all known devices, list trusted or blocked devices, show help, revoke
-  one, reset all, and manage known-device state) is implemented once, as a
+- Trust administration (list Known Devices, rename, revoke, block/unblock, forget, Reset Trust, and
+  Factory Reset) is implemented once, as a
   reusable Bridge application-layer service (`TrustAdminService`) over `TrustStore`'s existing
   load/persist/revoke/reset/query boundary. No caller -- console, a future Flutter management UI, or
   developer tooling -- duplicates trust-store logic; each only formats input and output around the
   same calls.
-- The five-digit `shortId` (never `clientId`, never a credential) is the identifier administration
-  surfaces accept for "which known device" -- matching "Persistent local trust"'s own stated
-  purpose for `shortId`: human-readable administration only.
+- The five-digit `shortId` (never `clientId`, never a credential) is the identifier every
+  administration surface accepts for "which Known Device" -- matching "Persistent local trust"'s
+  own stated purpose for `shortId`: human-readable administration only.
 - Native Skyrim has no supported API for registering a genuinely new console command. Confirmed by
   inspecting the vendored CommonLibSSE-NG headers: `RE::SCRIPT_FUNCTION` is a fixed, pre-populated
   table with no `AddCommand`, and intercepting the console's own script-compile call site requires
@@ -177,13 +210,11 @@ Security rules apply before the bridge accepts any client connection. A local-ne
     `dovahlink help` and the mutation commands are simply unrecognized
     console commands, exactly like any other unknown input; there is no error path and no degraded
     core behavior to account for.
-- Scope boundary, recorded explicitly rather than left implicit: this surface's `Revoke`/`Reset`
-  call `TrustStore::Revoke`/`TrustStore::Reset` directly, which removes persisted trust and (for
-  `Revoke`) tombstones the `clientId` -- a revoked client's *next* reconnect attempt with the old
-  credential fails cleanly. Forcing an *already-connected* session using the just-revoked credential
-  to disconnect immediately (the "revoke-while-connected" behavior this document's "Persistent local
-  trust" section and `ROADMAP.md`'s acceptance criteria both name) is proven end-to-end as its own
-  stage (`PLAN.md`'s stage J); this surface does not yet wire that disconnect itself.
+- All callers use the same authoritative service and must preserve the ordering and event semantics
+  above; no console, Flutter, or developer-tooling surface may implement a second trust authority.
+  Existing implementation names such as `TrustStore::Reset()` must not be treated as permission to
+  collapse Reset Trust and Factory Reset: Reset Trust is the non-destructive Trusted-to-Revoked
+  operation, while the existing full wipe maps to the confirmation-gated Factory Reset behavior.
 
 ## Developer authentication
 

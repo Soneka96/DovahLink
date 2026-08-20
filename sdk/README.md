@@ -33,8 +33,8 @@ the SDK's first production consumer, not a privileged one — see
 
 ## Status
 
-Partially implemented, pulled forward from `ROADMAP.md`'s Phase 5 ("Dart Client SDK Foundation")
-ahead of that phase's formal start, because Phase 3 (Local Device Pairing and Reconnection) needed
+Partially implemented, pulled forward from `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 ("Dart Client SDK Foundation")
+ahead of that phase's formal start, because Phase 3 (Local Device Pairing and Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed
 the SDK's persistence boundary to avoid a larger later migration. The real package exists at:
 
 ```text

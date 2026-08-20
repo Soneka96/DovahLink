@@ -174,7 +174,7 @@ private:
     /// unscoped): the latter can change between an unsynchronized read and the shutdown call,
     /// letting a stale revoke for a just-ended session hit a new connection that raced into its
     /// place. Meaningless while `activeSocket_.lock()` is null; the single-connected-client limit
-    /// means this can stay one field instead of a registry -- see ROADMAP.md Phase 9 for
+    /// means this can stay one field instead of a registry -- see roadmap/09-multi-client-runtime-foundation.md Phase 9 for
     /// generalizing it once that limit is lifted.
     ConnectionId activeConnectionId_{};
 
