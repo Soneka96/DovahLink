@@ -50,13 +50,15 @@ RE::BSFixedString Revoke(RE::StaticFunctionTag*, RE::BSFixedString akId) {
     }
 }
 
-/// Native implementation of the Papyrus `DovahLinkAdmin.Reset()` function.
+/// Native implementation of the Papyrus `DovahLinkAdmin.Reset()` function: starts a Factory Reset
+/// confirmation challenge. Performs no mutation; the destructive wipe happens only through
+/// `ConfirmReset` once the displayed code is confirmed.
 RE::BSFixedString Reset(RE::StaticFunctionTag*) {
     if (!g_trustAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->Reset());
+        return RE::BSFixedString(g_trustAdminService->StartFactoryReset());
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -111,7 +113,33 @@ RE::BSFixedString Help(RE::StaticFunctionTag*) {
     }
 }
 
-/// Binds the seven native functions above to their Papyrus declarations.
+/// Native implementation of the Papyrus `DovahLinkAdmin.ConfirmReset(String)` function: confirms a
+/// Factory Reset challenge started by `Reset`, executing the destructive wipe on a matching code.
+RE::BSFixedString ConfirmReset(RE::StaticFunctionTag*, RE::BSFixedString akCode) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ConfirmFactoryReset(std::string_view(akCode)));
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Native implementation of the Papyrus `DovahLinkAdmin.ResetTrust()` function: the recoverable,
+/// non-destructive bulk revoke -- unlike `Reset`/`ConfirmReset`, requires no confirmation code.
+RE::BSFixedString ResetTrust(RE::StaticFunctionTag*) {
+    if (!g_trustAdminService) {
+        return RE::BSFixedString(kUnavailableMessage);
+    }
+    try {
+        return RE::BSFixedString(g_trustAdminService->ResetTrust());
+    } catch (...) {
+        return RE::BSFixedString(kInternalErrorMessage);
+    }
+}
+
+/// Binds the nine native functions above to their Papyrus declarations.
 bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("List", "DovahLinkAdmin", List);
     vm->RegisterFunction("Help", "DovahLinkAdmin", Help);
@@ -120,6 +148,8 @@ bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
     vm->RegisterFunction("Block", "DovahLinkAdmin", Block);
     vm->RegisterFunction("Unblock", "DovahLinkAdmin", Unblock);
     vm->RegisterFunction("Forget", "DovahLinkAdmin", Forget);
+    vm->RegisterFunction("ConfirmReset", "DovahLinkAdmin", ConfirmReset);
+    vm->RegisterFunction("ResetTrust", "DovahLinkAdmin", ResetTrust);
     return true;
 }
 
