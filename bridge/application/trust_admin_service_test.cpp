@@ -31,23 +31,30 @@ using dovahlink::security::UnblockOutcome;
 namespace {
 
 /// `ActiveSessionDisconnector` double recording every call it receives, so tests can assert exactly
-/// which clientId (if any) a successful revoke or reset disconnected. Matches this project's
-/// per-file test-double convention (see `FakePersistence` below).
+/// which clientId (if any) and typed reason a successful revoke, block, or reset disconnected
+/// with. Matches this project's per-file test-double convention (see `FakePersistence` below).
 class RecordingSessionDisconnector : public ActiveSessionDisconnector {
 public:
-    /// Appends `clientId` to `disconnectedClientIds`.
-    void DisconnectIfClientActive(std::string_view clientId, std::string_view /*reason*/) override {
+    /// Appends `clientId` to `disconnectedClientIds` and `reason` to `disconnectReasons`.
+    void DisconnectIfClientActive(std::string_view clientId, std::string_view reason) override {
         disconnectedClientIds.emplace_back(clientId);
+        disconnectReasons.emplace_back(reason);
     }
 
-    /// Increments `disconnectActiveCallCount`.
-    void DisconnectActive(std::string_view /*reason*/) override { disconnectActiveCallCount++; }
+    /// Increments `disconnectActiveCallCount` and appends `reason` to `disconnectReasons`.
+    void DisconnectActive(std::string_view reason) override {
+        disconnectActiveCallCount++;
+        disconnectReasons.emplace_back(reason);
+    }
 
     /// Every clientId passed to `DisconnectIfClientActive`, in order.
     std::vector<std::string> disconnectedClientIds;
 
     /// How many times `DisconnectActive` was called.
     int disconnectActiveCallCount = 0;
+
+    /// Every reason passed to either `DisconnectIfClientActive` or `DisconnectActive`, in order.
+    std::vector<std::string> disconnectReasons;
 };
 
 /// In-memory `ITrustStorePersistence` double: never touches real storage, and can be configured
@@ -434,6 +441,7 @@ TEST_CASE("RevokeByShortId revokes the matching client and reports its display n
     CHECK(store.IsRevoked("client-1"));
     CHECK(disconnector.disconnectedClientIds == std::vector<std::string>{"client-1"});
     CHECK(disconnector.disconnectActiveCallCount == 0);
+    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"revoked"});
 }
 
 TEST_CASE("RevokeByShortId only removes the targeted client when two share a display name",
@@ -518,6 +526,7 @@ TEST_CASE("ConfirmFactoryReset with the correct code wipes trust, cancels pairin
     CHECK(store.ListTrusted().empty());
     CHECK(store.ListAll().empty());
     CHECK(disconnector.disconnectActiveCallCount == 1);
+    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"factory_reset"});
     CHECK(pairingSession.TryStartChallenge("other-client", std::chrono::steady_clock::now()).outcome ==
           dovahlink::security::StartChallengeOutcome::kStarted);
 }
@@ -647,6 +656,7 @@ TEST_CASE("ResetTrust revokes every trusted device, cancels pairing, and disconn
     CHECK(store.IsRevoked("client-1"));
     CHECK(store.IsRevoked("client-2"));
     CHECK(disconnector.disconnectActiveCallCount == 1);
+    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"trust_reset"});
     CHECK(pairingSession.TryStartChallenge("other-client", std::chrono::steady_clock::now()).outcome ==
           dovahlink::security::StartChallengeOutcome::kStarted);
 }
@@ -716,6 +726,7 @@ TEST_CASE("BlockByShortId blocks a trusted client, disconnects its session, canc
     CHECK(store.IsBlocked("client-1"));
     CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
     CHECK(disconnector.disconnectedClientIds == std::vector<std::string>{"client-1"});
+    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"blocked"});
     // The owned challenge was cancelled: a fresh TryStartChallenge for the same clientId starts a
     // brand new one instead of resuming a stale kResumed.
     CHECK(pairingSession.TryStartChallenge("client-1", now).outcome == dovahlink::security::StartChallengeOutcome::kStarted);
