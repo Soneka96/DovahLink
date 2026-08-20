@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.21)
 
 project(DovahLinkBridge LANGUAGES CXX)
 
+# CMake 4.4 reports a preset toolchainFile as unused on reconfigure unless
+# the project reads the value after the toolchain has been loaded.
+if(CMAKE_TOOLCHAIN_FILE)
+    message(VERBOSE "Using CMake toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
 # vcpkg packages provide Debug and Release imported configurations. Map this
 # single-config preset's RelWithDebInfo build to the compatible Release
 # dependency libraries instead of letting CMake select the first configuration.
