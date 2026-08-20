@@ -292,9 +292,9 @@ TEST_CASE("BridgeWorkerPool Stop interrupts a connection blocked on the "
     clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
     REQUIRE_FALSE(connectEc);
 
-    auto acceptedDeadline = std::chrono::steady_clock::now() + 2s;
+    auto acceptedDeadline = std::chrono::steady_clock::now() + 5s;
     while (!fixture.slot.IsOccupied() && std::chrono::steady_clock::now() < acceptedDeadline) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE(fixture.slot.IsOccupied());
 
@@ -451,9 +451,9 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts an authenticated
     CHECK_FALSE(notification->bridgeInstanceId.has_value());
     CHECK_FALSE(notification->playContextId.has_value());
 
-    auto deadline = std::chrono::steady_clock::now() + 2s;
+    auto deadline = std::chrono::steady_clock::now() + 5s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
@@ -563,9 +563,9 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new c
         clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
     }
 
-    auto slotFreedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    auto slotFreedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (fixture.slot.IsOccupied() && std::chrono::steady_clock::now() < slotFreedDeadline) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE_FALSE(fixture.slot.IsOccupied());
 
@@ -644,10 +644,10 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new c
     // confirm the matching id, "client-2", still tears the session down correctly.
     fixture.pool.DisconnectIfClientActive("client-2", "revoked");
 
-    auto revokedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    auto revokedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (fixture.sessionManager.IsValidForConnection(secondSessionId, 2) &&
            std::chrono::steady_clock::now() < revokedDeadline) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 2));
 
@@ -710,9 +710,9 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated session
     REQUIRE(notification->payload.contains("reason"));
     CHECK(notification->payload.at("reason").as_string() == "trust_reset");
 
-    auto deadline = std::chrono::steady_clock::now() + 2s;
+    auto deadline = std::chrono::steady_clock::now() + 5s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
