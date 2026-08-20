@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <deque>
@@ -637,7 +638,7 @@ TEST_CASE("ConfirmFactoryReset reports zero trusted devices erased and singular 
     CHECK(service.ConfirmFactoryReset("654321") == "Factory Reset complete (0 trusted devices erased).");
 }
 
-TEST_CASE("ResetTrust revokes every trusted device, cancels pairing, and disconnects",
+TEST_CASE("ResetTrust revokes every trusted device, cancels pairing, and disconnects each by clientId",
           "[application][trust_admin_service]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
@@ -655,13 +656,20 @@ TEST_CASE("ResetTrust revokes every trusted device, cancels pairing, and disconn
     CHECK(store.ListTrusted().empty());
     CHECK(store.IsRevoked("client-1"));
     CHECK(store.IsRevoked("client-2"));
-    CHECK(disconnector.disconnectActiveCallCount == 1);
-    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"trust_reset"});
+    std::vector<std::string> disconnected = disconnector.disconnectedClientIds;
+    std::sort(disconnected.begin(), disconnected.end());
+    CHECK(disconnected == std::vector<std::string>{"client-1", "client-2"});
+    // Never the unconditional disconnect -- an unrelated active session (e.g. developer-token) must
+    // survive Reset Trust untouched.
+    CHECK(disconnector.disconnectActiveCallCount == 0);
+    CHECK(disconnector.disconnectReasons ==
+          std::vector<std::string>{"trust_reset", "trust_reset"});
     CHECK(pairingSession.TryStartChallenge("other-client", std::chrono::steady_clock::now()).outcome ==
           dovahlink::security::StartChallengeOutcome::kStarted);
 }
 
-TEST_CASE("ResetTrust reports zero devices revoked on an empty store", "[application][trust_admin_service]") {
+TEST_CASE("ResetTrust reports zero devices revoked on an empty store and disconnects nothing",
+          "[application][trust_admin_service]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({}));
     RecordingSessionDisconnector disconnector;
@@ -670,7 +678,52 @@ TEST_CASE("ResetTrust reports zero devices revoked on an empty store", "[applica
     TrustAdminService service(store, disconnector, pairingSession, factoryResetChallenge);
 
     CHECK(service.ResetTrust() == "Reset Trust complete (0 devices revoked).");
-    CHECK(disconnector.disconnectActiveCallCount == 1);
+    CHECK(disconnector.disconnectedClientIds.empty());
+    CHECK(disconnector.disconnectActiveCallCount == 0);
+}
+
+TEST_CASE("ResetTrust leaves an unrelated active session (e.g. developer-token) untouched",
+          "[application][trust_admin_service]") {
+    // RecordingSessionDisconnector::DisconnectIfClientActive only ever fires for the clientIds this
+    // call passes it -- a developer-token session (which never appears in TrustStore, per
+    // security.md's "Developer authentication") would never be one of them, and this test proves
+    // ResetTrust never falls back to the unconditional DisconnectActive that would catch it anyway.
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    FactoryResetChallenge factoryResetChallenge;
+    TrustAdminService service(store, disconnector, pairingSession, factoryResetChallenge);
+
+    CHECK(service.ResetTrust() == "Reset Trust complete (1 device revoked).");
+
+    CHECK(disconnector.disconnectedClientIds == std::vector<std::string>{"client-1"});
+    CHECK(disconnector.disconnectReasons == std::vector<std::string>{"trust_reset"});
+    CHECK(disconnector.disconnectActiveCallCount == 0);
+}
+
+TEST_CASE("ResetTrust does not disconnect a Known Device that was already revoked or blocked",
+          "[application][trust_admin_service]") {
+    // Only a device that ResetTrust itself just moved out of kTrusted may be disconnected -- a
+    // device that was already non-trusted before the call owns no session ResetTrust is responsible
+    // for tearing down.
+    FakePersistence persistence;
+    persistence.SetSnapshotToLoad(TrustStoreSnapshot{.devices = {
+        MakeKnownDevice("client-1", "11111", std::nullopt, KnownDeviceState::kTrusted, 100),
+        MakeKnownDevice("client-2", "22222", std::nullopt, KnownDeviceState::kRevoked, 200),
+        MakeKnownDevice("client-3", "33333", std::nullopt, KnownDeviceState::kBlocked, 300),
+    }});
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    RecordingSessionDisconnector disconnector;
+    PairingSession pairingSession;
+    FactoryResetChallenge factoryResetChallenge;
+    TrustAdminService service(store, disconnector, pairingSession, factoryResetChallenge);
+
+    CHECK(service.ResetTrust() == "Reset Trust complete (1 device revoked).");
+
+    CHECK(disconnector.disconnectedClientIds == std::vector<std::string>{"client-1"});
+    CHECK(disconnector.disconnectActiveCallCount == 0);
 }
 
 TEST_CASE("ResetTrust surfaces a trust-store save failure, leaves clients trusted, and cancels no "
@@ -689,6 +742,7 @@ TEST_CASE("ResetTrust surfaces a trust-store save failure, leaves clients truste
     persistence.FailNextSave();
     CHECK(service.ResetTrust() == "Failed to reset trust: trust-store save failed.");
     CHECK(store.ListTrusted().size() == 1);
+    CHECK(disconnector.disconnectedClientIds.empty());
     CHECK(disconnector.disconnectActiveCallCount == 0);
     // The still-owned challenge proves CancelAll was never reached after the save failure.
     CHECK(pairingSession.TryStartChallenge("other-client", std::chrono::steady_clock::now()).outcome ==

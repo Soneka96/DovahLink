@@ -1,6 +1,7 @@
 #pragma once
 
 #include "security/enums.hpp"
+#include "security/limits.hpp"
 #include "security/token_store.hpp"
 
 #include <chrono>

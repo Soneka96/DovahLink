@@ -230,14 +230,20 @@ std::string TrustAdminService::ConfirmFactoryReset(std::string_view presentedCod
 }
 
 std::string TrustAdminService::ResetTrust() const {
-    std::size_t previousCount = trustStore_.ListTrusted().size();
+    auto previouslyTrusted = trustStore_.ListTrusted();
     if (!trustStore_.ResetTrust()) {
         return "Failed to reset trust: trust-store save failed.";
     }
     pairingSession_.CancelAll();
-    sessionDisconnector_.DisconnectActive("trust_reset");
-    return "Reset Trust complete (" + std::to_string(previousCount) +
-           (previousCount == 1 ? " device revoked)." : " devices revoked).");
+    // Only the devices this call actually revoked may lose their session -- unlike Factory Reset,
+    // Reset Trust must leave an unrelated active session (a developer-token connection, in
+    // particular) untouched, per security.md's "leaves developer-token configuration and sessions
+    // unaffected".
+    for (const auto& record : previouslyTrusted) {
+        sessionDisconnector_.DisconnectIfClientActive(record.clientId, "trust_reset");
+    }
+    return "Reset Trust complete (" + std::to_string(previouslyTrusted.size()) +
+           (previouslyTrusted.size() == 1 ? " device revoked)." : " devices revoked).");
 }
 
 }  // namespace dovahlink::application
