@@ -34,7 +34,20 @@ class HarnessProcess {
   /// Standard-error output captured from the harness so far.
   String get stderrOutput => _stderrBuffer.toString();
 
+  /// The loopback port this instance's harness actually bound, set once [waitForReady] parses the
+  /// startup handshake's `PORT <n>` line.
+  late final int _port;
+
+  /// The `ws://` endpoint this instance's harness is listening on. Only valid after [waitForReady]
+  /// completes.
+  Uri get bridgeUri => Uri.parse('ws://127.0.0.1:$_port/');
+
   /// Starts the harness with [token] as its bridge token and any [extraEnvironment] variables.
+  ///
+  /// Always requests an OS-assigned loopback port (`DOVAHLINK_HARNESS_PORT_OVERRIDE=0`) rather
+  /// than the real, documented fixed port -- so multiple harness instances, across this or other
+  /// test files, never race to bind the same one; see [bridgeUri]. [extraEnvironment] cannot
+  /// override this.
   ///
   /// Register `addTearDown(harness.dispose)` immediately after this returns, before calling
   /// [waitForReady] or anything else that can throw -- nothing here disposes the process
@@ -49,6 +62,7 @@ class HarnessProcess {
       environment: <String, String>{
         'DOVAHLINK_BRIDGE_TOKEN': token,
         ...extraEnvironment,
+        'DOVAHLINK_HARNESS_PORT_OVERRIDE': '0',
       },
     );
     final StreamQueue<String> stdoutLines = StreamQueue<String>(
@@ -59,7 +73,8 @@ class HarnessProcess {
     return HarnessProcess._(process, stdoutLines, stderrBuffer);
   }
 
-  /// Reads and validates the harness startup handshake: `READY` followed by `BRIDGE_INSTANCE <id>`.
+  /// Reads and validates the harness startup handshake: `READY`, `BRIDGE_INSTANCE <id>`, then
+  /// `PORT <n>`. Populates [bridgeUri] as a side effect.
   /// @return The reported bridge instance ID.
   Future<String> waitForReady({Duration timeout = _defaultReadTimeout}) async {
     final String ready = await readLine(timeout: timeout);
@@ -69,14 +84,27 @@ class HarnessProcess {
       );
     }
 
-    const String prefix = 'BRIDGE_INSTANCE ';
+    const String instancePrefix = 'BRIDGE_INSTANCE ';
     final String instanceLine = await readLine(timeout: timeout);
-    if (!instanceLine.startsWith(prefix)) {
+    if (!instanceLine.startsWith(instancePrefix)) {
       throw StateError(
         'Harness did not report its bridge instance ID: $instanceLine. Stderr: $stderrOutput',
       );
     }
-    return instanceLine.substring(prefix.length);
+
+    const String portPrefix = 'PORT ';
+    final String portLine = await readLine(timeout: timeout);
+    final int? port = portLine.startsWith(portPrefix)
+        ? int.tryParse(portLine.substring(portPrefix.length))
+        : null;
+    if (port == null) {
+      throw StateError(
+        'Harness did not report the port it bound: $portLine. Stderr: $stderrOutput',
+      );
+    }
+    _port = port;
+
+    return instanceLine.substring(instancePrefix.length);
   }
 
   /// Reads the next harness stdout line within [timeout].

@@ -16,15 +16,12 @@ import '../harness_process.dart';
 const String _validHexToken =
     '0123456789abcdefABCDEF00112233445566778899aabbccddeeff0011223344';
 
-/// The documented Phase 1 loopback bridge endpoint (`bridge/README.md`'s "Default loopback port").
-final Uri _bridgeUri = Uri.parse('ws://127.0.0.1:58231/');
-
 /// Bounds every wait on a real socket operation in this suite, so a hung connection or response
 /// fails the test with a clear timeout instead of blocking the run indefinitely.
 const Duration _socketTimeout = Duration(seconds: 5);
 
 /// Builds an isolated trust-store file path so this test never touches the developer's real
-/// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation. 
+/// per-user trust store, mirroring the `.NET` pairing scenarios' own isolation.
 String _isolatedTrustStorePath() =>
     '${Directory.systemTemp.path}${Platform.pathSeparator}'
     'dovahlink-trust-${DateTime.now().microsecondsSinceEpoch}.json';
@@ -46,7 +43,7 @@ void main() {
 
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
-        await transport.connect(_bridgeUri).timeout(_socketTimeout);
+        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
         final Envelope helloEnvelope = Envelope(
           messageType: 'hello',
@@ -88,7 +85,7 @@ void main() {
       await harness.waitForReady();
 
       final WebSocketTransport transport = WebSocketTransport();
-      await transport.connect(_bridgeUri).timeout(_socketTimeout);
+      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
       await transport.close().timeout(_socketTimeout);
 
@@ -129,7 +126,7 @@ void main() {
         // Deliberately not awaited: close() must run while connect() is still resolving. The
         // timeout is attached now, not at the later await, so it bounds the whole wait.
         final Future<void> connectFuture = transport
-            .connect(_bridgeUri)
+            .connect(harness.bridgeUri)
             .timeout(_socketTimeout);
         await transport.close();
         await connectFuture;
@@ -140,36 +137,33 @@ void main() {
       },
     );
 
-    test(
-      'a fresh connect() after an abandoned one succeeds normally',
-      () async {
-        final HarnessProcess harness = await HarnessProcess.start(
-          token: _validHexToken,
-          extraEnvironment: <String, String>{
-            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-                _isolatedTrustStorePath(),
-          },
-        );
-        addTearDown(harness.dispose);
-        await harness.waitForReady();
+    test('a fresh connect() after an abandoned one succeeds normally', () async {
+      final HarnessProcess harness = await HarnessProcess.start(
+        token: _validHexToken,
+        extraEnvironment: <String, String>{
+          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+              _isolatedTrustStorePath(),
+        },
+      );
+      addTearDown(harness.dispose);
+      await harness.waitForReady();
 
-        final WebSocketTransport transport = WebSocketTransport();
-        addTearDown(transport.close);
+      final WebSocketTransport transport = WebSocketTransport();
+      addTearDown(transport.close);
 
-        // Abandon a first in-flight connect(), then reconnect on the same instance -- this is
-        // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
-        // a stale _abandoned flag must not sabotage it.
-        final Future<void> firstConnect = transport
-            .connect(_bridgeUri)
-            .timeout(_socketTimeout);
-        await transport.close();
-        await firstConnect;
+      // Abandon a first in-flight connect(), then reconnect on the same instance -- this is
+      // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
+      // a stale _abandoned flag must not sabotage it.
+      final Future<void> firstConnect = transport
+          .connect(harness.bridgeUri)
+          .timeout(_socketTimeout);
+      await transport.close();
+      await firstConnect;
 
-        await transport.connect(_bridgeUri).timeout(_socketTimeout);
+      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
-        // Proves the new socket was actually adopted this time, not discarded like the first.
-        await transport.send('probe');
-      },
-    );
+      // Proves the new socket was actually adopted this time, not discarded like the first.
+      await transport.send('probe');
+    });
   });
 }
