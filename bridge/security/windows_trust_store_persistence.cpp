@@ -96,10 +96,11 @@ std::string EncodeSnapshotToJson(const TrustStoreSnapshot& snapshot) {
     return boost::json::serialize(root);
 }
 
-/// Decodes one device record from its JSON object form, or `std::nullopt` for any shape mismatch.
-/// Content trustworthiness (e.g. that `displayName` still satisfies its bound) is guaranteed by
-/// DPAPI's authenticated decryption having already succeeded on this exact file, not re-checked
-/// here -- this only validates JSON structure and types.
+/// Decodes one device record from its JSON object form, or `std::nullopt` for any shape mismatch or
+/// impossible state/credential/blockedAt combination (fail closed on semantically corrupt content,
+/// not just structurally malformed content). Content trustworthiness that this function does not
+/// itself re-derive (e.g. that `displayName` still satisfies its bound) is guaranteed by DPAPI's
+/// authenticated decryption having already succeeded on this exact file.
 std::optional<KnownDeviceRecord> DecodeRecord(const boost::json::value& item) {
     if (!item.is_object()) {
         return std::nullopt;
@@ -146,6 +147,17 @@ std::optional<KnownDeviceRecord> DecodeRecord(const boost::json::value& item) {
 
     auto state = DecodeState(stateValue->get_string());
     if (!state.has_value()) {
+        return std::nullopt;
+    }
+
+    // Fail closed on an impossible device-record combination rather than trusting a structurally
+    // well-formed but semantically corrupt file: only a kTrusted device may hold a real credential
+    // (every other state's credential is securely cleared to empty by TrustStore before the
+    // snapshot is built, per the comment above), and only a kBlocked device may carry a blockedAt.
+    if (*state != KnownDeviceState::kTrusted && !credential.empty()) {
+        return std::nullopt;
+    }
+    if (*state != KnownDeviceState::kBlocked && blockedAt.has_value()) {
         return std::nullopt;
     }
 

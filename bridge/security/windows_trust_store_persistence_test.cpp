@@ -295,6 +295,37 @@ TEST_CASE("Load fails closed when a device's credential is not valid hex",
     CHECK_FALSE(persistence.Load().has_value());
 }
 
+TEST_CASE("Load fails closed when a non-trusted device carries a non-empty credential",
+          "[security][windows_trust_store_persistence]") {
+    // An impossible device-record combination: only a kTrusted device may hold a real credential --
+    // every other state's credential is securely cleared to empty by TrustStore before a snapshot
+    // is ever built (see DecodeRecord's own comment on this). A non-empty credential on a kRevoked
+    // record cannot be produced by this codebase and is treated as corruption.
+    TempDir dir;
+    auto path = dir.Path() / "trust_store.dat";
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "revoked", "createdAt": 1700000000, "blockedAt": null}]})");
+    WindowsTrustStorePersistence persistence(path);
+
+    CHECK_FALSE(persistence.Load().has_value());
+}
+
+TEST_CASE("Load fails closed when a non-blocked device carries a blockedAt",
+          "[security][windows_trust_store_persistence]") {
+    // An impossible device-record combination: only a kBlocked device may carry a blockedAt. A
+    // kTrusted record with one cannot be produced by this codebase and is treated as corruption.
+    TempDir dir;
+    auto path = dir.Path() / "trust_store.dat";
+    WriteEncryptedJsonFile(path,
+                            R"({"devices": [{"clientId": "client-1", "credential": "01", "shortId": "11111", )"
+                            R"("displayName": null, "state": "trusted", "createdAt": 1700000000, )"
+                            R"("blockedAt": 1700000500}]})");
+    WindowsTrustStorePersistence persistence(path);
+
+    CHECK_FALSE(persistence.Load().has_value());
+}
+
 TEST_CASE("Load fails closed when a device array item is not a JSON object",
           "[security][windows_trust_store_persistence]") {
     TempDir dir;
