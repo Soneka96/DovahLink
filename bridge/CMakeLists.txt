@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.21)
 
 project(DovahLinkBridge LANGUAGES CXX)
 
+# DovahLink supports Windows 10 and later.
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00)
+endif()
+
 # Toolchain and dependency versions pinned for the reproducible build are
 # recorded in bridge/README.md; this file only declares the floor CMake
 # needs to understand the presets and dependencies below.

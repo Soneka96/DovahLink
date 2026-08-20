@@ -15,6 +15,8 @@ Bridge version `0.2.0` supports exactly one runtime: Steam Skyrim `1.6.1170` wit
 runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initialization. See
 [`PRODUCT.md`](../PRODUCT.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for this scope.
 
+The Windows build targets Windows 10 and later.
+
 ## Toolchain
 
 | Tool | Pinned version | Notes |
