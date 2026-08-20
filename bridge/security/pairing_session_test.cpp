@@ -998,3 +998,49 @@ TEST_CASE("DefaultCodeGenerator produces a six-digit numeric candidate", "[secur
         CHECK(std::isdigit(static_cast<unsigned char>(ch)));
     }
 }
+
+TEST_CASE("CancelAll clears an active challenge regardless of who owns it", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    session.CancelAll();
+
+    // The old owner's ownership is gone -- a fresh challenge starts, not a resume.
+    CHECK(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("CancelAll clears a pending credential regardless of who owns it", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+    REQUIRE(session.TryConfirmCode("111111", now, "client-1", MakeCredential(1), std::nullopt).outcome ==
+            ConfirmResult::kConfirmed);
+
+    session.CancelAll();
+
+    CHECK_FALSE(session.PeekPending("client-1", MakeCredential(1), now).has_value());
+    CHECK(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("CancelAll is a harmless no-op when nothing is active", "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"));
+
+    session.CancelAll();
+
+    CHECK(session.TryStartChallenge("client-1", std::chrono::steady_clock::now()).outcome ==
+          StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("CancelAll needs no expiry check: clearing an already-expired challenge is harmless",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("111111"), std::chrono::seconds(0));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+
+    // Unlike TryCancel, CancelAll performs no lazy-expiry check before clearing -- it must not
+    // misbehave when the challenge it is clearing already expired.
+    session.CancelAll();
+
+    CHECK(session.TryStartChallenge("client-1", now).outcome == StartChallengeOutcome::kStarted);
+}
