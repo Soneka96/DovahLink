@@ -103,7 +103,7 @@ private:
 // Hand-written plugin metadata and address-library compatibility declaration.
 using namespace std::literals;
 SKSEPluginInfo(
-    .Version = REL::Version{0, 3, 1, 0},
+    .Version = REL::Version{0, 3, 2, 0},
     .Name = "DovahLink Bridge"sv,
     .Author = "Soneka96"sv,
     .SupportEmail = ""sv,

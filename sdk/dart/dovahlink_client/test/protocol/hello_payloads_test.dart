@@ -101,7 +101,7 @@ void main() {
 
         final HelloAckPayload payload = HelloAckPayload.fromJson(json);
 
-        expect(payload.bridgeVersion, '0.3.1');
+        expect(payload.bridgeVersion, '0.3.2');
         expect(payload.clientIdentityKind, 'unpaired');
       });
 

@@ -627,6 +627,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             f'CHECK(helloAck->bridgeVersion == "{version}");',
             self._read("bridge/protocol/hello_ack_payload_test.cpp"),
         )
+        for current_example in (
+            "protocol/schema/README.md",
+            "protocol/fixtures/connection/hello-ack.json",
+            "protocol/fixtures/connection/hello-ack-active-context.json",
+        ):
+            self.assertIn(f'"bridgeVersion": "{version}"', self._read(current_example), current_example)
 
     def test_changelog_matches_the_published_bridge_version(self) -> None:
         """Keep CHANGELOG.md's newest entry synchronized with the published bridge version."""
@@ -636,7 +642,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
         self.assertEqual(entry_versions[0], manifest["version-string"])
-        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1"):
+        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2"):
             self.assertIn(known_version, entry_versions)
         self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")
 
@@ -706,8 +712,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 6)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 27)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 7)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
@@ -720,7 +726,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ")):
+            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ", "3.2 ")):
                 expected_status = "**Status:** Complete"
             elif heading.startswith("5. "):
                 expected_status = phase_5_status

@@ -16,12 +16,14 @@ The first public release focuses on the foundation: a reliable local connection 
 
 ## Current release
 
-The [DovahLink Bridge is published on Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `0.2.0`.
+The [DovahLink Bridge is published on Nexus Mods](https://www.nexusmods.com/skyrimspecialedition/mods/188165) as version `0.3.2`.
 
 It currently provides:
 
 - Local, authenticated communication between Skyrim and one external client
 - Read-only character state with the player's current level
+- Known Device trust administration, including revoke, block, unblock, forget, and reset operations
+- Administrative session invalidation with developer-token isolation
 - Clear handling for unsupported runtimes and failed connections
 - A Vortex-ready installation package
 

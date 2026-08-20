@@ -310,7 +310,7 @@ native `RE::DebugNotification` text.
 
 ## 3.2 Known Device & Trust Administration
 
-**Status:** Planned
+**Status:** Complete
 
 ### Outcome
 
