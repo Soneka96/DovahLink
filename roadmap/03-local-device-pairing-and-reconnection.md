@@ -357,13 +357,12 @@ UX work.
 - Blocking is strictly stronger than revocation: it prevents a known device identity from
   authenticating *or* entering pairing again until explicitly unblocked. Any existing non-`Blocked`
   Known Device (`Trusted`, `Revoked`, or `Unpaired`) may be blocked; an arbitrary, never-known
-  `clientId`
-  cannot be blocked, since blocking targets an existing Known Device record, not a bare identity
+  `clientId` cannot be blocked, since blocking targets an existing Known Device record, not a bare
   identity string. Repeating Block for an already `Blocked` device returns the truthful
   already-blocked outcome. Blocking atomically destroys any trusted credential, cancels any pairing
-  the identity owns
-  (active or pending), immediately disconnects every active session for that device, transitions it
-  to `Blocked`, and records `blockedAt`. A blocked device is rejected as early as `hello`: it
+  the identity owns (active or pending), immediately disconnects every active session for that
+  device, transitions it to `Blocked`, and records `blockedAt`. A blocked device is rejected as
+  early as `hello`: it
   receives neither a normal authenticated session nor an unpaired/restricted pairing session, and
   is never issued a new Skyrim pairing code. The rejection uses an explicit, canonical `blocked`
   outcome, distinct from `revoked` -- the two must not be conflated -- and discloses no stored
@@ -533,11 +532,17 @@ does not become the full future Known Device administration SDK/UI or API.
   the typed reason, do not automatically start pairing, and wait for explicit/manual Retry. A
   `factoryReset` invalidation on a developer-token session ends that session but does not delete the
   configured developer token.
-- Do not run aggressive reconnect or automatic re-pair loops after administrative invalidation.
-  Manual Retry is always available. After Retry, a previously Revoked device may enter normal
-  pairing, a still-Blocked device receives the typed blocked rejection without a pairing code, and a
-  now-Unpaired device may pair again using the same `clientId`; no new identity is generated merely
-  because it was previously Blocked or Revoked.
+- After an authoritative administrative invalidation (`revoked`, `blocked`, `trustReset`, or
+  `factoryReset`), the SDK must not automatically reconnect or automatically re-enter pairing for
+  the purpose of recovering trust -- neither immediately nor through a slow or periodic background
+  retry. There is no automatic path back to a trusted session; recovery waits for an explicit,
+  user-initiated manual Retry. This is distinct from ordinary transport failure: because the
+  credential remains valid and no administrative invalidation was received, normal transport loss
+  (Skyrim closing, Skyrim crashing, Bridge crash, local transport loss, network loss) still follows
+  the ordinary bounded reconnect/backoff policy described above. After manual Retry, a previously
+  Revoked device may enter normal pairing, a still-Blocked device receives the typed blocked
+  rejection without a pairing code, and a now-Unpaired device may pair again using the same
+  `clientId`; no new identity is generated merely because it was previously Blocked or Revoked.
 - Keep the SDK responsible for reusable client authentication persistence, typed trust/recovery
   semantics, and session handling; keep Flutter responsible for connection UI wording and
   interaction. Do not add a competing app-private trust authority, administration UI, or transport

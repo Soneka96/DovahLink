@@ -125,7 +125,7 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   Skyrim, never silently trusts a client, never invents or merges uncertain credentials, and always
   supports a clean reset-and-re-pair path. This phase's trust-store implementation only needs to
   satisfy a single Bridge process, but its boundary must not make later multi-process synchronization
-  (Phase 9) require rewriting the pairing protocol or trust-domain model.
+  (Phase 10, multi-Bridge) require rewriting the pairing protocol or trust-domain model.
 - Revocation is immediate: revoking a trusted client removes its active trust, invalidates its
   current authenticated session, closes that connection, and rejects reuse of the revoked credential;
   resetting all trust applies the same behavior to every trusted client. A revoked client that
