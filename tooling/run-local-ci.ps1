@@ -127,6 +127,10 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList
 )
 
 Write-Host "=== app-ci ==="
+$sdkDirectory = Join-Path $repoRoot "sdk\dart\dovahlink_client"
+Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")
+Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")
+
 $appDirectory = Join-Path $repoRoot "app"
 Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")
 

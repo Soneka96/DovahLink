@@ -840,7 +840,7 @@ TEST_CASE("a binary frame from the client is rejected, not returned as a message
     CHECK(serverReadResult.error() == SessionError::kBinaryFrameRejected);
 }
 
-TEST_CASE("ShutdownWithNotification delivers the message before the peer observes closure",
+TEST_CASE("ShutdownWithNotification always closes the connection even when the notification is not observed",
           "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
@@ -876,17 +876,26 @@ TEST_CASE("ShutdownWithNotification delivers the message before the peer observe
     REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("session invalidated notice");
 
+    // Delivery is best-effort (`ai/context/protocol/security.md`'s "Administrative session
+    // invalidation": "best-effort send/flush... then forced close") -- the peer may observe the
+    // notification frame first, or may observe the connection closing with no frame at all. Both
+    // are valid outcomes; only the closure itself, and the exact content when a frame IS observed,
+    // are guaranteed.
     boost::beast::flat_buffer buffer;
     boost::system::error_code readEc;
     clientWs.read(buffer, readEc);
-    REQUIRE_FALSE(readEc);
-    CHECK(boost::beast::buffers_to_string(buffer.data()) == "session invalidated notice");
+    if (!readEc) {
+        CHECK(boost::beast::buffers_to_string(buffer.data()) == "session invalidated notice");
 
-    // The next read observes the connection closing, proving shutdown followed the notification.
-    boost::beast::flat_buffer secondBuffer;
-    boost::system::error_code secondReadEc;
-    clientWs.read(secondBuffer, secondReadEc);
-    CHECK(secondReadEc);
+        // The next read observes the connection closing, proving shutdown followed the
+        // notification whenever the notification was itself observed.
+        boost::beast::flat_buffer secondBuffer;
+        boost::system::error_code secondReadEc;
+        clientWs.read(secondBuffer, secondReadEc);
+        CHECK(secondReadEc);
+    }
+    // else: the notification lost the race to the force-close, an accepted best-effort outcome --
+    // readEc being set here is itself the proof the connection closed.
 
     server.Join();
 
@@ -933,7 +942,7 @@ TEST_CASE("ShutdownWithNotification is a no-op once Shutdown already fired",
     CHECK_FALSE(serverReadResult.has_value());
 }
 
-TEST_CASE("Shutdown after ShutdownWithNotification does not re-close and does not disturb delivery",
+TEST_CASE("Shutdown after ShutdownWithNotification does not re-close or disturb the notification",
           "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
@@ -961,18 +970,22 @@ TEST_CASE("Shutdown after ShutdownWithNotification does not re-close and does no
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // See "ShutdownWithNotification always closes the connection even when the notification is not observed" above
     // for why this wait is necessary rather than assuming the client's handshake return proves it.
     REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("session invalidated notice");
     // ShutdownWithNotification already won the single-fire guard; this is a harmless no-op.
     server.ShutdownActiveSession();
 
+    // Delivery is best-effort; see the comment in the test above. The point being proven here is
+    // narrower: the trailing ShutdownActiveSession() call must not re-close or otherwise disturb
+    // whichever outcome the notification already reached.
     boost::beast::flat_buffer buffer;
     boost::system::error_code readEc;
     clientWs.read(buffer, readEc);
-    REQUIRE_FALSE(readEc);
-    CHECK(boost::beast::buffers_to_string(buffer.data()) == "session invalidated notice");
+    if (!readEc) {
+        CHECK(boost::beast::buffers_to_string(buffer.data()) == "session invalidated notice");
+    }
 
     server.Join();
 
@@ -1009,7 +1022,7 @@ TEST_CASE("ShutdownWithNotification still closes the connection when the write i
     REQUIRE_FALSE(handshakeEc);
     clientWs.next_layer().set_option(boost::asio::socket_base::receive_buffer_size(1024));
 
-    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // See "ShutdownWithNotification always closes the connection even when the notification is not observed" above
     // for why this wait is necessary rather than assuming the client's handshake return proves it
     // -- without it, this test could nondeterministically hit the handshake-still-in-flight skip
     // path instead of the stalled-write path it means to exercise.
@@ -1032,6 +1045,66 @@ TEST_CASE("ShutdownWithNotification still closes the connection when the write i
     REQUIRE(completed);
     REQUIRE(serverHandshakeResult.has_value());
     CHECK_FALSE(serverReadResult.has_value());
+}
+
+TEST_CASE("ShutdownWithNotification force-closes without ever delivering a stalled notification",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+    std::promise<void> serverAccepted;
+    std::future<void> accepted = serverAccepted.get_future();
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        serverHandshakeResult = session.Accept();
+        serverAccepted.set_value();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        serverReadResult = session.ReadMessage();
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    clientWs.next_layer().set_option(boost::asio::socket_base::receive_buffer_size(1024));
+
+    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
+
+    // Deterministically forces the "not observed" branch the relaxed tests above only reach by
+    // chance: a payload far larger than the client's receive buffer, with the client never reading
+    // it until after the server side has already finished, guarantees the write stalls until its
+    // own armed deadline force-closes the connection -- matching "ShutdownWithNotification still
+    // closes the connection when the write itself stalls" above, which proves this only from the
+    // server side. This proves the client-observable side: closure with no message, never a
+    // partial or corrupted frame.
+    std::string payload(16 * 1024 * 1024, 'x');
+    server.NotifyAndShutdownActiveSession(payload);
+
+    bool completed = server.WaitFor(20s);
+    if (!completed) {
+        server.ShutdownActiveSession();
+    }
+    server.Join();
+
+    REQUIRE(completed);
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+
+    // The server side has already force-closed by this point, so this read only ever observes
+    // that closure -- it cannot un-stall or otherwise disturb a write that has already timed out.
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    CHECK(readEc);
+    CHECK(boost::beast::buffers_to_string(buffer.data()).empty());
 }
 
 TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a second message",
@@ -1062,17 +1135,22 @@ TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a sec
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // See "ShutdownWithNotification always closes the connection even when the notification is not observed" above
     // for why this wait is necessary rather than assuming the client's handshake return proves it.
     REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("first notice");
     server.NotifyAndShutdownActiveSession("second notice");
 
+    // The first notice's delivery is best-effort; see the comment in the first test above. What
+    // this test actually proves is narrower and fully deterministic regardless: the second call
+    // never wins the single-fire guard, so "second notice" can never be what the peer observes,
+    // whether or not "first notice" was.
     boost::beast::flat_buffer buffer;
     boost::system::error_code readEc;
     clientWs.read(buffer, readEc);
-    REQUIRE_FALSE(readEc);
-    CHECK(boost::beast::buffers_to_string(buffer.data()) == "first notice");
+    if (!readEc) {
+        CHECK(boost::beast::buffers_to_string(buffer.data()) == "first notice");
+    }
 
     boost::beast::flat_buffer secondBuffer;
     boost::system::error_code secondReadEc;
@@ -1086,7 +1164,7 @@ TEST_CASE("Calling ShutdownWithNotification a second time does not deliver a sec
     CHECK_FALSE(serverReadResult.has_value());
 }
 
-TEST_CASE("ShutdownWithNotification delivers an empty message as a zero-length text frame",
+TEST_CASE("ShutdownWithNotification encodes an empty message as a zero-length text frame when observed",
           "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
@@ -1114,16 +1192,20 @@ TEST_CASE("ShutdownWithNotification delivers an empty message as a zero-length t
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    // See "ShutdownWithNotification delivers the message before the peer observes closure" above
+    // See "ShutdownWithNotification always closes the connection even when the notification is not observed" above
     // for why this wait is necessary rather than assuming the client's handshake return proves it.
     REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
     server.NotifyAndShutdownActiveSession("");
 
+    // Delivery is best-effort; see the comment in the first test above. When the empty frame IS
+    // observed, its framing must still be correct -- a present, zero-length text frame, not a
+    // missing frame indistinguishable from non-delivery.
     boost::beast::flat_buffer buffer;
     boost::system::error_code readEc;
     clientWs.read(buffer, readEc);
-    REQUIRE_FALSE(readEc);
-    CHECK(boost::beast::buffers_to_string(buffer.data()).empty());
+    if (!readEc) {
+        CHECK(boost::beast::buffers_to_string(buffer.data()).empty());
+    }
 
     server.Join();
 

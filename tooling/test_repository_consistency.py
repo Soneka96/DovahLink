@@ -190,6 +190,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         expected_paths = {
             '- "app/**"',
             '- "protocol/**"',
+            '- "sdk/dart/dovahlink_client/**"',
             '- ".github/workflows/app-ci.yml"',
         }
 
@@ -229,16 +230,22 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("channel: stable", workflow)
         self.assertIn("cache: true", workflow)
         step_names_and_commands = (
-            ("Restore Flutter dependencies", "flutter pub get"),
-            ("Generate Dart sources", "dart run build_runner build"),
-            ("Analyze Flutter client", "flutter analyze"),
-            ("Test Flutter client", "flutter test"),
-            ("Build Windows client", "flutter build windows --debug"),
+            ("Restore Dart SDK dependencies", "sdk/dart/dovahlink_client", "dart pub get"),
+            (
+                "Generate Dart SDK sources",
+                "sdk/dart/dovahlink_client",
+                "dart run build_runner build",
+            ),
+            ("Restore Flutter dependencies", "app", "flutter pub get"),
+            ("Generate Dart sources", "app", "dart run build_runner build"),
+            ("Analyze Flutter client", "app", "flutter analyze"),
+            ("Test Flutter client", "app", "flutter test"),
+            ("Build Windows client", "app", "flutter build windows --debug"),
         )
         step_positions = []
-        for step_name, command in step_names_and_commands:
+        for step_name, working_directory, command in step_names_and_commands:
             step = self._yaml_block(workflow, f"      - name: {step_name}")
-            self.assertIn("        working-directory: app", step)
+            self.assertIn(f"        working-directory: {working_directory}", step)
             self.assertIn(f"        run: {command}", step)
             self.assertNotIn("continue-on-error:", step)
             step_positions.append(workflow.index(f"      - name: {step_name}"))
@@ -974,7 +981,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "dovahlink list block",
             "dovahlink help",
             "dovahlink revoke -id <shortId>",
+            "dovahlink reset trust",
             "dovahlink reset",
+            "dovahlink reset -confirm <code>",
             "dovahlink block -id <shortId>",
             "dovahlink unblock -id <shortId>",
             "dovahlink forget -id <shortId>",
@@ -995,7 +1004,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertEqual(
             re.findall(r"(?m)^  - name: ([A-Za-z]+)$", yaml),
-            ["list", "help", "revoke", "reset", "block", "unblock", "forget"],
+            ["list", "help", "revoke", "block", "unblock", "forget", "reset", "reset"],
         )
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)

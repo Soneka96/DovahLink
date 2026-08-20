@@ -6,6 +6,7 @@ on:
     paths:
       - "app/**"
       - "protocol/**"
+      - "sdk/dart/dovahlink_client/**"
       - ".github/workflows/app-ci.yml"
   pull_request:
   workflow_dispatch:
@@ -35,6 +36,14 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Restore Dart SDK dependencies
+        working-directory: sdk/dart/dovahlink_client
+        run: dart pub get
+
+      - name: Generate Dart SDK sources
+        working-directory: sdk/dart/dovahlink_client
+        run: dart run build_runner build
 
       - name: Restore Flutter dependencies
         working-directory: app

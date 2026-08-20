@@ -118,6 +118,10 @@ void WebSocketSession::Socket::ShutdownWithNotification(std::string message) noe
                 activeSocket->stream_.text(true);
                 activeSocket->stream_.async_write(
                     boost::asio::buffer(*sharedMessage),
+                    // The write's own error_code is intentionally ignored: whether it succeeded,
+                    // failed, or timed out, the connection still force-closes either way, matching
+                    // `ai/context/protocol/security.md`'s "Administrative session invalidation"
+                    // best-effort ordering -- there is no stronger delivery guarantee to react to.
                     [socket, sharedMessage, cancelAndClose](boost::beast::error_code, std::size_t) {
                         auto activeSocket = socket.lock();
                         if (!activeSocket) {
