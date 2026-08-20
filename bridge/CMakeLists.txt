@@ -65,6 +65,7 @@ add_library(dovahlink_bridge_core STATIC
     security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
+    security/factory_reset_challenge.cpp
     security/hex.cpp
     security/pairing_session.cpp
     security/throttle.cpp
@@ -163,6 +164,7 @@ add_executable(dovahlink_bridge_tests
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/factory_reset_challenge_test.cpp
     security/hex_test.cpp
     security/pairing_session_test.cpp
     security/throttle_test.cpp

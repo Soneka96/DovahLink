@@ -65,4 +65,9 @@ inline constexpr std::size_t kPairingMaxWrongAttempts = 5;
 /// How long a credential may remain pending finalization before it expires.
 inline constexpr std::chrono::minutes kPairingPendingCredentialTtl{5};
 
+/// Number of decimal digits in a Factory Reset confirmation code.
+inline constexpr std::size_t kFactoryResetCodeDigits = 6;
+/// How long a started Factory Reset confirmation code remains valid.
+inline constexpr std::chrono::seconds kFactoryResetCodeTtl{60};
+
 }  // namespace dovahlink::security

@@ -156,4 +156,20 @@ enum class RenameOutcome {
     kSaveFailed,
 };
 
+// ---- Factory reset ----
+
+/// Outcome of `FactoryResetChallenge::TryConfirm`. Unlike `ConfirmResult`, there is no pacing or
+/// wrong-attempt budget: Factory Reset is a single local admin operation, and `kInvalid` itself
+/// destroys the challenge outright rather than counting toward a limit.
+enum class FactoryResetConfirmOutcome {
+    /// The code matched and was consumed; the caller may now execute the destructive wipe.
+    kConfirmed,
+    /// No challenge is currently active -- it was never started, already expired, or was already
+    /// consumed or invalidated by an earlier attempt.
+    kExpired,
+    /// A challenge is active, but the presented code did not match it; the challenge is destroyed
+    /// as part of this outcome, requiring a fresh `TryStart` to try again.
+    kInvalid,
+};
+
 }  // namespace dovahlink::security
