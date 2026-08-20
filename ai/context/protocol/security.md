@@ -150,7 +150,10 @@ canonical unsolicited terminal event, `session_invalidated`, with a typed reason
 Factory Reset terminates developer-token sessions while leaving the configured developer token
 valid. The security ordering is authoritative state change, credential invalidation where applicable,
 future authentication/pairing enforcement, best-effort send/flush of the event, then forced close.
-No client acknowledgement is required and event delivery is never a security dependency.
+No client acknowledgement is required and event delivery is never a security dependency. A client
+that receives a duplicate or late `session_invalidated` for a session it has already torn down
+treats it as a no-op: the event is idempotent and never re-triggers credential cleanup or a second
+state transition.
 
 Reset Trust converts only `Trusted` to `Revoked`, destroys those device credentials, invalidates
 their sessions with `trust_reset`, cancels all pending pairing, preserves Known Device identity and
@@ -158,7 +161,11 @@ metadata, and leaves developer-token configuration and sessions unaffected. Fact
 independent Skyrim/admin-only six-digit confirmation challenge with 60-second expiry and one-wrong-
 attempt invalidation; failed or expired confirmation performs no destructive change. Successful
 Factory Reset invalidates every session, including developer-token sessions, with `factory_reset`,
-but leaves developer-token configuration available for later authentication.
+but leaves developer-token configuration available for later authentication. Because Factory Reset
+deletes every Known Device record and revocation tombstone, a credential presented afterward has no
+matching record to classify against; the Bridge rejects it through the ordinary
+unrecognized-credential/unpaired path, the same as a device that was never paired, not through the
+`blocked`/`revoked` outcomes above.
 
 ## Trust administration surface
 

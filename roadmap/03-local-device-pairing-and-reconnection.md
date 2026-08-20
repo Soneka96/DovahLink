@@ -427,7 +427,10 @@ UX work.
   `session_invalidated(reason)`; then force-close the affected session. Delivery is never a security
   dependency: no acknowledgement is required, and a hostile, broken, or stalled client cannot delay
   its removal. Offline clients that later present stale credentials receive explicit `blocked` or
-  `revoked` handshake rejection as appropriate.
+  `revoked` handshake rejection as appropriate; a credential left over after Factory Reset has no
+  matching record to classify this way and instead receives the ordinary
+  unrecognized-credential/unpaired outcome, per `ai/context/protocol/security.md`'s "Administrative
+  session invalidation".
 
 ### Dependencies and boundaries
 
@@ -487,7 +490,9 @@ distinct operation alongside it.
   reconnect. Each affected session receives best-effort `session_invalidated` with the typed reason
   `blocked`, `revoked`, `trust_reset`, or `factory_reset` before force-close; security does not
   depend on delivery or acknowledgement.
-- Offline stale credentials receive explicit `blocked` or `revoked` handshake outcomes. Factory
+- Offline stale credentials receive explicit `blocked` or `revoked` handshake outcomes, except after
+  Factory Reset, where the deleted record leaves nothing to classify against and the credential
+  instead receives the ordinary unrecognized-credential/unpaired outcome. Factory
   Reset requires the independent local six-digit, 60-second, single-use confirmation flow, with one
   wrong code invalidating the challenge and no destructive change on wrong or expired confirmation;
   it disconnects every active session, including developer-token sessions, but leaves the configured
