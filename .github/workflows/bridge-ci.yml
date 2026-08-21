@@ -26,6 +26,10 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      # Single source of truth for the pinned vcpkg tooling commit -- referenced by both the
+      # checkout step and the tooling cache key below so they can never drift apart.
+      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,13 +44,34 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-binary-cache" | Out-Null
 
-      - name: Install pinned CMake and Ninja
+      - name: Set X_VCPKG_REGISTRIES_CACHE
+        run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\vcpkg-registries-cache" >> $env:GITHUB_ENV
+
+      - name: Prepare vcpkg registries cache
         run: |
-          choco install cmake --version=4.4.2 --no-progress -y
-          choco install ninja --version=1.13.2 --no-progress -y
-          "$env:ChocolateyInstall\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          $env:Path = "$env:ChocolateyInstall\bin;$env:Path"
-          ninja --version
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-registries-cache" | Out-Null
+
+      - name: Install pinned CMake
+        # windows-2022 ships an older CMake than the pinned version; a direct download of the
+        # official release archive is faster and no less trustworthy than a Chocolatey install.
+        run: |
+          $cmakeVersion = "4.4.2"
+          $cmakeArchive = "cmake-$cmakeVersion-windows-x86_64.zip"
+          $cmakeBin = "$env:RUNNER_TEMP\cmake\cmake-$cmakeVersion-windows-x86_64\bin"
+          Invoke-WebRequest -Uri "https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/$cmakeArchive" -OutFile "$env:RUNNER_TEMP\$cmakeArchive"
+          Expand-Archive -Path "$env:RUNNER_TEMP\$cmakeArchive" -DestinationPath "$env:RUNNER_TEMP\cmake" -Force
+          $cmakeBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "$cmakeBin;$env:Path"
+          cmake --version
+
+      - name: Verify pinned Ninja is preinstalled
+        # windows-2022 ships exactly the pinned Ninja version already, so nothing installs it;
+        # this guards that assumption instead of silently building against a different version.
+        run: |
+          $ninjaVersion = (ninja --version).Trim()
+          if ($ninjaVersion -ne "1.13.2") {
+            throw "Expected the windows-2022 image to ship Ninja 1.13.2, but found '$ninjaVersion'."
+          }
 
       - name: Set up the MSVC 2022 developer environment
         # Maintained stable release; no stable Node 24 replacement is available yet.
@@ -54,17 +79,37 @@ jobs:
         with:
           arch: x64
 
+      - name: Restore cached vcpkg tooling
+        id: vcpkg-tooling-cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}\vcpkg
+          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}
+
       - name: Check out vcpkg at the pinned builtin baseline
+        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/microsoft/vcpkg.git "${{ runner.temp }}\vcpkg"
-          git -C "${{ runner.temp }}\vcpkg" checkout 2f1d605400c8727cc00c15797aba796c88ccd523
+          git -C "${{ runner.temp }}\vcpkg" checkout $env:VCPKG_BASELINE_COMMIT
           & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Restore vcpkg binary cache
         uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: ${{ runner.os }}-vcpkg-2f1d605400c8727cc00c15797aba796c88ccd523-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
+
+      - name: Restore vcpkg registries cache
+        # The colorglass registry (bridge/vcpkg-configuration.json) is pinned to an immutable
+        # commit; caching its checkout avoids re-fetching it from GitLab on every run, which is
+        # what caused repeated HTTP 403s from GitLab's abuse detection on shared CI IPs. A cache
+        # miss still fetches it normally during Configure -- this is a cache, not a mirror. Keyed
+        # off the config file's hash (not a hand-copied commit literal) so a baseline bump can
+        # never drift out of sync with this key the way a duplicated literal could.
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}\vcpkg-registries-cache
+          key: ${{ runner.os }}-vcpkg-registries-${{ hashFiles('bridge/vcpkg-configuration.json') }}
 
       - name: Configure Debug
         working-directory: bridge

@@ -135,10 +135,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
             workflow,
         )
+        self.assertNotIn("choco install", workflow)
+        self.assertNotIn("ChocolateyInstall", workflow)
+        self.assertIn("      - name: Install pinned CMake", workflow)
+        self.assertIn('$cmakeVersion = "4.4.2"', workflow)
         self.assertIn(
-            '"$env:ChocolateyInstall\\bin" | Out-File -FilePath $env:GITHUB_PATH',
+            'Invoke-WebRequest -Uri "https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/$cmakeArchive"',
             workflow,
         )
+        self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
+        self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
         self.assertIn("ninja --version", workflow)
         self.assertLess(
             workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
@@ -1486,6 +1492,87 @@ class RepositoryConsistencyTests(unittest.TestCase):
         # handshake is ever declared successful.
         self.assertLess(try_create_session_index, revalidation_index)
         self.assertLess(revalidation_index, success_index)
+
+    def test_bridge_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(self) -> None:
+        """Require cached vcpkg tooling and a cached colorglass registry checkout.
+
+        Re-fetching the pinned, immutable colorglass registry from GitLab on every run is what
+        caused repeated HTTP 403s from GitLab's abuse detection on shared CI IPs; caching its
+        checkout (and the vcpkg tooling checkout, also pinned and immutable) removes the repeated
+        fetch instead of only retrying it.
+        """
+        workflow = self._read(".github/workflows/bridge-ci.yml")
+
+        # The pinned commit is defined exactly once, at job level, and referenced everywhere else
+        # -- a duplicated literal here (checkout command vs. cache key) is exactly the drift that
+        # would leave a bumped pin silently served from a stale cache.
+        self.assertIn(
+            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523", workflow
+        )
+        self.assertEqual(
+            workflow.count("2f1d605400c8727cc00c15797aba796c88ccd523"),
+            1,
+            "the pinned vcpkg commit must appear exactly once (the job-level env value); every "
+            "other reference must go through $env:VCPKG_BASELINE_COMMIT or env.VCPKG_BASELINE_COMMIT",
+        )
+
+        tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
+        self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
+        self.assertIn("        uses: actions/cache@v5", tooling_cache)
+        self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
+        self.assertIn(
+            "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
+            tooling_cache,
+        )
+
+        checkout_step = self._yaml_block(
+            workflow, "      - name: Check out vcpkg at the pinned builtin baseline"
+        )
+        self.assertIn(
+            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'", checkout_step
+        )
+        self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
+
+        binary_cache = self._yaml_block(workflow, "      - name: Restore vcpkg binary cache")
+        self.assertIn(
+            "          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-"
+            "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}",
+            binary_cache,
+        )
+
+        registries_env = self._yaml_block(workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE")
+        self.assertIn(
+            'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
+            ">> $env:GITHUB_ENV",
+            registries_env,
+        )
+        self.assertIn("      - name: Prepare vcpkg registries cache", workflow)
+        self.assertIn(
+            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-registries-cache"',
+            workflow,
+        )
+
+        registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
+        self.assertIn("        uses: actions/cache@v5", registries_cache)
+        self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
+        self.assertIn(
+            "          key: ${{ runner.os }}-vcpkg-registries-"
+            "${{ hashFiles('bridge/vcpkg-configuration.json') }}",
+            registries_cache,
+        )
+
+        self.assertLess(
+            workflow.index("Restore cached vcpkg tooling"),
+            workflow.index("Configure Debug"),
+        )
+        self.assertLess(
+            workflow.index("Restore vcpkg registries cache"),
+            workflow.index("Configure Debug"),
+        )
+        self.assertLess(
+            workflow.index("      - name: Install pinned CMake"),
+            workflow.index("Configure Debug"),
+        )
 
     @classmethod
     def _roadmap_corpus(cls) -> str:
