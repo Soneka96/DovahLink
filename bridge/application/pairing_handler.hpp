@@ -17,7 +17,8 @@ namespace dovahlink::application {
 /// without revealing anything about that device or its code.
 /// @param pairingRequestEnvelope Decoded client `pairing_request`.
 /// @param sessionId Authenticated session identifier.
-/// @param clientId The connection's authenticated client identity (session-owned state).
+/// @param clientId The client identity bound to this connection's session, presented at `hello`
+///     (session-owned state).
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param notificationSink Displays a freshly generated code to the user.
 /// @param now Current monotonic time, for the lazy-expiry checks and `expiresInSeconds`.
@@ -37,7 +38,8 @@ namespace dovahlink::application {
 /// displays a distinct too-many-attempts notification and cancels the challenge.
 /// @param pairingConfirmEnvelope Decoded client `pairing_confirm`.
 /// @param sessionId Authenticated session identifier.
-/// @param clientId The connection's authenticated client identity (session-owned state).
+/// @param clientId The client identity bound to this connection's session, presented at `hello`
+///     (session-owned state).
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param notificationSink Redisplays the code after a wrong attempt or reports attempts
 ///     exhausted; never called for `kConfirmed`, `kExpired`, or `kPacingLimited`.
@@ -57,7 +59,7 @@ namespace dovahlink::application {
 /// commits it to `trustStore` and upgrades the session to full trust.
 /// @param pairingAckEnvelope Decoded client `pairing_ack`.
 /// @param sessionId Authenticated session identifier.
-/// @param clientId The connection's authenticated client identity.
+/// @param clientId The client identity bound to this connection's session, presented at `hello`.
 /// @param connection Transport connection identifier, for the trust-tier upgrade.
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param trustStore Persistent trust store, queried for idempotency and committed to on success.
@@ -78,7 +80,8 @@ namespace dovahlink::application {
 /// @param pairingRenotifyEnvelope Decoded client `pairing_renotify` (no payload beyond the
 ///     standard envelope).
 /// @param sessionId Authenticated session identifier.
-/// @param clientId The connection's authenticated client identity (session-owned state).
+/// @param clientId The client identity bound to this connection's session, presented at `hello`
+///     (session-owned state).
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param notificationSink Redisplays the code on success; never called for a cooldown or an idle
 ///     requester.
@@ -99,7 +102,8 @@ namespace dovahlink::application {
 /// @param pairingCancelEnvelope Decoded client `pairing_cancel` (no payload beyond the standard
 ///     envelope).
 /// @param sessionId Authenticated session identifier.
-/// @param clientId The connection's authenticated client identity (session-owned state).
+/// @param clientId The client identity bound to this connection's session, presented at `hello`
+///     (session-owned state).
 /// @param pairingSession Bridge-lifetime pairing challenge/pending-credential state machine.
 /// @param now Current monotonic time, for the lazy-expiry checks.
 /// @return `pairing_outcome` envelope: `"cancelled"` when `clientId` owned something and it was

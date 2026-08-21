@@ -9,6 +9,22 @@ Nexus Mods manually; see [`tooling/BridgeBuilder/README.md`](tooling/BridgeBuild
 This file is updated in the same change that bumps `bridge/vcpkg.json`'s `version-string` and flips
 the corresponding `ROADMAP.md` phase to Complete.
 
+## [0.3.2] - 2026-08-20
+
+### Added
+
+- Unified Known Device administration with stable identities, state-aware listing, rename, revoke,
+  block, unblock, forget, Reset Trust, and confirmation-gated Factory Reset operations.
+- Canonical `session_invalidated` events for administrative session termination, with typed reasons
+  for revoke, block, trust reset, and factory reset.
+
+### Fixed
+
+- Administrative invalidation now takes effect immediately and disconnects affected sessions without
+  making event delivery a security dependency.
+- Developer-token sessions remain outside Known Device block, revoke, and reset-trust semantics while
+  Factory Reset still terminates active sessions as required.
+
 ## [0.3.1] - 2026-08-19
 
 ### Added

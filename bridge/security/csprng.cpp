@@ -46,9 +46,9 @@ std::optional<std::string> GenerateNumericCode(std::size_t digits) {
         value = (value << 8) | byte;
     }
 
-    // ponytail: value % range is mildly non-uniform (low residues occur one extra time each once
-    // range doesn't evenly divide 2^32) -- irrelevant at this usage scale: current callers only
-    // request 5-6 digit administrative/UX codes, brute-force-limited by throttling rather than
+    // Known limitation: value % range is mildly non-uniform (low residues occur one extra time each
+    // once range doesn't evenly divide 2^32) -- irrelevant at this usage scale: current callers
+    // only request 5-6 digit administrative/UX codes, brute-force-limited by throttling rather than
     // relying on perfect distribution. Revisit with rejection sampling if a caller ever needs a
     // uniformity guarantee.
     std::uint32_t range = 1;

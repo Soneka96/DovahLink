@@ -1,6 +1,6 @@
 #pragma once
 
-#include "security/enums.hpp"
+#include "shared/enums.hpp"
 
 #include <chrono>
 #include <optional>

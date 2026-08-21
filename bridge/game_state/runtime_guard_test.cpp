@@ -4,9 +4,14 @@
 
 using dovahlink::game_state::IsSupportedSkseVersion;
 using dovahlink::game_state::IsSupportedSkyrimVersion;
+using dovahlink::game_state::IsCurrentWindowsVersionSupported;
 using dovahlink::game_state::kSupportedSkseVersion;
 using dovahlink::game_state::kSupportedSkyrimVersion;
 using dovahlink::game_state::RuntimeVersion;
+
+TEST_CASE("the current test host satisfies the neutral Windows runtime guard", "[game_state][runtime_guard]") {
+    CHECK(IsCurrentWindowsVersionSupported());
+}
 
 TEST_CASE("IsSupportedSkyrimVersion accepts exactly 1.6.1170", "[game_state][runtime_guard]") {
     CHECK(IsSupportedSkyrimVersion(kSupportedSkyrimVersion));

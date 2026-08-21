@@ -127,8 +127,8 @@ private:
     /// @param socket The active session's socket, already resolved and locked by the caller.
     /// @param sessionId The session identifier to invalidate, resolved by the caller under the same
     ///     `activeSocketMutex_` critical section that resolved `socket` -- never re-queried here,
-    ///     since `sessionManager_.ActiveSessionId()` is unscoped and could by then belong to a
-    ///     different session than the one `socket` was just resolved for.
+    ///     since a fresh query could by then belong to a different session than the one `socket`
+    ///     was just resolved for.
     /// @param reason One of `"revoked"`, `"blocked"`, `"trust_reset"`, `"factory_reset"`.
     void NotifyAndShutdownActiveSocket(const transport::WebSocketSession::SocketHandle& socket,
                                         std::optional<std::string> sessionId, std::string_view reason);
@@ -186,10 +186,11 @@ private:
 
     /// Connection identifier `activeSocket_` was published for, read together with it under
     /// `activeSocketMutex_`. `DisconnectIfClientActive` asks `sessionManager_` "who owns *this*
-    /// connection" instead of "who is active right now" (`SessionManager::ActiveClientId()`,
-    /// unscoped): the latter can change between an unsynchronized read and the shutdown call,
-    /// letting a stale revoke for a just-ended session hit a new connection that raced into its
-    /// place. Meaningless while `activeSocket_.lock()` is null; the single-connected-client limit
+    /// connection" (a connection-scoped query) instead of "who is active right now" (an unscoped
+    /// query, independent of which connection): the latter can change between an unsynchronized
+    /// read and the shutdown call, letting a stale revoke for a just-ended session hit a new
+    /// connection that raced into its place. Meaningless while `activeSocket_.lock()` is null; the
+    /// single-connected-client limit
     /// means this can stay one field instead of a registry -- see roadmap/09-multi-client-runtime-foundation.md Phase 9 for
     /// generalizing it once that limit is lifted.
     ConnectionId activeConnectionId_{};

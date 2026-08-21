@@ -368,10 +368,10 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     // response built through normal dispatch. The earlier Reject() calls
     // above stamp the same two fields themselves, at the point each is
     // built, since they return directly rather than flowing through
-    // `result`. clientId is never stamped here or in Reject(): once
-    // authenticated, the client identity is session-owned state
-    // (SessionManager::ClientIdForConnection), not a value repeated on
-    // every response.
+    // `result`. clientId is never stamped here or in Reject(): once a
+    // session exists, the client identity bound to it is session-owned
+    // state (SessionManager::ClientIdForConnection), not a value repeated
+    // on every response.
     for (protocol::Envelope& response : result.responses) {
         response.bridgeInstanceId = bridgeInstanceId;
         response.playContextId = currentContextId;

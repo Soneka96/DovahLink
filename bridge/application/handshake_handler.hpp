@@ -11,6 +11,7 @@
 #include <chrono>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace dovahlink::application {
 
@@ -65,5 +66,33 @@ struct HandshakeResult {
                                            const std::optional<std::string>& bridgeInstanceId = std::nullopt,
                                            const ActivePlayContext& activePlayContext = ActivePlayContext(),
                                            const std::string& bridgeVersion = "0.0.0");
+
+/// Reports why `clientId`'s trust, re-read from `trustStore` after session admission, no longer
+/// permits the just-admitted `authMethod` -- or that it still does. `HandleHello` calls this
+/// immediately after `SessionManager::TryCreateSession` succeeds, before declaring the handshake
+/// successful -- not only via the earlier pre-admission trust checks -- because a revoke or block
+/// that lands after those earlier checks but before admission is otherwise invisible to
+/// `ActiveSessionDisconnector::DisconnectIfClientActive`: that call is a one-shot, and if it finds
+/// no session yet (because admission had not happened), it is never retried. This is the last
+/// point that can still catch it; the true concurrent interleaving is not exercised by a runtime
+/// test here, since it is unreachable through this synchronous, single-threaded function without
+/// real thread timing or a test-only hook -- closure instead rests on `TrustStore`'s own mutex
+/// serializing every `Revoke`/`Block`/`IsRevoked`/`IsBlocked` call against this one, combined with
+/// `SessionManager` publishing the new session before this function returns. Returns the wire
+/// reason directly, rather than a bare bool the caller would have to re-derive by querying
+/// `trustStore` a second time -- a second, separately-locked read could itself observe a different
+/// answer than this one already decided on (`ai/context/common.md`'s "Domain modeling": one
+/// decision needs one coherent read, not several independently synchronized ones combined by the
+/// caller).
+/// @param trustStore Persistent trust store, re-queried for its current state.
+/// @param clientId The client identity just admitted.
+/// @param authMethod How the session just admitted authenticated at `hello`.
+/// @return `"blocked"` or `"revoked"` (`kTrustedDeviceCredential` only) when `clientId` no longer
+///     qualifies; `std::nullopt` when it still does. Always `std::nullopt` for `kDeveloperToken` --
+///     developer-token sessions are never Known Devices (`ai/context/protocol/security.md`'s
+///     "Developer authentication").
+[[nodiscard]] std::optional<std::string_view> TrustLossAfterAdmission(security::TrustStore& trustStore,
+                                                                       const std::string& clientId,
+                                                                       SessionAuthMethod authMethod);
 
 }  // namespace dovahlink::application

@@ -1,25 +1,13 @@
 #pragma once
 
-#include <cstdint>
+#include "application/active_session.hpp"
+#include "shared/enums.hpp"
+
 #include <mutex>
 #include <optional>
 #include <string>
 
 namespace dovahlink::application {
-
-/// Opaque identifier for one transport-level connection.
-using ConnectionId = std::uint64_t;
-
-/// A session's message-type allowlist, per `ai/context/protocol/security.md`'s "Hello
-/// authentication and session trust tiers".
-enum class SessionTrustTier {
-    /// Admitted without a trust credential (the `unpaired` hello auth method); allowed only the
-    /// pairing-flow messages until pairing succeeds.
-    kRestricted,
-    /// Ordinary authenticated access (developer token or a trusted device credential), or a
-    /// restricted session upgraded in place by a successful pairing confirmation.
-    kFull,
-};
 
 /// Binds one authenticated session to one connection.
 /// The manager is thread-safe and enforces the one-client limit.
@@ -70,14 +58,20 @@ public:
     /// Attempts to create a session for a connection.
     /// @param connection Connection owning the proposed session.
     /// @param sessionId Fresh server-issued session identifier.
-    /// @param clientId The authenticated client's identity, presented at `hello` and now owned by
-    ///     this session for its lifetime.
-    /// @param trustTier The session's initial message-type allowlist; defaults to `kFull` for
-    ///     every caller that predates trust tiers (developer-token authentication).
+    /// @param clientId The client identity presented at `hello` and now owned by this session for
+    ///     its lifetime.
+    /// @param trustTier The session's initial message-type allowlist. Required, not defaulted: the
+    ///     caller must state it explicitly rather than a convenience default silently selecting it
+    ///     (`ai/context/common.md`'s "Domain modeling").
+    /// @param authMethod How the session authenticated at `hello`. Required, not defaulted, for the
+    ///     same reason as `trustTier`. Never implies `trustTier`: a `kDeveloperToken` session and a
+    ///     `kTrustedDeviceCredential` session are both `kFull` but must stay distinguishable so
+    ///     Known Device administration (`ai/context/protocol/security.md`'s "Developer
+    ///     authentication") can exempt developer sessions from clientId-scoped effects.
     /// @return An ownership lease when no active session existed.
     [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection, const std::string& sessionId,
-                                                        std::string clientId,
-                                                        SessionTrustTier trustTier = SessionTrustTier::kFull);
+                                                          std::string clientId, SessionTrustTier trustTier,
+                                                          SessionAuthMethod authMethod);
 
     /// Checks whether a session belongs to a connection.
     /// @param sessionId Session identifier presented by the client.
@@ -85,9 +79,9 @@ public:
     /// @return `true` only for the active session and its owning connection.
     [[nodiscard]] bool IsValidForConnection(const std::string& sessionId, ConnectionId connection) const;
 
-    /// Returns the authenticated client identity bound to a connection's active session. The
-    /// single place the Bridge derives "which client is this" from -- callers must not accept a
-    /// competing value from elsewhere (e.g. a repeated envelope field) once a session exists.
+    /// Returns the client identity bound to a connection's active session. The single place the
+    /// Bridge derives "which client is this" from -- callers must not accept a competing value
+    /// from elsewhere (e.g. a repeated envelope field) once a session exists.
     /// @param connection Connection to query.
     /// @return The client identity, or no value when `connection` holds no active session.
     [[nodiscard]] std::optional<std::string> ClientIdForConnection(ConnectionId connection) const;
@@ -97,20 +91,6 @@ public:
     /// @return `false` for `kRestricted`, for a connection with no active session, and for a
     ///     connection that does not own the active session.
     [[nodiscard]] bool IsFullyTrusted(ConnectionId connection) const;
-
-    /// Returns the authenticated client identity of the active session, independent of which
-    /// connection owns it. Unlike @ref ClientIdForConnection, this does not require the caller to
-    /// already know a `ConnectionId` -- needed by a caller (trust administration) that only knows a
-    /// `clientId` and must find out whether it is the one currently connected.
-    /// @return The active session's client identity, or no value when no session is active.
-    [[nodiscard]] std::optional<std::string> ActiveClientId() const;
-
-    /// Returns the identifier of the active session, independent of which connection owns it.
-    /// The session-identity counterpart of @ref ActiveClientId, needed by a caller (administrative
-    /// session invalidation) that must stamp the active session's own ID onto an outbound message
-    /// without already knowing a `ConnectionId`.
-    /// @return The active session's identifier, or no value when no session is active.
-    [[nodiscard]] std::optional<std::string> ActiveSessionId() const;
 
     /// Upgrades the active session to `kFull` tier, if `connection` and `sessionId` both match the
     /// active session -- the same stale-caller guard `InvalidateSession` uses, so a delayed
@@ -124,6 +104,28 @@ public:
     /// Invalidates the active session regardless of its connection.
     void InvalidateAll();
 
+    /// Returns how `connection`'s active session authenticated at `hello`. Needed by trust
+    /// administration (`ai/context/protocol/security.md`'s "Developer authentication") to exempt a
+    /// `kDeveloperToken` session from clientId-scoped disconnection even when its self-declared
+    /// clientId happens to match a Known Device being revoked or blocked.
+    /// @param connection Connection to query.
+    /// @return The active session's auth method, or no value when `connection` holds no active
+    ///     session.
+    [[nodiscard]] std::optional<SessionAuthMethod> AuthMethodForConnection(ConnectionId connection) const;
+
+    /// Returns a complete, coherent snapshot of `connection`'s active session in one locked read.
+    /// The single query administrative invalidation (targeted Revoke/Block/Reset Trust disconnection
+    /// in `BridgeWorkerPool`) uses instead of separately calling `ClientIdForConnection` and
+    /// `AuthMethodForConnection` in sequence: each narrow accessor is its own lock acquisition, so
+    /// nothing outside this class's own mutex would hold `activeSession_` stable across them, and a
+    /// caller that needs more than one field together must not reconstruct one from multiple
+    /// independent reads. `IsValidForConnection`, `ClientIdForConnection`, `IsFullyTrusted`, and
+    /// `AuthMethodForConnection` are themselves implemented on top of this.
+    /// @param connection Connection to query.
+    /// @return A copy of the active session's complete state, or no value when `connection` holds no
+    ///     active session.
+    [[nodiscard]] std::optional<ActiveSession> SessionForConnection(ConnectionId connection) const;
+
 private:
     /// Invalidates the active session when owned by `connection`.
     void InvalidateSession(ConnectionId connection, const std::string& sessionId) noexcept;
@@ -131,17 +133,10 @@ private:
     /// Synchronizes session ownership state.
     mutable std::mutex mutex_;
 
-    /// Connection currently holding the active session.
-    std::optional<ConnectionId> activeConnection_;
-
-    /// Identifier of the active session.
-    std::optional<std::string> activeSessionId_;
-
-    /// Authenticated client identity owned by the active session.
-    std::optional<std::string> activeClientId_;
-
-    /// Message-type allowlist of the active session.
-    std::optional<SessionTrustTier> activeTrustTier_;
+    /// The active session's complete state, or no value when no session is active. Every related
+    /// field lives in this one optional so a session either exists as one coherent record or does
+    /// not exist -- never a state where one field is populated while a related one is absent.
+    std::optional<ActiveSession> activeSession_;
 };
 
 }  // namespace dovahlink::application

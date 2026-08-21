@@ -102,14 +102,15 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     // A structurally invalid presented credential (not valid hex) can never match a stored one;
     // treat it as an immediate failed attempt without a store lookup, matching this codebase's
     // existing accepted precedent for Phase 1's timing-side-channel posture (see
-    // token_store.cpp's "ponytail:" comment on TryReserve). Shared by both credentialed methods
-    // below; "unpaired" has no credential to decode at all.
+    // token_store.cpp's known-limitation comment on TryReserve). Shared by both credentialed
+    // methods below; "unpaired" has no credential to decode at all.
     auto presentedBytes = [&hello]() -> std::optional<std::vector<std::uint8_t>> {
         return hello->authToken.has_value() ? security::DecodeHex(*hello->authToken)
                                              : std::optional<std::vector<std::uint8_t>>{};
     };
 
     SessionTrustTier trustTier;
+    SessionAuthMethod authMethod;
     std::optional<security::TokenStore::Reservation> tokenReservation;
 
     if (hello->authMethod == "one_time_local_token") {
@@ -125,10 +126,12 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                         false);
         }
         trustTier = SessionTrustTier::kFull;
+        authMethod = SessionAuthMethod::kDeveloperToken;
     } else if (hello->authMethod == "unpaired") {
         // No credential to present or check yet; the session is admitted restricted, per
         // security.md's "Hello authentication and session trust tiers".
         trustTier = SessionTrustTier::kRestricted;
+        authMethod = SessionAuthMethod::kUnpaired;
     } else {
         // Only "trusted_device_credential" remains, per DecodeHelloPayload's validated set.
         if (credentialThrottle.IsBlocked(now)) {
@@ -146,6 +149,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                         "Invalid or unrecognized device credential", false);
         }
         trustTier = SessionTrustTier::kFull;
+        authMethod = SessionAuthMethod::kTrustedDeviceCredential;
     }
 
     auto sessionId = security::GenerateOpaqueId();
@@ -179,9 +183,18 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .clientId = hello->clientId,
     };
 
-    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId, trustTier);
+    auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId, trustTier,
+                                                         authMethod);
     if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
+    }
+
+    // sessionLease going out of scope on the return below invalidates the session it just
+    // admitted -- see TrustLossAfterAdmission's doc comment for why this check runs here.
+    if (auto trustLoss = TrustLossAfterAdmission(trustStore, hello->clientId, authMethod); trustLoss.has_value()) {
+        std::string message =
+            *trustLoss == "blocked" ? "This device is blocked" : "This device's trust was revoked";
+        return Fail(helloEnvelope, bridgeInstanceId, std::string(*trustLoss), std::move(message), false);
     }
 
     if (tokenReservation.has_value()) {
@@ -194,6 +207,20 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
     };
+}
+
+std::optional<std::string_view> TrustLossAfterAdmission(security::TrustStore& trustStore, const std::string& clientId,
+                                                          SessionAuthMethod authMethod) {
+    if (authMethod == SessionAuthMethod::kDeveloperToken) {
+        return std::nullopt;
+    }
+    if (trustStore.IsBlocked(clientId)) {
+        return "blocked";
+    }
+    if (authMethod == SessionAuthMethod::kTrustedDeviceCredential && trustStore.IsRevoked(clientId)) {
+        return "revoked";
+    }
+    return std::nullopt;
 }
 
 }  // namespace dovahlink::application

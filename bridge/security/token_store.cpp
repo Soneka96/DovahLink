@@ -74,7 +74,7 @@ std::optional<TokenStore::Reservation> TokenStore::TryReserve(
     const std::vector<std::uint8_t>& presented) {
     std::unique_lock<std::mutex> lock(mutex_);
 
-    // ponytail: the availability check below returns before the constant-time
+    // Known limitation: the availability check below returns before the constant-time
     // compare, so an already-consumed/expired store rejects faster than a live
     // wrong guess -- a timing signal for *store state*, not for token content
     // (the byte-for-byte compare itself, when it runs, remains constant-time).

@@ -61,9 +61,9 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 ## Current position
 
 - **Current stage:** Stage 3 — Local Device Pairing and Reconnection.
-- **Current phase:** Phase 3.2 — Known Device & Trust Administration (**Planned**), followed by
-  Phase 3.3 — Client Trust-State Integration (**Planned**). Phase 3 and Phase 3.1 are complete;
-  Phase 3.2 remains authoritative for Bridge/Skyrim trust administration, while Phase 3.3 covers
+- **Current phase:** Phase 3.3 — Client Trust-State Integration (**Planned**), following the completed
+  Phase 3.2 — Known Device & Trust Administration. Phase 3 and Phase 3.1 are complete; Phase 3.2
+  remains authoritative for Bridge/Skyrim trust administration, while Phase 3.3 covers
   current SDK/client reaction to those changes.
 
 ## Ordered stages
@@ -73,7 +73,7 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 | 0 | Complete | [Stage 0 — Foundation](roadmap/00-foundation.md) |
 | 1 | Complete | [Stage 1 — Skyrim Bridge Foundation](roadmap/01-skyrim-bridge-foundation.md) |
 | 2 | Complete | [Stage 2 — Bridge Identity and Authoritative State](roadmap/02-bridge-identity-and-authoritative-state.md) |
-| 3 | Active — Phase 3.2 planned | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
+| 3 | Active — Phase 3.3 planned | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 4 | Planned | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |

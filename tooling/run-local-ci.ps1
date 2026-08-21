@@ -16,6 +16,10 @@ $cacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-binary
 New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
 $env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot
 
+$registriesCacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-registries-cache"
+New-Item -ItemType Directory -Force -Path $registriesCacheRoot | Out-Null
+$env:X_VCPKG_REGISTRIES_CACHE = $registriesCacheRoot
+
 if (-not (Test-Path -LiteralPath $vcpkgRoot -PathType Container)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $vcpkgRoot) | Out-Null
     Invoke-CheckedNativeCommand -FilePath "git" -ArgumentList @(
@@ -26,10 +30,27 @@ elseif (-not (Test-Path -LiteralPath (Join-Path $vcpkgRoot ".git") -PathType Con
     throw "The local vcpkg path '$vcpkgRoot' exists but is not a Git checkout. Remove it and rerun the preflight."
 }
 
-Invoke-CheckedNativeCommand -FilePath "git" -ArgumentList @(
-    "-C", $vcpkgRoot, "checkout", $vcpkgBaseline
-)
-Invoke-CheckedNativeCommand -FilePath (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -ArgumentList @("-disableMetrics")
+# bootstrap-vcpkg.bat always recompiles vcpkg.exe from source, regardless of whether anything
+# changed, so skip both it and the checkout when the working copy is already at the pinned commit
+# and vcpkg.exe actually runs (not just present -- a prior bootstrap interrupted mid-build could
+# leave a truncated exe that "exists" but doesn't work).
+$vcpkgExePath = Join-Path $vcpkgRoot "vcpkg.exe"
+$currentVcpkgCommit = (& git -C $vcpkgRoot rev-parse HEAD)
+if ($LASTEXITCODE -ne 0) {
+    throw "Reading the current vcpkg checkout commit failed with exit code $LASTEXITCODE."
+}
+$vcpkgAlreadyBootstrapped = $false
+if ((Test-Path -LiteralPath $vcpkgExePath -PathType Leaf) -and ($currentVcpkgCommit.Trim() -eq $vcpkgBaseline)) {
+    & $vcpkgExePath version | Out-Null
+    $vcpkgAlreadyBootstrapped = ($LASTEXITCODE -eq 0)
+}
+
+if (-not $vcpkgAlreadyBootstrapped) {
+    Invoke-CheckedNativeCommand -FilePath "git" -ArgumentList @(
+        "-C", $vcpkgRoot, "checkout", $vcpkgBaseline
+    )
+    Invoke-CheckedNativeCommand -FilePath (Join-Path $vcpkgRoot "bootstrap-vcpkg.bat") -ArgumentList @("-disableMetrics")
+}
 $env:VCPKG_ROOT = $vcpkgRoot
 
 $cmakeCandidates = @(
@@ -160,10 +181,11 @@ Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -Argume
 )
 
 Write-Host "=== integration-ci ==="
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")
-Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(
-    "--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"
-)
+# dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above already
+# built it into build/windows-x64-debug; nothing has changed on disk since, so reconfiguring and
+# rebuilding it here would just be a duplicate no-op. This only holds because this script runs
+# both sections in one sequential process -- integration-ci.yml runs as its own job on a fresh
+# runner with no bridge-ci build tree to reuse, so it must configure and build independently there.
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
     "restore", "integration/DovahLinkValidation.sln"
 )

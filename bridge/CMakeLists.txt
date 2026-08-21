@@ -2,6 +2,22 @@ cmake_minimum_required(VERSION 3.21)
 
 project(DovahLinkBridge LANGUAGES CXX)
 
+# CMake 4.4 reports a preset toolchainFile as unused on reconfigure unless
+# the project reads the value after the toolchain has been loaded.
+if(CMAKE_TOOLCHAIN_FILE)
+    message(VERBOSE "Using CMake toolchain file: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
+# vcpkg packages provide Debug and Release imported configurations. Map this
+# single-config preset's RelWithDebInfo build to the compatible Release
+# dependency libraries instead of letting CMake select the first configuration.
+set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+
+# DovahLink targets Windows 10 APIs and rejects older Windows runtimes during plugin startup.
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00)
+endif()
+
 # Toolchain and dependency versions pinned for the reproducible build are
 # recorded in bridge/README.md; this file only declares the floor CMake
 # needs to understand the presets and dependencies below.
@@ -80,6 +96,9 @@ add_library(dovahlink_bridge_core STATIC
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
+if(MSVC)
+    target_compile_options(dovahlink_bridge_core PUBLIC /EHsc)
+endif()
 target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt crypt32)
 
 # CommonLib-dependent game-state adapters. Kept in a separate target from

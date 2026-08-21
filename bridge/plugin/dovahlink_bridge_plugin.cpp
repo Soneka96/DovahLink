@@ -103,7 +103,7 @@ private:
 // Hand-written plugin metadata and address-library compatibility declaration.
 using namespace std::literals;
 SKSEPluginInfo(
-    .Version = REL::Version{0, 3, 1, 0},
+    .Version = REL::Version{0, 3, 2, 0},
     .Name = "DovahLink Bridge"sv,
     .Author = "Soneka96"sv,
     .SupportEmail = ""sv,
@@ -124,6 +124,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // register messaging listener" and the plugin was disabled) before this
     // call existed. Must run before any such call below.
     SKSE::Init(skse);
+
+    if (!dovahlink::game_state::IsCurrentWindowsVersionSupported()) {
+        SKSE::log::error("Unsupported Windows runtime. DovahLink Bridge requires Windows 10 or later.");
+        return false;
+    }
 
     // Reject unsupported runtime combinations before constructing bridge state.
     REL::Version skyrimVersionRel = skse->RuntimeVersion();

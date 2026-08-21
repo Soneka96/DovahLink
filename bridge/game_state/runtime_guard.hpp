@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 #include <cstdint>
 
 namespace dovahlink::game_state {
@@ -23,6 +27,32 @@ struct RuntimeVersion {
 inline constexpr RuntimeVersion kSupportedSkyrimVersion{1, 6, 1170, 0};
 /// Supported SKSE runtime version for plugin initialization.
 inline constexpr RuntimeVersion kSupportedSkseVersion{2, 2, 6, 0};
+
+/// Returns whether the current Windows runtime meets the Bridge's minimum OS requirement.
+[[nodiscard]] inline bool IsCurrentWindowsVersionSupported() noexcept {
+#if defined(_WIN32)
+    // VersionHelpers uses the host process manifest. SKSE loads this DLL into Skyrim, whose
+    // manifest is outside the Bridge's control, so use the kernel's version directly instead.
+    auto* ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (ntdll == nullptr) {
+        return false;
+    }
+    auto* getVersion = reinterpret_cast<LONG(WINAPI*)(OSVERSIONINFOEXW*)>(GetProcAddress(ntdll, "RtlGetVersion"));
+    if (getVersion == nullptr) {
+        return false;
+    }
+    OSVERSIONINFOEXW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    if (getVersion(&version) != 0) {
+        return false;
+    }
+    return version.dwMajorVersion >= 10;
+#else
+    // The native Bridge target is Windows-only. Keep the neutral test target
+    // usable on non-Windows hosts without pretending to validate Windows there.
+    return true;
+#endif
+}
 
 /// Returns whether `version` matches the supported Skyrim runtime.
 [[nodiscard]] constexpr bool IsSupportedSkyrimVersion(const RuntimeVersion& version) {

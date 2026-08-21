@@ -1,19 +1,12 @@
 #pragma once
 
+#include "shared/enums.hpp"
+
 #include <cstddef>
 #include <string>
 #include <unordered_set>
 
 namespace dovahlink::application {
-
-/// Classifies a message-ID recording attempt.
-enum class MessageIdCheckResult {
-    /// The message ID was new and recorded.
-    kAccepted,
-
-    /// The message ID was already recorded for this session.
-    kReplayed,
-};
 
 /// Rejects duplicate message IDs within one session.
 /// One instance belongs to one serial connection and is not thread-safe.

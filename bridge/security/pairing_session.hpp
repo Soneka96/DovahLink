@@ -1,10 +1,10 @@
 #pragma once
 
 #include "security/confirm_code_result.hpp"
-#include "security/enums.hpp"
 #include "security/renotify_result.hpp"
 #include "security/start_challenge_result.hpp"
 #include "security/token_store.hpp"
+#include "shared/enums.hpp"
 
 #include <chrono>
 #include <cstdint>

@@ -231,6 +231,13 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
 - A developer-authenticated connection still obeys every applicable rule in this document: loopback
   restriction, input limits, protocol validation, a fresh `sessionId`, and the single-connected-client
   limit. Developer authentication is not a switch that disables security.
+- A developer-token session is never treated as a Known Device by administrative Block or Revoke,
+  including when its self-declared `clientId` happens to match a Known Device those operations
+  target: the Bridge tracks whether the active session authenticated via `one_time_local_token`
+  and exempts it from clientId-scoped disconnection on that basis, not merely from the hello-time
+  `blocked`/`revoked` rejection checks. Factory Reset's unconditional session invalidation is
+  unaffected by this exemption and still disconnects a developer-token session, per "Administrative
+  session invalidation" above.
 
 ## Hello authentication and session trust tiers
 

@@ -115,22 +115,30 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId, std::
     transport::WebSocketSession::SocketHandle activeSocket;
     std::optional<std::string> activeSessionId;
     {
-        // Holding activeSocketMutex_ across the identity check, the socket read, and the session-ID
-        // read makes all three atomic: no new connection can publish itself as
-        // activeSocket_/activeConnectionId_, and no session can be replaced, while this decides
-        // whether the *current* one belongs to clientId and which session ID it is. Resolving
-        // sessionManager_.ActiveSessionId() here -- rather than in NotifyAndShutdownActiveSocket
-        // after this lock releases -- keeps it from racing ahead to a different, newer session.
+        // Holding activeSocketMutex_ across the socket read and the session snapshot makes both
+        // atomic: no new connection can publish itself as activeSocket_/activeConnectionId_ while
+        // this decides whether the *current* one belongs to clientId. SessionForConnection itself
+        // resolves clientId, authMethod, and sessionId together under SessionManager's own single
+        // lock, so there is no second, separately-locked read that could observe the session
+        // changing between them.
         std::lock_guard<std::mutex> lock(activeSocketMutex_);
         auto socket = activeSocket_.lock();
         if (!socket) {
             return;
         }
-        auto activeClientId = sessionManager_.ClientIdForConnection(activeConnectionId_);
-        if (!activeClientId.has_value() || *activeClientId != clientId) {
+        auto session = sessionManager_.SessionForConnection(activeConnectionId_);
+        if (!session.has_value() || session->clientId != clientId) {
             return;
         }
-        activeSessionId = sessionManager_.ActiveSessionId();
+        // A developer-token (one_time_local_token) session is never treated as a Known Device
+        // (ai/context/protocol/security.md's "Developer authentication"), so it stays connected even
+        // when its self-declared clientId happens to match the device this call targets.
+        // DisconnectActive (Factory Reset's unconditional path) intentionally has no equivalent
+        // check: Factory Reset invalidates every session, developer-token sessions included.
+        if (session->authMethod == SessionAuthMethod::kDeveloperToken) {
+            return;
+        }
+        activeSessionId = std::move(session->sessionId);
         activeSocket = std::move(socket);
     }
     NotifyAndShutdownActiveSocket(activeSocket, std::move(activeSessionId), reason);
@@ -140,12 +148,17 @@ void BridgeWorkerPool::DisconnectActive(std::string_view reason) {
     transport::WebSocketSession::SocketHandle activeSocket;
     std::optional<std::string> activeSessionId;
     {
-        // Same atomicity reasoning as DisconnectIfClientActive: the session ID must be read under
-        // the same lock that resolved the socket, not afterward.
+        // Same reasoning as DisconnectIfClientActive: the session snapshot must be read under the
+        // same lock that resolved the socket, not afterward, and scoped to the exact
+        // activeConnectionId_ that socket belongs to rather than an unscoped "whoever is active"
+        // query independent of it.
         std::lock_guard<std::mutex> lock(activeSocketMutex_);
         activeSocket = activeSocket_.lock();
         if (activeSocket) {
-            activeSessionId = sessionManager_.ActiveSessionId();
+            auto session = sessionManager_.SessionForConnection(activeConnectionId_);
+            if (session.has_value()) {
+                activeSessionId = std::move(session->sessionId);
+            }
         }
     }
     if (activeSocket) {

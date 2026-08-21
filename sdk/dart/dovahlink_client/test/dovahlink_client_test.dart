@@ -182,7 +182,7 @@ void main() {
 
         final HelloResult result = await client.hello();
 
-        expect(result.bridgeVersion, '0.3.1');
+        expect(result.bridgeVersion, '0.3.2');
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(client.trustState, DovahLinkTrustState.unpaired);
         expect(client.sessionId, 'session-1');

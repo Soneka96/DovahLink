@@ -5,15 +5,19 @@ loopback client through the DovahLink protocol. See
 [`ai/context/skse/architecture.md`](../ai/context/skse/architecture.md) for its internal
 boundaries and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for how it fits the rest of the project.
 
-This document records the toolchain, dependency, and reuse decisions used for the published Phase 2
-bridge release, version `0.2.0`. It is the human-readable record; the pins below are enforced by
-`vcpkg.json`, `vcpkg-configuration.json`, and `CMakePresets.json`.
+This document records the toolchain, dependency, and reuse decisions used for the published Bridge
+release, version `0.3.2`. It is the human-readable record; the pins below are enforced by
+`vcpkg.json` and `vcpkg-configuration.json`; `CMakePresets.json` selects the vcpkg toolchain and
+target triplet used by the build.
 
 ## Supported runtime
 
-Bridge version `0.2.0` supports exactly one runtime: Steam Skyrim `1.6.1170` with SKSE `2.2.6`. Every other
+Bridge version `0.3.2` supports exactly one runtime: Steam Skyrim `1.6.1170` with SKSE `2.2.6`. Every other
 runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initialization. See
 [`PRODUCT.md`](../PRODUCT.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for this scope.
+
+The Windows build targets Windows 10 APIs and supports Windows 10 and later. The plugin rejects
+older Windows runtimes during initialization.
 
 ## Toolchain
 
@@ -26,9 +30,15 @@ runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initializati
 | Build tool | Ninja 1.13.2 | Latest stable release at the time this baseline was recorded. |
 | Package manager | vcpkg, manifest mode | Builtin baseline pinned below; classic mode is not used. |
 
-`.github/workflows/bridge-ci.yml` installs CMake `4.4.2` and Ninja `1.13.2` exactly via Chocolatey
-on `windows-2022`, and sets up the MSVC 2022 developer environment before configuring. A local
-dev machine should match these same versions for a reproducible build.
+`.github/workflows/bridge-ci.yml` and `.github/workflows/integration-ci.yml` install CMake `4.4.2`
+from a pinned, hash-verified direct download of Kitware's official GitHub release, verify Ninja
+`1.13.2` is already present on `windows-2022` (the image ships that exact version, so nothing
+installs it), and set up the MSVC 2022 developer environment before configuring. A local dev
+machine should match these same versions for a reproducible build. Both workflows also cache the
+checked-out and bootstrapped vcpkg tooling (see "Dependency baselines" below), keyed on its pinned
+commit, and the checked-out colorglass registry, keyed on the content hash of
+`bridge/vcpkg-configuration.json` rather than a literal commit -- a cache miss still fetches the
+registry normally, but a cache hit avoids repeatedly re-fetching it from GitHub or GitLab.
 
 Visual Studio 2022 installations with the Desktop development with C++ workload bundle CMake,
 Ninja, `vcvarsall.bat`, and vcpkg, but do not place all of them on `PATH` by default.
