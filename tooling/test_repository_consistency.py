@@ -301,8 +301,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("cmake --version=4.4.2", workflow)
-        self.assertIn("ninja --version=1.13.2", workflow)
+        self.assertNotIn("choco install", workflow)
+        self.assertNotIn("ChocolateyInstall", workflow)
+        self.assertIn('$cmakeVersion = "4.4.2"', workflow)
         # A job-level env: cannot reference the runner context (unresolved until a runner picks up
         # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
         self.assertNotIn(
@@ -319,10 +320,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
             workflow,
         )
-        self.assertIn(
-            '"$env:ChocolateyInstall\\bin" | Out-File -FilePath $env:GITHUB_PATH',
-            workflow,
-        )
+        self.assertIn("      - name: Install pinned CMake", workflow)
+        self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
+        self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
         self.assertIn("ninja --version", workflow)
         self.assertLess(
             workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
@@ -336,8 +336,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("ninja --version"),
             workflow.index("Configure bridge debug harness"),
         )
+        self.assertLess(
+            workflow.index("      - name: Install pinned CMake"),
+            workflow.index("Configure bridge debug harness"),
+        )
         self.assertIn(
-            "git -C \"${{ runner.temp }}\\vcpkg\" checkout 2f1d605400c8727cc00c15797aba796c88ccd523",
+            "git -C \"${{ runner.temp }}\\vcpkg\" checkout $env:VCPKG_BASELINE_COMMIT",
             workflow,
         )
         self.assertIn(
@@ -1572,6 +1576,72 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertLess(
             workflow.index("      - name: Install pinned CMake"),
             workflow.index("Configure Debug"),
+        )
+
+    def test_integration_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(self) -> None:
+        """Require the same vcpkg tooling/registry caching as bridge-ci.yml.
+
+        This job runs on its own fresh runner with no bridge-ci filesystem state to reuse, so it
+        needs this caching independently rather than relying on bridge-ci.yml's job having run
+        first.
+        """
+        workflow = self._read(".github/workflows/integration-ci.yml")
+
+        self.assertIn(
+            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523", workflow
+        )
+        self.assertEqual(
+            workflow.count("2f1d605400c8727cc00c15797aba796c88ccd523"),
+            1,
+            "the pinned vcpkg commit must appear exactly once (the job-level env value); every "
+            "other reference must go through $env:VCPKG_BASELINE_COMMIT or env.VCPKG_BASELINE_COMMIT",
+        )
+
+        tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
+        self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
+        self.assertIn("        uses: actions/cache@v5", tooling_cache)
+        self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
+        self.assertIn(
+            "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
+            tooling_cache,
+        )
+
+        checkout_step = self._yaml_block(
+            workflow, "      - name: Check out vcpkg at the pinned builtin baseline"
+        )
+        self.assertIn(
+            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'", checkout_step
+        )
+        self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
+
+        registries_env = self._yaml_block(workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE")
+        self.assertIn(
+            'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
+            ">> $env:GITHUB_ENV",
+            registries_env,
+        )
+        self.assertIn("      - name: Prepare vcpkg registries cache", workflow)
+        self.assertIn(
+            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-registries-cache"',
+            workflow,
+        )
+
+        registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
+        self.assertIn("        uses: actions/cache@v5", registries_cache)
+        self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
+        self.assertIn(
+            "          key: ${{ runner.os }}-vcpkg-registries-"
+            "${{ hashFiles('bridge/vcpkg-configuration.json') }}",
+            registries_cache,
+        )
+
+        self.assertLess(
+            workflow.index("Restore cached vcpkg tooling"),
+            workflow.index("Configure bridge debug harness"),
+        )
+        self.assertLess(
+            workflow.index("Restore vcpkg registries cache"),
+            workflow.index("Configure bridge debug harness"),
         )
 
     @classmethod
