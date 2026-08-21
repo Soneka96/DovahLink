@@ -11,6 +11,7 @@
 #include <vector>
 
 using dovahlink::application::ConnectionId;
+using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 
@@ -570,107 +571,133 @@ TEST_CASE("a stale lease cannot clear ActiveSessionId for a replacement session 
     CHECK(*sessionId == kSessionTwo);
 }
 
-TEST_CASE("TryCreateSession defaults to not developer-authenticated for callers that predate the "
+TEST_CASE("TryCreateSession defaults to kTrustedDeviceCredential for callers that predate the "
           "distinction",
           "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
     REQUIRE(lease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kTrustedDeviceCredential);
 }
 
-TEST_CASE("TryCreateSession honors an explicit developer-authenticated session",
-          "[application][session]") {
+TEST_CASE("TryCreateSession honors an explicit kDeveloperToken session", "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kDeveloperToken);
     REQUIRE(lease.has_value());
-    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kDeveloperToken);
 }
 
-TEST_CASE("IsDeveloperAuthenticated is false when no session is active", "[application][session]") {
+TEST_CASE("TryCreateSession honors an explicit kUnpaired session", "[application][session]") {
+    // Previously indistinguishable from kTrustedDeviceCredential under the old bool: both mapped to
+    // isDeveloperAuthenticated=false. The enum makes this a real, separately observable state.
     SessionManager sessions;
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                            SessionAuthMethod::kUnpaired);
+    REQUIRE(lease.has_value());
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kUnpaired);
 }
 
-TEST_CASE("IsDeveloperAuthenticated is false for a connection that does not own the active developer "
+TEST_CASE("AuthMethodForConnection returns no value when no session is active", "[application][session]") {
+    SessionManager sessions;
+    CHECK_FALSE(sessions.AuthMethodForConnection(kConnectionA).has_value());
+}
+
+TEST_CASE("AuthMethodForConnection returns no value for a connection that does not own the active "
           "session",
           "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kDeveloperToken);
     REQUIRE(lease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionB));
+    CHECK_FALSE(sessions.AuthMethodForConnection(kConnectionB).has_value());
 }
 
-TEST_CASE("IsDeveloperAuthenticated is cleared when the session is invalidated", "[application][session]") {
+TEST_CASE("AuthMethodForConnection is cleared when the session is invalidated", "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kDeveloperToken);
     REQUIRE(lease.has_value());
     lease.reset();
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    CHECK_FALSE(sessions.AuthMethodForConnection(kConnectionA).has_value());
 }
 
-TEST_CASE("IsDeveloperAuthenticated is cleared by InvalidateAll", "[application][session]") {
+TEST_CASE("AuthMethodForConnection is cleared by InvalidateAll", "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kDeveloperToken);
     REQUIRE(lease.has_value());
     sessions.InvalidateAll();
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    CHECK_FALSE(sessions.AuthMethodForConnection(kConnectionA).has_value());
 }
 
-TEST_CASE("a session created after a developer-authenticated one is invalidated is not "
-          "developer-authenticated by default",
+TEST_CASE("a session created after a kDeveloperToken one is invalidated defaults to "
+          "kTrustedDeviceCredential",
           "[application][session]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                                 /*isDeveloperAuthenticated=*/true);
+                                                 SessionAuthMethod::kDeveloperToken);
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
     auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
     REQUIRE(secondLease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kTrustedDeviceCredential);
 }
 
-TEST_CASE("IsDeveloperAuthenticated is independent of trust tier: a kRestricted developer session "
+TEST_CASE("AuthMethodForConnection is independent of trust tier: a kRestricted developer session "
           "reports both",
           "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kDeveloperToken);
     REQUIRE(lease.has_value());
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
-    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kDeveloperToken);
 }
 
-TEST_CASE("UpgradeToFullTrust does not change IsDeveloperAuthenticated", "[application][session]") {
+TEST_CASE("UpgradeToFullTrust does not change AuthMethodForConnection", "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
-                                            /*isDeveloperAuthenticated=*/true);
+                                            SessionAuthMethod::kUnpaired);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
 
     CHECK(sessions.IsFullyTrusted(kConnectionA));
-    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+    // authMethod reflects how the session authenticated at hello, not its current trust tier -- an
+    // in-place pairing upgrade leaves it kUnpaired even though the tier is now kFull, matching the
+    // real production path (only a session that started kUnpaired ever calls UpgradeToFullTrust).
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kUnpaired);
 }
 
-TEST_CASE("a stale lease cannot clear IsDeveloperAuthenticated for a replacement session on the same "
+TEST_CASE("a stale lease cannot clear AuthMethodForConnection for a replacement session on the same "
           "connection",
           "[application][session]") {
     SessionManager sessions;
     auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
-                                                 /*isDeveloperAuthenticated=*/true);
+                                                 SessionAuthMethod::kDeveloperToken);
     REQUIRE(staleLease.has_value());
     sessions.InvalidateAll();
 
     auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
-                                                       /*isDeveloperAuthenticated=*/true);
+                                                       SessionAuthMethod::kDeveloperToken);
     REQUIRE(replacementLease.has_value());
     staleLease.reset();
 
-    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
+    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kDeveloperToken);
 }

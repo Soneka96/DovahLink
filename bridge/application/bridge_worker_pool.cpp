@@ -135,7 +135,7 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId, std::
         // when its self-declared clientId happens to match the device this call targets.
         // DisconnectActive (Factory Reset's unconditional path) intentionally has no equivalent
         // check: Factory Reset invalidates every session, developer-token sessions included.
-        if (sessionManager_.IsDeveloperAuthenticated(activeConnectionId_)) {
+        if (sessionManager_.AuthMethodForConnection(activeConnectionId_) == SessionAuthMethod::kDeveloperToken) {
             return;
         }
         activeSessionId = sessionManager_.ActiveSessionId();

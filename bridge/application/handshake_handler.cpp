@@ -110,6 +110,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     };
 
     SessionTrustTier trustTier;
+    SessionAuthMethod authMethod;
     std::optional<security::TokenStore::Reservation> tokenReservation;
 
     if (hello->authMethod == "one_time_local_token") {
@@ -125,10 +126,12 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                         false);
         }
         trustTier = SessionTrustTier::kFull;
+        authMethod = SessionAuthMethod::kDeveloperToken;
     } else if (hello->authMethod == "unpaired") {
         // No credential to present or check yet; the session is admitted restricted, per
         // security.md's "Hello authentication and session trust tiers".
         trustTier = SessionTrustTier::kRestricted;
+        authMethod = SessionAuthMethod::kUnpaired;
     } else {
         // Only "trusted_device_credential" remains, per DecodeHelloPayload's validated set.
         if (credentialThrottle.IsBlocked(now)) {
@@ -146,6 +149,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
                         "Invalid or unrecognized device credential", false);
         }
         trustTier = SessionTrustTier::kFull;
+        authMethod = SessionAuthMethod::kTrustedDeviceCredential;
     }
 
     auto sessionId = security::GenerateOpaqueId();
@@ -180,8 +184,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     };
 
     auto sessionLease = sessionManager.TryCreateSession(connection, *sessionId, hello->clientId, trustTier,
-                                                         /*isDeveloperAuthenticated=*/hello->authMethod ==
-                                                             "one_time_local_token");
+                                                         authMethod);
     if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
     }

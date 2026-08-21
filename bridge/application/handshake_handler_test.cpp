@@ -19,6 +19,7 @@
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
+using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
@@ -983,7 +984,7 @@ TEST_CASE("HandleHello rejects a second connection while a session is already ac
     CHECK_FALSE(tokenStore.IsAvailable());
 }
 
-TEST_CASE("HandleHello marks a one_time_local_token session as developer-authenticated",
+TEST_CASE("HandleHello marks a one_time_local_token session as kDeveloperToken",
           "[application][handshake_handler]") {
     TokenStore tokenStore(ValidTokenBytes());
     FailedTokenThrottle throttle;
@@ -999,11 +1000,12 @@ TEST_CASE("HandleHello marks a one_time_local_token session as developer-authent
                               /*connection=*/1, timeout, now);
 
     REQUIRE(result.sessionLease.has_value());
-    CHECK(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    auto authMethod = sessions.AuthMethodForConnection(/*connection=*/1);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kDeveloperToken);
 }
 
-TEST_CASE("HandleHello does not mark an unpaired session as developer-authenticated",
-          "[application][handshake_handler]") {
+TEST_CASE("HandleHello marks an unpaired session as kUnpaired", "[application][handshake_handler]") {
     TokenStore tokenStore(ValidTokenBytes());
     FailedTokenThrottle throttle;
     EmptyPersistence persistence;
@@ -1017,10 +1019,12 @@ TEST_CASE("HandleHello does not mark an unpaired session as developer-authentica
     auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
 
     REQUIRE(result.sessionLease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    auto authMethod = sessions.AuthMethodForConnection(/*connection=*/1);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kUnpaired);
 }
 
-TEST_CASE("HandleHello does not mark a trusted_device_credential session as developer-authenticated",
+TEST_CASE("HandleHello marks a trusted_device_credential session as kTrustedDeviceCredential",
           "[application][handshake_handler]") {
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
@@ -1038,11 +1042,13 @@ TEST_CASE("HandleHello does not mark a trusted_device_credential session as deve
     auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
 
     REQUIRE(result.sessionLease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    auto authMethod = sessions.AuthMethodForConnection(/*connection=*/1);
+    REQUIRE(authMethod.has_value());
+    CHECK(*authMethod == SessionAuthMethod::kTrustedDeviceCredential);
 }
 
-TEST_CASE("HandleHello updates IsDeveloperAuthenticated on reconnect rather than retaining a stale value "
-          "from the previous session on the same connection",
+TEST_CASE("HandleHello updates AuthMethodForConnection on reconnect rather than retaining a stale "
+          "value from the previous session on the same connection",
           "[application][handshake_handler]") {
     TokenStore tokenStore(ValidTokenBytes());
     FailedTokenThrottle throttle;
@@ -1057,7 +1063,9 @@ TEST_CASE("HandleHello updates IsDeveloperAuthenticated on reconnect rather than
     auto firstResult =
         HandleHello(firstHello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, firstTimeout, now);
     REQUIRE(firstResult.sessionLease.has_value());
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    auto firstAuthMethod = sessions.AuthMethodForConnection(/*connection=*/1);
+    REQUIRE(firstAuthMethod.has_value());
+    CHECK(*firstAuthMethod == SessionAuthMethod::kUnpaired);
     firstResult.sessionLease.reset();
 
     ConnectionTimeoutTracker secondTimeout(now);
@@ -1066,5 +1074,7 @@ TEST_CASE("HandleHello updates IsDeveloperAuthenticated on reconnect rather than
                                     secondTimeout, now);
 
     REQUIRE(secondResult.sessionLease.has_value());
-    CHECK(sessions.IsDeveloperAuthenticated(/*connection=*/1));
+    auto secondAuthMethod = sessions.AuthMethodForConnection(/*connection=*/1);
+    REQUIRE(secondAuthMethod.has_value());
+    CHECK(*secondAuthMethod == SessionAuthMethod::kDeveloperToken);
 }

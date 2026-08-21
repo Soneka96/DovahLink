@@ -65,17 +65,17 @@ public:
     ///     this session for its lifetime.
     /// @param trustTier The session's initial message-type allowlist; defaults to `kFull` for
     ///     every caller that predates trust tiers (developer-token authentication).
-    /// @param isDeveloperAuthenticated Whether the session was admitted via the `one_time_local_token`
-    ///     developer-authentication provider rather than device pairing. Defaults to `false` for
-    ///     every caller that predates this distinction. Never implies `trustTier`; a developer session
-    ///     and a `trusted_device_credential` session are both `kFull` but must stay distinguishable so
-    ///     Known Device administration (`ai/context/protocol/security.md`'s "Developer authentication")
-    ///     can exempt developer sessions from clientId-scoped effects.
+    /// @param authMethod How the session authenticated at `hello`; defaults to
+    ///     `kTrustedDeviceCredential` for every caller that predates this distinction. Never implies
+    ///     `trustTier`: a `kDeveloperToken` session and a `kTrustedDeviceCredential` session are both
+    ///     `kFull` but must stay distinguishable so Known Device administration
+    ///     (`ai/context/protocol/security.md`'s "Developer authentication") can exempt developer
+    ///     sessions from clientId-scoped effects.
     /// @return An ownership lease when no active session existed.
-    [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection, const std::string& sessionId,
-                                                        std::string clientId,
-                                                        SessionTrustTier trustTier = SessionTrustTier::kFull,
-                                                        bool isDeveloperAuthenticated = false);
+    [[nodiscard]] std::optional<Lease> TryCreateSession(
+        ConnectionId connection, const std::string& sessionId, std::string clientId,
+        SessionTrustTier trustTier = SessionTrustTier::kFull,
+        SessionAuthMethod authMethod = SessionAuthMethod::kTrustedDeviceCredential);
 
     /// Checks whether a session belongs to a connection.
     /// @param sessionId Session identifier presented by the client.
@@ -122,15 +122,14 @@ public:
     /// Invalidates the active session regardless of its connection.
     void InvalidateAll();
 
-    /// Reports whether `connection` holds the active session and it was admitted via the
-    /// `one_time_local_token` developer-authentication provider. Needed by trust administration
-    /// (`ai/context/protocol/security.md`'s "Developer authentication") to exempt a developer session
-    /// from clientId-scoped disconnection even when its self-declared clientId happens to match a
-    /// Known Device being revoked or blocked.
+    /// Returns how `connection`'s active session authenticated at `hello`. Needed by trust
+    /// administration (`ai/context/protocol/security.md`'s "Developer authentication") to exempt a
+    /// `kDeveloperToken` session from clientId-scoped disconnection even when its self-declared
+    /// clientId happens to match a Known Device being revoked or blocked.
     /// @param connection Connection to query.
-    /// @return `false` for a connection with no active session, for a connection that does not own
-    ///     the active session, and for an active session admitted by any other means.
-    [[nodiscard]] bool IsDeveloperAuthenticated(ConnectionId connection) const;
+    /// @return The active session's auth method, or no value when `connection` holds no active
+    ///     session.
+    [[nodiscard]] std::optional<SessionAuthMethod> AuthMethodForConnection(ConnectionId connection) const;
 
 private:
     /// Invalidates the active session when owned by `connection`.
@@ -151,9 +150,8 @@ private:
     /// Message-type allowlist of the active session.
     std::optional<SessionTrustTier> activeTrustTier_;
 
-    /// Whether the active session was admitted via the `one_time_local_token` developer-
-    /// authentication provider.
-    std::optional<bool> activeIsDeveloperAuthenticated_;
+    /// How the active session authenticated at `hello`.
+    std::optional<SessionAuthMethod> activeAuthMethod_;
 };
 
 }  // namespace dovahlink::application
