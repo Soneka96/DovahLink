@@ -11,6 +11,7 @@
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": true,
         "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/vcpkg_installed",
         "CMAKE_CXX_COMPILER": "cl.exe"
       },
       "condition": {
