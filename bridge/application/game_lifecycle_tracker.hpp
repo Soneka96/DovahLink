@@ -1,37 +1,12 @@
 #pragma once
 
+#include "shared/enums.hpp"
+
 #include <functional>
 #include <optional>
 #include <string>
 
 namespace dovahlink::application {
-
-/// Lifecycle state of the currently tracked Skyrim play context.
-enum class LifecycleState {
-    /// No play context is active: the main menu, or before any game has loaded.
-    kNoContext,
-    /// A load or new-game attempt is in progress; no context is active yet.
-    kLoading,
-    /// A play context is active and current.
-    kActive,
-};
-
-/// Raw Skyrim/SKSE lifecycle signals recognized by GameLifecycleTracker.
-enum class LifecycleEvent {
-    /// SKSE's serialization revert callback: unconditional teardown of any
-    /// current runtime game state. Fires before every load and new game, not
-    /// only a genuine return to the main menu.
-    kRevert,
-    /// SKSE::MessagingInterface::kPreLoadGame: a save has been selected but
-    /// not yet loaded.
-    kPreLoadGame,
-    /// SKSE::MessagingInterface::kPostLoadGame carrying a `true` success value.
-    kPostLoadGameSuccess,
-    /// SKSE::MessagingInterface::kPostLoadGame carrying a `false` success value.
-    kPostLoadGameFailure,
-    /// SKSE::MessagingInterface::kNewGame.
-    kNewGame,
-};
 
 /// Generates a fresh opaque play-context identifier, or no value on failure.
 using PlayContextIdGenerator = std::function<std::optional<std::string>()>;

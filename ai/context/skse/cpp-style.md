@@ -16,18 +16,40 @@
 - Per `ai/context/common.md`'s file-organization rule, a small result/outcome value type is not
   automatically "inseparable" merely because it is currently returned by only one method: it still
   gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is
-  consolidated into `enums.hpp`. "Inseparable" means genuine structural coupling a file boundary
-  cannot express, such as a `friend`-only RAII helper that manipulates its owner's private state:
-  `TokenStore::Reservation` and `SessionManager::Lease` are the two carve-outs in this codebase
-  today, and they stay nested for that reason. A plain data-only result struct such as
-  `PairingSession`'s `StartChallengeResult` has no such coupling and does not qualify.
-- Two narrow exceptions to that rule, per `ai/context/common.md`'s shared file-organization rule,
-  apply per module directory (`bridge/application/`, `bridge/game_state/`, `bridge/protocol/`,
-  `bridge/security/`, `bridge/transport/`, `bridge/plugin/`) -- never shared across module
-  directories: every enum for that module belongs in that module's `enums.hpp`, and every small
-  cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
-  `constants.hpp`. Within either file, group entries by the area they belong to, each preceded by a
-  `// ---- <Area> ----` comment banner.
+  consolidated into `bridge/shared/enums.hpp`. "Inseparable" means genuine structural coupling a
+  file boundary cannot express, such as a `friend`-only RAII helper that manipulates its owner's
+  private state: `TokenStore::Reservation` and `SessionManager::Lease` are the two carve-outs in
+  this codebase today, and they stay nested for that reason. A plain data-only result struct such
+  as `PairingSession`'s `StartChallengeResult` has no such coupling and does not qualify.
+- Every enum in `bridge/` is a single Bridge-wide exception to the file-organization rule, per
+  `ai/context/common.md`'s "not a repository-wide dumping ground" -- `bridge/` is one compilation
+  unit/project (one CMake target), not several, so the module subdirectories
+  (`bridge/application/`, `bridge/game_state/`, `bridge/protocol/`, `bridge/security/`,
+  `bridge/transport/`, `bridge/plugin/`) are not separate packages the way, for example, the
+  Flutter app and the SDK are for `ai/context/dart/dart-style.md`'s per-package `enums.dart` rule;
+  this mirrors that same rule at the correct granularity for this language. Every enum belongs in
+  `bridge/shared/enums.hpp`, grouped into sections by conceptual owner (`Application`, `Security`,
+  `Transport`, `Protocol`, and so on as new areas are added), each preceded by a
+  `// ---- <Area> ----` comment banner; a section may nest finer sub-banners of its own where that
+  adds real information (for example Security's `Developer token`/`Pairing`/`Known device`/`Factory
+  reset` groupings). A nested enum that exists purely as a scoped selector for its own owning
+  type's public API (for example `LoopbackListener::IpVersion`) is not required to move: it is not
+  a top-level Bridge enum declaration, the same way a nested carve-out type is not subject to the
+  one-type-per-file default above. A test-file-local enum used only for that test file's own
+  internal parametrization (for example `coordinator_failure_test.cpp`'s `ShutdownFailureStage`)
+  is out of scope for the same reason: it is test scaffolding, not a production Bridge
+  declaration. Centralizing every enum's *declaration* in one file does not loosen
+  `ai/context/skse/architecture.md`'s dependency-edge rules: a module may still only use enum
+  concepts from domains it is already allowed to depend on (for example `bridge/transport/` must
+  not start depending on a `bridge/security/`-owned enum merely because it is easier to reach from
+  one shared header). This is enforced by reviewing usage sites, not by file structure -- C++ has
+  no per-symbol include restriction. `bridge/shared/` holds only `enums.hpp` for now; it is not a
+  general-purpose utilities location, and adding anything else there needs its own maintainer
+  decision.
+- Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
+  own `constants.hpp`, per module directory as listed above -- never shared across module
+  directories, and not consolidated bridge-wide like enums are. Group entries within it by the
+  area they belong to, each preceded by a `// ---- <Area> ----` comment banner.
 - Keep game-runtime types out of neutral application and protocol headers.
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.

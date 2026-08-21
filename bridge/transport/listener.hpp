@@ -1,5 +1,7 @@
 #pragma once
 
+#include "shared/enums.hpp"
+
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -8,20 +10,6 @@
 #include <expected>
 
 namespace dovahlink::transport {
-
-/// Identifies listener setup failures.
-enum class ListenerError {
-    /// The loopback address could not be opened, bound, or started.
-    kBindFailed,
-};
-
-/// Identifies failures while accepting or validating a connection.
-enum class AcceptError {
-    /// The TCP accept operation failed.
-    kAcceptFailed,
-    /// The peer was not confirmed to be a loopback address.
-    kNonLoopbackPeerRejected,
-};
 
 /// Returns whether an address is allowed for the loopback-only listener.
 [[nodiscard]] bool IsAcceptablePeerAddress(const boost::asio::ip::address& address);

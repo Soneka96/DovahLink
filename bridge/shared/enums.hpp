@@ -1,6 +1,76 @@
 #pragma once
 
+namespace dovahlink::application {
+
+// ---- Application ----
+
+/// A session's message-type allowlist, per `ai/context/protocol/security.md`'s "Hello
+/// authentication and session trust tiers".
+enum class SessionTrustTier {
+    /// Admitted without a trust credential (the `unpaired` hello auth method); allowed only the
+    /// pairing-flow messages until pairing succeeds.
+    kRestricted,
+    /// Ordinary authenticated access (developer token or a trusted device credential), or a
+    /// restricted session upgraded in place by a successful pairing confirmation.
+    kFull,
+};
+
+/// How a session authenticated at `hello`, independent of `SessionTrustTier`'s "what it may do
+/// now." Set once when the session is created and never changed afterward -- a session that
+/// started `kUnpaired` and later completes pairing on the same connection has its
+/// `SessionTrustTier` upgraded to `kFull` in place, but its `authMethod` stays `kUnpaired`.
+/// Distinguishes `kDeveloperToken` sessions, which are never treated as Known Devices
+/// (`ai/context/protocol/security.md`'s "Developer authentication"), from the other two.
+enum class SessionAuthMethod {
+    /// Admitted via the bootstrap `unpaired` hello auth method; no credential presented yet.
+    kUnpaired,
+    /// Admitted via a persisted pairing credential (`hello.auth.method` `trusted_device_credential`).
+    kTrustedDeviceCredential,
+    /// Admitted via the `one_time_local_token` developer-authentication provider.
+    kDeveloperToken,
+};
+
+/// Lifecycle state of the currently tracked Skyrim play context.
+enum class LifecycleState {
+    /// No play context is active: the main menu, or before any game has loaded.
+    kNoContext,
+    /// A load or new-game attempt is in progress; no context is active yet.
+    kLoading,
+    /// A play context is active and current.
+    kActive,
+};
+
+/// Raw Skyrim/SKSE lifecycle signals recognized by GameLifecycleTracker.
+enum class LifecycleEvent {
+    /// SKSE's serialization revert callback: unconditional teardown of any
+    /// current runtime game state. Fires before every load and new game, not
+    /// only a genuine return to the main menu.
+    kRevert,
+    /// SKSE::MessagingInterface::kPreLoadGame: a save has been selected but
+    /// not yet loaded.
+    kPreLoadGame,
+    /// SKSE::MessagingInterface::kPostLoadGame carrying a `true` success value.
+    kPostLoadGameSuccess,
+    /// SKSE::MessagingInterface::kPostLoadGame carrying a `false` success value.
+    kPostLoadGameFailure,
+    /// SKSE::MessagingInterface::kNewGame.
+    kNewGame,
+};
+
+/// Classifies a message-ID recording attempt.
+enum class MessageIdCheckResult {
+    /// The message ID was new and recorded.
+    kAccepted,
+
+    /// The message ID was already recorded for this session.
+    kReplayed,
+};
+
+}  // namespace dovahlink::application
+
 namespace dovahlink::security {
+
+// ---- Security ----
 
 // ---- Developer token ----
 
@@ -173,3 +243,58 @@ enum class FactoryResetConfirmOutcome {
 };
 
 }  // namespace dovahlink::security
+
+namespace dovahlink::transport {
+
+// ---- Transport ----
+
+/// Identifies WebSocket session operation failures.
+enum class SessionError {
+    /// The WebSocket upgrade handshake failed.
+    kHandshakeFailed,
+    /// A message could not be read.
+    kReadFailed,
+    /// A message could not be written.
+    kWriteFailed,
+    /// A binary frame was received where text is required.
+    kBinaryFrameRejected,
+    /// The inbound frame exceeded the configured size limit and must be closed
+    /// immediately rather than routed through post-decode violation handling.
+    kFrameTooLarge,
+};
+
+/// Identifies listener setup failures.
+enum class ListenerError {
+    /// The loopback address could not be opened, bound, or started.
+    kBindFailed,
+};
+
+/// Identifies failures while accepting or validating a connection.
+enum class AcceptError {
+    /// The TCP accept operation failed.
+    kAcceptFailed,
+    /// The peer was not confirmed to be a loopback address.
+    kNonLoopbackPeerRejected,
+};
+
+}  // namespace dovahlink::transport
+
+namespace dovahlink::protocol {
+
+// ---- Protocol ----
+
+/// Identifies the first input-size or JSON-shape limit violated during parsing.
+enum class BoundedJsonError {
+    /// The complete inbound frame exceeds the configured byte limit.
+    kFrameTooLarge,
+    /// The input is not valid JSON or exceeds the parser's nesting limit.
+    kInvalidJson,
+    /// A JSON string or object key exceeds the configured byte limit.
+    kStringTooLong,
+    /// A JSON array exceeds the configured item limit.
+    kArrayTooLong,
+    /// A JSON object exceeds the configured member limit.
+    kTooManyObjectMembers,
+};
+
+}  // namespace dovahlink::protocol

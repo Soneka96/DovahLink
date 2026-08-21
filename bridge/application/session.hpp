@@ -1,5 +1,7 @@
 #pragma once
 
+#include "shared/enums.hpp"
+
 #include <cstdint>
 #include <mutex>
 #include <optional>
@@ -9,17 +11,6 @@ namespace dovahlink::application {
 
 /// Opaque identifier for one transport-level connection.
 using ConnectionId = std::uint64_t;
-
-/// A session's message-type allowlist, per `ai/context/protocol/security.md`'s "Hello
-/// authentication and session trust tiers".
-enum class SessionTrustTier {
-    /// Admitted without a trust credential (the `unpaired` hello auth method); allowed only the
-    /// pairing-flow messages until pairing succeeds.
-    kRestricted,
-    /// Ordinary authenticated access (developer token or a trusted device credential), or a
-    /// restricted session upgraded in place by a successful pairing confirmation.
-    kFull,
-};
 
 /// Binds one authenticated session to one connection.
 /// The manager is thread-safe and enforces the one-client limit.
