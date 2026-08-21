@@ -11,6 +11,8 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Skyrim runtime, SKSE, and CommonLib compatibility belong to the bridge alone. A Skyrim/SKSE update that leaves the bridge/client wire contract unchanged requires no client compatibility change.
 - SDK version, official app version, Bridge version, and roadmap phase are independent numbers. None is derived from another.
 - Once the Dart SDK exists, every SDK release declares an explicit supported Bridge-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
+- If an SDK version declares support for a Bridge-version range, every public API that SDK version exposes must work across that entire declared range; a range must not silently exclude a public feature (for example "supports Bridge 0.5-0.8, but Inventory requires 0.7+"). A new public SDK feature that requires a newer Bridge contract raises that SDK version's declared minimum instead of narrowing which features work within the existing declared range. Encountering the declared-supported Bridge range without full support for the declared public surface is a contract/programming defect to fix, not a condition for the SDK to hide behind runtime feature negotiation.
+- SDK↔Bridge protocol compatibility is determined by the SDK's declared supported Bridge range, defined above. Runtime Skyrim/mod feature availability is represented separately by capabilities/mod-awareness where applicable, per the Capabilities section below. Runtime capability negotiation must not be used to hide an unsupported protocol version, and protocol-version compatibility does not imply that every runtime Skyrim capability is present.
 
 ## Compatibility bootstrap
 
@@ -41,6 +43,17 @@ Before changing a message:
 2. Update the canonical protocol documentation and fixtures.
 3. Update both adapters and their contract tests in the same feature branch.
 4. If the change stays compatible, record that the existing supported range remains valid. If it does not, update the client/SDK's declared range, its implementation, fixtures, tests, and documentation together, and confirm an old unsupported client/SDK rejects the new Bridge release cleanly.
+
+## Release compatibility review
+
+At each SDK/Bridge release, review the SDK↔Bridge compatibility range: the minimum supported
+Bridge, the maximum supported Bridge, the relevant versions where protocol behavior changed since
+the last review, the full public SDK API surface, incompatible-old behavior, incompatible-new
+behavior, and user/developer guidance. Do not release with a compatibility claim that the full SDK
+surface does not satisfy. This is a release-cadence full-surface audit, additional to and distinct
+from the per-message review above — the per-message checklist assesses one contract change at a
+time, while this review confirms the declared range still holds across everything the SDK has
+shipped since the range was last validated.
 
 ## Unknown data
 
