@@ -107,10 +107,16 @@ struct Fixture {
     /// This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId = "bridge-1";
 
-    /// Creates the fixture with its test session already authenticated at the given trust tier.
-    explicit Fixture(SessionTrustTier trustTier = SessionTrustTier::kFull)
-        : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, kClientId, trustTier,
-                                                 SessionAuthMethod::kTrustedDeviceCredential)) {
+    /// Creates the fixture with its test session already authenticated at the given trust tier and
+    /// auth method. Both are required, not defaulted: most call sites want
+    /// `SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential` (a real trusted-device
+    /// session is always kFull); a handful modeling a restricted pairing session want
+    /// `SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired` (the only combination
+    /// `HandleHello` ever actually produces for a restricted session) -- a default here would let a
+    /// call site silently create the same impossible kRestricted/kTrustedDeviceCredential
+    /// combination this constructor used to hardcode (`ai/context/common.md`'s "Domain modeling").
+    explicit Fixture(SessionTrustTier trustTier, SessionAuthMethod authMethod)
+        : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, kClientId, trustTier, authMethod)) {
         REQUIRE(sessionLease.has_value());
     }
 
@@ -190,7 +196,7 @@ std::string RenameRequestMessage(const std::string& displayName, std::string mes
 
 TEST_CASE("ProcessInboundMessage answers ping with pong and resets the idle timeout",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto start = SteadyClock::now();
     fixture.timeout = ConnectionTimeoutTracker(start);
     fixture.timeout.MarkAuthenticated(start);
@@ -213,7 +219,7 @@ TEST_CASE("ProcessInboundMessage answers ping with pong and resets the idle time
 
 TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a snapshot",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto result = fixture.Process(SubscribeMessage());
 
@@ -227,7 +233,7 @@ TEST_CASE("ProcessInboundMessage routes subscribe to a subscription_ack and a sn
 
 TEST_CASE("ProcessInboundMessage with no active play context returns the unavailable character shape",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto result = fixture.Process(SubscribeMessage());
 
@@ -241,7 +247,7 @@ TEST_CASE("ProcessInboundMessage with no active play context returns the unavail
 
 TEST_CASE("ProcessInboundMessage with an active play context reads that context's character state",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto context = fixture.activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(99);
 
@@ -258,7 +264,7 @@ TEST_CASE("ProcessInboundMessage with an active play context reads that context'
 
 TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto a pong, never clientId",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
 
     auto result = fixture.Process(PingMessage());
@@ -276,7 +282,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto 
 
 TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when no context is active",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto result = fixture.Process(PingMessage());
 
@@ -296,7 +302,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto 
     // with no carve-out for these. Matches protocol/fixtures/errors/
     // error-rate-limited.json, error-replayed-message.json, and
     // error-stale-session.json, which all carry a real bridgeInstanceId.
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
 
     auto result = fixture.Process("not json at all {{{");
@@ -312,7 +318,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto 
 TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early dispatcher-level "
           "rejection when no context is active",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto result = fixture.Process("not json at all {{{");
 
@@ -325,7 +331,7 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early dispa
 TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto an early dispatcher-level "
           "rejection when generation failed at startup",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.bridgeInstanceId = std::nullopt;
 
     auto result = fixture.Process("not json at all {{{");
@@ -337,7 +343,7 @@ TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto an early di
 TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto a response when generation "
           "failed at startup",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.bridgeInstanceId = std::nullopt;
 
     auto result = fixture.Process(PingMessage());
@@ -349,7 +355,7 @@ TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto a response 
 TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId onto a HandleClientCapabilities error "
           "response too, not just ping/subscribe/snapshot_request",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     std::string message =
         R"({"messageType": "capabilities", "messageId": "message-cap-1", "sessionId": ")" +
         std::string(kSessionId) +
@@ -370,7 +376,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId onto a HandleClientCapa
 TEST_CASE("ProcessInboundMessage discards the old context's revision counter when the play context "
           "is replaced",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto firstContext = fixture.activePlayContext.Begin("context-1");
     firstContext->characterState.OnLevelCaptured(5);
 
@@ -414,7 +420,7 @@ TEST_CASE("ProcessInboundMessage discards the old context's revision counter whe
 TEST_CASE("ProcessInboundMessage falls back to the unavailable shape after the active play context "
           "is reset, without crashing",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto context = fixture.activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(99);
 
@@ -447,7 +453,7 @@ TEST_CASE("ProcessInboundMessage falls back to the unavailable shape after the a
 TEST_CASE("ProcessInboundMessage with an active play context reads that context's character state "
           "via snapshot_request too, not just subscribe",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto context = fixture.activePlayContext.Begin("context-1");
     context->characterState.OnLevelCaptured(42);
 
@@ -469,7 +475,7 @@ TEST_CASE("ProcessInboundMessage's NoContext path reports revision 1 on every in
     // message_dispatcher.cpp: each call gets a fresh throwaway
     // RevisionTracker, since there is no authoritative state to version
     // without a play context.
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto first = fixture.Process(SnapshotRequestMessage("message-snap-req-1"));
     REQUIRE(first.responses.size() == 1);
@@ -487,7 +493,7 @@ TEST_CASE("ProcessInboundMessage's NoContext path reports revision 1 on every in
 TEST_CASE("ProcessInboundMessage's resync prepends an unsolicited snapshot to a ping once the "
           "subscribed context changes",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -514,7 +520,7 @@ TEST_CASE("ProcessInboundMessage's resync prepends an unsolicited snapshot to a 
 
 TEST_CASE("ProcessInboundMessage's resync does not fire for a connection that never subscribed",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
 
     fixture.activePlayContext.Begin("context-2");
@@ -527,7 +533,7 @@ TEST_CASE("ProcessInboundMessage's resync does not fire for a connection that ne
 TEST_CASE("ProcessInboundMessage's resync does not re-fire for a later message against the same "
           "unchanged context",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -542,7 +548,7 @@ TEST_CASE("ProcessInboundMessage's resync does not re-fire for a later message a
 TEST_CASE("ProcessInboundMessage's resync survives two context changes with no message processed "
           "in between, comparing against the original remembered context",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -562,7 +568,7 @@ TEST_CASE("ProcessInboundMessage's resync survives two context changes with no m
 TEST_CASE("ProcessInboundMessage's resync fires exactly once even when the triggering message is "
           "itself a re-subscribe",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto firstSubscribe = fixture.Process(SubscribeMessage());
     REQUIRE(firstSubscribe.responses.size() == 2);
@@ -583,7 +589,7 @@ TEST_CASE("ProcessInboundMessage's resync fires exactly once even when the trigg
 TEST_CASE("ProcessInboundMessage's resync survives a malformed re-subscribe: the prior subscription "
           "is not cleared by a rejected request",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -610,7 +616,7 @@ TEST_CASE("ProcessInboundMessage's resync survives a malformed re-subscribe: the
 TEST_CASE("ProcessInboundMessage's resync stops after an explicit unsubscribe (an empty stateAreas "
           "list)",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -632,7 +638,7 @@ TEST_CASE("ProcessInboundMessage's resync stops after an explicit unsubscribe (a
 TEST_CASE("ProcessInboundMessage's resync also fires for a capabilities message, not just "
           "subscribe-shaped ones",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -656,7 +662,7 @@ TEST_CASE("ProcessInboundMessage's capabilities handling is unaffected by play-c
     // RevisionTracker, so it must behave identically whether or not a play
     // context is active -- proven explicitly here rather than left as an
     // unstated assumption.
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.activePlayContext.Begin("context-1");
     std::string message =
         R"({"messageType": "capabilities", "messageId": "message-cap-1", "sessionId": ")" +
@@ -671,7 +677,7 @@ TEST_CASE("ProcessInboundMessage's capabilities handling is unaffected by play-c
 
 TEST_CASE("ProcessInboundMessage accepts an empty capabilities list with no response",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     std::string message =
         R"({"messageType": "capabilities", "messageId": "message-cap-1", "sessionId": ")" +
         std::string(kSessionId) + R"(", "correlationId": null, "payload": {"capabilities": []}, )"
@@ -684,7 +690,7 @@ TEST_CASE("ProcessInboundMessage accepts an empty capabilities list with no resp
 }
 
 TEST_CASE("ProcessInboundMessage routes snapshot_request to a state_snapshot", "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto result = fixture.Process(SnapshotRequestMessage());
 
@@ -695,7 +701,7 @@ TEST_CASE("ProcessInboundMessage routes snapshot_request to a state_snapshot", "
 
 TEST_CASE("ProcessInboundMessage rejects text that is not valid JSON as malformed_message, uncorrelated",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto result = fixture.Process("not json at all {{{");
 
     CHECK_FALSE(result.closeConnection);
@@ -708,7 +714,7 @@ TEST_CASE("ProcessInboundMessage rejects text that is not valid JSON as malforme
 
 TEST_CASE("ProcessInboundMessage closes immediately on an oversized frame, with no response",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     // Larger than security::kMaxInboundFrameBytes (1 MiB); the exact
     // content doesn't matter, only the size.
     std::string oversized(1024 * 1024 + 1, 'a');
@@ -721,7 +727,7 @@ TEST_CASE("ProcessInboundMessage closes immediately on an oversized frame, with 
 
 TEST_CASE("ProcessInboundMessage rejects hello on an authenticated connection as malformed_message",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     std::string message =
         R"({"messageType": "hello", "messageId": "message-hello-2", "sessionId": null, "correlationId": null, )"
         R"("payload": {"endpoint": "client", "clientId": "client-1", )"
@@ -738,7 +744,7 @@ TEST_CASE("ProcessInboundMessage rejects hello on an authenticated connection as
 
 TEST_CASE("ProcessInboundMessage rejects a foreign sessionId as stale_session",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     std::string message =
         R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": "some-other-session", )"
         R"("correlationId": null, "payload": {}, )"
@@ -757,7 +763,7 @@ TEST_CASE("ProcessInboundMessage rejects a foreign sessionId as stale_session",
 }
 
 TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto first = fixture.Process(PingMessage("message-ping-1"));
     REQUIRE(first.responses.size() == 1);
     REQUIRE(first.responses[0].messageType == "pong");
@@ -776,7 +782,7 @@ TEST_CASE("ProcessInboundMessage rejects a replayed messageId", "[application][m
 
 TEST_CASE("ProcessInboundMessage counts unique, replayed, and malformed messages toward the session cap",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     fixture.receivedMessageCount = dovahlink::security::kMaxMessagesPerSession - 4;
 
     auto unique = fixture.Process(PingMessage("message-ping-1"));
@@ -811,7 +817,7 @@ TEST_CASE("ProcessInboundMessage counts unique, replayed, and malformed messages
 
 TEST_CASE("ProcessInboundMessage rejects the 101st message within a second as rate_limited",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto now = SteadyClock::now();
     for (int i = 0; i < 100; ++i) {
         auto result = fixture.Process(PingMessage("message-ping-" + std::to_string(i)), now);
@@ -834,7 +840,7 @@ TEST_CASE("ProcessInboundMessage rejects the 101st message within a second as ra
 
 TEST_CASE("ProcessInboundMessage closes the connection on the 3rd protocol violation within 30 seconds",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto now = SteadyClock::now();
 
     auto first = fixture.Process("not json {{{", now);
@@ -849,7 +855,7 @@ TEST_CASE("ProcessInboundMessage closes the connection on the 3rd protocol viola
 TEST_CASE("ProcessInboundMessage closes with no response once the connection's timeout window "
           "has already elapsed, even for an otherwise-valid message",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto start = SteadyClock::now();
     fixture.timeout = ConnectionTimeoutTracker(start);
     fixture.timeout.MarkAuthenticated(start);
@@ -876,7 +882,7 @@ TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed 
     // client spamming malformed or replayed traffic keeps a raw I/O-activity timer perpetually
     // reset without ever doing anything genuine; RecordActivity's placement after the replay/rate/
     // allowlist checks in ProcessInboundMessage (not before) is what stops that from working here.
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto start = SteadyClock::now();
     fixture.timeout = ConnectionTimeoutTracker(start);
     fixture.timeout.MarkAuthenticated(start);
@@ -915,7 +921,7 @@ TEST_CASE("ProcessInboundMessage's idle deadline survives a stream of malformed 
 TEST_CASE("ProcessInboundMessage still processes an otherwise-valid message just before the "
           "timeout deadline",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto start = SteadyClock::now();
     fixture.timeout = ConnectionTimeoutTracker(start);
     fixture.timeout.MarkAuthenticated(start);
@@ -937,7 +943,7 @@ TEST_CASE("ProcessInboundMessage counts a handler-produced error as a protocol v
     // for an unregistered state area), proving FromHandlerResponse's
     // "was this an error" inference actually feeds the same violation
     // counter, not just Reject()'s dispatcher-level path.
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     auto now = SteadyClock::now();
     auto unknownAreaRequest = [](std::string messageId) {
         return R"({"messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" +
@@ -962,7 +968,7 @@ TEST_CASE("ProcessInboundMessage counts a handler-produced error as a protocol v
 TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing messages but rejects "
           "subscribe and snapshot_request",
           "[application][message_dispatcher]") {
-    Fixture fixture(SessionTrustTier::kRestricted);
+    Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
 
     auto pairingRequest = fixture.Process(PairingRequestMessage());
     REQUIRE(pairingRequest.responses.size() == 1);
@@ -984,7 +990,7 @@ TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing mess
 TEST_CASE("ProcessInboundMessage lets a Full session subscribe but rejects all three pairing message "
           "types",
           "[application][message_dispatcher]") {
-    Fixture fixture;  // Defaults to SessionTrustTier::kFull.
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto subscribe = fixture.Process(SubscribeMessage());
     REQUIRE(subscribe.responses.size() == 2);
@@ -1012,7 +1018,7 @@ TEST_CASE("ProcessInboundMessage lets a Full session subscribe but rejects all t
 TEST_CASE("ProcessInboundMessage lets a session upgraded to full trust by a successful pairing_ack "
           "subscribe on its very next message, with no reconnect",
           "[application][message_dispatcher]") {
-    Fixture fixture(SessionTrustTier::kRestricted);
+    Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
 
     auto pairingRequest = fixture.Process(PairingRequestMessage());
     REQUIRE(pairingRequest.responses.size() == 1);
@@ -1052,7 +1058,7 @@ TEST_CASE("ProcessInboundMessage checks the trust-tier allowlist before session 
           "disallowed-for-tier message with a foreign sessionId is malformed_message, not "
           "stale_session",
           "[application][message_dispatcher]") {
-    Fixture fixture(SessionTrustTier::kRestricted);
+    Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
     std::string message =
         R"({"messageType": "subscribe", "messageId": "message-sub-1", "sessionId": "some-other-session", )"
         R"("correlationId": null, "payload": {"stateAreas": ["character"]}, )"
@@ -1069,7 +1075,7 @@ TEST_CASE("ProcessInboundMessage checks the trust-tier allowlist before session 
 TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing_renotify and pairing_cancel but "
           "rejects them on Full",
           "[application][message_dispatcher]") {
-    Fixture restrictedFixture(SessionTrustTier::kRestricted);
+    Fixture restrictedFixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
 
     auto renotify = restrictedFixture.Process(PairingRenotifyMessage());
     REQUIRE(renotify.responses.size() == 1);
@@ -1079,7 +1085,7 @@ TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing_reno
     REQUIRE(cancel.responses.size() == 1);
     CHECK(cancel.responses[0].messageType == "pairing_outcome");
 
-    Fixture fullFixture;  // Defaults to SessionTrustTier::kFull.
+    Fixture fullFixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
 
     auto renotifyFull = fullFixture.Process(PairingRenotifyMessage());
     REQUIRE(renotifyFull.responses.size() == 1);
@@ -1100,7 +1106,7 @@ TEST_CASE("ProcessInboundMessage lets a Restricted session exchange pairing_reno
 
 TEST_CASE("ProcessInboundMessage accepts rename_request on a Full session",
           "[application][message_dispatcher]") {
-    Fixture fixture;
+    Fixture fixture(SessionTrustTier::kFull, SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(fixture.trustStore.Persist(kClientId, std::vector<std::uint8_t>{1, 2, 3, 4}, "Old Name").has_value());
 
     auto result = fixture.Process(RenameRequestMessage("New Name"));
@@ -1119,7 +1125,7 @@ TEST_CASE("ProcessInboundMessage accepts rename_request on a Full session",
 
 TEST_CASE("ProcessInboundMessage rejects rename_request on a Restricted session",
           "[application][message_dispatcher]") {
-    Fixture fixture(SessionTrustTier::kRestricted);
+    Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
 
     auto result = fixture.Process(RenameRequestMessage("New Name"));
 
@@ -1132,7 +1138,7 @@ TEST_CASE("ProcessInboundMessage rejects rename_request on a Restricted session"
 TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on pairing_renotify and "
           "pairing_cancel responses too, never clientId",
           "[application][message_dispatcher]") {
-    Fixture fixture(SessionTrustTier::kRestricted);
+    Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
     fixture.activePlayContext.Begin("context-1");
 
     auto renotify = fixture.Process(PairingRenotifyMessage());
