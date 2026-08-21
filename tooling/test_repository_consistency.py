@@ -538,6 +538,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"-disableMetrics"',
             "$env:VCPKG_ROOT = $vcpkgRoot",
             "$env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot",
+            "$env:X_VCPKG_REGISTRIES_CACHE = $registriesCacheRoot",
+            '$vcpkgExePath = Join-Path $vcpkgRoot "vcpkg.exe"',
+            '$currentVcpkgCommit = (& git -C $vcpkgRoot rev-parse HEAD)',
+            "$vcpkgAlreadyBootstrapped = $false",
+            "& $vcpkgExePath version | Out-Null",
+            "$vcpkgAlreadyBootstrapped = ($LASTEXITCODE -eq 0)",
+            "if (-not $vcpkgAlreadyBootstrapped) {",
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"pub\", \"get\")',
@@ -554,12 +561,27 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--preset\", \"windows-x64-release\")',
             'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--build\", \"--preset\", \"windows-x64-release\")',
             '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
-            '"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"',
             '"restore", "integration/DovahLinkValidation.sln"',
             '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"',
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
+
+        # dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above
+        # already builds it into the same tree this sequential script later reuses for
+        # integration-ci -- reconfiguring/rebuilding it there would be a pure duplicate, unlike in
+        # integration-ci.yml's own separate, fresh-runner job where it is not a duplicate.
+        self.assertNotIn(
+            '"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"',
+            script,
+        )
+        # Guards the assumption the removal above depends on: if this target ever gains
+        # EXCLUDE_FROM_ALL, bridge-ci's plain Debug build would stop building it and this script
+        # would need its explicit harness build back.
+        self.assertIn(
+            "add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)",
+            self._read("bridge/CMakeLists.txt"),
+        )
 
         section_positions = [
             script.index("=== tooling-ci ==="),
@@ -582,7 +604,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")'),
             script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")'),
             script.index('"--test-dir", "build/windows-x64-release", "--output-on-failure"'),
-            script.index('"--build", "--preset", "windows-x64-debug", "--target", "dovahlink_bridge_harness"'),
             script.index('"restore", "integration/DovahLinkValidation.sln"'),
             script.index('"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"'),
         ]
