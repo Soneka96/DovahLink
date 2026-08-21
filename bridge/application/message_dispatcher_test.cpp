@@ -19,6 +19,7 @@ using dovahlink::application::DispatchResult;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
+using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::SubscriptionState;
@@ -108,7 +109,8 @@ struct Fixture {
 
     /// Creates the fixture with its test session already authenticated at the given trust tier.
     explicit Fixture(SessionTrustTier trustTier = SessionTrustTier::kFull)
-        : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, kClientId, trustTier)) {
+        : sessionLease(sessions.TryCreateSession(kConnection, kSessionId, kClientId, trustTier,
+                                                 SessionAuthMethod::kTrustedDeviceCredential)) {
         REQUIRE(sessionLease.has_value());
     }
 

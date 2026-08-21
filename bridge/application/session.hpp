@@ -60,19 +60,18 @@ public:
     /// @param sessionId Fresh server-issued session identifier.
     /// @param clientId The authenticated client's identity, presented at `hello` and now owned by
     ///     this session for its lifetime.
-    /// @param trustTier The session's initial message-type allowlist; defaults to `kFull` for
-    ///     every caller that predates trust tiers (developer-token authentication).
-    /// @param authMethod How the session authenticated at `hello`; defaults to
-    ///     `kTrustedDeviceCredential` for every caller that predates this distinction. Never implies
-    ///     `trustTier`: a `kDeveloperToken` session and a `kTrustedDeviceCredential` session are both
-    ///     `kFull` but must stay distinguishable so Known Device administration
-    ///     (`ai/context/protocol/security.md`'s "Developer authentication") can exempt developer
-    ///     sessions from clientId-scoped effects.
+    /// @param trustTier The session's initial message-type allowlist. Required, not defaulted: the
+    ///     caller must state it explicitly rather than a convenience default silently selecting it
+    ///     (`ai/context/common.md`'s "Domain modeling").
+    /// @param authMethod How the session authenticated at `hello`. Required, not defaulted, for the
+    ///     same reason as `trustTier`. Never implies `trustTier`: a `kDeveloperToken` session and a
+    ///     `kTrustedDeviceCredential` session are both `kFull` but must stay distinguishable so
+    ///     Known Device administration (`ai/context/protocol/security.md`'s "Developer
+    ///     authentication") can exempt developer sessions from clientId-scoped effects.
     /// @return An ownership lease when no active session existed.
-    [[nodiscard]] std::optional<Lease> TryCreateSession(
-        ConnectionId connection, const std::string& sessionId, std::string clientId,
-        SessionTrustTier trustTier = SessionTrustTier::kFull,
-        SessionAuthMethod authMethod = SessionAuthMethod::kTrustedDeviceCredential);
+    [[nodiscard]] std::optional<Lease> TryCreateSession(ConnectionId connection, const std::string& sessionId,
+                                                          std::string clientId, SessionTrustTier trustTier,
+                                                          SessionAuthMethod authMethod);
 
     /// Checks whether a session belongs to a connection.
     /// @param sessionId Session identifier presented by the client.

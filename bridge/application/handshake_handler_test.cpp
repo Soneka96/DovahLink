@@ -21,6 +21,7 @@ using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
+using dovahlink::application::SessionTrustTier;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
@@ -953,7 +954,9 @@ TEST_CASE("rate-limited handshakes do not extend the failed-attempt window",
 TEST_CASE("HandleHello rejects a second connection while a session is already active",
           "[application][handshake_handler]") {
     SessionManager sessions;
-    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session", "existing-client");
+    auto existingLease = sessions.TryCreateSession(/*connection=*/1, "existing-session", "existing-client",
+                                                    SessionTrustTier::kFull,
+                                                    SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(existingLease.has_value());
 
     TokenStore tokenStore(ValidTokenBytes());

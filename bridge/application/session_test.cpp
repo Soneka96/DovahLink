@@ -32,7 +32,8 @@ const std::string kClientTwo = "client-2";
 
 TEST_CASE("TryCreateSession succeeds when no session is active", "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 }
@@ -40,9 +41,11 @@ TEST_CASE("TryCreateSession succeeds when no session is active", "[application][
 TEST_CASE("TryCreateSession fails while a session is already active, even for a different connection",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
-    CHECK_FALSE(sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo).has_value());
+    CHECK_FALSE(sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                          SessionAuthMethod::kTrustedDeviceCredential).has_value());
 }
 
 TEST_CASE("TryCreateSession fails even when re-called by the connection that already owns the session",
@@ -50,16 +53,19 @@ TEST_CASE("TryCreateSession fails even when re-called by the connection that alr
     // A connection gets exactly one session for its lifetime; a second call is caller
     // misuse, not a refresh, and must not silently succeed or replace the existing ID.
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
-    CHECK_FALSE(sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo).has_value());
+    CHECK_FALSE(sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                          SessionAuthMethod::kTrustedDeviceCredential).has_value());
     CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 }
 
 TEST_CASE("IsValidForConnection is true for the owning connection and correct session ID",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 }
@@ -67,7 +73,8 @@ TEST_CASE("IsValidForConnection is true for the owning connection and correct se
 TEST_CASE("IsValidForConnection is false for a foreign connection presenting the active session ID",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     // kConnectionB never authenticated, but presents kConnectionA's real session ID.
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionB));
@@ -76,7 +83,8 @@ TEST_CASE("IsValidForConnection is false for a foreign connection presenting the
 TEST_CASE("IsValidForConnection is false for an unrecognized session ID from the owning connection",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     CHECK_FALSE(sessions.IsValidForConnection("not-the-real-session-id", kConnectionA));
 }
@@ -88,7 +96,8 @@ TEST_CASE("IsValidForConnection is false when no session is active", "[applicati
 
 TEST_CASE("destroying a lease invalidates its session", "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     lease.reset();
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
@@ -97,11 +106,13 @@ TEST_CASE("destroying a lease invalidates its session", "[application][session]"
 TEST_CASE("the same connection can create a fresh session after its prior one is invalidated",
           "[application][session]") {
     SessionManager sessions;
-    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
-    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
     CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionA));
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
@@ -116,12 +127,14 @@ TEST_CASE("the same connection can create a fresh session after its prior one is
 TEST_CASE("a reconnect can create a fresh session after the prior one is invalidated",
           "[application][session]") {
     SessionManager sessions;
-    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
     // A different connection (the reconnect) can now claim the freed one-client slot.
-    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
     CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
     // The old session ID is no longer valid for anyone, including its original connection.
@@ -131,28 +144,33 @@ TEST_CASE("a reconnect can create a fresh session after the prior one is invalid
 TEST_CASE("InvalidateAll clears the active session regardless of which connection holds it",
           "[application][session]") {
     SessionManager sessions;
-    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     sessions.InvalidateAll();
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
-    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
 }
 
 TEST_CASE("InvalidateAll is safe to call when no session is active", "[application][session]") {
     SessionManager sessions;
     sessions.InvalidateAll();
-    CHECK(sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne).has_value());
+    CHECK(sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                    SessionAuthMethod::kTrustedDeviceCredential).has_value());
 }
 
 TEST_CASE("a stale lease cannot invalidate a replacement session on the same connection",
           "[application][session]") {
     SessionManager sessions;
-    auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(staleLease.has_value());
     sessions.InvalidateAll();
 
-    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                      SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(replacementLease.has_value());
     staleLease.reset();
 
@@ -167,7 +185,8 @@ TEST_CASE("a stale lease cannot invalidate a replacement session on the same con
 
 TEST_CASE("moving a lease transfers session ownership", "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     std::optional<SessionManager::Lease> moved{std::move(*lease)};
@@ -181,8 +200,10 @@ TEST_CASE("moving a lease transfers session ownership", "[application][session]"
 TEST_CASE("move-assigning a lease invalidates its previously owned session", "[application][session]") {
     SessionManager firstSessions;
     SessionManager secondSessions;
-    auto firstLease = firstSessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    auto secondLease = secondSessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo);
+    auto firstLease = firstSessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                     SessionAuthMethod::kTrustedDeviceCredential);
+    auto secondLease = secondSessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                       SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     REQUIRE(secondLease.has_value());
 
@@ -199,7 +220,8 @@ TEST_CASE("move-assigning a lease invalidates its previously owned session", "[a
 TEST_CASE("ClientIdForConnection returns the authenticated client for the owning connection",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     auto clientId = sessions.ClientIdForConnection(kConnectionA);
@@ -216,7 +238,8 @@ TEST_CASE("ClientIdForConnection returns no value when no session is active",
 TEST_CASE("ClientIdForConnection returns no value for a connection that does not own the active session",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     // kConnectionB never authenticated; it must not resolve kConnectionA's client identity.
@@ -226,7 +249,8 @@ TEST_CASE("ClientIdForConnection returns no value for a connection that does not
 TEST_CASE("ClientIdForConnection is cleared once the owning lease is released",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     lease.reset();
 
@@ -235,7 +259,8 @@ TEST_CASE("ClientIdForConnection is cleared once the owning lease is released",
 
 TEST_CASE("ClientIdForConnection is cleared by InvalidateAll", "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     sessions.InvalidateAll();
 
@@ -245,11 +270,13 @@ TEST_CASE("ClientIdForConnection is cleared by InvalidateAll", "[application][se
 TEST_CASE("ClientIdForConnection reports the new session's client after a reconnect replaces the old one",
           "[application][session]") {
     SessionManager sessions;
-    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
-    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
 
     auto clientId = sessions.ClientIdForConnection(kConnectionB);
@@ -258,18 +285,11 @@ TEST_CASE("ClientIdForConnection reports the new session's client after a reconn
     CHECK_FALSE(sessions.ClientIdForConnection(kConnectionA).has_value());
 }
 
-TEST_CASE("TryCreateSession defaults to kFull trust for callers that predate trust tiers",
-          "[application][session]") {
-    SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(lease.has_value());
-    CHECK(sessions.IsFullyTrusted(kConnectionA));
-}
-
 TEST_CASE("TryCreateSession honors an explicit kRestricted trust tier", "[application][session]") {
     SessionManager sessions;
     auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
 }
@@ -278,7 +298,8 @@ TEST_CASE("UpgradeToFullTrust flips the active session's owning connection to kF
           "[application][session]") {
     SessionManager sessions;
     auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
@@ -290,7 +311,8 @@ TEST_CASE("UpgradeToFullTrust is a no-op for a connection that does not own the 
           "[application][session]") {
     SessionManager sessions;
     auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionB, kSessionOne);
@@ -304,7 +326,8 @@ TEST_CASE("UpgradeToFullTrust is a no-op for the right connection presenting the
     // has, proven here because UpgradeToFullTrust must check both, not just connection.
     SessionManager sessions;
     auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionTwo);
@@ -328,12 +351,14 @@ TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on th
     // unrelated replacement session.
     SessionManager sessions;
     auto staleLease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(staleLease.has_value());
     staleLease.reset();
 
     auto replacementLease =
-        sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(replacementLease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
@@ -343,7 +368,8 @@ TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on th
 
 TEST_CASE("UpgradeToFullTrust on an already-kFull session leaves it kFull", "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
@@ -355,7 +381,8 @@ TEST_CASE("UpgradeToFullTrust does not change the session's identifier or client
           "[application][session]") {
     SessionManager sessions;
     auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
@@ -374,21 +401,24 @@ TEST_CASE("IsFullyTrusted is false when no session is active", "[application][se
 TEST_CASE("IsFullyTrusted is false for a connection that does not own the active kFull session",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionB));
 }
 
-TEST_CASE("a session created after a restricted one is invalidated starts kFull by default",
+TEST_CASE("a session created after a restricted one is invalidated does not inherit its trust tier",
           "[application][session]") {
     SessionManager sessions;
     auto firstLease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
+        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+                                  SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
-    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
     CHECK(sessions.IsFullyTrusted(kConnectionA));
 }
@@ -412,7 +442,8 @@ TEST_CASE("exactly one concurrent TryCreateSession attempt succeeds", "[applicat
             while (!go.load(std::memory_order_acquire)) {
             }
             auto lease = sessions.TryCreateSession(static_cast<ConnectionId>(i), "session-" + std::to_string(i),
-                                                   "client-" + std::to_string(i));
+                                                   "client-" + std::to_string(i), SessionTrustTier::kFull,
+                                                   SessionAuthMethod::kTrustedDeviceCredential);
             if (lease.has_value()) {
                 successCount.fetch_add(1, std::memory_order_relaxed);
             }
@@ -431,17 +462,6 @@ TEST_CASE("exactly one concurrent TryCreateSession attempt succeeds", "[applicat
     }
 
     CHECK(successCount.load() == 1);
-}
-
-TEST_CASE("TryCreateSession defaults to kTrustedDeviceCredential for callers that predate the "
-          "distinction",
-          "[application][session]") {
-    SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(lease.has_value());
-    auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
-    REQUIRE(authMethod.has_value());
-    CHECK(*authMethod == SessionAuthMethod::kTrustedDeviceCredential);
 }
 
 TEST_CASE("TryCreateSession honors an explicit kDeveloperToken session", "[application][session]") {
@@ -508,7 +528,8 @@ TEST_CASE("a session created after a kDeveloperToken one is invalidated defaults
     REQUIRE(firstLease.has_value());
     firstLease.reset();
 
-    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    auto secondLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(secondLease.has_value());
     auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
     REQUIRE(authMethod.has_value());
@@ -572,7 +593,8 @@ TEST_CASE("SessionForConnection returns no value when no session is active", "[a
 TEST_CASE("SessionForConnection returns no value for a connection that does not own the active session",
           "[application][session]") {
     SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                           SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
     CHECK_FALSE(sessions.SessionForConnection(kConnectionB).has_value());
 }
