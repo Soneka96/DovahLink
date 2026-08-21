@@ -1,16 +1,13 @@
 #pragma once
 
+#include "application/active_session.hpp"
 #include "shared/enums.hpp"
 
-#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
 
 namespace dovahlink::application {
-
-/// Opaque identifier for one transport-level connection.
-using ConnectionId = std::uint64_t;
 
 /// Binds one authenticated session to one connection.
 /// The manager is thread-safe and enforces the one-client limit.
