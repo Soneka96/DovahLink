@@ -30,9 +30,14 @@ older Windows runtimes during initialization.
 | Build tool | Ninja 1.13.2 | Latest stable release at the time this baseline was recorded. |
 | Package manager | vcpkg, manifest mode | Builtin baseline pinned below; classic mode is not used. |
 
-`.github/workflows/bridge-ci.yml` installs CMake `4.4.2` and Ninja `1.13.2` exactly via Chocolatey
-on `windows-2022`, and sets up the MSVC 2022 developer environment before configuring. A local
-dev machine should match these same versions for a reproducible build.
+`.github/workflows/bridge-ci.yml` and `.github/workflows/integration-ci.yml` install CMake `4.4.2`
+from a pinned direct download of Kitware's official GitHub release, verify Ninja `1.13.2` is
+already present on `windows-2022` (the image ships that exact version, so nothing installs it), and
+set up the MSVC 2022 developer environment before configuring. A local dev machine should match
+these same versions for a reproducible build. Both workflows also cache the checked-out and
+bootstrapped vcpkg tooling and the checked-out colorglass registry (see "Dependency baselines"
+below), each keyed on its own pinned commit, so a normal CI run does not repeatedly re-fetch either
+from GitHub or GitLab.
 
 Visual Studio 2022 installations with the Desktop development with C++ workload bundle CMake,
 Ninja, `vcvarsall.bat`, and vcpkg, but do not place all of them on `PATH` by default.
