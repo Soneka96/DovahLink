@@ -14,9 +14,10 @@ allowing delivery pressure to block Skyrim.
 ### Scope and behavior
 
 - Replace the Phase 1 request/response polling loop for the character state area with
-  full-duplex asynchronous delivery (snapshot + events). This governs live state-area delivery
-  only; correlated request/response messages (pairing, rename, subscribe, snapshot_request, and
-  future control operations) remain part of the protocol and are not being removed.
+  full-duplex asynchronous Snapshot-mode delivery. Incremental Event-mode delivery remains outside
+  the production character domain in this phase and is introduced only by later domains that
+  define it as their canonical live-delivery mode. Correlated request/response messages remain
+  part of the protocol and are not removed.
 - Prefer native events and sample only where no trustworthy event exists.
 - Treat rate classes as maximum frequencies and publish unsolicited replaceable state only on
   authoritative change.
@@ -48,7 +49,7 @@ without stalling Skyrim.
 
 Each stateful domain declares exactly one canonical live-delivery mode, `UpdateMode`: `Snapshot` or
 `Event`. A consumer does not choose between them per subscription; the domain's protocol definition
-fixes it. `Snapshot` mode is what this phase's `character` state area already implements: every
+fixes it. `Snapshot` mode is this phase's chosen production mode for the `character` state area: every
 delivered update is complete state, coalesced to latest-value under pressure, per the acceptance
 criteria above. `Event`-mode domains (not implemented by this phase) still begin from an
 authoritative snapshot for initial synchronization and reconnect/gap recovery; only steady-state
@@ -80,3 +81,19 @@ that buffered recovery attempt and obtains another authoritative snapshot rather
 unbounded growth or partially trusting incomplete buffered state. The numerical capacity is an
 implementation/profiling decision, consistent with this document's existing guidance to select
 queue capacities from profiling rather than fixing speculative values.
+
+### Event-mode proof
+
+The generic Event-mode synchronization machinery — initial synchronization from an authoritative
+snapshot, ordered apply, duplicate/stale rejection, gap detection, recovery buffering (including a
+later authoritative snapshot superseding already-buffered events), bounded recovery buffering, and
+recovery through the applicable bounded reconnect behavior when a recovery snapshot request times
+out or fails — is implemented and proven by focused automated tests in this phase, exercising the
+same generic engine every future Event-mode domain will use. This does not require or introduce a
+production Event-mode game domain: no Inventory, Quest, or other gameplay domain is pulled forward
+into this phase to provide that proof, and no permanent public test-only domain (for example a
+`TestDomain`/`TestCounter`) is added to the protocol. Test coverage instead uses existing protocol
+infrastructure — the already-generic `state_event`/`state_snapshot` wire messages and reusable test
+fixtures — the same way this phase's existing duplicate/stale/gap fixtures already do. The
+production `character` state area remains `Snapshot`-only; this proof does not change its canonical
+mode.
