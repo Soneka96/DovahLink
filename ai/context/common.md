@@ -136,3 +136,44 @@ style guide.
 - Do not introduce deprecated or end-of-life dependencies, tools, runtimes, action versions, or APIs.
 - Prefer maintained stable releases and pinned action versions; never use floating branches such as `@main` for workflow dependencies.
 - If a maintained action has no stable replacement for a deprecated runtime, keep the current stable release only with a nearby workflow comment explaining the exception and review it when an upstream replacement is published.
+
+## Domain modeling
+
+These principles counter a specific failure mode: the quality floor above is good at preventing
+overengineering, but that same pressure can push a change toward the smallest patch instead of a
+representation that actually matches the domain. Apply these alongside the quality floor, not
+instead of it.
+
+- Model the complete current domain. Do not collapse already-distinct states into a simpler
+  representation merely because it makes the patch smaller; a smaller diff that loses a real
+  distinction the domain has today is not the smaller change, it is a different, wrong one.
+- Lifecycle-coherent state belongs together. State that forms one invariant and is changed or
+  observed together should generally be represented as one coherent domain object rather than
+  several independently-tracked parallel fields, so it either exists as one complete, coherent
+  record or does not exist -- never a state where one field is set while a related one is absent.
+- Concurrent decisions require coherent snapshots. Do not let a caller make one decision by
+  combining several independently synchronized getters; when a decision needs a consistent view of
+  mutable state, read that state once, under one lock, as one snapshot.
+- Security-significant state must be explicit. Authentication, authorization, trust, privilege, and
+  provenance must not receive convenience defaults where omitting them would silently select
+  meaningful behavior; require the caller to state them.
+- These rules do not justify speculative abstraction. Model what exists in the domain today
+  correctly; do not build for a hypothetical future requirement.
+
+## Pre-release compatibility
+
+DovahLink has no supported public release yet. The previous Nexus listing was removed because the
+Skyrim component required the DovahLink Companion App, which had no public way to be downloaded.
+
+- Until a usable Companion App is publicly downloadable, do not publish or re-publish DovahLink on
+  Nexus as a public, usable release. Private and development testing is unaffected.
+- Until DovahLink has its first supported public release, no previous PR, branch, local build, test
+  build, or other unreleased version is a compatibility target. Do not preserve an API, protocol,
+  data format, or behavior solely because an older unreleased implementation used it, and do not add
+  a compatibility shim, deprecated alias, migration, fallback protocol, or convenience default
+  merely to keep an unreleased version working. Prefer the cleanest current architecture, and update
+  Bridge, SDK, app, tests, and docs together when a contract changes.
+- "Previous DovahLink versions need to keep working" is not a valid justification on its own unless
+  a genuine supported public release already exists.
+- Once the first supported public release ships, this section's rule no longer applies as written;
+  define the real compatibility and versioning policy for the project at that point.
