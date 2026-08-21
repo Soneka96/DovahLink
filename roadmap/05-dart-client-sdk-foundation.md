@@ -9,7 +9,11 @@
 `ClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
 `ai/context/sdk/persistence.md`. Bridge-version compatibility detection, reconnect, revisions,
 subscriptions, snapshots, and retiring the app's separate `features/connection/` Redux protocol
-code remain undone, so this phase is not complete.
+code remain undone, so this phase is not complete. The single inbound SDK receiver/router and
+initial per-operation retry-safety/session-requirement/timeout-class policy were similarly pulled
+forward by Phase 3.3 (`roadmap/03`), per `ai/context/sdk/architecture.md` and
+`ai/context/sdk/api-design.md`; this phase still owns extending both to the rest of the SDK's
+operations and domains.
 
 ### Outcome
 

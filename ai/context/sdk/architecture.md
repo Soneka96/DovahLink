@@ -84,3 +84,23 @@ surface is exported, per `ai/context/sdk/api-design.md`.
 
 File organization (one type per file, with the enum/constant exception) is a shared Dart-wide rule;
 see `ai/context/dart/dart-style.md`, not a restatement here.
+
+## Inbound message handling
+
+The SDK owns exactly one inbound reader over the transport's message stream; individual methods
+must not each consume "the next incoming message" as their own reply. The reader maintains a table
+of pending operations keyed by the outgoing `messageId` each generates, and matches a Bridge reply
+to its operation by the reply's `correlationId` — never by arrival order, message type, or timing.
+A message whose `correlationId` is `null` is unsolicited and is routed to the appropriate typed
+unsolicited handler or SDK surface according to its message type. It must never be consumed as the
+response to a pending operation. A message whose `correlationId` is non-null must match a pending
+operation's outgoing `messageId`; a non-null `correlationId` that matches no pending operation is a
+protocol violation, not an unsolicited message — the SDK fails closed (a typed protocol error,
+connection treated unhealthy) rather than reinterpreting it by message type or arrival timing. This
+pending-operations table does not itself require concurrent request dispatch: the SDK may keep
+requests serialized/queued internally now and still gain full correctness from correlation, with
+concurrent execution left as a later, independent decision. Every future typed domain stream
+(player state, inventory, quests, and others as they are added) is layered on this same single
+receiver; it must not grow into one undifferentiated public stream — see
+`ai/context/sdk/api-design.md`'s curated-exports rule for how domain-specific surfaces stay
+separate.

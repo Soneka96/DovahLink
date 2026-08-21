@@ -39,6 +39,10 @@ Cover at least:
 - concurrent token-consumption attempts and concurrent proof-client attempts
 - failed-token throttling and repeated-violation connection closure
 - transport disconnect while state is changing
+- revision-gap detection entering recovery, and the domain not exposing state as synchronized until an authoritative recovery snapshot arrives
+- recovery buffering of events that arrive while a recovery snapshot is in flight, including a later snapshot superseding already-buffered events at or below its revision
+- bounded recovery buffering: abandoning a buffered recovery attempt and requesting a fresh snapshot when the bound is exceeded, rather than growing unbounded
+- a recovery snapshot request that times out or fails, causing the connection to be treated as unhealthy and recovery to proceed through the applicable bounded reconnect behavior followed by fresh synchronization
 
 ## End-to-end boundary
 
