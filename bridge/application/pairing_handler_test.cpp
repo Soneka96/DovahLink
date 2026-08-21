@@ -161,7 +161,7 @@ TEST_CASE("full pairing flow: request, confirm, ack results in a trusted, upgrad
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -450,7 +450,7 @@ TEST_CASE("HandlePairingAck reports pending_not_found once the pending credentia
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -500,7 +500,7 @@ TEST_CASE("HandlePairingAck reports pending_not_found for a mismatched credentia
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -527,7 +527,7 @@ TEST_CASE("HandlePairingAck reports pending_not_found with no pending credential
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
 
     auto response =
@@ -555,7 +555,7 @@ TEST_CASE("HandlePairingAck reports pending_not_found and persists nothing when 
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -588,7 +588,7 @@ TEST_CASE("HandlePairingAck reports already_trusted on a retry after the credent
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -628,7 +628,7 @@ TEST_CASE("HandlePairingAck reports internal_error when TrustStore::Persist fail
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -662,7 +662,7 @@ TEST_CASE("HandlePairingAck consumes the pending credential even when the subseq
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -697,7 +697,7 @@ TEST_CASE("HandlePairingAck succeeds after a full pairing restart following a pe
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     RecordingPairingNotificationSink sink;
     auto now = std::chrono::steady_clock::now();
@@ -755,7 +755,7 @@ TEST_CASE("two separate successful pairing flows issue different credentials",
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     static_cast<void>(HandlePairingAck(BuildPairingAckEnvelope(*firstOutcome->credential), kSessionId, kClientId,
                                         kConnection, pairingSession, trustStore, sessions, now));
@@ -780,7 +780,7 @@ TEST_CASE("HandlePairingAck does not upgrade to full trust when the presented cl
     REQUIRE(trustStore.Persist(kClientId, std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
 
     // No pairing_confirm ever ran on this session -- an unpaired connection simply claiming the
@@ -803,7 +803,7 @@ TEST_CASE("HandlePairingAck is rejected as malformed when the credential field i
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
 
     Envelope ackEnvelope{
@@ -992,7 +992,7 @@ TEST_CASE("HandlePairingCancel clears an owned pending credential, leaving it un
     auto trustStore = TrustStore::Load(persistence);
     SessionManager sessions;
     auto sessionLease = sessions.TryCreateSession(kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
-                                                  SessionAuthMethod::kTrustedDeviceCredential);
+                                                  SessionAuthMethod::kUnpaired);
     REQUIRE(sessionLease.has_value());
     auto ackResponse = HandlePairingAck(BuildPairingAckEnvelope(credentialHex), kSessionId, kClientId, kConnection,
                                          pairingSession, trustStore, sessions, now);
