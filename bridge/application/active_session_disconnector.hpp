@@ -15,7 +15,7 @@ public:
     /// Releases the interface without performing work.
     virtual ~ActiveSessionDisconnector() = default;
 
-    /// Force-closes the active session if its authenticated client identity is `clientId`, after
+    /// Force-closes the active session if the client identity bound to it is `clientId`, after
     /// best-effort sending it a `session_invalidated(reason)` event. A no-op when no session is
     /// active, the active session belongs to a different client, or the active session authenticated
     /// via the `one_time_local_token` developer-authentication provider -- a developer-token session

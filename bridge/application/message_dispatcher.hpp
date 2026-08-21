@@ -62,8 +62,8 @@ struct SubscriptionState {
 /// @param trustStore Persistent trust store, for `pairing_ack`'s idempotent-retry check and commit.
 /// @param pairingNotificationSink Displays a freshly generated pairing code to the user.
 /// @param bridgeInstanceId This bridge process's identity, stamped onto every response this call
-///     produces, including an early connection-hygiene rejection. The authenticated client
-///     identity is never stamped on any response here: once a session exists, it is owned state
+///     produces, including an early connection-hygiene rejection. The client identity bound to a
+///     session is never stamped on any response here: once a session exists, it is owned state
 ///     (@ref SessionManager::ClientIdForConnection), not a value repeated on the wire.
 /// @param steadyNow Current monotonic time.
 /// @param wallNow Current wall-clock time.

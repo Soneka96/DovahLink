@@ -217,7 +217,7 @@ TEST_CASE("move-assigning a lease invalidates its previously owned session", "[a
     CHECK_FALSE(secondSessions.IsValidForConnection(kSessionTwo, kConnectionB));
 }
 
-TEST_CASE("ClientIdForConnection returns the authenticated client for the owning connection",
+TEST_CASE("ClientIdForConnection returns the client identity for the owning connection",
           "[application][session]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,

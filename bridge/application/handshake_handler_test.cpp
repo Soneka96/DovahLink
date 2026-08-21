@@ -141,8 +141,8 @@ TEST_CASE("HandleHello accepts a valid token and hello", "[application][handshak
     CHECK(*result.response.correlationId == "message-hello-1");
     CHECK_FALSE(result.response.messageId.empty());
     CHECK(sessions.IsValidForConnection(*result.response.sessionId, /*connection=*/1));
-    // The authenticated client identity is now session-owned state, derived
-    // from SessionManager rather than a repeated envelope field.
+    // The client identity bound to a session is now session-owned state,
+    // derived from SessionManager rather than a repeated envelope field.
     auto sessionClientId = sessions.ClientIdForConnection(/*connection=*/1);
     REQUIRE(sessionClientId.has_value());
     CHECK(*sessionClientId == "client-1");

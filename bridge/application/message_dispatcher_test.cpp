@@ -268,7 +268,7 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId onto 
     CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
     REQUIRE(result.responses[0].playContextId.has_value());
     CHECK(*result.responses[0].playContextId == "context-1");
-    // The authenticated client identity is session-owned state
+    // The client identity bound to a session is session-owned state
     // (SessionManager::ClientIdForConnection) once a session exists, not a
     // value repeated on every response.
     CHECK_FALSE(result.responses[0].clientId.has_value());

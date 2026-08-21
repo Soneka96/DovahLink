@@ -20,7 +20,7 @@ struct ActiveSession {
     /// Server-issued session identifier.
     std::string sessionId;
 
-    /// The authenticated client's identity, presented at `hello`.
+    /// The client identity bound to this session, presented at `hello`.
     std::string clientId;
 
     /// The session's current message-type allowlist.

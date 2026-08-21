@@ -58,8 +58,8 @@ public:
     /// Attempts to create a session for a connection.
     /// @param connection Connection owning the proposed session.
     /// @param sessionId Fresh server-issued session identifier.
-    /// @param clientId The authenticated client's identity, presented at `hello` and now owned by
-    ///     this session for its lifetime.
+    /// @param clientId The client identity presented at `hello` and now owned by this session for
+    ///     its lifetime.
     /// @param trustTier The session's initial message-type allowlist. Required, not defaulted: the
     ///     caller must state it explicitly rather than a convenience default silently selecting it
     ///     (`ai/context/common.md`'s "Domain modeling").
@@ -79,9 +79,9 @@ public:
     /// @return `true` only for the active session and its owning connection.
     [[nodiscard]] bool IsValidForConnection(const std::string& sessionId, ConnectionId connection) const;
 
-    /// Returns the authenticated client identity bound to a connection's active session. The
-    /// single place the Bridge derives "which client is this" from -- callers must not accept a
-    /// competing value from elsewhere (e.g. a repeated envelope field) once a session exists.
+    /// Returns the client identity bound to a connection's active session. The single place the
+    /// Bridge derives "which client is this" from -- callers must not accept a competing value
+    /// from elsewhere (e.g. a repeated envelope field) once a session exists.
     /// @param connection Connection to query.
     /// @return The client identity, or no value when `connection` holds no active session.
     [[nodiscard]] std::optional<std::string> ClientIdForConnection(ConnectionId connection) const;
