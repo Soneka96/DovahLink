@@ -13,7 +13,10 @@ allowing delivery pressure to block Skyrim.
 
 ### Scope and behavior
 
-- Replace the Phase 1 request/response loop with full-duplex asynchronous delivery.
+- Replace the Phase 1 request/response polling loop for the character state area with
+  full-duplex asynchronous delivery (snapshot + events). This governs live state-area delivery
+  only; correlated request/response messages (pairing, rename, subscribe, snapshot_request, and
+  future control operations) remain part of the protocol and are not being removed.
 - Prefer native events and sample only where no trustworthy event exists.
 - Treat rate classes as maximum frequencies and publish unsolicited replaceable state only on
   authoritative change.
@@ -40,3 +43,40 @@ initial, recovery, and explicitly requested snapshots are delivered even when un
 unchanged unsolicited replaceable state produces no traffic; replaceable state coalesces, reliable
 events stay ordered, and a client that cannot consume them in time is explicitly disconnected
 without stalling Skyrim.
+
+### Update mode
+
+Each stateful domain declares exactly one canonical live-delivery mode, `UpdateMode`: `Snapshot` or
+`Event`. A consumer does not choose between them per subscription; the domain's protocol definition
+fixes it. `Snapshot` mode is what this phase's `character` state area already implements: every
+delivered update is complete state, coalesced to latest-value under pressure, per the acceptance
+criteria above. `Event`-mode domains (not implemented by this phase) still begin from an
+authoritative snapshot for initial synchronization and reconnect/gap recovery; only steady-state
+delivery between snapshots is ordered incremental events. This section names and fixes the concept;
+it does not implement an Event-mode domain, which remains later roadmap stages' concrete choice.
+
+### Stateful domains versus ephemeral notifications
+
+A stateful domain represents persistent, current state and participates in authoritative
+revisions, snapshots, synchronization, and recovery, per the mechanics above. An ephemeral
+notification represents that something happened rather than reconstructable current state. By
+being ephemeral, it does not participate in a state domain's authoritative revision/snapshot/
+recovery model. Ephemeral describes state/recovery semantics only; it does not imply that a
+notification is optional, unreliable, droppable, or low-priority. Delivery, ordering,
+acknowledgement, and handling guarantees are defined independently by that message's own protocol
+contract. `session_invalidated` (`roadmap/03`) remains the existing example: ephemeral in this
+state-model sense, but security-significant and authoritative when received.
+
+### Explicit snapshot requests
+
+A client may request an authoritative snapshot of a stateful domain independently of whether it
+currently has a continuous subscription to that domain. This defines synchronization semantics
+only; it does not require implementing future domains now.
+
+### Bounded recovery buffering
+
+Recovery buffering for an Event-mode domain is bounded. If the bound is exceeded, the SDK abandons
+that buffered recovery attempt and obtains another authoritative snapshot rather than allowing
+unbounded growth or partially trusting incomplete buffered state. The numerical capacity is an
+implementation/profiling decision, consistent with this document's existing guidance to select
+queue capacities from profiling rather than fixing speculative values.
