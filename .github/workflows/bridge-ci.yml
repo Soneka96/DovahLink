@@ -57,8 +57,13 @@ jobs:
         run: |
           $cmakeVersion = "4.4.2"
           $cmakeArchive = "cmake-$cmakeVersion-windows-x86_64.zip"
+          $cmakeArchiveSha256 = "e8139d85b3813bc38833142ae1940472e9a587e9b5d2718ac1804c60f4e57a64"
           $cmakeBin = "$env:RUNNER_TEMP\cmake\cmake-$cmakeVersion-windows-x86_64\bin"
           Invoke-WebRequest -Uri "https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/$cmakeArchive" -OutFile "$env:RUNNER_TEMP\$cmakeArchive"
+          $actualSha256 = (Get-FileHash -Path "$env:RUNNER_TEMP\$cmakeArchive" -Algorithm SHA256).Hash
+          if ($actualSha256 -ne $cmakeArchiveSha256) {
+            throw "CMake archive hash mismatch: expected $cmakeArchiveSha256, got $actualSha256."
+          }
           Expand-Archive -Path "$env:RUNNER_TEMP\$cmakeArchive" -DestinationPath "$env:RUNNER_TEMP\cmake" -Force
           $cmakeBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:Path = "$cmakeBin;$env:Path"

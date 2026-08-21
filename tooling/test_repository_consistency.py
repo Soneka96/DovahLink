@@ -146,6 +146,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
             'Invoke-WebRequest -Uri "https://github.com/Kitware/CMake/releases/download/v$cmakeVersion/$cmakeArchive"',
             workflow,
         )
+        self.assertIn(
+            '$cmakeArchiveSha256 = "e8139d85b3813bc38833142ae1940472e9a587e9b5d2718ac1804c60f4e57a64"',
+            workflow,
+        )
+        self.assertIn(
+            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256', workflow
+        )
+        self.assertIn("if ($actualSha256 -ne $cmakeArchiveSha256) {", workflow)
+        # A regression that swaps this for Write-Warning/Write-Host would silently downgrade the
+        # check to a no-op while leaving the `if` condition above intact -- assert the actual
+        # enforcement statement, not just the condition that guards it.
+        self.assertIn(
+            'throw "CMake archive hash mismatch: expected $cmakeArchiveSha256, got $actualSha256."',
+            workflow,
+        )
+        self.assertLess(
+            workflow.index("Get-FileHash -Path"),
+            workflow.index("Expand-Archive -Path"),
+            "the CMake archive must be hash-verified before extraction",
+        )
         self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
         self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
         self.assertIn("ninja --version", workflow)
@@ -328,6 +348,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-binary-cache"',
             workflow,
+        )
+        self.assertIn(
+            '$cmakeArchiveSha256 = "e8139d85b3813bc38833142ae1940472e9a587e9b5d2718ac1804c60f4e57a64"',
+            workflow,
+        )
+        self.assertIn(
+            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256', workflow
+        )
+        self.assertIn("if ($actualSha256 -ne $cmakeArchiveSha256) {", workflow)
+        # A regression that swaps this for Write-Warning/Write-Host would silently downgrade the
+        # check to a no-op while leaving the `if` condition above intact -- assert the actual
+        # enforcement statement, not just the condition that guards it.
+        self.assertIn(
+            'throw "CMake archive hash mismatch: expected $cmakeArchiveSha256, got $actualSha256."',
+            workflow,
+        )
+        self.assertLess(
+            workflow.index("Get-FileHash -Path"),
+            workflow.index("Expand-Archive -Path"),
+            "the CMake archive must be hash-verified before extraction",
         )
         self.assertIn("      - name: Install pinned CMake", workflow)
         self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
