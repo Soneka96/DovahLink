@@ -563,7 +563,15 @@ This phase depends on the authoritative Bridge behavior in Phase 3.2 and uses th
 client persistence and SDK foundation already described under Phase 5. It validates the current
 SDK/client reaction to trust changes; it does not implement Bridge-side Known Device storage,
 listing, rename, block/revoke/reset operations, a complete administration UI/API, LAN trust, or
-hardware/device attestation.
+hardware/device attestation. Phase 3.3 also pulls forward the single inbound SDK receiver/router
+that the continuous-observation requirement above depends on — matching replies to pending
+operations by correlationId instead of treating the next incoming message as the reply — and
+classifies its own pending operations (timeout handling, reconnect revalidation,
+administrative-invalidation interruption) using the retry-safety/session-requirement/timeout-class
+model. Both the receiver/router contract and the operation-metadata model are owned by
+`ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md` respectively; this phase
+implements and validates them for trust-state integration only and does not restate either
+contract here.
 
 ### Acceptance criteria
 
