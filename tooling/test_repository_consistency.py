@@ -100,10 +100,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(len(re.findall(r"(?m)^\s*permissions:", workflow)), 1)
 
         self.assertEqual(len(re.findall(r"uses: actions/checkout@", workflow)), 1)
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
+        checkout = self._yaml_block(
+            workflow,
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+        )
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v6\n"
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -159,7 +162,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure Debug"),
         )
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
-        self.assertIn("uses: actions/cache@v5", workflow)
+        self.assertIn("uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", workflow)
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
         self.assertIn("hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')", workflow)
@@ -181,7 +184,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("if: failure()", workflow)
-        self.assertIn("uses: actions/upload-artifact@v6", workflow)
+        self.assertIn("uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6", workflow)
         self.assertIn(
             "Maintained stable release; no stable Node 24 replacement is available yet.",
             workflow,
@@ -216,10 +219,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         permissions = self._yaml_block(workflow, "permissions:")
         self.assertEqual(permissions, "permissions:\n  contents: read")
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
+        checkout = self._yaml_block(
+            workflow,
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+        )
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v6\n"
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -232,7 +238,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("uses: subosito/flutter-action@v2", workflow)
+        self.assertIn("uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2", workflow)
         self.assertIn("channel: stable", workflow)
         self.assertIn("cache: true", workflow)
         step_names_and_commands = (
@@ -285,10 +291,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._yaml_block(workflow, "permissions:"),
             "permissions:\n  contents: read",
         )
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
+        checkout = self._yaml_block(
+            workflow,
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+        )
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v6\n"
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -348,10 +357,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '& "${{ runner.temp }}\\vcpkg\\bootstrap-vcpkg.bat" -disableMetrics',
             workflow,
         )
-        self.assertIn("uses: actions/setup-dotnet@v5", workflow)
+        self.assertIn("uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5", workflow)
         self.assertIn("dotnet-version: 9.0.x", workflow)
-        self.assertIn("uses: ilammy/msvc-dev-cmd@v1", workflow)
-        self.assertIn("uses: actions/cache@v5", workflow)
+        self.assertIn("uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1", workflow)
+        self.assertIn("uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", workflow)
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("run: cmake --preset windows-x64-debug", workflow)
         self.assertIn(
@@ -368,7 +377,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn('--logger "trx;LogFileName=integration.trx"', workflow)
         self.assertIn("--results-directory integration/TestResults", workflow)
-        self.assertIn("uses: actions/upload-artifact@v6", workflow)
+        self.assertIn("uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6", workflow)
         self.assertIn(
             "Maintained stable release; no stable Node 24 replacement is available yet.",
             workflow,
@@ -424,10 +433,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._yaml_block(workflow, "permissions:"),
             "permissions:\n  contents: read",
         )
-        checkout = self._yaml_block(workflow, "      - uses: actions/checkout@v6")
+        checkout = self._yaml_block(
+            workflow,
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+        )
         self.assertEqual(
             checkout,
-            "      - uses: actions/checkout@v6\n"
+            "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
             "          persist-credentials: false",
         )
@@ -440,7 +452,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("uses: actions/setup-python@v6", workflow)
+        self.assertIn("uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6", workflow)
         self.assertIn('python-version: "3.13"', workflow)
         self.assertIn('run: python -m unittest discover -s tooling -p "test_*.py"', workflow)
         self.assertNotIn("continue-on-error:", workflow)
@@ -453,10 +465,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
             common,
         )
         self.assertIn(
-            "Prefer maintained stable releases and pinned action versions",
+            "Pin every GitHub Actions `uses:` reference to the full immutable commit SHA of the "
+            "intended release",
             common,
         )
-        self.assertIn("never use floating branches such as `@main`", common)
+        self.assertIn(
+            "a version bump must replace the SHA and the comment together", common
+        )
+        self.assertIn(
+            "never use a floating branch such as `@main` or a floating version tag such as `@v5`",
+            common,
+        )
         self.assertIn(
             "no stable replacement for a deprecated runtime",
             common,
@@ -473,31 +492,53 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )
 
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
-        """Reject stale official action majors and floating workflow references."""
-        expected_versions = {
-            "actions/checkout": "v6",
-            "actions/cache": "v5",
-            "actions/setup-python": "v6",
-            "actions/setup-dotnet": "v5",
-            "actions/upload-artifact": "v6",
+        """Require every workflow action reference to be SHA-pinned with its version documented.
+
+        Every `uses:` reference must be pinned to the full 40-character commit SHA of its intended
+        release, with that release's human-readable version in an adjacent `# vN` comment -- a repo-
+        wide supply-chain hardening decision. This allowlist (require a 40-hex-char SHA) subsumes
+        the previous main/master/develop/latest denylist: none of those strings can ever match a
+        40-hex-char SHA, and unlike a denylist this also rejects any other floating tag.
+        """
+        expected_pins = {
+            "actions/checkout": ("d23441a48e516b6c34aea4fa41551a30e30af803", "v6"),
+            "actions/cache": ("caa296126883cff596d87d8935842f9db880ef25", "v5"),
+            "actions/setup-python": ("ece7cb06caefa5fff74198d8649806c4678c61a1", "v6"),
+            "actions/setup-dotnet": ("26b0ec14cb23fa6904739307f278c14f94c95bf1", "v5"),
+            "actions/upload-artifact": ("b7c566a772e6b6bfb58ed0dc250532a479d7789f", "v6"),
+            "ilammy/msvc-dev-cmd": ("0b201ec74fa43914dc39ae48a89fd1d8cb592756", "v1"),
+            "subosito/flutter-action": ("1a449444c387b1966244ae4d4f8c696479add0b2", "v2"),
         }
 
         workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
         for workflow_path in sorted(workflow_directory.glob("*.yml")):
             workflow = workflow_path.read_text(encoding="utf-8")
-            for action, version in expected_versions.items():
-                references = re.findall(
-                    rf"(?m)^\s*uses:\s*({re.escape(action)}@[^\s#]+)",
-                    workflow,
-                )
-                for reference in references:
-                    self.assertEqual(reference, f"{action}@{version}", workflow_path.name)
 
-            self.assertNotRegex(
-                workflow,
-                r"(?m)^\s*uses:\s*[^\s#]+@(main|master|develop|latest)\s*(?:#|$)",
-                workflow_path.name,
+            # Matches both the `- uses: X@Y` list-item form and the `uses: X@Y` form nested under
+            # an already-open `- name:` step -- the previous regex only matched the second form,
+            # so actions/checkout's `- uses:` lines were silently never checked by this test.
+            # `\r?$` tolerates this repo's CRLF line endings: without it, a line with no trailing
+            # comment fails to match at all (the bare `\r` sits between the SHA and `$`), which
+            # would silently drop that reference from `references` instead of failing the assert
+            # below -- this repo's workflow files are CRLF-terminated, confirmed by direct read.
+            references = re.findall(
+                r"(?m)^\s*(?:-\s*)?uses:\s*(\S+)@(\S+)[ \t]*(#.*)?\r?$", workflow
             )
+            self.assertTrue(references, workflow_path.name)
+            for action, ref, comment in references:
+                self.assertRegex(
+                    ref, r"^[0-9a-f]{40}$", f"{workflow_path.name}: {action}"
+                )
+                if action not in expected_pins:
+                    continue
+                expected_sha, expected_version = expected_pins[action]
+                self.assertEqual(ref, expected_sha, f"{workflow_path.name}: {action}")
+                # re.findall represents a non-participating optional group as "" (never None), so
+                # a missing comment lands here as a plain, readable "" != "# vN" failure below --
+                # not a crash.
+                self.assertEqual(
+                    comment.strip(), f"# {expected_version}", f"{workflow_path.name}: {action}"
+                )
 
     def test_workflow_job_level_env_never_uses_the_runner_context(self) -> None:
         """Guard against a job-level env: value referencing the runner context.
@@ -1543,7 +1584,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
         self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
-        self.assertIn("        uses: actions/cache@v5", tooling_cache)
+        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", tooling_cache)
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
@@ -1578,7 +1619,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
 
         registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
-        self.assertIn("        uses: actions/cache@v5", registries_cache)
+        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", registries_cache)
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-registries-"
@@ -1620,7 +1661,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
         self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
-        self.assertIn("        uses: actions/cache@v5", tooling_cache)
+        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", tooling_cache)
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
@@ -1648,7 +1689,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
 
         registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
-        self.assertIn("        uses: actions/cache@v5", registries_cache)
+        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", registries_cache)
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-registries-"

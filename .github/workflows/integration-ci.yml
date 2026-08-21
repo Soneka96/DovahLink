@@ -31,7 +31,7 @@ jobs:
       # checkout step and the tooling cache key below so they can never drift apart.
       VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
@@ -75,18 +75,18 @@ jobs:
 
       - name: Set up the MSVC 2022 developer environment
         # Maintained stable release; no stable Node 24 replacement is available yet.
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
 
       - name: Set up .NET 9
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: 9.0.x
 
       - name: Restore cached vcpkg tooling
         id: vcpkg-tooling-cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg
           key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}
@@ -99,7 +99,7 @@ jobs:
           & "${{ runner.temp }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
           key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
@@ -111,7 +111,7 @@ jobs:
         # miss still fetches it normally during Configure -- this is a cache, not a mirror. Keyed
         # off the config file's hash (not a hand-copied commit literal) so a baseline bump can
         # never drift out of sync with this key the way a duplicated literal could.
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg-registries-cache
           key: ${{ runner.os }}-vcpkg-registries-${{ hashFiles('bridge/vcpkg-configuration.json') }}
@@ -134,7 +134,7 @@ jobs:
 
       - name: Upload integration diagnostics
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: integration-ci-diagnostics-${{ github.run_id }}
           path: integration/TestResults/

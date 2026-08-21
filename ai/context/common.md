@@ -134,7 +134,7 @@ style guide.
 - Keep read-only behavior as the default until an action has an approved safety model.
 - Do not introduce a second implementation of a rule that belongs in a shared contract.
 - Do not introduce deprecated or end-of-life dependencies, tools, runtimes, action versions, or APIs.
-- Prefer maintained stable releases and pinned action versions; never use floating branches such as `@main` for workflow dependencies.
+- Pin every GitHub Actions `uses:` reference to the full immutable commit SHA of the intended release, with the corresponding human-readable version kept in an adjacent comment (for example `# v5`); a version bump must replace the SHA and the comment together, and never use a floating branch such as `@main` or a floating version tag such as `@v5` for workflow dependencies.
 - If a maintained action has no stable replacement for a deprecated runtime, keep the current stable release only with a nearby workflow comment explaining the exception and review it when an upstream replacement is published.
 
 ## Domain modeling
