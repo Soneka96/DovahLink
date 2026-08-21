@@ -22,6 +22,7 @@ using dovahlink::application::HandleHello;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::TrustLossAfterAdmission;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
@@ -1080,4 +1081,130 @@ TEST_CASE("HandleHello updates AuthMethodForConnection on reconnect rather than 
     auto secondAuthMethod = sessions.AuthMethodForConnection(/*connection=*/1);
     REQUIRE(secondAuthMethod.has_value());
     CHECK(*secondAuthMethod == SessionAuthMethod::kDeveloperToken);
+}
+
+TEST_CASE("TrustLossAfterAdmission reports revoked for a revoked clientId with "
+          "kTrustedDeviceCredential",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    auto reason = TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kTrustedDeviceCredential);
+
+    REQUIRE(reason.has_value());
+    CHECK(*reason == "revoked");
+}
+
+TEST_CASE("TrustLossAfterAdmission reports blocked for a blocked clientId with "
+          "kTrustedDeviceCredential",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    auto reason = TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kTrustedDeviceCredential);
+
+    REQUIRE(reason.has_value());
+    CHECK(*reason == "blocked");
+}
+
+TEST_CASE("TrustLossAfterAdmission reports blocked for a blocked clientId with kUnpaired",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    auto reason = TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kUnpaired);
+
+    REQUIRE(reason.has_value());
+    CHECK(*reason == "blocked");
+}
+
+TEST_CASE("TrustLossAfterAdmission reports no loss for a revoked clientId with kUnpaired",
+          "[application][handshake_handler]") {
+    // Revoke only applies to kUnpaired's own credential-less admission indirectly, via IsBlocked --
+    // the revoked check itself is gated to kTrustedDeviceCredential, so a revoked clientId must
+    // fall through to no loss when authMethod is kUnpaired instead.
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    CHECK_FALSE(TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kUnpaired).has_value());
+}
+
+TEST_CASE("TrustLossAfterAdmission reports no loss for a still-trusted clientId with "
+          "kTrustedDeviceCredential",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+
+    CHECK_FALSE(
+        TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kTrustedDeviceCredential).has_value());
+}
+
+TEST_CASE("TrustLossAfterAdmission reports no loss for a never-known clientId with "
+          "kTrustedDeviceCredential",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+
+    CHECK_FALSE(
+        TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kTrustedDeviceCredential).has_value());
+}
+
+TEST_CASE("TrustLossAfterAdmission reports no loss for a never-known clientId with kUnpaired",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+
+    CHECK_FALSE(TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kUnpaired).has_value());
+}
+
+TEST_CASE("TrustLossAfterAdmission is exempt for kDeveloperToken even when the clientId is blocked",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Block("client-1") == BlockOutcome::kBlocked);
+
+    CHECK_FALSE(TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kDeveloperToken).has_value());
+}
+
+TEST_CASE("TrustLossAfterAdmission is exempt for kDeveloperToken even when the clientId is revoked",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    REQUIRE(trustStore.Persist("client-1", std::vector<std::uint8_t>{1, 2, 3, 4}, std::nullopt).has_value());
+    REQUIRE(trustStore.Revoke("client-1"));
+
+    CHECK_FALSE(TrustLossAfterAdmission(trustStore, "client-1", SessionAuthMethod::kDeveloperToken).has_value());
+}
+
+TEST_CASE("HandleHello's post-admission trust recheck does not reject a still-trusted "
+          "trusted_device_credential hello",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt).has_value());
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+
+    auto hello = BuildTrustedCredentialHelloEnvelope(dovahlink::security::EncodeHex(credentialBytes));
+    auto result = HandleHello(hello, tokenStore, throttle, trustStore, credentialThrottle, sessions, 1, timeout, now);
+
+    REQUIRE(result.sessionLease.has_value());
+    REQUIRE(result.response.sessionId.has_value());
+    CHECK(sessions.IsValidForConnection(*result.response.sessionId, /*connection=*/1));
 }

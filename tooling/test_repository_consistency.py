@@ -1464,6 +1464,29 @@ class RepositoryConsistencyTests(unittest.TestCase):
             r"(?m)^DOVAHLINK_BRIDGE_TOKEN=.*\bdotnet run$",
         )
 
+    def test_handshake_handler_revalidates_trust_after_session_admission(self) -> None:
+        """Keep HandleHello's revoke/block-race closure wired after admission, not only before it."""
+        handshake_handler = self._read("bridge/application/handshake_handler.cpp")
+
+        self.assertIn("TryCreateSession(", handshake_handler)
+        self.assertIn("TrustLossAfterAdmission(", handshake_handler)
+        # Not "return HandshakeResult{": Fail() (used by every rejection, including this file's
+        # first, much earlier one) builds one of those too. ".closeConnection = false," is unique
+        # to the one real success return.
+        self.assertIn(".closeConnection = false,", handshake_handler)
+
+        try_create_session_index = handshake_handler.index("TryCreateSession(")
+        revalidation_index = handshake_handler.index("TrustLossAfterAdmission(")
+        success_index = handshake_handler.index(".closeConnection = false,")
+
+        # A revoke or block landing between the earlier trust checks and session admission is
+        # otherwise invisible to TrustAdminService's one-shot DisconnectIfClientActive call, which
+        # already ran (and found nothing) by the time TryCreateSession makes the session visible --
+        # TrustLossAfterAdmission only closes that gap if it runs after admission and before the
+        # handshake is ever declared successful.
+        self.assertLess(try_create_session_index, revalidation_index)
+        self.assertLess(revalidation_index, success_index)
+
     @classmethod
     def _roadmap_corpus(cls) -> str:
         """Read the ordered roadmap stage documents as one validation corpus."""

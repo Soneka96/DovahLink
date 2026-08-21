@@ -29,11 +29,14 @@
 
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
+using dovahlink::application::ConnectionId;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
+using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
+using dovahlink::application::SessionTrustTier;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -373,6 +376,39 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive is a no-op when no session 
     fixture.pool.Start(MakeContainedWorkRunner());
 
     fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+
+    fixture.pool.Stop();
+    fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not retroactively catch a session "
+          "admitted after it already ran",
+          "[application][bridge_worker_pool]") {
+    // Documents the structural premise HandleHello's TrustLossAfterAdmission recheck
+    // (handshake_handler.cpp) exists to close: TrustAdminService's revoke/block path calls
+    // TrustStore::Revoke/Block, then this exact DisconnectIfClientActive call, in that order. If
+    // that pair runs before HandleHello's own TryCreateSession has made a session visible here,
+    // this call finds nothing -- and, being one-shot, is never retried. This test proves that dead
+    // end is real (SessionManager itself has no notion of trust, so it would admit the session
+    // regardless); it does not exercise HandleHello or TrustLossAfterAdmission itself, and is not a
+    // substitute for handshake_handler_test.cpp's direct coverage of that function -- the true
+    // concurrent interleaving is not reproducible here or anywhere else in this suite without real
+    // thread timing or a test-only production hook, neither of which this codebase accepts for a
+    // regression test.
+    Fixture fixture;
+    std::vector<std::uint8_t> credential{1, 2, 3, 4, 5, 6, 7, 8};
+    REQUIRE(fixture.trustStore.Persist("client-1", credential, std::nullopt).has_value());
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    REQUIRE(fixture.trustStore.Authenticate("client-1", credential));
+    REQUIRE(fixture.trustStore.Revoke("client-1"));
+    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+
+    ConnectionId connection = 1;
+    auto lease = fixture.sessionManager.TryCreateSession(connection, "session-1", "client-1", SessionTrustTier::kFull,
+                                                          SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(lease.has_value());
+    CHECK(fixture.sessionManager.IsValidForConnection("session-1", connection));
 
     fixture.pool.Stop();
     fixture.pool.Join();

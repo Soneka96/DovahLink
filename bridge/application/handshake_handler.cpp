@@ -189,6 +189,14 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized", "Another client is already connected", true);
     }
 
+    // sessionLease going out of scope on the return below invalidates the session it just
+    // admitted -- see TrustLossAfterAdmission's doc comment for why this check runs here.
+    if (auto trustLoss = TrustLossAfterAdmission(trustStore, hello->clientId, authMethod); trustLoss.has_value()) {
+        std::string message =
+            *trustLoss == "blocked" ? "This device is blocked" : "This device's trust was revoked";
+        return Fail(helloEnvelope, bridgeInstanceId, std::string(*trustLoss), std::move(message), false);
+    }
+
     if (tokenReservation.has_value()) {
         tokenReservation->Commit();
     }
@@ -199,6 +207,20 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
         .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
     };
+}
+
+std::optional<std::string_view> TrustLossAfterAdmission(security::TrustStore& trustStore, const std::string& clientId,
+                                                          SessionAuthMethod authMethod) {
+    if (authMethod == SessionAuthMethod::kDeveloperToken) {
+        return std::nullopt;
+    }
+    if (trustStore.IsBlocked(clientId)) {
+        return "blocked";
+    }
+    if (authMethod == SessionAuthMethod::kTrustedDeviceCredential && trustStore.IsRevoked(clientId)) {
+        return "revoked";
+    }
+    return std::nullopt;
 }
 
 }  // namespace dovahlink::application
