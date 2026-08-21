@@ -22,14 +22,14 @@ namespace dovahlink::application {
 /// `BlockByShortId`/`ConfirmFactoryReset`/`ResetTrust` also cancels any pairing challenge or
 /// pending credential in progress through the injected `PairingSession`.
 ///
-/// ponytail: `RevokeByShortId`/`BlockByShortId`/`UnblockByShortId` each call `TrustStore` more
-/// than once (find-then-act); each individual call is atomic but the pair is not, so a concurrent
-/// `Persist`/`Revoke`/`Block` from an unrelated connection between them could make a reported
-/// message (client count, display name) stale by the time it prints. `TrustStore`'s own persisted
-/// state always stays internally consistent regardless -- only this service's human-readable
-/// report could rarely lag. Acceptable because this service is driven by one serialized admin
-/// operator at a time (a console command); add a lock spanning both calls if a second concurrent
-/// admin surface is ever introduced.
+/// Known limitation: `RevokeByShortId`/`BlockByShortId`/`UnblockByShortId` each call `TrustStore`
+/// more than once (find-then-act); each individual call is atomic but the pair is not, so a
+/// concurrent `Persist`/`Revoke`/`Block` from an unrelated connection between them could make a
+/// reported message (client count, display name) stale by the time it prints. `TrustStore`'s own
+/// persisted state always stays internally consistent regardless -- only this service's
+/// human-readable report could rarely lag. Acceptable because this service is driven by one
+/// serialized admin operator at a time (a console command); add a lock spanning both calls if a
+/// second concurrent admin surface is ever introduced.
 class TrustAdminService {
 public:
     /// Binds the service to the trust store it administers, the pairing session it cancels owned

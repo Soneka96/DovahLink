@@ -33,7 +33,7 @@ std::optional<std::vector<std::uint8_t>> EncryptForCurrentUser(
 
     // No CRYPTPROTECT_LOCAL_MACHINE: default per-user scope. No entropy or description: the
     // approved design does not add a second secret to manage.
-    // ponytail: this failure branch has no unit test -- per-user CryptProtectData with
+    // Untested: this failure branch has no unit test -- per-user CryptProtectData with
     // UI_FORBIDDEN only fails on profile corruption or resource exhaustion, neither reproducible
     // in-process; DecryptForCurrentUser's equivalent failure path is exercised directly instead.
     if (!CryptProtectData(&input, /*szDataDescr=*/nullptr, /*pOptionalEntropy=*/nullptr,

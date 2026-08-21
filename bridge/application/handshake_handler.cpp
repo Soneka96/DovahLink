@@ -102,8 +102,8 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope, security::T
     // A structurally invalid presented credential (not valid hex) can never match a stored one;
     // treat it as an immediate failed attempt without a store lookup, matching this codebase's
     // existing accepted precedent for Phase 1's timing-side-channel posture (see
-    // token_store.cpp's "ponytail:" comment on TryReserve). Shared by both credentialed methods
-    // below; "unpaired" has no credential to decode at all.
+    // token_store.cpp's known-limitation comment on TryReserve). Shared by both credentialed
+    // methods below; "unpaired" has no credential to decode at all.
     auto presentedBytes = [&hello]() -> std::optional<std::vector<std::uint8_t>> {
         return hello->authToken.has_value() ? security::DecodeHex(*hello->authToken)
                                              : std::optional<std::vector<std::uint8_t>>{};

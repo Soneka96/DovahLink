@@ -119,6 +119,13 @@ style guide.
   unchanged. Do not copy documentation that can drift from its source.
 - Generated code is excluded because it must not be hand-edited. Documentation coverage targets
   are checks on the intended convention, not a reason to add inaccurate or repetitive prose.
+- Do not tag a comment with the name of an AI assistant, editor plugin, or other authoring tool
+  (for example a `ponytail:` prefix marking a deliberate simplification). `AGENTS.md`'s
+  "self-contained" requirement applies to documentation vocabulary, not only to code and
+  dependencies; a marker meaningless outside one session's tooling is not a description of the
+  code. State the same tradeoff in plain language instead -- what was simplified, why it is
+  accepted, and what would change the answer (a neutral lead-in such as "Known limitation:" reads
+  the same to every future reader).
 
 ## Quality floor
 
