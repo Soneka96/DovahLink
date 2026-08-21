@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::application::ActiveSession;
 using dovahlink::application::ConnectionId;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -370,81 +371,6 @@ TEST_CASE("IsFullyTrusted is false when no session is active", "[application][se
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
 }
 
-TEST_CASE("ActiveClientId returns no value when no session is active", "[application][session]") {
-    SessionManager sessions;
-    CHECK_FALSE(sessions.ActiveClientId().has_value());
-}
-
-TEST_CASE("ActiveClientId returns the active session's client identity", "[application][session]") {
-    SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(lease.has_value());
-
-    auto clientId = sessions.ActiveClientId();
-    REQUIRE(clientId.has_value());
-    CHECK(*clientId == kClientOne);
-}
-
-TEST_CASE("ActiveClientId is cleared once the owning lease is released", "[application][session]") {
-    SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(lease.has_value());
-    lease.reset();
-
-    CHECK_FALSE(sessions.ActiveClientId().has_value());
-}
-
-TEST_CASE("ActiveClientId is cleared by InvalidateAll", "[application][session]") {
-    SessionManager sessions;
-    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(lease.has_value());
-    sessions.InvalidateAll();
-
-    CHECK_FALSE(sessions.ActiveClientId().has_value());
-}
-
-TEST_CASE("ActiveClientId reports the new session's client after a reconnect replaces the old one",
-          "[application][session]") {
-    SessionManager sessions;
-    auto firstLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(firstLease.has_value());
-    firstLease.reset();
-
-    auto secondLease = sessions.TryCreateSession(kConnectionB, kSessionTwo, kClientTwo);
-    REQUIRE(secondLease.has_value());
-
-    auto clientId = sessions.ActiveClientId();
-    REQUIRE(clientId.has_value());
-    CHECK(*clientId == kClientTwo);
-}
-
-TEST_CASE("a stale lease cannot clear ActiveClientId for a replacement session on the same connection",
-          "[application][session]") {
-    SessionManager sessions;
-    auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
-    REQUIRE(staleLease.has_value());
-    sessions.InvalidateAll();
-
-    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
-    REQUIRE(replacementLease.has_value());
-    staleLease.reset();
-
-    auto clientId = sessions.ActiveClientId();
-    REQUIRE(clientId.has_value());
-    CHECK(*clientId == kClientTwo);
-}
-
-TEST_CASE("ActiveClientId reports the client regardless of trust tier", "[application][session]") {
-    SessionManager sessions;
-    auto lease =
-        sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted);
-    REQUIRE(lease.has_value());
-
-    auto clientId = sessions.ActiveClientId();
-    REQUIRE(clientId.has_value());
-    CHECK(*clientId == kClientOne);
-}
-
 TEST_CASE("IsFullyTrusted is false for a connection that does not own the active kFull session",
           "[application][session]") {
     SessionManager sessions;
@@ -700,4 +626,78 @@ TEST_CASE("a stale lease cannot clear AuthMethodForConnection for a replacement 
     auto authMethod = sessions.AuthMethodForConnection(kConnectionA);
     REQUIRE(authMethod.has_value());
     CHECK(*authMethod == SessionAuthMethod::kDeveloperToken);
+}
+
+TEST_CASE("SessionForConnection returns no value when no session is active", "[application][session]") {
+    SessionManager sessions;
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionA).has_value());
+}
+
+TEST_CASE("SessionForConnection returns no value for a connection that does not own the active session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne);
+    REQUIRE(lease.has_value());
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionB).has_value());
+}
+
+TEST_CASE("SessionForConnection returns a coherent snapshot for a trusted-device session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(lease.has_value());
+
+    auto session = sessions.SessionForConnection(kConnectionA);
+    REQUIRE(session.has_value());
+    CHECK(session->connectionId == kConnectionA);
+    CHECK(session->sessionId == kSessionOne);
+    CHECK(session->clientId == kClientOne);
+    CHECK(session->trustTier == SessionTrustTier::kFull);
+    CHECK(session->authMethod == SessionAuthMethod::kTrustedDeviceCredential);
+}
+
+TEST_CASE("SessionForConnection returns a coherent snapshot for a developer-token session",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                            SessionAuthMethod::kDeveloperToken);
+    REQUIRE(lease.has_value());
+
+    auto session = sessions.SessionForConnection(kConnectionA);
+    REQUIRE(session.has_value());
+    CHECK(session->connectionId == kConnectionA);
+    CHECK(session->sessionId == kSessionOne);
+    CHECK(session->clientId == kClientOne);
+    CHECK(session->trustTier == SessionTrustTier::kFull);
+    CHECK(session->authMethod == SessionAuthMethod::kDeveloperToken);
+}
+
+TEST_CASE("a stale lease cannot clear or alter any field of a replacement session's coherent "
+          "snapshot on the same connection",
+          "[application][session]") {
+    // The consolidated-state regression: destroying an old, already-invalidated lease must not
+    // corrupt or clear the replacement session that now occupies the same connection, across every
+    // field together -- not just one field checked in isolation. Uses deliberately different values
+    // for every field (including a meaningful non-default SessionAuthMethod, kDeveloperToken) so a
+    // regression that leaked, cleared, or swapped any single field would be caught.
+    SessionManager sessions;
+    auto staleLease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+                                                 SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(staleLease.has_value());
+    sessions.InvalidateAll();
+
+    auto replacementLease =
+        sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted,
+                                   SessionAuthMethod::kDeveloperToken);
+    REQUIRE(replacementLease.has_value());
+    staleLease.reset();
+
+    auto session = sessions.SessionForConnection(kConnectionA);
+    REQUIRE(session.has_value());
+    CHECK(session->connectionId == kConnectionA);
+    CHECK(session->sessionId == kSessionTwo);
+    CHECK(session->clientId == kClientTwo);
+    CHECK(session->trustTier == SessionTrustTier::kRestricted);
+    CHECK(session->authMethod == SessionAuthMethod::kDeveloperToken);
 }

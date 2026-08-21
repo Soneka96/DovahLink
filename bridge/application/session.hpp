@@ -93,17 +93,9 @@ public:
     ///     connection that does not own the active session.
     [[nodiscard]] bool IsFullyTrusted(ConnectionId connection) const;
 
-    /// Returns the authenticated client identity of the active session, independent of which
-    /// connection owns it. Unlike @ref ClientIdForConnection, this does not require the caller to
-    /// already know a `ConnectionId` -- needed by a caller (trust administration) that only knows a
-    /// `clientId` and must find out whether it is the one currently connected.
-    /// @return The active session's client identity, or no value when no session is active.
-    [[nodiscard]] std::optional<std::string> ActiveClientId() const;
-
     /// Returns the identifier of the active session, independent of which connection owns it.
-    /// The session-identity counterpart of @ref ActiveClientId, needed by a caller (administrative
-    /// session invalidation) that must stamp the active session's own ID onto an outbound message
-    /// without already knowing a `ConnectionId`.
+    /// Needed by a caller (administrative session invalidation) that must stamp the active
+    /// session's own ID onto an outbound message without already knowing a `ConnectionId`.
     /// @return The active session's identifier, or no value when no session is active.
     [[nodiscard]] std::optional<std::string> ActiveSessionId() const;
 
@@ -128,6 +120,19 @@ public:
     ///     session.
     [[nodiscard]] std::optional<SessionAuthMethod> AuthMethodForConnection(ConnectionId connection) const;
 
+    /// Returns a complete, coherent snapshot of `connection`'s active session in one locked read.
+    /// The single query administrative invalidation (targeted Revoke/Block/Reset Trust disconnection
+    /// in `BridgeWorkerPool`) uses instead of separately calling `ClientIdForConnection`,
+    /// `AuthMethodForConnection`, and `ActiveSessionId` in sequence: each of those is its own lock
+    /// acquisition, so nothing outside this class's own mutex holds `activeSession_` stable across
+    /// them, and a caller that needs more than one field together must not reconstruct one from
+    /// multiple independent reads. `IsValidForConnection`, `ClientIdForConnection`, `IsFullyTrusted`,
+    /// and `AuthMethodForConnection` are themselves implemented on top of this.
+    /// @param connection Connection to query.
+    /// @return A copy of the active session's complete state, or no value when `connection` holds no
+    ///     active session.
+    [[nodiscard]] std::optional<ActiveSession> SessionForConnection(ConnectionId connection) const;
+
 private:
     /// Invalidates the active session when owned by `connection`.
     void InvalidateSession(ConnectionId connection, const std::string& sessionId) noexcept;
@@ -135,20 +140,10 @@ private:
     /// Synchronizes session ownership state.
     mutable std::mutex mutex_;
 
-    /// Connection currently holding the active session.
-    std::optional<ConnectionId> activeConnection_;
-
-    /// Identifier of the active session.
-    std::optional<std::string> activeSessionId_;
-
-    /// Authenticated client identity owned by the active session.
-    std::optional<std::string> activeClientId_;
-
-    /// Message-type allowlist of the active session.
-    std::optional<SessionTrustTier> activeTrustTier_;
-
-    /// How the active session authenticated at `hello`.
-    std::optional<SessionAuthMethod> activeAuthMethod_;
+    /// The active session's complete state, or no value when no session is active. Every related
+    /// field lives in this one optional so a session either exists as one coherent record or does
+    /// not exist -- never a state where one field is populated while a related one is absent.
+    std::optional<ActiveSession> activeSession_;
 };
 
 }  // namespace dovahlink::application

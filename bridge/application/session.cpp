@@ -39,91 +39,84 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
     ConnectionId connection, const std::string& sessionId, std::string clientId, SessionTrustTier trustTier,
     SessionAuthMethod authMethod) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeConnection_.has_value()) {
+    if (activeSession_.has_value()) {
         return std::nullopt;
     }
 
     // Complete every fallible allocation before mutating registry state so
     // admission either returns an owning lease or changes nothing.
-    std::string activeSessionId = sessionId;
     std::string leaseSessionId = sessionId;
-    activeSessionId_.emplace(std::move(activeSessionId));
-    activeClientId_.emplace(std::move(clientId));
-    activeTrustTier_ = trustTier;
-    activeAuthMethod_ = authMethod;
-    activeConnection_ = connection;
+    activeSession_ = ActiveSession{
+        .connectionId = connection,
+        .sessionId = sessionId,
+        .clientId = std::move(clientId),
+        .trustTier = trustTier,
+        .authMethod = authMethod,
+    };
     return Lease(*this, connection, std::move(leaseSessionId));
 }
 
 bool SessionManager::IsValidForConnection(const std::string& sessionId, ConnectionId connection) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!activeConnection_.has_value() || !activeSessionId_.has_value()) {
-        return false;
-    }
-    return *activeConnection_ == connection && *activeSessionId_ == sessionId;
+    auto session = SessionForConnection(connection);
+    return session.has_value() && session->sessionId == sessionId;
 }
 
 std::optional<std::string> SessionManager::ClientIdForConnection(ConnectionId connection) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
+    auto session = SessionForConnection(connection);
+    if (!session.has_value()) {
         return std::nullopt;
     }
-    return activeClientId_;
+    return session->clientId;
 }
 
 bool SessionManager::IsFullyTrusted(ConnectionId connection) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
-        return false;
-    }
-    return activeTrustTier_ == SessionTrustTier::kFull;
-}
-
-std::optional<std::string> SessionManager::ActiveClientId() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return activeClientId_;
+    auto session = SessionForConnection(connection);
+    return session.has_value() && session->trustTier == SessionTrustTier::kFull;
 }
 
 std::optional<std::string> SessionManager::ActiveSessionId() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return activeSessionId_;
+    if (!activeSession_.has_value()) {
+        return std::nullopt;
+    }
+    return activeSession_->sessionId;
 }
 
 void SessionManager::UpgradeToFullTrust(ConnectionId connection, const std::string& sessionId) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeConnection_.has_value() && activeSessionId_.has_value() && *activeConnection_ == connection &&
-        *activeSessionId_ == sessionId) {
-        activeTrustTier_ = SessionTrustTier::kFull;
+    if (activeSession_.has_value() && activeSession_->connectionId == connection &&
+        activeSession_->sessionId == sessionId) {
+        activeSession_->trustTier = SessionTrustTier::kFull;
     }
 }
 
 void SessionManager::InvalidateSession(ConnectionId connection, const std::string& sessionId) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeConnection_.has_value() && activeSessionId_.has_value() &&
-        *activeConnection_ == connection && *activeSessionId_ == sessionId) {
-        activeConnection_.reset();
-        activeSessionId_.reset();
-        activeClientId_.reset();
-        activeTrustTier_.reset();
-        activeAuthMethod_.reset();
+    if (activeSession_.has_value() && activeSession_->connectionId == connection &&
+        activeSession_->sessionId == sessionId) {
+        activeSession_.reset();
     }
 }
 
 void SessionManager::InvalidateAll() {
     std::lock_guard<std::mutex> lock(mutex_);
-    activeConnection_.reset();
-    activeSessionId_.reset();
-    activeClientId_.reset();
-    activeTrustTier_.reset();
-    activeAuthMethod_.reset();
+    activeSession_.reset();
 }
 
 std::optional<SessionAuthMethod> SessionManager::AuthMethodForConnection(ConnectionId connection) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!activeConnection_.has_value() || *activeConnection_ != connection) {
+    auto session = SessionForConnection(connection);
+    if (!session.has_value()) {
         return std::nullopt;
     }
-    return activeAuthMethod_;
+    return session->authMethod;
+}
+
+std::optional<ActiveSession> SessionManager::SessionForConnection(ConnectionId connection) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!activeSession_.has_value() || activeSession_->connectionId != connection) {
+        return std::nullopt;
+    }
+    return activeSession_;
 }
 
 }  // namespace dovahlink::application
