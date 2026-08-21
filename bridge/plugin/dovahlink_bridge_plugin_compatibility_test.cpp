@@ -140,6 +140,18 @@ TEST_CASE("SKSEPluginLoad reads the compatibility config before starting the coo
     CHECK(configPos < startPos);
 }
 
+TEST_CASE("SKSEPluginLoad rejects unsupported Windows runtimes before constructing bridge state",
+          "[plugin][compatibility]") {
+    std::string source = ReadPluginSource();
+    std::size_t guardPos = source.find("if (!dovahlink::game_state::IsCurrentWindowsVersionSupported())");
+    std::size_t statePos = source.find("static dovahlink::transport::ConnectionSlot connectionSlot;");
+    REQUIRE(guardPos != std::string::npos);
+    REQUIRE(statePos != std::string::npos);
+
+    CHECK(guardPos < statePos);
+    CHECK(source.find("requires Windows 10 or later.", guardPos) != std::string::npos);
+}
+
 // The two tests above each check "call is inside its own guard's braces" independently, which
 // alone would not catch the two if-blocks being swapped in position (each call would still sit
 // inside *some* guard's braces). This asserts the two blocks themselves are not swapped or

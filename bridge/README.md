@@ -7,7 +7,8 @@ boundaries and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for how it fits the rest 
 
 This document records the toolchain, dependency, and reuse decisions used for the published Bridge
 release, version `0.3.2`. It is the human-readable record; the pins below are enforced by
-`vcpkg.json`, `vcpkg-configuration.json`, and `CMakePresets.json`.
+`vcpkg.json` and `vcpkg-configuration.json`; `CMakePresets.json` selects the vcpkg toolchain and
+target triplet used by the build.
 
 ## Supported runtime
 
@@ -15,7 +16,8 @@ Bridge version `0.3.2` supports exactly one runtime: Steam Skyrim `1.6.1170` wit
 runtime (including `1.5.97`, GOG, and VR) is rejected during plugin initialization. See
 [`PRODUCT.md`](../PRODUCT.md) and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for this scope.
 
-The Windows build targets Windows 10 and later.
+The Windows build targets Windows 10 APIs and supports Windows 10 and later. The plugin rejects
+older Windows runtimes during initialization.
 
 ## Toolchain
 

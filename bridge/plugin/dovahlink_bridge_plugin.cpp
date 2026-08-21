@@ -125,6 +125,11 @@ SKSEPluginLoad(const SKSE::LoadInterface* skse) {
     // call existed. Must run before any such call below.
     SKSE::Init(skse);
 
+    if (!dovahlink::game_state::IsCurrentWindowsVersionSupported()) {
+        SKSE::log::error("Unsupported Windows runtime. DovahLink Bridge requires Windows 10 or later.");
+        return false;
+    }
+
     // Reject unsupported runtime combinations before constructing bridge state.
     REL::Version skyrimVersionRel = skse->RuntimeVersion();
     REL::Version skseVersionRel = REL::Version::unpack(skse->SKSEVersion());

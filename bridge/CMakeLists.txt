@@ -13,7 +13,7 @@ endif()
 # dependency libraries instead of letting CMake select the first configuration.
 set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 
-# DovahLink supports Windows 10 and later.
+# DovahLink targets Windows 10 APIs and rejects older Windows runtimes during plugin startup.
 if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00)
 endif()

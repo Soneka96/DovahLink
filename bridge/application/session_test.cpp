@@ -667,9 +667,10 @@ TEST_CASE("a stale lease cannot clear IsDeveloperAuthenticated for a replacement
     REQUIRE(staleLease.has_value());
     sessions.InvalidateAll();
 
-    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo);
+    auto replacementLease = sessions.TryCreateSession(kConnectionA, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+                                                       /*isDeveloperAuthenticated=*/true);
     REQUIRE(replacementLease.has_value());
     staleLease.reset();
 
-    CHECK_FALSE(sessions.IsDeveloperAuthenticated(kConnectionA));
+    CHECK(sessions.IsDeveloperAuthenticated(kConnectionA));
 }
