@@ -61,8 +61,8 @@ it does not implement an Event-mode domain, which remains later roadmap stages' 
 A stateful domain represents persistent, current state and participates in authoritative
 revisions, snapshots, synchronization, and recovery, per the mechanics above. An ephemeral
 notification represents that something happened rather than reconstructable current state. By
-being ephemeral, it does not participate in a state domain's authoritative revision/snapshot/
-recovery model. Ephemeral describes state/recovery semantics only; it does not imply that a
+being ephemeral, it does not participate in a state domain's authoritative revision/snapshot/recovery
+model. Ephemeral describes state/recovery semantics only; it does not imply that a
 notification is optional, unreliable, droppable, or low-priority. Delivery, ordering,
 acknowledgement, and handling guarantees are defined independently by that message's own protocol
 contract. `session_invalidated` (`roadmap/03`) remains the existing example: ephemeral in this
@@ -84,12 +84,13 @@ queue capacities from profiling rather than fixing speculative values.
 
 ### Event-mode proof
 
-The generic Event-mode synchronization machinery — initial synchronization from an authoritative
-snapshot, ordered apply, duplicate/stale rejection, gap detection, recovery buffering (including a
-later authoritative snapshot superseding already-buffered events), bounded recovery buffering, and
-recovery through the applicable bounded reconnect behavior when a recovery snapshot request times
-out or fails — is implemented and proven by focused automated tests in this phase, exercising the
-same generic engine every future Event-mode domain will use. This does not require or introduce a
+This phase must implement and prove the generic Event-mode synchronization machinery through
+focused automated tests, covering initial synchronization from an authoritative snapshot, ordered
+apply, duplicate/stale rejection, gap detection, recovery buffering (including a later
+authoritative snapshot superseding already-buffered events), bounded recovery buffering, and
+treating recovery-snapshot failure as connection-unhealthy so recovery proceeds through the
+applicable bounded reconnect behavior. That proof exercises the same generic engine every future
+Event-mode domain will use. This does not require or introduce a
 production Event-mode game domain: no Inventory, Quest, or other gameplay domain is pulled forward
 into this phase to provide that proof, and no permanent public test-only domain (for example a
 `TestDomain`/`TestCounter`) is added to the protocol. Test coverage instead uses existing protocol
