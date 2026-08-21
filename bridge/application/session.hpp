@@ -93,12 +93,6 @@ public:
     ///     connection that does not own the active session.
     [[nodiscard]] bool IsFullyTrusted(ConnectionId connection) const;
 
-    /// Returns the identifier of the active session, independent of which connection owns it.
-    /// Needed by a caller (administrative session invalidation) that must stamp the active
-    /// session's own ID onto an outbound message without already knowing a `ConnectionId`.
-    /// @return The active session's identifier, or no value when no session is active.
-    [[nodiscard]] std::optional<std::string> ActiveSessionId() const;
-
     /// Upgrades the active session to `kFull` tier, if `connection` and `sessionId` both match the
     /// active session -- the same stale-caller guard `InvalidateSession` uses, so a delayed
     /// upgrade call arriving after `connection`'s session was invalidated and replaced cannot
@@ -122,12 +116,12 @@ public:
 
     /// Returns a complete, coherent snapshot of `connection`'s active session in one locked read.
     /// The single query administrative invalidation (targeted Revoke/Block/Reset Trust disconnection
-    /// in `BridgeWorkerPool`) uses instead of separately calling `ClientIdForConnection`,
-    /// `AuthMethodForConnection`, and `ActiveSessionId` in sequence: each of those is its own lock
-    /// acquisition, so nothing outside this class's own mutex holds `activeSession_` stable across
-    /// them, and a caller that needs more than one field together must not reconstruct one from
-    /// multiple independent reads. `IsValidForConnection`, `ClientIdForConnection`, `IsFullyTrusted`,
-    /// and `AuthMethodForConnection` are themselves implemented on top of this.
+    /// in `BridgeWorkerPool`) uses instead of separately calling `ClientIdForConnection` and
+    /// `AuthMethodForConnection` in sequence: each narrow accessor is its own lock acquisition, so
+    /// nothing outside this class's own mutex would hold `activeSession_` stable across them, and a
+    /// caller that needs more than one field together must not reconstruct one from multiple
+    /// independent reads. `IsValidForConnection`, `ClientIdForConnection`, `IsFullyTrusted`, and
+    /// `AuthMethodForConnection` are themselves implemented on top of this.
     /// @param connection Connection to query.
     /// @return A copy of the active session's complete state, or no value when `connection` holds no
     ///     active session.

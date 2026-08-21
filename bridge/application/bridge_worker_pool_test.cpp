@@ -745,9 +745,8 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new c
 
     // The session ID stamped into the notification must be the second connection's -- resolved
     // under the same activeSocketMutex_ critical section that resolved the matching socket, never
-    // an unscoped sessionManager_.ActiveSessionId() read after that lock releases, which could by
-    // then belong to a different connection entirely (exactly the two-connection handoff this test
-    // already sets up above).
+    // an unscoped read after that lock releases, which could by then belong to a different
+    // connection entirely (exactly the two-connection handoff this test already sets up above).
     boost::beast::flat_buffer secondNotificationBuffer;
     boost::system::error_code secondNotificationReadEc;
     secondClientWs.read(secondNotificationBuffer, secondNotificationReadEc);
@@ -856,8 +855,8 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's ses
     // First connection: authenticates, then closes cleanly, freeing the slot for a second,
     // different connection. Its session ID is kept (as firstSessionId) so the assertion below can
     // prove DisconnectActive's notification never carries this stale value -- the same
-    // activeSocketMutex_-scoped ActiveSessionId() read DisconnectIfClientActive now uses applies
-    // here too, and deserves the same handoff coverage.
+    // activeSocketMutex_-scoped session snapshot DisconnectIfClientActive now uses applies here
+    // too, and deserves the same handoff coverage.
     std::string firstSessionId;
     {
         boost::asio::io_context clientIoc;

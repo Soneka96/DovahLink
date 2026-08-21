@@ -127,8 +127,8 @@ private:
     /// @param socket The active session's socket, already resolved and locked by the caller.
     /// @param sessionId The session identifier to invalidate, resolved by the caller under the same
     ///     `activeSocketMutex_` critical section that resolved `socket` -- never re-queried here,
-    ///     since `sessionManager_.ActiveSessionId()` is unscoped and could by then belong to a
-    ///     different session than the one `socket` was just resolved for.
+    ///     since a fresh query could by then belong to a different session than the one `socket`
+    ///     was just resolved for.
     /// @param reason One of `"revoked"`, `"blocked"`, `"trust_reset"`, `"factory_reset"`.
     void NotifyAndShutdownActiveSocket(const transport::WebSocketSession::SocketHandle& socket,
                                         std::optional<std::string> sessionId, std::string_view reason);
