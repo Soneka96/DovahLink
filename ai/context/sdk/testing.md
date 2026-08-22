@@ -3,6 +3,21 @@
 Read `ai/context/integration/testing.md` for the cross-side contract-test conventions this file
 does not repeat, and `ai/context/dart/dart-style.md` for general Dart test style.
 
+Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK tests.
+- Tests for a collaborator's method belong with that source unit's mirrored test file. A service test
+  may prove the service's recovery behavior through a collaborator, but it must not become the
+  direct test suite for the collaborator's method.
+
+## Test fixtures and ownership
+
+- Keep SDK-owned fixtures below the package-local
+  `sdk/dart/dovahlink_client/test/fixtures/` directory, with subfolders mirroring the owning
+  production area below `lib/src/` (`protocol`, `persistence`, `internal`, and so on). For example,
+  the typed envelope fixture belongs at `test/fixtures/protocol/envelope.fixture.dart` relative to
+  the SDK package root. This is an in-memory unit-test fixture, not a canonical cross-side JSON
+  fixture. Use descriptive `.fixture.dart` files; do not create one global fixture or constants
+  file, and apply the shared Dart fixture-builder rules.
+
 ## Ownership after SDK migration
 
 SDK tests own: canonical contract encoding/decoding, semantic validation, Bridge compatibility

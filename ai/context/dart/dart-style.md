@@ -75,6 +75,24 @@ Follow the shared documentation rules in `ai/context/common.md`.
 - Missing implementation uses `// TODO: ...` immediately above the declaration. Explanatory
   implementation comments remain inside the method beside the decision they explain.
 
+## Test organization
+
+- Group tests by the one callable entry point or one clearly defined behavior under test, never by
+  the containing class. A method group is named `Method <methodName> behaves correctly` and does
+  not include the class name. Tests for actions, selectors, reducers, middleware, widgets, and
+  protocol fixtures target the specific action, selector, entry point, widget behavior, or fixture
+  behavior being proven rather than the whole type.
+- Keep every test inside one group and do not nest groups. Test descriptions name the method,
+  action, selector, or behavior and state the expected result or side effect.
+- Place top-level test helpers and fixture builders before `main()`. Keep a helper local to
+  `main()` only when it requires per-file state declared there; otherwise lift it to the top level
+  and pass its dependencies explicitly.
+- A fixture builder is a top-level `build<Type>({...})` function with named parameters and
+  representative defaults; do not expose a shared mutable value. A focused shared fixture builder
+  owns the primary construction of the repeated test entity, while a test-local fixture may compose
+  it and override only the fields relevant to its scenario. Direct entity construction remains
+  appropriate when the exact malformed or boundary shape is itself the behavior under test.
+
 ## Baseline Dart rules
 
 - Do not add a dependency when the existing SDK or project code is sufficient.
