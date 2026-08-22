@@ -1,3 +1,5 @@
+import 'package:json_annotation/json_annotation.dart';
+
 // ---- Connection lifecycle ----
 
 /// The connection lifecycle phase of a `DovahLinkClient`.
@@ -32,12 +34,15 @@ enum DovahLinkTrustState {
 /// The wire value of `hello.auth.method` (`protocol/schema/README.md`'s `hello`).
 enum AuthMethod {
   /// No credential presented yet; admits a trust-restricted session solely to run pairing.
+  @JsonValue('unpaired')
   unpaired,
 
   /// Explicit developer authentication via a locally configured one-time token.
+  @JsonValue('one_time_local_token')
   oneTimeLocalToken,
 
   /// The persisted credential a completed pairing issued.
+  @JsonValue('trusted_device_credential')
   trustedDeviceCredential,
 }
 
@@ -51,20 +56,37 @@ enum CredentialRejectionReason {
   unrecognized,
 }
 
+/// The raw wire value of `hello_ack.clientIdentityKind` (`protocol/schema/README.md`'s
+/// `hello_ack`), decoded directly by `HelloAckPayload`. Distinct from [DovahLinkTrustState]: this
+/// is the wire vocabulary, mapped to the domain concept by `AuthenticationService`.
+enum ClientIdentityKind {
+  /// Admitted without a trust credential.
+  @JsonValue('unpaired')
+  unpaired,
+
+  /// Admitted with a trusted device credential.
+  @JsonValue('paired')
+  paired,
+}
+
 // ---- Pairing ----
 
 /// The bridge's report of pairing availability, from `DovahLinkClient.requestPairing`.
 enum PairingAvailability {
   /// No challenge is currently active, and none was just started.
+  @JsonValue('unavailable')
   unavailable,
 
   /// A fresh six-digit code was just generated and shown in Skyrim.
+  @JsonValue('available')
   available,
 
   /// A challenge is already active; no new code was generated.
+  @JsonValue('in_progress')
   inProgress,
 
   /// A different clientId currently owns the active challenge or pending credential.
+  @JsonValue('other_device_pairing')
   otherDevicePairing,
 }
 
@@ -86,6 +108,61 @@ enum PairingCancelStatus {
   cancelled,
 
   /// Nothing was owned; cancellation was a no-op.
+  alreadyIdle,
+}
+
+/// The raw wire value of `pairing_outcome.outcome` (`protocol/schema/README.md`'s
+/// `pairing_outcome`), decoded directly by `PairingOutcomePayload`. Spans every outcome value
+/// across `pairing_confirm`, `pairing_ack`, `pairing_renotify`, and `pairing_cancel` replies, since
+/// the wire schema defines one shared closed vocabulary for all four; which subset is valid for a
+/// given exchange is validated by the class that sent that request, not by this enum.
+enum PairingOutcome {
+  /// From `pairing_confirm`: a credential was issued.
+  @JsonValue('credential_issued')
+  credentialIssued,
+
+  /// From `pairing_ack`: the session was upgraded to full trust.
+  @JsonValue('trusted')
+  trusted,
+
+  /// From `pairing_ack`: the session was already fully trusted.
+  @JsonValue('already_trusted')
+  alreadyTrusted,
+
+  /// From `pairing_confirm`: the pairing code had expired.
+  @JsonValue('expired')
+  expired,
+
+  /// From `pairing_confirm`: the submitted code did not match.
+  @JsonValue('invalid')
+  invalid,
+
+  /// From `pairing_confirm`: an attempt was made too soon after the previous one.
+  @JsonValue('pacing_limited')
+  pacingLimited,
+
+  /// From `pairing_confirm`: the terminal count of wrong attempts cancelled the challenge.
+  @JsonValue('hard_limit_reached')
+  hardLimitReached,
+
+  /// From `pairing_ack`: the bridge has no matching pending confirmation.
+  @JsonValue('pending_not_found')
+  pendingNotFound,
+
+  /// From `pairing_renotify`: the active challenge's code was redisplayed.
+  @JsonValue('renotified')
+  renotified,
+
+  /// From `pairing_renotify`: redisplay was rejected by the renotify cooldown.
+  @JsonValue('renotify_cooldown')
+  renotifyCooldown,
+
+  /// From `pairing_cancel`: an owned active challenge or pending credential was cleared.
+  @JsonValue('cancelled')
+  cancelled,
+
+  /// From `pairing_renotify` or `pairing_cancel`: nothing was owned.
+  @JsonValue('already_idle')
   alreadyIdle,
 }
 
@@ -116,15 +193,19 @@ enum TimeoutClass {
 /// Never durable authoritative trust state; the Bridge remains the sole authority.
 enum AdministrativeInvalidationReason {
   /// The presented device credential's `clientId` was explicitly revoked.
+  @JsonValue('revoked')
   revoked,
 
   /// The presented `clientId` is a currently blocked Known Device.
+  @JsonValue('blocked')
   blocked,
 
   /// The Known Device this session belonged to became Revoked (a Trusted device's trust reset).
+  @JsonValue('trust_reset')
   trustReset,
 
   /// The Bridge's Known Device trust store was cleared. May end a developer-token session even
   /// though the configured developer token remains valid.
+  @JsonValue('factory_reset')
   factoryReset,
 }
