@@ -54,7 +54,7 @@ void expectInvalidEnvelope({
 /// Runs envelope validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
-    test('accepts valid hello, error, and capability shapes', () {
+    test('Method validate accepts valid hello, error, and capability shapes', () {
       expectValidEnvelope(
         messageType: ProtocolMessageType.hello,
         sessionId: null,
@@ -81,7 +81,7 @@ void main() {
       );
     });
 
-    test('accepts valid correlated replies and client requests', () {
+    test('Method validate accepts valid correlated replies and client requests', () {
       expectValidEnvelope(
         messageType: ProtocolMessageType.pairingStatus,
         sessionId: 'session-1',
@@ -108,12 +108,12 @@ void main() {
       );
     });
 
-    test('rejects empty message and correlation identifiers', () {
+    test('Method validate rejects empty message and correlation identifiers', () {
       expectInvalidEnvelope(messageId: '');
       expectInvalidEnvelope(correlationId: '');
     });
 
-    test('rejects impossible correlation requirements', () {
+    test('Method validate rejects impossible correlation requirements', () {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.helloAck,
         correlationId: null,
@@ -136,7 +136,7 @@ void main() {
       );
     });
 
-    test('rejects impossible session and identity shapes', () {
+    test('Method validate rejects impossible session and identity shapes', () {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.hello,
         sessionId: 'session-1',
@@ -160,7 +160,7 @@ void main() {
       );
     });
 
-    test('rejects invalid client identity requirements', () {
+    test('Method validate rejects invalid client identity requirements', () {
       expectInvalidEnvelope(
         messageType: ProtocolMessageType.helloAck,
         clientId: null,

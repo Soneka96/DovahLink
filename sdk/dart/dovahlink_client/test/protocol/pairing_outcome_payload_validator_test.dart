@@ -7,7 +7,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Runs pairing-outcome validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
-    test('accepts each allowed outcome field shape', () {
+    test('Method validate accepts each allowed outcome field shape', () {
       const List<
         ({
           PairingOutcome outcome,
@@ -97,7 +97,7 @@ void main() {
       }
     });
 
-    test('rejects outcome-dependent field combinations', () {
+    test('Method validate rejects outcome-dependent field combinations', () {
       const List<
         ({
           PairingOutcome outcome,
@@ -208,7 +208,7 @@ void main() {
       }
     });
 
-    test('rejects non-integral and negative raw retry values', () {
+    test('Method validate rejects non-integral and negative raw retry values', () {
       for (final Object value in <Object>[1.5, -1]) {
         expect(
           () => PairingOutcomePayloadValidator.validate(
@@ -225,7 +225,7 @@ void main() {
       }
     });
 
-    test('rejects a non-null raw retry value with an invalid type', () {
+    test('Method validate rejects a non-null raw retry value with an invalid type', () {
       expect(
         () => PairingOutcomePayloadValidator.validate(
           outcome: PairingOutcome.pacingLimited,

@@ -15,7 +15,7 @@ PairingStatusPayload buildPairingStatusPayload({
 /// Runs pairing-status validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
-    test('accepts an available challenge with an integer expiry', () {
+    test('Method validate accepts an available challenge with an integer expiry', () {
       expect(
         () => PairingStatusPayloadValidator.validate(
           state: PairingAvailability.available,
@@ -29,7 +29,7 @@ void main() {
       );
     });
 
-    test('accepts other-device pairing when expiry is omitted', () {
+    test('Method validate accepts other-device pairing when expiry is omitted', () {
       expect(
         () => PairingStatusPayloadValidator.validate(
           state: PairingAvailability.otherDevicePairing,
@@ -40,7 +40,7 @@ void main() {
       );
     });
 
-    test('accepts in-progress challenges with an integer or null expiry', () {
+    test('Method validate accepts in-progress challenges with an integer or null expiry', () {
       for (final int? expiry in <int?>[187, null]) {
         expect(
           () => PairingStatusPayloadValidator.validate(
@@ -57,7 +57,7 @@ void main() {
       }
     });
 
-    test('rejects non-integral and negative expiry values', () {
+    test('Method validate rejects non-integral and negative expiry values', () {
       for (final Object value in <Object>[1.5, -1]) {
         expect(
           () => PairingStatusPayloadValidator.validate(
@@ -75,7 +75,7 @@ void main() {
     });
 
     test(
-      'rejects state and expiry combinations that violate the wire contract',
+      'Method validate rejects state and expiry combinations that violate the wire contract',
       () {
         const List<JsonMap> invalidCases = <JsonMap>[
           <String, dynamic>{'state': 'available'},

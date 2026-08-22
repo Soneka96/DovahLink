@@ -93,7 +93,7 @@ void main() {
   }
 
   group('Method sendAndAwait behaves correctly', () {
-    test('stamps the outgoing envelope with the current sessionId', () async {
+    test('Method sendAndAwait stamps the outgoing envelope with the current sessionId', () async {
       final RequestManager manager = buildManager();
 
       unawaited(
@@ -114,7 +114,7 @@ void main() {
       expect(sent['payload'], <String, dynamic>{});
     });
 
-    test('resolves with the correlated reply envelope', () async {
+    test('Method sendAndAwait resolves with the correlated reply envelope', () async {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
@@ -142,7 +142,7 @@ void main() {
       expect(await pending, same(reply));
     });
 
-    test('throws DovahLinkProtocolException for a wire error reply', () async {
+    test('Method sendAndAwait throws DovahLinkProtocolException for a wire error reply', () async {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
@@ -185,7 +185,7 @@ void main() {
     });
 
     test(
-      'translates a malformed wire error payload into malformed_message',
+      'Method sendAndAwait translates a malformed wire error payload into malformed_message',
       () async {
         final RequestManager manager = buildManager();
 
@@ -236,7 +236,7 @@ void main() {
     );
 
     test(
-      'throws DovahLinkProtocolException carrying retryable: true for a retryable wire error',
+      'Method sendAndAwait throws DovahLinkProtocolException carrying retryable: true for a retryable wire error',
       () async {
         final RequestManager manager = buildManager();
 
@@ -281,7 +281,7 @@ void main() {
     );
 
     test(
-      'throws DovahLinkProtocolException(unexpected_message_type) for a mismatched reply',
+      'Method sendAndAwait throws DovahLinkProtocolException(unexpected_message_type) for a mismatched reply',
       () async {
         final RequestManager manager = buildManager();
 
@@ -321,7 +321,7 @@ void main() {
       },
     );
 
-    test('reports onUnhealthy and never resolves on timeout', () async {
+    test('Method sendAndAwait reports onUnhealthy and never resolves on timeout', () async {
       final RequestManager manager = buildManager(
         timeoutDurations: _shortTimeouts,
       );
@@ -346,7 +346,7 @@ void main() {
     });
 
     test(
-      'a reply that arrives after the timer fires but before failAll runs still resolves '
+      'Method sendAndAwait a reply that arrives after the timer fires but before failAll runs still resolves '
       'the operation -- RequestManager itself does not guard this race; that is whichever '
       'caller sequences onUnhealthy and failAll together',
       () async {
@@ -383,7 +383,7 @@ void main() {
       },
     );
 
-    test('reports onUnhealthy when the transport send fails', () async {
+    test('Method sendAndAwait reports onUnhealthy when the transport send fails', () async {
       when(
         () => transport.send(any()),
       ).thenAnswer((_) async => throw StateError('socket closed'));
@@ -407,7 +407,7 @@ void main() {
   });
 
   group('Method resolveReply behaves correctly', () {
-    test('returns false when no pending operation matches', () {
+    test('Method resolveReply returns false when no pending operation matches', () {
       final RequestManager manager = buildManager();
 
       final bool resolved = manager.resolveReply(
@@ -430,7 +430,7 @@ void main() {
 
   group('Method failAll behaves correctly', () {
     test(
-      'fails a non-retrySafe operation immediately even when orphaning is requested',
+      'Method failAll fails a non-retrySafe operation immediately even when orphaning is requested',
       () async {
         final RequestManager manager = buildManager();
 
@@ -455,7 +455,7 @@ void main() {
     );
 
     test(
-      'fails a retrySafe operation immediately when not orphaning',
+      'Method failAll fails a retrySafe operation immediately when not orphaning',
       () async {
         final RequestManager manager = buildManager();
 
@@ -480,7 +480,7 @@ void main() {
     );
 
     test(
-      'orphans a retrySafe operation instead of failing it, and retryOrphanedOperations '
+      'Method failAll orphans a retrySafe operation instead of failing it, and retryOrphanedOperations '
       'retransmits it',
       () async {
         final RequestManager manager = buildManager();
@@ -521,7 +521,7 @@ void main() {
       },
     );
 
-    test('retransmits with the live sessionId, not a stale snapshot', () async {
+    test('Method failAll retransmits with the live sessionId, not a stale snapshot', () async {
       final RequestManager manager = buildManager();
 
       manager
@@ -550,7 +550,7 @@ void main() {
       expect(sent['sessionId'], 'session-2');
     });
 
-    test('is a no-op with no pending or orphaned operations', () {
+    test('Method failAll is a no-op with no pending or orphaned operations', () {
       final RequestManager manager = buildManager();
 
       expect(
@@ -563,7 +563,7 @@ void main() {
       verifyNever(() => transport.send(any()));
     });
 
-    test('fails every pending operation, not just the first', () async {
+    test('Method failAll fails every pending operation, not just the first', () async {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> first = manager.sendAndAwait(
@@ -591,7 +591,7 @@ void main() {
   });
 
   group('Method retryOrphanedOperations behaves correctly', () {
-    test('is a no-op with nothing orphaned', () {
+    test('Method retryOrphanedOperations is a no-op with nothing orphaned', () {
       final RequestManager manager = buildManager();
 
       manager.retryOrphanedOperations();
@@ -600,7 +600,7 @@ void main() {
     });
 
     test(
-      'fails without retransmission when the new session no longer satisfies '
+      'Method retryOrphanedOperations fails without retransmission when the new session no longer satisfies '
       'requiredTrustState',
       () async {
         final RequestManager manager = buildManager();
@@ -631,7 +631,7 @@ void main() {
       },
     );
 
-    test('retries at most once: a second orphaning of an already-retried operation fails it '
+    test('Method retryOrphanedOperations retries at most once: a second orphaning of an already-retried operation fails it '
         'immediately instead of retrying again', () async {
       final RequestManager manager = buildManager();
 
