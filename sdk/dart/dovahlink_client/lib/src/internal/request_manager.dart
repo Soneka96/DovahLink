@@ -6,7 +6,9 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/reply_validator.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -18,7 +20,7 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
 /// per [DovahLinkTransport] connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements.
-class RequestManager {
+class RequestManager implements RequestSender, ReplyResolver {
   /// The transport this manager sends outgoing envelopes over.
   final DovahLinkTransport _transport;
 
@@ -66,6 +68,7 @@ class RequestManager {
   /// means the connection itself is unhealthy (transport failure, timeout, or a
   /// non-retriable/failed retry); a [DovahLinkProtocolException] means the bridge answered on an
   /// otherwise-live connection with a wire-level rejection or an unexpected reply.
+  @override
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
     required JsonMap payload,
@@ -130,6 +133,7 @@ class RequestManager {
   /// caller's [sendAndAwait]. Returns `false` if no pending operation matches -- a protocol
   /// violation for the caller (typically [MessageRouter]) to report, not a case this method
   /// handles itself.
+  @override
   bool resolveReply(String correlationId, Envelope envelope) {
     final PendingOperation? operation = _pendingOperations.remove(
       correlationId,

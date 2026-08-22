@@ -3,7 +3,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
@@ -22,7 +22,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// `trusted_device_credential` hello by discarding it and retrying once as `unpaired`.
 class AuthenticationService {
   /// Sends `hello` and awaits its correlated reply.
-  final RequestManager _requestManager;
+  final RequestSender _requestSender;
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
@@ -41,18 +41,18 @@ class AuthenticationService {
   /// Ensures the transport's inbound message stream is being read before [hello] sends.
   final MessageReceiver _messageReceiver;
 
-  /// Creates an authentication service sending through [requestManager], persisting identity and
+  /// Creates an authentication service sending through [requestSender], persisting identity and
   /// credential state through [storage], connecting/admitting sessions through [sessionConnector],
   /// reading live trust state through [sessionContext], and ensuring the connection is receiving
   /// through [messageReceiver].
   AuthenticationService({
-    required RequestManager requestManager,
+    required RequestSender requestSender,
     required ClientStorage storage,
     required SessionConnector sessionConnector,
     required SessionContext sessionContext,
     required MessageReceiver messageReceiver,
     ClientIdResolver? clientIdResolver,
-  }) : _requestManager = requestManager,
+  }) : _requestSender = requestSender,
        _storage = storage,
        _clientIdResolver =
            clientIdResolver ??
@@ -101,7 +101,7 @@ class AuthenticationService {
     );
     try {
       _messageReceiver.ensureReceiving();
-      final Envelope response = await _requestManager.sendAndAwait(
+      final Envelope response = await _requestSender.sendAndAwait(
         messageType: ProtocolMessageType.hello,
         payload: payload.toJson(),
         expectedType: ProtocolMessageType.helloAck,

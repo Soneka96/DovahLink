@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/unsolicited_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -12,21 +12,21 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition" and "Inbound message handling". Does
 /// not itself own connection state or transport lifecycle -- a decoded event it cannot resolve
 /// itself (a correlated reply, an authoritative `session_invalidated` push, a protocol violation)
-/// is reported to [ConnectionLifecycleReporter] or resolved through [RequestManager] instead.
+/// is reported to [ConnectionLifecycleReporter] or resolved through [ReplyResolver] instead.
 class MessageRouter {
-  /// Where a correlated reply is resolved.
-  final RequestManager _requestManager;
+  /// Where a correlated reply is resolved by its correlation ID.
+  final ReplyResolver _replyResolver;
 
   /// Where an unsolicited `session_invalidated` push and every protocol violation this router
   /// detects are reported.
   final ConnectionLifecycleReporter _reporter;
 
-  /// Creates a message router resolving correlated replies through [requestManager] and
+  /// Creates a message router resolving correlated replies through [replyResolver] and
   /// reporting everything else to [reporter].
   MessageRouter({
-    required RequestManager requestManager,
+    required ReplyResolver replyResolver,
     required ConnectionLifecycleReporter reporter,
-  }) : _requestManager = requestManager,
+  }) : _replyResolver = replyResolver,
        _reporter = reporter {
     _unsolicitedMessageHandler = UnsolicitedMessageHandler(reporter: reporter);
   }
@@ -35,7 +35,7 @@ class MessageRouter {
   late final UnsolicitedMessageHandler _unsolicitedMessageHandler;
 
   /// Decodes and routes one inbound message. Matches a correlated reply to its pending operation
-  /// strictly by `correlationId`/`messageId` through [RequestManager.resolveReply]; routes an
+  /// strictly by `correlationId`/`messageId` through [ReplyResolver.resolveReply]; routes an
   /// unsolicited (`correlationId: null`) message by type; reports a protocol violation for a
   /// non-null `correlationId` matching no pending operation, and for malformed JSON, rather than
   /// letting either escape as an uncaught error.
@@ -63,7 +63,7 @@ class MessageRouter {
       return;
     }
 
-    final bool resolved = _requestManager.resolveReply(correlationId, envelope);
+    final bool resolved = _replyResolver.resolveReply(correlationId, envelope);
     if (!resolved) {
       // Protocol violation, not ordinary connectivity loss -- see the malformed-JSON branch
       // above for why this never orphans a retry-safe operation either.

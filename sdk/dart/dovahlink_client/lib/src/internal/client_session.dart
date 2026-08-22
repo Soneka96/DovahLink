@@ -48,7 +48,7 @@ class ClientSession
       reporter: this,
     );
     _messageRouter = MessageRouter(
-      requestManager: _requestManager,
+      replyResolver: _requestManager,
       reporter: this,
     );
   }

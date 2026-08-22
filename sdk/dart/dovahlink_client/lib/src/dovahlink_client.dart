@@ -43,14 +43,14 @@ class DovahLinkClient {
     );
     _requestManager = _session.requestManager;
     _authenticationService = AuthenticationService(
-      requestManager: _requestManager,
+      requestSender: _requestManager,
       storage: _storage,
       sessionConnector: _session,
       sessionContext: _session,
       messageReceiver: _session,
     );
     _pairingService = PairingService(
-      requestManager: _requestManager,
+      requestSender: _requestManager,
       storage: _storage,
       sessionTrustWriter: _session,
       messageReceiver: _session,
@@ -77,14 +77,14 @@ class DovahLinkClient {
     );
     _requestManager = _session.requestManager;
     _authenticationService = AuthenticationService(
-      requestManager: _requestManager,
+      requestSender: _requestManager,
       storage: _storage,
       sessionConnector: _session,
       sessionContext: _session,
       messageReceiver: _session,
     );
     _pairingService = PairingService(
-      requestManager: _requestManager,
+      requestSender: _requestManager,
       storage: _storage,
       sessionTrustWriter: _session,
       messageReceiver: _session,

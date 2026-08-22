@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
@@ -18,7 +18,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
 
 /// Mock request manager used to isolate authentication service tests.
-class MockRequestManager extends Mock implements RequestManager {}
+class MockRequestSender extends Mock implements RequestSender {}
 
 /// Mock session connector used to isolate authentication service tests.
 class MockSessionConnector extends Mock implements SessionConnector {}
@@ -48,9 +48,9 @@ Envelope buildHelloAckEnvelope({
 );
 
 /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
-void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
+void stubSendAndAwait(RequestSender requestSender, Envelope envelope) {
   when(
-    () => requestManager.sendAndAwait(
+    () => requestSender.sendAndAwait(
       messageType: any(named: 'messageType'),
       payload: any(named: 'payload'),
       expectedType: any(named: 'expectedType'),
@@ -61,7 +61,7 @@ void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
 
 /// Runs authentication service behavior tests.
 void main() {
-  late MockRequestManager requestManager;
+  late MockRequestSender requestSender;
   late InMemoryClientStorage storage;
   late MockSessionConnector sessionConnector;
   late MockSessionContext sessionContext;
@@ -82,7 +82,7 @@ void main() {
   });
 
   setUp(() {
-    requestManager = MockRequestManager();
+    requestSender = MockRequestSender();
     storage = InMemoryClientStorage();
     sessionConnector = MockSessionConnector();
     sessionContext = MockSessionContext();
@@ -95,7 +95,7 @@ void main() {
     when(() => sessionContext.currentTrustState).thenReturn(null);
     when(() => messageReceiver.ensureReceiving()).thenReturn(null);
     service = AuthenticationService(
-      requestManager: requestManager,
+      requestSender: requestSender,
       storage: storage,
       sessionConnector: sessionConnector,
       sessionContext: sessionContext,
@@ -108,7 +108,7 @@ void main() {
       'Method hello ensures receiving before sending and admits the decoded session',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.2.3',
@@ -120,7 +120,7 @@ void main() {
 
         verifyInOrder([
           () => messageReceiver.ensureReceiving(),
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: any(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -141,7 +141,7 @@ void main() {
       'Method hello resolves and persists a fresh clientId on first use',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -173,7 +173,7 @@ void main() {
           const PersistedClientState(clientId: 'existing-client'),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -197,7 +197,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -209,7 +209,7 @@ void main() {
 
         final JsonMap sentPayload =
             verify(
-                  () => requestManager.sendAndAwait(
+                  () => requestSender.sendAndAwait(
                     messageType: ProtocolMessageType.hello,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.helloAck,
@@ -236,7 +236,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -249,7 +249,7 @@ void main() {
         verify(() => messageReceiver.ensureReceiving()).called(1);
         final JsonMap sentPayload =
             verify(
-                  () => requestManager.sendAndAwait(
+                  () => requestSender.sendAndAwait(
                     messageType: any(named: 'messageType'),
                     payload: captureAny(named: 'payload'),
                     expectedType: any(named: 'expectedType'),
@@ -273,7 +273,7 @@ void main() {
       'hello_ack carries no sessionId',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: null,
             bridgeVersion: '1.0',
@@ -305,7 +305,7 @@ void main() {
       'Method hello throws malformed_message and disconnects when hello_ack fails to decode',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             messageId: 'reply-1',
@@ -342,7 +342,7 @@ void main() {
       'Method hello throws malformed_message and disconnects when bridgeVersion is empty',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
@@ -376,7 +376,7 @@ void main() {
       'Method hello throws malformed_message and disconnects for an unknown clientIdentityKind',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
@@ -410,7 +410,7 @@ void main() {
       'Method hello disconnects and rethrows a connection failure from sendAndAwait',
       () async {
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -438,7 +438,7 @@ void main() {
       'Method authenticate returns the cached result without re-sending hello when already connected and trusted',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -462,7 +462,7 @@ void main() {
         expect(result.trustState, DovahLinkTrustState.trusted);
         verifyNever(() => sessionConnector.connect(any()));
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -482,7 +482,7 @@ void main() {
           () => sessionContext.currentTrustState,
         ).thenReturn(DovahLinkTrustState.unpaired);
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             bridgeVersion: '2.0',
             kind: ClientIdentityKind.unpaired,
@@ -495,7 +495,7 @@ void main() {
 
         verify(() => sessionConnector.connect(any())).called(1);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: any(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -517,7 +517,7 @@ void main() {
           () => sessionContext.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             bridgeVersion: '2.1',
             kind: ClientIdentityKind.paired,
@@ -530,7 +530,7 @@ void main() {
 
         verify(() => sessionConnector.connect(any())).called(1);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: any(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -546,7 +546,7 @@ void main() {
       'Method authenticate connects before sending hello when not already connected and trusted',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '2.0',
@@ -575,7 +575,7 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verifyNever(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -595,7 +595,7 @@ void main() {
           ),
         );
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -623,7 +623,7 @@ void main() {
         expect(state.credential, isNull);
         verify(() => sessionConnector.connect(any())).called(2);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -650,7 +650,7 @@ void main() {
           }
         });
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -678,7 +678,7 @@ void main() {
         expect(state.credential, isNull);
         verify(() => sessionConnector.connect(any())).called(2);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -699,7 +699,7 @@ void main() {
         );
         int callCount = 0;
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -735,7 +735,7 @@ void main() {
         expect(state.clientId, 'client-1');
         verify(() => sessionConnector.connect(any())).called(2);
         final List<dynamic> sentPayloads = verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: captureAny(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -760,7 +760,7 @@ void main() {
         );
         int callCount = 0;
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -796,7 +796,7 @@ void main() {
         expect(state.clientId, 'client-1');
         verify(() => sessionConnector.connect(any())).called(2);
         final List<Object?> sentPayloads = verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: captureAny(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -820,7 +820,7 @@ void main() {
           ),
         );
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),

@@ -1,7 +1,7 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
@@ -23,7 +23,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// relaunch.
 class PairingService {
   /// Sends a pairing message and awaits its correlated reply.
-  final RequestManager _requestManager;
+  final RequestSender _requestSender;
 
   /// The SDK-owned persistence boundary for this client's credential and pairing recovery state.
   final ClientStorage _storage;
@@ -34,15 +34,15 @@ class PairingService {
   /// Ensures the transport's inbound message stream is being read before a pairing message sends.
   final MessageReceiver _messageReceiver;
 
-  /// Creates a pairing service sending through [requestManager], persisting credential and
+  /// Creates a pairing service sending through [requestSender], persisting credential and
   /// pairing recovery state through [storage], upgrading trust through [sessionTrustWriter], and
   /// ensuring the connection is receiving through [messageReceiver].
   PairingService({
-    required RequestManager requestManager,
+    required RequestSender requestSender,
     required ClientStorage storage,
     required SessionTrustWriter sessionTrustWriter,
     required MessageReceiver messageReceiver,
-  }) : _requestManager = requestManager,
+  }) : _requestSender = requestSender,
        _storage = storage,
        _sessionTrustWriter = sessionTrustWriter,
        _messageReceiver = messageReceiver;
@@ -52,7 +52,7 @@ class PairingService {
   /// different clientId currently owns the active challenge or pending credential.
   Future<PairingChallengeStatus> requestPairing() async {
     _messageReceiver.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
+    final Envelope response = await _requestSender.sendAndAwait(
       messageType: ProtocolMessageType.pairingRequest,
       payload: const <String, dynamic>{},
       expectedType: ProtocolMessageType.pairingStatus,
@@ -83,7 +83,7 @@ class PairingService {
   /// in-game notification, not the connection. Valid only on an `unpaired` session.
   Future<PairingRenotifyResult> requestPairingRenotify() async {
     _messageReceiver.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
+    final Envelope response = await _requestSender.sendAndAwait(
       messageType: ProtocolMessageType.pairingRenotify,
       payload: const <String, dynamic>{},
       expectedType: ProtocolMessageType.pairingOutcome,
@@ -124,7 +124,7 @@ class PairingService {
   /// only on an `unpaired` session.
   Future<PairingCancelOutcome> cancelPairing() async {
     _messageReceiver.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
+    final Envelope response = await _requestSender.sendAndAwait(
       messageType: ProtocolMessageType.pairingCancel,
       payload: const <String, dynamic>{},
       expectedType: ProtocolMessageType.pairingOutcome,
@@ -173,7 +173,7 @@ class PairingService {
       displayName: displayName,
     );
     _messageReceiver.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
+    final Envelope response = await _requestSender.sendAndAwait(
       messageType: ProtocolMessageType.pairingConfirm,
       payload: payload.toJson(),
       expectedType: ProtocolMessageType.pairingOutcome,
@@ -241,7 +241,7 @@ class PairingService {
   Future<void> acknowledgeTrustedCredential(String credential) async {
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     _messageReceiver.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
+    final Envelope response = await _requestSender.sendAndAwait(
       messageType: ProtocolMessageType.pairingAck,
       payload: payload.toJson(),
       expectedType: ProtocolMessageType.pairingOutcome,

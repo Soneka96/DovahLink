@@ -132,12 +132,17 @@ closures or a concrete back-reference to a specific class:
   disconnects.
 - `MessageReceiver` — ensures the transport's inbound message stream is being read, for a
   collaborator that sends a request before the connection is otherwise guaranteed to be receiving.
+- `RequestSender` — sends one typed request and awaits its correlated reply, for a collaborator
+  that performs a protocol operation without owning pending-operation state.
+- `ReplyResolver` — resolves one inbound correlated reply, for the router that matches transport
+  messages without owning pending-operation state.
 
-These five ports are independent, not one merged interface and not related by inheritance: a
+These seven ports are independent, not one merged interface and not related by inheritance: a
 collaborator composes only the ports its own responsibility actually needs (for example
-`AuthenticationService` takes `SessionConnector`, `SessionContext`, and `MessageReceiver`, while
-`PairingService` takes `SessionTrustWriter` and `MessageReceiver` alone, never the wider
-`SessionConnector`), keeping each dependency as narrow as the class that declares it.
+`AuthenticationService` takes `RequestSender`, `SessionConnector`, `SessionContext`, and
+`MessageReceiver`, `PairingService` takes `RequestSender`, `SessionTrustWriter`, and
+`MessageReceiver`, and `MessageRouter` takes `ReplyResolver` and
+`ConnectionLifecycleReporter`), keeping each dependency as narrow as the class that declares it.
 
 ## Session-state ownership
 

@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
@@ -21,7 +21,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
 
 /// Mock request manager used to isolate pairing service tests.
-class MockRequestManager extends Mock implements RequestManager {}
+class MockRequestSender extends Mock implements RequestSender {}
 
 /// Mock session trust writer used to isolate pairing service tests.
 class MockSessionTrustWriter extends Mock implements SessionTrustWriter {}
@@ -68,9 +68,9 @@ String _wirePairingOutcome(PairingOutcome outcome) => switch (outcome) {
 };
 
 /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
-void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
+void stubSendAndAwait(RequestSender requestSender, Envelope envelope) {
   when(
-    () => requestManager.sendAndAwait(
+    () => requestSender.sendAndAwait(
       messageType: any(named: 'messageType'),
       payload: any(named: 'payload'),
       expectedType: any(named: 'expectedType'),
@@ -81,12 +81,12 @@ void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
 
 /// Builds a pairing service with the explicitly supplied collaborators.
 PairingService buildPairingService({
-  required RequestManager requestManager,
+  required RequestSender requestSender,
   required ClientStorage storage,
   required SessionTrustWriter sessionTrustWriter,
   required MessageReceiver messageReceiver,
 }) => PairingService(
-  requestManager: requestManager,
+  requestSender: requestSender,
   storage: storage,
   sessionTrustWriter: sessionTrustWriter,
   messageReceiver: messageReceiver,
@@ -100,7 +100,7 @@ void verifyNoStorageCalls(MockClientStorage storage) {
 
 /// Runs pairing service behavior tests.
 void main() {
-  late MockRequestManager requestManager;
+  late MockRequestSender requestSender;
   late InMemoryClientStorage storage;
   late MockSessionTrustWriter sessionTrustWriter;
   late MockMessageReceiver messageReceiver;
@@ -119,14 +119,14 @@ void main() {
   });
 
   setUp(() {
-    requestManager = MockRequestManager();
+    requestSender = MockRequestSender();
     storage = InMemoryClientStorage();
     sessionTrustWriter = MockSessionTrustWriter();
     messageReceiver = MockMessageReceiver();
     when(() => messageReceiver.ensureReceiving()).thenReturn(null);
     when(() => sessionTrustWriter.markTrusted()).thenReturn(null);
     service = buildPairingService(
-      requestManager: requestManager,
+      requestSender: requestSender,
       storage: storage,
       sessionTrustWriter: sessionTrustWriter,
       messageReceiver: messageReceiver,
@@ -138,7 +138,7 @@ void main() {
       'Method requestPairing ensures receiving and decodes the pairing_status reply',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
@@ -158,7 +158,7 @@ void main() {
 
         verifyInOrder([
           () => messageReceiver.ensureReceiving(),
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.pairingRequest,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingStatus,
@@ -178,7 +178,7 @@ void main() {
       'Method requestPairing decodes otherDevicePairing with a null expiresInSeconds',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
@@ -202,7 +202,7 @@ void main() {
       'Method requestPairing decodes unavailable with a null expiresInSeconds',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
@@ -223,7 +223,7 @@ void main() {
       'Method requestPairing decodes an active inProgress challenge with its expiry',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
@@ -244,7 +244,7 @@ void main() {
       'Method requestPairing decodes a pending inProgress state without an expiry',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
@@ -265,7 +265,7 @@ void main() {
       'Method requestPairing throws malformed_message when pairing_status fails to decode',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
@@ -295,7 +295,7 @@ void main() {
       'Method requestPairing translates an impossible pairing_status expiry into malformed_message',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
@@ -329,7 +329,7 @@ void main() {
       'Method requestPairing translates an omitted required expiry into malformed_message',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{'state': 'in_progress'},
@@ -360,7 +360,7 @@ void main() {
       'Method requestPairing propagates a connection failure without changing trust state',
       () async {
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -382,7 +382,7 @@ void main() {
       'Method requestPairingRenotify decodes a renotified outcome',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
         );
 
@@ -391,7 +391,7 @@ void main() {
 
         verify(() => messageReceiver.ensureReceiving()).called(1);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.pairingRenotify,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingOutcome,
@@ -411,7 +411,7 @@ void main() {
       'Method requestPairingRenotify decodes a renotify_cooldown outcome with retryAfterSeconds',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.renotifyCooldown,
             retryAfterSeconds: 5,
@@ -430,7 +430,7 @@ void main() {
       'Method requestPairingRenotify decodes an already_idle outcome',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyIdle),
         );
 
@@ -446,7 +446,7 @@ void main() {
       'Method requestPairingRenotify throws malformed_message for an outcome not valid for this exchange',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.credentialIssued,
             credential: 'credential-1',
@@ -482,7 +482,7 @@ void main() {
       'Method requestPairingRenotify throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
@@ -512,7 +512,7 @@ void main() {
       'Method requestPairingRenotify propagates a protocol failure without marking trust',
       () async {
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -544,7 +544,7 @@ void main() {
   group('Method cancelPairing behaves correctly', () {
     test('Method cancelPairing decodes a cancelled outcome', () async {
       stubSendAndAwait(
-        requestManager,
+        requestSender,
         buildPairingOutcomeEnvelope(outcome: PairingOutcome.cancelled),
       );
 
@@ -552,7 +552,7 @@ void main() {
 
       verify(() => messageReceiver.ensureReceiving()).called(1);
       verify(
-        () => requestManager.sendAndAwait(
+        () => requestSender.sendAndAwait(
           messageType: ProtocolMessageType.pairingCancel,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingOutcome,
@@ -568,7 +568,7 @@ void main() {
 
     test('Method cancelPairing decodes an already_idle outcome', () async {
       stubSendAndAwait(
-        requestManager,
+        requestSender,
         buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyIdle),
       );
 
@@ -581,7 +581,7 @@ void main() {
       'Method cancelPairing throws malformed_message for an outcome not valid for this exchange',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
         );
 
@@ -614,7 +614,7 @@ void main() {
       'Method cancelPairing throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
@@ -651,7 +651,7 @@ void main() {
           ),
         );
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -676,7 +676,7 @@ void main() {
       'Method confirmPairingCode persists the issued credential with a CONFIRMING recovery state',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.credentialIssued,
             credential: 'new-cred',
@@ -700,13 +700,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.credentialIssued),
         );
 
@@ -730,13 +730,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
@@ -768,7 +768,7 @@ void main() {
       'Method confirmPairingCode sends the code and displayName in the outgoing payload',
       () async {
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.credentialIssued,
             credential: 'new-cred',
@@ -779,7 +779,7 @@ void main() {
 
         final JsonMap sentPayload =
             verify(
-                  () => requestManager.sendAndAwait(
+                  () => requestSender.sendAndAwait(
                     messageType: ProtocolMessageType.pairingConfirm,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.pairingOutcome,
@@ -808,7 +808,7 @@ void main() {
             };
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
@@ -816,7 +816,7 @@ void main() {
         for (final MapEntry<PairingOutcome, int?> entry
             in rejectedOutcomes.entries) {
           stubSendAndAwait(
-            requestManager,
+            requestSender,
             buildPairingOutcomeEnvelope(
               outcome: entry.key,
               retryAfterSeconds: entry.value,
@@ -851,13 +851,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.trusted,
             credential: 'credential-1',
@@ -904,7 +904,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.trusted,
             credential: 'cred',
@@ -916,7 +916,7 @@ void main() {
 
         verify(() => messageReceiver.ensureReceiving()).called(1);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
@@ -945,7 +945,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.alreadyTrusted,
             credential: 'cred',
@@ -968,13 +968,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
         );
 
@@ -998,13 +998,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
         );
 
@@ -1039,13 +1039,13 @@ void main() {
       () async {
         final MockClientStorage rejectedStorage = MockClientStorage();
         final PairingService rejectedService = buildPairingService(
-          requestManager: requestManager,
+          requestSender: requestSender,
           storage: rejectedStorage,
           sessionTrustWriter: sessionTrustWriter,
           messageReceiver: messageReceiver,
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
@@ -1083,7 +1083,7 @@ void main() {
 
         expect(result, DovahLinkTrustState.unpaired);
         verifyNever(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -1109,7 +1109,7 @@ void main() {
 
         expect(result, DovahLinkTrustState.unpaired);
         verifyNever(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -1131,7 +1131,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(
             outcome: PairingOutcome.trusted,
             credential: 'stored-cred',
@@ -1144,7 +1144,7 @@ void main() {
 
         expect(result, DovahLinkTrustState.trusted);
         verify(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'stored-cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
@@ -1171,7 +1171,7 @@ void main() {
           ),
         );
         stubSendAndAwait(
-          requestManager,
+          requestSender,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
         );
 
@@ -1196,7 +1196,7 @@ void main() {
           ),
         );
         when(
-          () => requestManager.sendAndAwait(
+          () => requestSender.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),

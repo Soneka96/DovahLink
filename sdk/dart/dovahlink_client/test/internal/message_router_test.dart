@@ -6,13 +6,13 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Mock request manager used to isolate message routing tests.
-class MockRequestManager extends Mock implements RequestManager {}
+class MockReplyResolver extends Mock implements ReplyResolver {}
 
 /// Mock lifecycle reporter used to capture router decisions.
 class MockConnectionLifecycleReporter extends Mock
@@ -51,7 +51,7 @@ String rawEnvelope({
 });
 
 void main() {
-  late MockRequestManager requestManager;
+  late MockReplyResolver replyResolver;
   late MockConnectionLifecycleReporter reporter;
   late MessageRouter router;
 
@@ -62,16 +62,16 @@ void main() {
   });
 
   setUp(() {
-    requestManager = MockRequestManager();
+    replyResolver = MockReplyResolver();
     reporter = MockConnectionLifecycleReporter();
-    router = MessageRouter(requestManager: requestManager, reporter: reporter);
+    router = MessageRouter(replyResolver: replyResolver, reporter: reporter);
   });
 
   group('Method handleIncoming behaves correctly', () {
     test(
-      'Method handleIncoming resolves a correlated reply through RequestManager',
+      'Method handleIncoming resolves a correlated reply through ReplyResolver',
       () {
-        when(() => requestManager.resolveReply(any(), any())).thenReturn(true);
+        when(() => replyResolver.resolveReply(any(), any())).thenReturn(true);
 
         router.handleIncoming(
           rawEnvelope(
@@ -83,7 +83,7 @@ void main() {
 
         final Envelope resolved =
             verify(
-                  () => requestManager.resolveReply(
+                  () => replyResolver.resolveReply(
                     captureAny(that: equals('message-outgoing-1')),
                     captureAny(),
                   ),
@@ -106,7 +106,7 @@ void main() {
     test(
       'Method handleIncoming reports a protocol violation when no pending operation matches the correlationId',
       () {
-        when(() => requestManager.resolveReply(any(), any())).thenReturn(false);
+        when(() => replyResolver.resolveReply(any(), any())).thenReturn(false);
 
         router.handleIncoming(
           rawEnvelope(
@@ -160,7 +160,7 @@ void main() {
           contains('Invalid protocol envelope'),
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => requestManager.resolveReply(any(), any()));
+        verifyNever(() => replyResolver.resolveReply(any(), any()));
       },
     );
 
@@ -192,7 +192,7 @@ void main() {
           contains('Invalid protocol envelope'),
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => requestManager.resolveReply(any(), any()));
+        verifyNever(() => replyResolver.resolveReply(any(), any()));
       },
     );
 
@@ -220,7 +220,7 @@ void main() {
           ProtocolErrorCode.malformedMessage,
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => requestManager.resolveReply(any(), any()));
+        verifyNever(() => replyResolver.resolveReply(any(), any()));
         verifyNever(() => reporter.onSessionInvalidated(any()));
       },
     );
@@ -246,7 +246,7 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        verifyNever(() => requestManager.resolveReply(any(), any()));
+        verifyNever(() => replyResolver.resolveReply(any(), any()));
       },
     );
   });
