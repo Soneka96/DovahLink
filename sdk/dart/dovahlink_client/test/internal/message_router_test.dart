@@ -11,7 +11,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Mock request manager used to isolate message routing tests.
+/// Mock reply resolver used to isolate message routing tests.
 class MockReplyResolver extends Mock implements ReplyResolver {}
 
 /// Mock lifecycle reporter used to capture router decisions.
@@ -50,6 +50,7 @@ String rawEnvelope({
       : null,
 });
 
+/// Runs message-router behavior tests.
 void main() {
   late MockReplyResolver replyResolver;
   late MockConnectionLifecycleReporter reporter;

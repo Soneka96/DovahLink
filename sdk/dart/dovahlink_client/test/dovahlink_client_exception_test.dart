@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Runs typed exception behavior tests.
 void main() {
-  group('Method constructor behaves correctly for pairing exceptions', () {
+  group('Method constructor behaves correctly', () {
     test(
       'Method constructor preserves outcome and retryAfterSeconds for pairing exceptions',
       () {
@@ -28,7 +28,7 @@ void main() {
     });
   });
 
-  group('Method toString behaves correctly for pairing outcomes', () {
+  group('Method toString behaves correctly', () {
     test('Method toString returns the pairing outcome diagnostic', () {
       const DovahLinkPairingException exception = DovahLinkPairingException(
         PairingOutcome.expired,
@@ -41,7 +41,7 @@ void main() {
     });
   });
 
-  group('Method toString behaves correctly for storage diagnostics', () {
+  group('Method toString behaves correctly', () {
     test('Method toString returns the storage diagnostic message', () {
       const DovahLinkStorageException exception = DovahLinkStorageException(
         'undecryptable persisted state',
@@ -54,7 +54,7 @@ void main() {
     });
   });
 
-  group('Method constructor behaves correctly for storage exceptions', () {
+  group('Method constructor behaves correctly', () {
     test(
       'Method constructor preserves the diagnostic message for storage exceptions',
       () {

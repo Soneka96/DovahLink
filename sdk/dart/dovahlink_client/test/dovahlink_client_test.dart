@@ -165,20 +165,6 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
-/// Builds a minimal `capabilities` envelope. No canonical fixture exists for this message type yet
-/// (out of the pairing epic this shared fixture set was built for); this client only needs to
-/// consume and discard it, so a hand-built stand-in is sufficient.
-String _rawCapabilities() => jsonEncode(<String, dynamic>{
-  'messageType': 'capabilities',
-  'messageId': 'message-capabilities-1',
-  'sessionId': 'session-1',
-  'correlationId': null,
-  'payload': <String, dynamic>{'capabilities': <dynamic>[]},
-  'bridgeInstanceId': 'bridge-1',
-  'playContextId': null,
-  'clientId': null,
-});
-
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
 String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
@@ -223,7 +209,9 @@ void main() {
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         final HelloResult result = await client.hello();
 
@@ -375,7 +363,9 @@ void main() {
       'Method authenticate delegates to connect and hello when nothing is rejected',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         final HelloResult result = await client.authenticate(
           Uri.parse('ws://127.0.0.1:58231/'),
@@ -405,7 +395,9 @@ void main() {
             'clientId': 'client-1',
           }),
         );
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
         await client.authenticate(uri);
         await client.disconnect();
@@ -425,7 +417,9 @@ void main() {
             'clientId': 'client-1',
           }),
         );
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.authenticate(uri);
 
         expect(transport.connectCalls, hasLength(2));
@@ -629,7 +623,9 @@ void main() {
       'Method disconnect closes the transport and resets session state',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         await client.disconnect();
@@ -654,7 +650,9 @@ void main() {
         );
         await client.forgetCredential();
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         await client.hello();
 
@@ -671,7 +669,9 @@ void main() {
       'Behavior inbound message routing gives sequential requests their own correlated replies',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         final HelloResult helloResult = await client.hello();
         expect(helloResult.trustState, DovahLinkTrustState.unpaired);
 
@@ -689,7 +689,9 @@ void main() {
         'request reply', () async {
       // capabilities is queued before hello-ack here, unlike every other test above, to prove
       // the router does not treat "whatever arrives first" as the pending operation's reply.
-      transport.queueResponse(_rawCapabilities());
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
 
       final HelloResult result = await client.hello();
@@ -765,7 +767,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         transport.queueResponse(_rawSessionInvalidated('revoked'));
@@ -788,7 +792,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client.requestPairing();
@@ -828,7 +834,9 @@ void main() {
         'failure race', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
       await client.hello();
 
       // Both delivered on the same still-active subscription before either is processed,
@@ -855,7 +863,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client.requestPairing();
@@ -868,7 +878,9 @@ void main() {
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
         );
@@ -886,7 +898,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client.requestPairing();
@@ -913,7 +927,9 @@ void main() {
             'clientId': 'client-1',
           }),
         );
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         await expectLater(
@@ -931,7 +947,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client.requestPairing();
@@ -948,7 +966,9 @@ void main() {
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
         // The retry itself now also drops, with no reply ever queued for it.
         await pumpEventQueue();
@@ -960,7 +980,9 @@ void main() {
         // A third connect/hello round must not resurrect it for a second retry.
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         // hello#1, pairing_request#1, hello#2, pairing_request#2(retry), hello#3 -- no third
@@ -974,7 +996,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<String> pending = client.confirmPairingCode(
@@ -997,7 +1021,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         // confirmPairingCode (not retry-safe) rather than requestPairing here: the point of this
@@ -1020,7 +1046,9 @@ void main() {
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> secondRequest = client
@@ -1110,7 +1138,9 @@ void main() {
         );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<void> pending = client.acknowledgeTrustedCredential(
@@ -1123,7 +1153,9 @@ void main() {
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -1140,7 +1172,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client
@@ -1171,7 +1205,9 @@ void main() {
         // Confirmed not orphaned: a fresh connect/hello does not retransmit it.
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
         expect(transport.sent, hasLength(3));
       },
@@ -1182,7 +1218,9 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
 
         final Future<PairingChallengeStatus> pending = client.requestPairing();

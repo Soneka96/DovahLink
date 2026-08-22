@@ -36,7 +36,7 @@ void main() {
     );
   });
 
-  group('Method PairingRenotifyStatus.fromOutcome behaves correctly', () {
+  group('Method fromOutcome behaves correctly', () {
     test(
       'PairingRenotifyStatus.fromOutcome maps every valid renotify outcome',
       () {
@@ -76,7 +76,7 @@ void main() {
     );
   });
 
-  group('Method PairingCancelStatus.fromOutcome behaves correctly', () {
+  group('Method fromOutcome behaves correctly', () {
     test('PairingCancelStatus.fromOutcome maps every valid cancel outcome', () {
       expect(
         PairingCancelStatus.fromOutcome(PairingOutcome.cancelled),
