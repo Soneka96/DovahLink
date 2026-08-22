@@ -15,10 +15,13 @@ import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
+/// Mock transport used to isolate request-manager tests from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
+/// Mock session context used to control session identity and trust state.
 class MockSessionContext extends Mock implements SessionContext {}
 
+/// Mock lifecycle reporter used to capture timeout and send-failure notifications.
 class MockConnectionLifecycleReporter extends Mock
     implements ConnectionLifecycleReporter {}
 
@@ -89,7 +92,7 @@ void main() {
     return sent['messageId'] as String;
   }
 
-  group('sendAndAwait', () {
+  group('Method sendAndAwait behaves correctly', () {
     test('stamps the outgoing envelope with the current sessionId', () async {
       final RequestManager manager = buildManager();
 
@@ -180,6 +183,57 @@ void main() {
         ),
       );
     });
+
+    test(
+      'translates a malformed wire error payload into malformed_message',
+      () async {
+        final RequestManager manager = buildManager();
+
+        final Future<Envelope> pending = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: _retrySafeUnpairedPolicy,
+        );
+        await pumpEventQueue();
+        final String messageId = sentMessageId();
+
+        manager.resolveReply(
+          messageId,
+          Envelope(
+            messageType: ProtocolMessageType.error,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: messageId,
+            payload: const <String, dynamic>{
+              'code': 'future_error_code',
+              'message': 'malformed code',
+              'retryable': false,
+            },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: 'client-1',
+          ),
+        );
+
+        await expectLater(
+          pending,
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException e) => e.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.retryable,
+                  'retryable',
+                  isFalse,
+                ),
+          ),
+        );
+      },
+    );
 
     test(
       'throws DovahLinkProtocolException carrying retryable: true for a retryable wire error',
@@ -352,7 +406,7 @@ void main() {
     });
   });
 
-  group('resolveReply', () {
+  group('Method resolveReply behaves correctly', () {
     test('returns false when no pending operation matches', () {
       final RequestManager manager = buildManager();
 
@@ -374,7 +428,7 @@ void main() {
     });
   });
 
-  group('failAll', () {
+  group('Method failAll behaves correctly', () {
     test(
       'fails a non-retrySafe operation immediately even when orphaning is requested',
       () async {
@@ -536,7 +590,7 @@ void main() {
     });
   });
 
-  group('retryOrphanedOperations', () {
+  group('Method retryOrphanedOperations behaves correctly', () {
     test('is a no-op with nothing orphaned', () {
       final RequestManager manager = buildManager();
 

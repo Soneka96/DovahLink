@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
@@ -130,12 +131,20 @@ class RequestManager {
     required Envelope envelope,
   }) {
     if (envelope.messageType == ProtocolMessageType.error) {
-      final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
-      throw DovahLinkProtocolException(
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-      );
+      try {
+        final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
+        throw DovahLinkProtocolException(
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+        );
+      } on ProtocolFormatException catch (error) {
+        throw DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: error.message,
+          retryable: false,
+        );
+      }
     }
     if (envelope.messageType != expectedType) {
       throw DovahLinkProtocolException(
