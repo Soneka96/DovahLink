@@ -104,3 +104,47 @@ concurrent execution left as a later, independent decision. Every future typed d
 receiver; it must not grow into one undifferentiated public stream — see
 `ai/context/sdk/api-design.md`'s curated-exports rule for how domain-specific surfaces stay
 separate.
+
+## Internal composition
+
+The client engine described above is implemented as a small set of internally composed,
+individually-testable classes rather than one class performing every mechanic. `ClientSession` owns
+transport lifecycle, connection state, and stream ownership; `MessageRouter` owns envelope decoding,
+correlation, and unsolicited routing; `RequestManager` owns pending requests, timeouts, and retry
+behavior; `AuthenticationService` owns `hello`/authentication and credential recovery;
+`PairingService` owns pairing operations; `PendingOperation` is the internal record of one request
+awaiting its reply. Each is a named class in its own file under `src/`, absent from the public
+barrel per `ai/context/sdk/api-design.md`'s "curated public exports" — a façade/coordinator class
+delegates to these instead of implementing their mechanics itself, per
+`ai/context/dart/dart-style.md`'s class-organization rule.
+
+These classes cross their composition boundaries through small named ports (`abstract interface
+class`, matching `DovahLinkTransport`/`ClientStorage`'s existing style) rather than callback
+closures or a concrete back-reference to a specific class:
+
+- `SessionContext` — read-only access to the current `sessionId`/trust state, for a collaborator
+  that needs to know the live session without commanding it.
+- `ConnectionLifecycleReporter` — reports an unhealthy connection, a protocol violation, or an
+  administrative session invalidation upward to whichever class owns the connection.
+- `SessionConnector` — connects, disconnects, reads connection state, and admits a newly
+  authenticated session.
+- `SessionTrustWriter` — upgrades trust standing alone, for a collaborator that never connects or
+  disconnects.
+
+These four ports are independent, not one merged interface and not related by inheritance: a
+collaborator composes only the ports its own responsibility actually needs (for example
+`PairingService` takes `SessionTrustWriter` alone, never the wider `SessionConnector`), keeping each
+dependency as narrow as the class that declares it.
+
+## Session-state ownership
+
+`ClientSession` owns every socket-scoped field this engine has: connection state, `sessionId`,
+trust state, the administrative invalidation reason, the connection generation, and the transport
+subscription. No other class — including the façade — assigns `sessionId` or trust state directly;
+`ClientSession` exposes exactly two write commands for the transitions the rest of the engine needs
+to trigger: `admitSession` (a newly authenticated session, called once by `AuthenticationService`
+after a successful `hello`) and `markTrusted` (a trust upgrade, called by `PairingService` after a
+successful pairing acknowledgement). `admitSession` itself triggers `RequestManager`'s
+retry-orphaned-operations transition as part of admitting the session, keeping reconnect/session
+recovery cohesive in one place rather than split across the class that authenticates and the class
+that owns the session.
