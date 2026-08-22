@@ -11,6 +11,39 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 import 'support/pending_reply.dart';
 
+/// Owns ordered release and correlation rewriting for fake-transport replies.
+class PendingReplyQueue {
+  /// Replies waiting for an immediate release or a matching request message ID.
+  final List<PendingReply> _replies = <PendingReply>[];
+
+  /// Adds [reply] and releases any newly leading uncorrelated replies.
+  void enqueue(PendingReply reply, StreamController<String> incoming) {
+    _replies.add(reply);
+    while (_replies.isNotEmpty && !_replies.first.needsCorrelation) {
+      incoming.add(_replies.removeAt(0).resolve());
+    }
+  }
+
+  /// Releases leading uncorrelated replies and at most one correlated reply for [messageId].
+  void releaseFor(String messageId, StreamController<String> incoming) {
+    bool consumedThisSend = false;
+    while (_replies.isNotEmpty) {
+      final PendingReply next = _replies.first;
+      if (!next.needsCorrelation) {
+        _replies.removeAt(0);
+        incoming.add(next.resolve());
+        continue;
+      }
+      if (consumedThisSend) {
+        return;
+      }
+      _replies.removeAt(0);
+      incoming.add(next.resolve(messageId));
+      consumedThisSend = true;
+    }
+  }
+}
+
 /// A controllable [DovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
 /// semantics for the single continuous, single-subscription inbound stream this SDK's receiver
 /// depends on: [connect] establishes a fresh single-subscription stream (mirroring the real
@@ -35,7 +68,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   final List<String> sent = <String>[];
 
   /// Queued [queueResponse] replies not yet released, in queue order.
-  final List<PendingReply> _pendingReplies = <PendingReply>[];
+  final PendingReplyQueue _pendingReplies = PendingReplyQueue();
 
   /// The current connection's inbound stream, or `null` before [connect]/after [close].
   StreamController<String>? _incoming;
@@ -67,17 +100,12 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     } on Object {
       decoded = null;
     }
-    _pendingReplies.add(
+    _pendingReplies.enqueue(
       decoded == null || decoded['correlationId'] == null
           ? PendingReply.immediate(rawJson)
           : PendingReply.correlated(decoded),
+      _requireIncoming(),
     );
-    // Only ever releases a leading run of uncorrelated entries (nothing needs a send for those);
-    // a correlated entry always waits for its own [send] specifically -- see [_releaseUpTo].
-    while (_pendingReplies.isNotEmpty &&
-        !_pendingReplies.first.needsCorrelation) {
-      _requireIncoming().add(_pendingReplies.removeAt(0).resolve());
-    }
   }
 
   /// Delivers [rawJson] exactly as given, bypassing auto-correlation and queue ordering -- for a
@@ -110,7 +138,10 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
       throw failure;
     }
     sent.add(text);
-    _releaseUpTo((jsonDecode(text) as JsonMap)['messageId'] as String);
+    _pendingReplies.releaseFor(
+      (jsonDecode(text) as JsonMap)['messageId'] as String,
+      _requireIncoming(),
+    );
   }
 
   /// See [DovahLinkTransport.messages].
@@ -125,30 +156,6 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     final Object? failure = failCloseWith;
     if (failure != null) {
       throw failure;
-    }
-  }
-
-  /// Releases every leading uncorrelated reply, then -- if the next one needs correlation --
-  /// releases exactly that one using [messageId], the `messageId` [send] just used. A `send`
-  /// whose own turn finds no correlated reply queued for it consumes nothing and leaves no trace:
-  /// deliberately not tracked for a later, unrelated [queueResponse] to latch onto -- a request a
-  /// test means to leave unanswered (a drop/timeout scenario) must never accidentally supply the
-  /// correlationId for some other reply queued afterward.
-  void _releaseUpTo(String messageId) {
-    bool consumedThisSend = false;
-    while (_pendingReplies.isNotEmpty) {
-      final PendingReply next = _pendingReplies.first;
-      if (!next.needsCorrelation) {
-        _pendingReplies.removeAt(0);
-        _requireIncoming().add(next.resolve());
-        continue;
-      }
-      if (consumedThisSend) {
-        return;
-      }
-      _pendingReplies.removeAt(0);
-      _requireIncoming().add(next.resolve(messageId));
-      consumedThisSend = true;
     }
   }
 
@@ -188,6 +195,120 @@ void main() {
     transport = FakeDovahLinkTransport();
     storage = InMemoryClientStorage();
     client = DovahLinkClient(transport: transport, storage: storage);
+  });
+
+  group('Method enqueue behaves correctly', () {
+    test('Method enqueue releases an uncorrelated reply immediately', () async {
+      final StreamController<String> incoming = StreamController<String>();
+      addTearDown(incoming.close);
+      final PendingReplyQueue queue = PendingReplyQueue();
+
+      queue.enqueue(PendingReply.immediate('reply'), incoming);
+
+      expect(await incoming.stream.first, 'reply');
+    });
+  });
+
+  group('Method releaseFor behaves correctly', () {
+    test(
+      'Method releaseFor rewrites one correlated reply with the request ID',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{
+            'correlationId': 'placeholder',
+            'payload': <String, dynamic>{},
+          }),
+          incoming,
+        );
+
+        queue.releaseFor('request-1', incoming);
+
+        expect(
+          await incoming.stream.first,
+          jsonEncode(<String, dynamic>{
+            'correlationId': 'request-1',
+            'payload': <String, dynamic>{},
+          }),
+        );
+      },
+    );
+
+    test('Method releaseFor leaves a second correlated reply queued', () async {
+      final StreamController<String> incoming = StreamController<String>();
+      addTearDown(incoming.close);
+      final PendingReplyQueue queue = PendingReplyQueue();
+      final List<String> received = <String>[];
+      incoming.stream.listen(received.add);
+      queue.enqueue(
+        PendingReply.correlated(<String, dynamic>{'correlationId': 'first'}),
+        incoming,
+      );
+      queue.enqueue(
+        PendingReply.correlated(<String, dynamic>{'correlationId': 'second'}),
+        incoming,
+      );
+
+      queue.releaseFor('request-1', incoming);
+      queue.releaseFor('request-2', incoming);
+      await pumpEventQueue();
+
+      expect(received, <String>[
+        jsonEncode(<String, dynamic>{'correlationId': 'request-1'}),
+        jsonEncode(<String, dynamic>{'correlationId': 'request-2'}),
+      ]);
+    });
+
+    test(
+      'Method releaseFor does not let an immediate reply jump a correlated reply',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        final List<String> received = <String>[];
+        incoming.stream.listen(received.add);
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{'correlationId': 'first'}),
+          incoming,
+        );
+        queue.enqueue(PendingReply.immediate('second'), incoming);
+        await pumpEventQueue();
+
+        expect(received, isEmpty);
+        queue.releaseFor('request-1', incoming);
+        await pumpEventQueue();
+
+        expect(received, <String>[
+          jsonEncode(<String, dynamic>{'correlationId': 'request-1'}),
+          'second',
+        ]);
+      },
+    );
+
+    test(
+      'Method releaseFor leaves a later reply available after an unanswered send',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        final List<String> received = <String>[];
+        incoming.stream.listen(received.add);
+
+        queue.releaseFor('unanswered-request', incoming);
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{'correlationId': 'later'}),
+          incoming,
+        );
+        queue.releaseFor('next-request', incoming);
+        await pumpEventQueue();
+
+        expect(received, <String>[
+          jsonEncode(<String, dynamic>{'correlationId': 'next-request'}),
+        ]);
+      },
+    );
   });
 
   group('Method connect behaves correctly', () {

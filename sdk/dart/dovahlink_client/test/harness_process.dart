@@ -49,13 +49,10 @@ int parsePort(String line, String stderrOutput) {
 /// (`bridge/harness/dovahlink_bridge_harness.cpp`) for real end-to-end tests. Mirrors
 /// `integration/DovahLinkValidationClient.Tests/HarnessProcess.cs`'s mechanics for a Dart caller.
 ///
-/// Every instance binds the bridge's fixed, documented loopback port -- the `.NET` integration
-/// suite solves the same constraint by disabling test-class parallelism outright
-/// (`integration/README.md`). `package:test` can run separate test files concurrently by default;
-/// repeated runs of this project's harness-using files together, including with concurrency
-/// forced above the default, have not shown a collision, so no such restriction is configured
-/// here yet. Add one (e.g. a shared `dart_test.yaml` tag with `concurrency: 1`) if that changes.
+/// Every instance requests an OS-assigned loopback port, so separate harness-using test files can
+/// run concurrently without contending for the bridge's documented fixed development port.
 class HarnessProcess {
+  /// Creates a harness controller around an already-started process and its decoded output queues.
   HarnessProcess._(this._process, this._stdoutLines, this._stderrBuffer);
 
   /// The default time allowed for one harness output line.
@@ -98,7 +95,7 @@ class HarnessProcess {
     Map<String, String> extraEnvironment = const <String, String>{},
   }) async {
     final Process process = await Process.start(
-      _locateHarnessExecutable(),
+      locateHarnessExecutable(),
       <String>[],
       environment: <String, String>{
         'DOVAHLINK_BRIDGE_TOKEN': token,
@@ -163,25 +160,27 @@ class HarnessProcess {
     _process.kill(ProcessSignal.sigkill);
     await _process.exitCode;
   }
+}
 
-  /// Locates the Windows debug-build DovahLink bridge harness executable by walking up from the
-  /// current working directory, mirroring `HarnessProcess.cs`'s own search.
-  static String _locateHarnessExecutable() {
-    Directory? directory = Directory.current;
-    for (int i = 0; i < 10 && directory != null; i++) {
-      final File candidate = File(
-        '${directory.path}${Platform.pathSeparator}bridge${Platform.pathSeparator}build'
-        '${Platform.pathSeparator}windows-x64-debug${Platform.pathSeparator}dovahlink_bridge_harness.exe',
-      );
-      if (candidate.existsSync()) {
-        return candidate.path;
-      }
-      final Directory parent = directory.parent;
-      directory = parent.path == directory.path ? null : parent;
-    }
-    throw StateError(
-      'Could not find dovahlink_bridge_harness.exe under any ancestor of ${Directory.current.path}. '
-      'Build it first: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness',
+/// Locates the Windows debug-build DovahLink bridge harness executable by walking up from
+/// [startingDirectory], mirroring `HarnessProcess.cs`'s own search. Throws [StateError] when no
+/// executable exists under the starting directory or one of its ten searched ancestors.
+String locateHarnessExecutable({Directory? startingDirectory}) {
+  final Directory origin = startingDirectory ?? Directory.current;
+  Directory? directory = origin;
+  for (int i = 0; i < 10 && directory != null; i++) {
+    final File candidate = File(
+      '${directory.path}${Platform.pathSeparator}bridge${Platform.pathSeparator}build'
+      '${Platform.pathSeparator}windows-x64-debug${Platform.pathSeparator}dovahlink_bridge_harness.exe',
     );
+    if (candidate.existsSync()) {
+      return candidate.path;
+    }
+    final Directory parent = directory.parent;
+    directory = parent.path == directory.path ? null : parent;
   }
+  throw StateError(
+    'Could not find dovahlink_bridge_harness.exe under any ancestor of ${origin.path}. '
+    'Build it first: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness',
+  );
 }

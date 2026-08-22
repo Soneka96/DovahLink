@@ -140,4 +140,41 @@ void main() {
       );
     });
   });
+
+  group('Method locateHarnessExecutable behaves correctly', () {
+    test(
+      'Method locateHarnessExecutable finds the executable under an ancestor',
+      () {
+        final Directory root = Directory.systemTemp.createTempSync(
+          'dovahlink-harness-location-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final Directory nested = Directory('${root.path}/nested')..createSync();
+        final File executable = File(
+          '${root.path}/bridge/build/windows-x64-debug/'
+          'dovahlink_bridge_harness.exe',
+        )..createSync(recursive: true);
+
+        expect(
+          Uri.file(locateHarnessExecutable(startingDirectory: nested)),
+          Uri.file(executable.path),
+        );
+      },
+    );
+
+    test(
+      'Method locateHarnessExecutable throws when no executable exists in the search path',
+      () {
+        final Directory root = Directory.systemTemp.createTempSync(
+          'dovahlink-harness-location-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+
+        expect(
+          () => locateHarnessExecutable(startingDirectory: root),
+          throwsStateError,
+        );
+      },
+    );
+  });
 }
