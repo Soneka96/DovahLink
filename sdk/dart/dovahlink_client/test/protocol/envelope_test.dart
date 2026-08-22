@@ -104,6 +104,32 @@ void main() {
     });
 
     test(
+      'Method fromJson rejects a payload missing each required envelope key',
+      () {
+        for (final String key in <String>[
+          'messageType',
+          'messageId',
+          'sessionId',
+          'correlationId',
+          'payload',
+          'bridgeInstanceId',
+          'playContextId',
+          'clientId',
+        ]) {
+          final JsonMap withMissingKey = _readFixture(
+            'connection/hello-ack.json',
+          )..remove(key);
+
+          expect(
+            () => Envelope.fromJson(withMissingKey),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$key is required in the envelope',
+          );
+        }
+      },
+    );
+
+    test(
       'Method fromJson rejects empty identifiers and invalid session shapes',
       () {
         final List<JsonMap> invalidPayloads = <JsonMap>[
@@ -184,6 +210,21 @@ void main() {
       },
     );
 
+    test('Method fromJson accepts a correlated session error', () {
+      final Envelope envelope = Envelope.fromJson(<String, dynamic>{
+        'messageType': 'error',
+        'messageId': 'error-1',
+        'sessionId': 'session-1',
+        'correlationId': 'request-1',
+        'payload': <String, dynamic>{},
+        'bridgeInstanceId': null,
+        'playContextId': null,
+        'clientId': null,
+      });
+
+      expect(envelope.correlationId, 'request-1');
+    });
+
     test('Method fromJson rejects a non-object payload', () {
       expect(
         () => Envelope.fromJson(<String, dynamic>{
@@ -199,6 +240,61 @@ void main() {
         throwsA(isA<ProtocolFormatException>()),
       );
     });
+
+    test(
+      'Method fromJson rejects the wrong type for each typed envelope field',
+      () {
+        const Map<String, Object> wrongTypes = <String, Object>{
+          'messageType': 7,
+          'messageId': 7,
+          'sessionId': 7,
+          'correlationId': 7,
+          'bridgeInstanceId': 7,
+          'playContextId': 7,
+          'clientId': 7,
+        };
+
+        for (final MapEntry<String, Object> entry in wrongTypes.entries) {
+          final JsonMap withWrongType = _readFixture(
+            'connection/hello-ack.json',
+          )..[entry.key] = entry.value;
+
+          expect(
+            () => Envelope.fromJson(withWrongType),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '${entry.key} must have its declared type',
+          );
+        }
+      },
+    );
+
+    test(
+      'Method fromJson preserves the contextual validator error boundary',
+      () {
+        expect(
+          () => Envelope.fromJson(<String, dynamic>{
+            'messageType': 'pong',
+            'messageId': '',
+            'sessionId': 'session-1',
+            'correlationId': 'message-1',
+            'payload': <String, dynamic>{},
+            'bridgeInstanceId': null,
+            'playContextId': null,
+            'clientId': null,
+          }),
+          throwsA(
+            isA<ProtocolFormatException>().having(
+              (ProtocolFormatException error) => error.message,
+              'message',
+              allOf(
+                startsWith('Invalid protocol envelope:'),
+                contains('messageId must not be empty'),
+              ),
+            ),
+          ),
+        );
+      },
+    );
 
     test('Method fromJson rejects impossible correlation shapes', () {
       final JsonMap helloAckWithoutCorrelation = _readFixture(
