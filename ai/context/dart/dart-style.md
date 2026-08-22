@@ -33,6 +33,18 @@ introduced, each preceded by a `// ---- <Area> ----` comment banner. A type that
 enum but exists only to be returned by, or passed to, exactly one other type (for example a small
 result/outcome value class) still gets its own file under the normal one-type-per-file default.
 
+## Class organization
+
+No private named classes in Dart production or test code. The only exceptions are generated JSON
+serialization code and private Flutter `State<T>` lifecycle subclasses. ViewModels are allowed only
+as named classes in their own files.
+
+This rule governs class-level privacy, not member-level privacy: private fields and methods remain
+the normal way to express internal state and invariants within a named class. A behavior or helper
+with meaningful logic belongs in a named class with a clear responsibility, in its own file -- never
+as a private class inline in the file that uses it, in production code or in a test file. Avoid
+generic `Helper`/`Utils` names; name a class after the responsibility it owns.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.
