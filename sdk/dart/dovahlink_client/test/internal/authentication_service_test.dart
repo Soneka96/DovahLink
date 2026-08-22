@@ -1,7 +1,8 @@
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';

@@ -1,4 +1,4 @@
-import 'enums.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 // ---- Request policy ----
 

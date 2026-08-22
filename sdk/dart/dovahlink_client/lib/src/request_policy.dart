@@ -1,6 +1,7 @@
-import 'shared/enums.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// The three independent properties `DovahLinkClient` classifies every request/operation against,
+/// The three independent properties [DovahLinkClient] classifies every request/operation against,
 /// per `ai/context/sdk/api-design.md`'s "Request retry safety, session requirement, and timeout
 /// class". Bundled as one value rather than three parallel fields, since they are read and
 /// enforced together for a single pending operation.

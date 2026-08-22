@@ -1,6 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import 'json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 
 part 'pairing_ack_payload.g.dart';
 

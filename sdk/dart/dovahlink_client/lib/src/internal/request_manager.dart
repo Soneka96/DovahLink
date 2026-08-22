@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';

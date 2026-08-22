@@ -1,4 +1,6 @@
-import '../shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Connects, disconnects, and admits a newly authenticated session, for a collaborator that
 /// orchestrates authentication but does not itself own transport lifecycle or connection state --
@@ -8,7 +10,7 @@ abstract interface class SessionConnector {
   DovahLinkConnectionState get connectionState;
 
   /// Establishes the transport connection to [uri].
-  /// @throws DovahLinkConnectionException if the socket cannot be established.
+  /// @throws [DovahLinkConnectionException] if the socket cannot be established.
   Future<void> connect(Uri uri);
 
   /// Closes the connection and resets in-memory session state. Idempotent.

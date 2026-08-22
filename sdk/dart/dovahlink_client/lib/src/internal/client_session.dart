@@ -2,16 +2,18 @@ import 'dart:async';
 
 import 'package:meta/meta.dart';
 
-import '../dovahlink_client_exception.dart';
-import '../shared/enums.dart';
-import '../transport/dovahlink_transport.dart';
-import 'connection_lifecycle_reporter.dart';
-import 'message_receiver.dart';
-import 'message_router.dart';
-import 'request_manager.dart';
-import 'session_connector.dart';
-import 'session_context.dart';
-import 'session_trust_writer.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
 /// Owns transport lifecycle, connection state, and stream ownership, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition" and "Session-state ownership". The
@@ -102,12 +104,15 @@ class ClientSession
   /// `null` otherwise.
   AdministrativeInvalidationReason? _invalidationReason;
 
+  /// Implements [SessionConnector.connectionState].
   @override
   DovahLinkConnectionState get connectionState => _connectionState;
 
+  /// Implements [SessionContext.currentSessionId].
   @override
   String? get currentSessionId => _sessionId;
 
+  /// Implements [SessionContext.currentTrustState].
   @override
   DovahLinkTrustState? get currentTrustState => _trustState;
 
@@ -116,6 +121,7 @@ class ClientSession
   AdministrativeInvalidationReason? get invalidationReason =>
       _invalidationReason;
 
+  /// Implements [SessionConnector.connect].
   @override
   Future<void> connect(Uri uri) async {
     _connectionState = DovahLinkConnectionState.connecting;
@@ -129,6 +135,7 @@ class ClientSession
     }
   }
 
+  /// Implements [SessionConnector.disconnect].
   @override
   Future<void> disconnect() async {
     await _teardownConnection(
@@ -137,6 +144,7 @@ class ClientSession
     );
   }
 
+  /// Implements [SessionConnector.admitSession].
   @override
   void admitSession({
     required String sessionId,
@@ -147,16 +155,19 @@ class ClientSession
     _requestManager.retryOrphanedOperations();
   }
 
+  /// Implements [SessionTrustWriter.markTrusted].
   @override
   void markTrusted() {
     _trustState = DovahLinkTrustState.trusted;
   }
 
+  /// Implements [ConnectionLifecycleReporter.onUnhealthy].
   @override
   void onUnhealthy(Exception reason) {
     unawaited(_teardownConnection(reason));
   }
 
+  /// Implements [ConnectionLifecycleReporter.onProtocolViolation].
   @override
   void onProtocolViolation(
     Exception reason, {
@@ -237,6 +248,7 @@ class ClientSession
   /// caller that sends before ever calling [connect]: without this, a `retrySafe` request sent on
   /// a never-connected session would be silently orphaned awaiting a reconnect that never
   /// happens, instead of failing with a typed exception.
+  /// Implements [MessageReceiver.ensureReceiving].
   @override
   void ensureReceiving() {
     if (_messageSubscription != null) {

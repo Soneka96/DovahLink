@@ -1,21 +1,24 @@
 import 'package:meta/meta.dart';
 
-import 'hello_result.dart';
-import 'internal/authentication_service.dart';
-import 'internal/client_session.dart';
-import 'internal/pairing_service.dart';
-import 'internal/request_manager.dart';
-import 'pairing_cancel_outcome.dart';
-import 'pairing_challenge_status.dart';
-import 'pairing_renotify_result.dart';
-import 'persistence/client_storage.dart';
-import 'persistence/persisted_client_state.dart';
-import 'persistence/windows/dpapi_client_storage.dart';
-import 'request_policy.dart';
-import 'shared/constants.dart';
-import 'shared/enums.dart';
-import 'transport/dovahlink_transport.dart';
-import 'transport/websocket_transport.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
+import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
+import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
+import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/constants.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
 /// disconnect. Owns its local `clientId`, pairing credential, and `CONFIRMING` recovery state
@@ -125,7 +128,7 @@ class DovahLinkClient {
       _session.invalidationReason;
 
   /// Establishes the transport connection to [uri]. Must be called before [hello].
-  /// @throws DovahLinkConnectionException if the socket cannot be established.
+  /// @throws [DovahLinkConnectionException] if the socket cannot be established.
   Future<void> connect(Uri uri) => _session.connect(uri);
 
   /// Sends `hello` and negotiates the session. Resolves and persists this installation's
@@ -136,7 +139,7 @@ class DovahLinkClient {
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state; see [RequestPolicy.requiredTrustState] and [ClientSession.admitSession].
-  /// @throws DovahLinkProtocolException if the bridge rejects authentication.
+  /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
   /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
@@ -151,8 +154,8 @@ class DovahLinkClient {
   /// one-session-per-connection limit (`handshake_handler.cpp`'s `TryCreateSession`) rejects a
   /// second `hello` on a socket that already holds a session, so re-authenticating an
   /// already-trusted, still-open connection must not re-send one.
-  /// @throws DovahLinkConnectionException if the socket cannot be established (initial or retry).
-  /// @throws DovahLinkProtocolException if hello is rejected for a non-recoverable reason, or the
+  /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
+  /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
   Future<HelloResult> authenticate(Uri uri) =>
       _authenticationService.authenticate(uri);
@@ -180,7 +183,7 @@ class DovahLinkClient {
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
   /// @return The issued credential, already persisted.
-  /// @throws DovahLinkPairingException if the code was expired, invalid, paced too soon, or
+  /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
   ///     hit the hard wrong-attempt limit.
   Future<String> confirmPairingCode({
     required String code,
@@ -191,7 +194,7 @@ class DovahLinkClient {
   /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
   /// [trustState] becomes [DovahLinkTrustState.trusted] on success, and the persisted recovery
   /// state clears back to [PairingRecoveryState.none] while keeping the credential.
-  /// @throws DovahLinkPairingException if the bridge has no matching pending confirmation.
+  /// @throws [DovahLinkPairingException] if the bridge has no matching pending confirmation.
   Future<void> acknowledgeTrustedCredential(String credential) =>
       _pairingService.acknowledgeTrustedCredential(credential);
 

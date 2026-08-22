@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'package:win32/win32.dart';
 
-import '../../dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
 /// The documented, stable Win32 DPAPI flag suppressing any UI prompt. This SDK never wants DPAPI
 /// to show a dialog, since (un)protection happens outside any user-interactive context; win32
@@ -25,7 +25,7 @@ class Dpapi {
   const Dpapi._();
 
   /// Encrypts [plaintext] with DPAPI in the default per-user scope.
-  /// @throws DovahLinkStorageException if DPAPI reports failure.
+  /// @throws [DovahLinkStorageException] if DPAPI reports failure.
   static Uint8List protect(Uint8List plaintext) {
     final Pointer<CRYPT_INTEGER_BLOB> dataIn = calloc<CRYPT_INTEGER_BLOB>();
     final Pointer<CRYPT_INTEGER_BLOB> dataOut = calloc<CRYPT_INTEGER_BLOB>();
@@ -63,7 +63,7 @@ class Dpapi {
   }
 
   /// Decrypts [encrypted] with DPAPI.
-  /// @throws DovahLinkStorageException if [encrypted] is empty (DPAPI never produces a zero-length
+  /// @throws [DovahLinkStorageException] if [encrypted] is empty (DPAPI never produces a zero-length
   ///     blob, so this cannot be genuine ciphertext this SDK wrote) or DPAPI reports failure --
   ///     undecryptable, tampered, or produced under a different Windows user's DPAPI master key.
   static Uint8List unprotect(Uint8List encrypted) {

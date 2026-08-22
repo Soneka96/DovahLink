@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
@@ -65,7 +65,9 @@ void main() {
     test(
       'throws DovahLinkStorageException for undecryptable (non-DPAPI) bytes',
       () async {
-        await File(filePath).writeAsBytes(Uint8List.fromList(<int>[1, 2, 3, 4]));
+        await File(
+          filePath,
+        ).writeAsBytes(Uint8List.fromList(<int>[1, 2, 3, 4]));
 
         await expectLater(
           storage.load(),
@@ -226,15 +228,18 @@ void main() {
       },
     );
 
-    test('the raw on-disk bytes never contain the plaintext credential', () async {
-      const String credential = 'super-secret-credential-value';
-      await storage.save(const PersistedClientState(credential: credential));
+    test(
+      'the raw on-disk bytes never contain the plaintext credential',
+      () async {
+        const String credential = 'super-secret-credential-value';
+        await storage.save(const PersistedClientState(credential: credential));
 
-      final Uint8List raw = await File(filePath).readAsBytes();
-      final String rawAsLatin1 = latin1.decode(raw, allowInvalid: true);
+        final Uint8List raw = await File(filePath).readAsBytes();
+        final String rawAsLatin1 = latin1.decode(raw, allowInvalid: true);
 
-      expect(rawAsLatin1.contains(credential), isFalse);
-    });
+        expect(rawAsLatin1.contains(credential), isFalse);
+      },
+    );
   });
 
   group('save', () {
@@ -253,42 +258,45 @@ void main() {
       expect(File('$filePath.tmp').existsSync(), isFalse);
     });
 
-    test(
-      'cleans up the temporary file when the atomic rename fails',
-      () async {
-        // A held-open handle on the not-yet-existing target path makes the OS reject the rename
-        // that would replace it, deterministically simulating a locked/in-use target.
-        await File(filePath).create();
-        final RandomAccessFile lock = File(
-          filePath,
-        ).openSync(mode: FileMode.write);
+    test('cleans up the temporary file when the atomic rename fails', () async {
+      // A held-open handle on the not-yet-existing target path makes the OS reject the rename
+      // that would replace it, deterministically simulating a locked/in-use target.
+      await File(filePath).create();
+      final RandomAccessFile lock = File(
+        filePath,
+      ).openSync(mode: FileMode.write);
 
-        try {
-          await expectLater(
-            storage.save(const PersistedClientState(clientId: 'client-1')),
-            throwsA(isA<PathAccessException>()),
-          );
-        } finally {
-          lock.closeSync();
-        }
+      try {
+        await expectLater(
+          storage.save(const PersistedClientState(clientId: 'client-1')),
+          throwsA(isA<PathAccessException>()),
+        );
+      } finally {
+        lock.closeSync();
+      }
 
-        expect(File('$filePath.tmp').existsSync(), isFalse);
-      },
-    );
+      expect(File('$filePath.tmp').existsSync(), isFalse);
+    });
   });
 
   group('clear', () {
-    test('deletes the persisted state so load returns the empty state', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
+    test(
+      'deletes the persisted state so load returns the empty state',
+      () async {
+        await storage.save(const PersistedClientState(clientId: 'client-1'));
 
-      await storage.clear();
+        await storage.clear();
 
-      final PersistedClientState loaded = await storage.load();
-      expect(loaded, const PersistedClientState());
-    });
+        final PersistedClientState loaded = await storage.load();
+        expect(loaded, const PersistedClientState());
+      },
+    );
 
-    test('is idempotent: calling it when nothing exists does not throw', () async {
-      await expectLater(storage.clear(), completes);
-    });
+    test(
+      'is idempotent: calling it when nothing exists does not throw',
+      () async {
+        await expectLater(storage.clear(), completes);
+      },
+    );
   });
 }

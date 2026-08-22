@@ -25,12 +25,11 @@ export 'src/hello_result.dart' show HelloResult;
 export 'src/pairing_cancel_outcome.dart' show PairingCancelOutcome;
 export 'src/pairing_challenge_status.dart' show PairingChallengeStatus;
 export 'src/pairing_renotify_result.dart' show PairingRenotifyResult;
-export 'src/dovahlink_client_exception.dart'
-    show
-        DovahLinkConnectionException,
-        DovahLinkPairingException,
-        DovahLinkProtocolException,
-        DovahLinkStorageException;
+export 'src/dovahlink_connection_exception.dart'
+    show DovahLinkConnectionException;
+export 'src/dovahlink_pairing_exception.dart' show DovahLinkPairingException;
+export 'src/dovahlink_protocol_exception.dart' show DovahLinkProtocolException;
+export 'src/dovahlink_storage_exception.dart' show DovahLinkStorageException;
 export 'src/persistence/client_storage.dart' show ClientStorage;
 export 'src/persistence/persisted_client_state.dart'
     show PairingRecoveryState, PersistedClientState;

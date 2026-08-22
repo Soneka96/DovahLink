@@ -1,4 +1,4 @@
-import '../shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Read-only access to the current session's identity and trust standing, for a collaborator that
 /// needs to know the live session without commanding it -- see

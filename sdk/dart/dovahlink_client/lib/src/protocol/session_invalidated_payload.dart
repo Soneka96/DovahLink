@@ -1,8 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import '../shared/enums.dart';
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'session_invalidated_payload.g.dart';
 

@@ -1,8 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import '../shared/enums.dart';
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'pairing_outcome_payload.g.dart';
 
@@ -22,7 +22,66 @@ class PairingOutcomePayload {
   /// Decodes and validates one `pairing_outcome` payload.
   factory PairingOutcomePayload.fromJson(JsonMap json) {
     try {
-      return _$PairingOutcomePayloadFromJson(json);
+      final PairingOutcomePayload payload = _$PairingOutcomePayloadFromJson(
+        json,
+      );
+      final Object? rawRetryAfterSeconds = json['retryAfterSeconds'];
+      if (rawRetryAfterSeconds != null && rawRetryAfterSeconds is! int) {
+        throw const ProtocolFormatException(
+          'retryAfterSeconds must be an integer or null.',
+        );
+      }
+      if (rawRetryAfterSeconds is int && rawRetryAfterSeconds < 0) {
+        throw const ProtocolFormatException(
+          'retryAfterSeconds must not be negative.',
+        );
+      }
+
+      final bool carriesCredential = switch (payload.outcome) {
+        PairingOutcome.credentialIssued ||
+        PairingOutcome.trusted ||
+        PairingOutcome.alreadyTrusted => true,
+        _ => false,
+      };
+      final bool carriesShortId = switch (payload.outcome) {
+        PairingOutcome.trusted || PairingOutcome.alreadyTrusted => true,
+        _ => false,
+      };
+      final bool carriesRetryAfterSeconds = switch (payload.outcome) {
+        PairingOutcome.pacingLimited || PairingOutcome.renotifyCooldown => true,
+        _ => false,
+      };
+      if ((payload.credential != null) != carriesCredential) {
+        throw ProtocolFormatException(
+          'credential presence is invalid for ${payload.outcome}.',
+        );
+      }
+      if (payload.credential != null && payload.credential!.isEmpty) {
+        throw const ProtocolFormatException(
+          'credential must not be empty when present.',
+        );
+      }
+      if ((payload.shortId != null) != carriesShortId) {
+        throw ProtocolFormatException(
+          'shortId presence is invalid for ${payload.outcome}.',
+        );
+      }
+      if (payload.shortId != null && payload.shortId!.isEmpty) {
+        throw const ProtocolFormatException(
+          'shortId must not be empty when present.',
+        );
+      }
+      if (!carriesCredential && payload.displayName != null) {
+        throw ProtocolFormatException(
+          'displayName presence is invalid for ${payload.outcome}.',
+        );
+      }
+      if ((payload.retryAfterSeconds != null) != carriesRetryAfterSeconds) {
+        throw ProtocolFormatException(
+          'retryAfterSeconds presence is invalid for ${payload.outcome}.',
+        );
+      }
+      return payload;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid pairing_outcome payload: $error');
     }

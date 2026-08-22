@@ -1,8 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import '../shared/enums.dart';
-import 'hello_auth_payload.dart';
-import 'json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/hello_auth_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'hello_payload.g.dart';
 

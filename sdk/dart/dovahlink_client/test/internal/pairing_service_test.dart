@@ -1,7 +1,9 @@
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
@@ -9,6 +11,7 @@ import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -26,19 +29,24 @@ class MockSessionTrustWriter extends Mock implements SessionTrustWriter {}
 /// Mock message receiver used to isolate pairing service tests.
 class MockMessageReceiver extends Mock implements MessageReceiver {}
 
+/// Mock storage used to prove rejected pairing outcomes do not touch persistence.
+class MockClientStorage extends Mock implements ClientStorage {}
+
 /// Builds a decoded `pairing_outcome` reply envelope carrying [outcome], with every other field
 /// present-but-empty per that message's wire contract.
 Envelope buildPairingOutcomeEnvelope({
-  PairingOutcome outcome = PairingOutcome.credentialIssued,
+  PairingOutcome outcome = PairingOutcome.alreadyIdle,
   String? credential,
+  String? shortId,
+  String? displayName,
   int? retryAfterSeconds,
 }) => buildEnvelope(
   messageType: ProtocolMessageType.pairingOutcome,
   payload: <String, dynamic>{
     'outcome': _wirePairingOutcome(outcome),
     'credential': credential,
-    'shortId': null,
-    'displayName': null,
+    'shortId': shortId,
+    'displayName': displayName,
     'retryAfterSeconds': retryAfterSeconds,
   },
 );
@@ -71,6 +79,25 @@ void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
   ).thenAnswer((_) async => envelope);
 }
 
+/// Builds a pairing service with the explicitly supplied collaborators.
+PairingService buildPairingService({
+  required RequestManager requestManager,
+  required ClientStorage storage,
+  required SessionTrustWriter sessionTrustWriter,
+  required MessageReceiver messageReceiver,
+}) => PairingService(
+  requestManager: requestManager,
+  storage: storage,
+  sessionTrustWriter: sessionTrustWriter,
+  messageReceiver: messageReceiver,
+);
+
+/// Verifies that a rejected pairing operation did not touch [storage].
+void verifyNoStorageCalls(MockClientStorage storage) {
+  verifyNever(() => storage.load());
+  verifyNever(() => storage.save(any()));
+}
+
 /// Runs pairing service behavior tests.
 void main() {
   late MockRequestManager requestManager;
@@ -88,6 +115,7 @@ void main() {
         timeoutClass: TimeoutClass.normal,
       ),
     );
+    registerFallbackValue(const PersistedClientState());
   });
 
   setUp(() {
@@ -97,7 +125,7 @@ void main() {
     messageReceiver = MockMessageReceiver();
     when(() => messageReceiver.ensureReceiving()).thenReturn(null);
     when(() => sessionTrustWriter.markTrusted()).thenReturn(null);
-    service = PairingService(
+    service = buildPairingService(
       requestManager: requestManager,
       storage: storage,
       sessionTrustWriter: sessionTrustWriter,
@@ -419,7 +447,10 @@ void main() {
       () async {
         stubSendAndAwait(
           requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.credentialIssued),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'credential-1',
+          ),
         );
 
         await expectLater(
@@ -439,7 +470,7 @@ void main() {
                 .having(
                   (DovahLinkProtocolException e) => e.message,
                   'message',
-                  contains('pairing_renotify'),
+                  'Unexpected pairing_renotify outcome: PairingOutcome.credentialIssued',
                 ),
           ),
         );
@@ -571,7 +602,7 @@ void main() {
                 .having(
                   (DovahLinkProtocolException e) => e.message,
                   'message',
-                  contains('pairing_cancel'),
+                  'Unexpected pairing_cancel outcome: PairingOutcome.renotified',
                 ),
           ),
         );
@@ -667,13 +698,20 @@ void main() {
     test(
       'Method confirmPairingCode throws malformed_message when credential_issued carries no credential',
       () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
         stubSendAndAwait(
           requestManager,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.credentialIssued),
         );
 
         await expectLater(
-          service.confirmPairingCode(code: '123456'),
+          rejectedService.confirmPairingCode(code: '123456'),
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
@@ -682,12 +720,21 @@ void main() {
             ),
           ),
         );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
 
     test(
       'Method confirmPairingCode throws malformed_message when pairing_outcome fails to decode',
       () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
         stubSendAndAwait(
           requestManager,
           buildEnvelope(
@@ -703,7 +750,7 @@ void main() {
         );
 
         await expectLater(
-          service.confirmPairingCode(code: '123456'),
+          rejectedService.confirmPairingCode(code: '123456'),
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
@@ -712,6 +759,8 @@ void main() {
             ),
           ),
         );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
 
@@ -748,25 +797,97 @@ void main() {
     );
 
     test(
-      'Method confirmPairingCode throws DovahLinkPairingException for a rejected code without persisting',
+      'Method confirmPairingCode throws typed pairing exceptions for every valid rejected outcome',
       () async {
+        const Map<PairingOutcome, int?> rejectedOutcomes =
+            <PairingOutcome, int?>{
+              PairingOutcome.expired: null,
+              PairingOutcome.invalid: null,
+              PairingOutcome.pacingLimited: 2,
+              PairingOutcome.hardLimitReached: null,
+            };
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
+        for (final MapEntry<PairingOutcome, int?> entry
+            in rejectedOutcomes.entries) {
+          stubSendAndAwait(
+            requestManager,
+            buildPairingOutcomeEnvelope(
+              outcome: entry.key,
+              retryAfterSeconds: entry.value,
+            ),
+          );
+
+          await expectLater(
+            rejectedService.confirmPairingCode(code: '123456'),
+            throwsA(
+              isA<DovahLinkPairingException>()
+                  .having(
+                    (DovahLinkPairingException error) => error.outcome,
+                    'outcome',
+                    entry.key,
+                  )
+                  .having(
+                    (DovahLinkPairingException error) =>
+                        error.retryAfterSeconds,
+                    'retryAfterSeconds',
+                    entry.value,
+                  ),
+            ),
+          );
+          verifyNever(() => sessionTrustWriter.markTrusted());
+        }
+        verifyNoStorageCalls(rejectedStorage);
+      },
+    );
+
+    test(
+      'Method confirmPairingCode throws malformed_message for an outcome from another exchange',
+      () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
         stubSendAndAwait(
           requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: 'credential-1',
+            shortId: '12345',
+          ),
         );
 
         await expectLater(
-          service.confirmPairingCode(code: '123456'),
+          rejectedService.confirmPairingCode(code: '123456'),
           throwsA(
-            isA<DovahLinkPairingException>().having(
-              (DovahLinkPairingException e) => e.outcome,
-              'outcome',
-              PairingOutcome.expired,
-            ),
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException error) => error.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isFalse,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.message,
+                  'message',
+                  'Unexpected pairing_confirm outcome: PairingOutcome.trusted',
+                ),
           ),
         );
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, isNull);
+        verifyNever(() => sessionTrustWriter.markTrusted());
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
   });
@@ -784,7 +905,11 @@ void main() {
         );
         stubSendAndAwait(
           requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.trusted),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: 'cred',
+            shortId: '12345',
+          ),
         );
 
         await service.acknowledgeTrustedCredential('cred');
@@ -812,21 +937,6 @@ void main() {
     test(
       'Method acknowledgeTrustedCredential also marks the session trusted on an already_trusted outcome',
       () async {
-        stubSendAndAwait(
-          requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyTrusted),
-        );
-
-        await service.acknowledgeTrustedCredential('cred');
-
-        verify(() => sessionTrustWriter.markTrusted()).called(1);
-      },
-    );
-
-    test(
-      'Method acknowledgeTrustedCredential never marks the session trusted and throws '
-      'DovahLinkPairingException for a rejected acknowledgement',
-      () async {
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -836,11 +946,40 @@ void main() {
         );
         stubSendAndAwait(
           requestManager,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.alreadyTrusted,
+            credential: 'cred',
+            shortId: '12345',
+          ),
+        );
+
+        await service.acknowledgeTrustedCredential('cred');
+
+        verify(() => sessionTrustWriter.markTrusted()).called(1);
+        final PersistedClientState state = await storage.load();
+        expect(state.credential, 'cred');
+        expect(state.recoveryState, PairingRecoveryState.none);
+      },
+    );
+
+    test(
+      'Method acknowledgeTrustedCredential never marks the session trusted and throws '
+      'DovahLinkPairingException for a rejected acknowledgement',
+      () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
+        stubSendAndAwait(
+          requestManager,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          rejectedService.acknowledgeTrustedCredential('cred'),
           throwsA(
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
@@ -850,30 +989,61 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustWriter.markTrusted());
-        final PersistedClientState state = await storage.load();
-        expect(state.recoveryState, PairingRecoveryState.confirming);
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
 
     test(
-      'Method acknowledgeTrustedCredential never marks the session trusted for a plain outcome rejection (not pendingNotFound)',
+      'Method acknowledgeTrustedCredential throws malformed_message for an outcome from another exchange',
       () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
         stubSendAndAwait(
           requestManager,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
-          throwsA(isA<DovahLinkPairingException>()),
+          rejectedService.acknowledgeTrustedCredential('cred'),
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException error) => error.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isFalse,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.message,
+                  'message',
+                  'Unexpected pairing_ack outcome: PairingOutcome.expired',
+                ),
+          ),
         );
         verifyNever(() => sessionTrustWriter.markTrusted());
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
 
     test(
       'Method acknowledgeTrustedCredential throws malformed_message when pairing_outcome fails to decode',
       () async {
+        final MockClientStorage rejectedStorage = MockClientStorage();
+        final PairingService rejectedService = buildPairingService(
+          requestManager: requestManager,
+          storage: rejectedStorage,
+          sessionTrustWriter: sessionTrustWriter,
+          messageReceiver: messageReceiver,
+        );
         stubSendAndAwait(
           requestManager,
           buildEnvelope(
@@ -889,7 +1059,7 @@ void main() {
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          rejectedService.acknowledgeTrustedCredential('cred'),
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
@@ -899,6 +1069,7 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustWriter.markTrusted());
+        verifyNoStorageCalls(rejectedStorage);
       },
     );
   });
@@ -961,7 +1132,11 @@ void main() {
         );
         stubSendAndAwait(
           requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.trusted),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: 'stored-cred',
+            shortId: '12345',
+          ),
         );
 
         final DovahLinkTrustState result = await service
@@ -1020,10 +1195,14 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(
-          requestManager,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
-        );
+        when(
+          () => requestManager.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
 
         await expectLater(
           service.recoverPendingPairing(),

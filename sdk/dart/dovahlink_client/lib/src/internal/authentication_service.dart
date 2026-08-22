@@ -1,4 +1,5 @@
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
@@ -82,7 +83,7 @@ class AuthenticationService {
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state; see [RequestPolicy.requiredTrustState] and [SessionConnector.admitSession].
-  /// @throws DovahLinkProtocolException if the bridge rejects authentication.
+  /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
   Future<HelloResult> hello() async {
     final PersistedClientState state = await _storage.load();
     final String clientId = await _clientIdResolver.resolve(state);
@@ -179,8 +180,8 @@ class AuthenticationService {
   /// one-session-per-connection limit (`handshake_handler.cpp`'s `TryCreateSession`) rejects a
   /// second `hello` on a socket that already holds a session, so re-authenticating an
   /// already-trusted, still-open connection must not re-send one.
-  /// @throws DovahLinkConnectionException if the socket cannot be established (initial or retry).
-  /// @throws DovahLinkProtocolException if hello is rejected for a non-recoverable reason, or the
+  /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
+  /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
   Future<HelloResult> authenticate(Uri uri) async {
     final String? cachedBridgeVersion = _bridgeVersion;

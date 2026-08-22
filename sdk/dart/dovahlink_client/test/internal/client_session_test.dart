@@ -4,7 +4,8 @@ import 'dart:convert';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
@@ -86,19 +87,22 @@ void main() {
     }
   });
 
-  group('connect', () {
-    test('transitions to connected and starts receiving on success', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  group('Method connect behaves correctly', () {
+    test(
+      'Method connect transitions to connected and starts receiving on success',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      expect(session.connectionState, DovahLinkConnectionState.connected);
-      verify(
-        () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-      ).called(1);
-      verify(() => transport.messages).called(1);
-    });
+        expect(session.connectionState, DovahLinkConnectionState.connected);
+        verify(
+          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        ).called(1);
+        verify(() => transport.messages).called(1);
+      },
+    );
 
     test(
-      'resets to disconnected and throws DovahLinkConnectionException on failure',
+      'Method connect resets to disconnected and throws DovahLinkConnectionException on failure',
       () async {
         when(
           () => transport.connect(any()),
@@ -112,7 +116,7 @@ void main() {
       },
     );
 
-    test('routes an inbound message to MessageRouter', () async {
+    test('Method connect routes an inbound message to MessageRouter', () async {
       await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
       messages.add('raw-message');
@@ -122,8 +126,8 @@ void main() {
     });
 
     test(
-      'a second connect() while already connected surfaces the transport\'s own '
-      'rejection as DovahLinkConnectionException',
+      'Method connect surfaces the transport\'s own rejection when already connected '
+      'as DovahLinkConnectionException',
       () async {
         await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
         when(() => transport.connect(any())).thenThrow(
@@ -141,16 +145,19 @@ void main() {
     );
   });
 
-  group('ensureReceiving', () {
-    test('is idempotent: a second call does not re-subscribe', () async {
-      session.ensureReceiving();
-      session.ensureReceiving();
+  group('Method ensureReceiving behaves correctly', () {
+    test(
+      'Method ensureReceiving is idempotent and does not re-subscribe',
+      () async {
+        session.ensureReceiving();
+        session.ensureReceiving();
 
-      verify(() => transport.messages).called(1);
-    });
+        verify(() => transport.messages).called(1);
+      },
+    );
 
     test(
-      'converts a synchronous transport failure into DovahLinkConnectionException',
+      'Method ensureReceiving converts a synchronous transport failure into DovahLinkConnectionException',
       () {
         when(() => transport.messages).thenThrow(StateError('not connected'));
 
@@ -161,36 +168,42 @@ void main() {
       },
     );
 
-    test('an async stream error tears the connection down', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+    test(
+      'Method ensureReceiving tears the connection down on an async stream error',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      messages.addError(StateError('socket error'));
-      await pumpEventQueue();
+        messages.addError(StateError('socket error'));
+        await pumpEventQueue();
 
-      expect(session.connectionState, DovahLinkConnectionState.disconnected);
-      verify(() => transport.close()).called(1);
-      verify(
-        () => requestManager.failAll(any(), orphanRetrySafeOperations: true),
-      ).called(1);
-    });
+        expect(session.connectionState, DovahLinkConnectionState.disconnected);
+        verify(() => transport.close()).called(1);
+        verify(
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
 
-    test('the stream closing (onDone) tears the connection down', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+    test(
+      'Method ensureReceiving tears the connection down when the stream closes',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      await messages.close();
-      await pumpEventQueue();
+        await messages.close();
+        await pumpEventQueue();
 
-      expect(session.connectionState, DovahLinkConnectionState.disconnected);
-      verify(() => transport.close()).called(1);
-      verify(
-        () => requestManager.failAll(any(), orphanRetrySafeOperations: true),
-      ).called(1);
-    });
+        expect(session.connectionState, DovahLinkConnectionState.disconnected);
+        verify(() => transport.close()).called(1);
+        verify(
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
   });
 
-  group('admitSession', () {
+  group('Method admitSession behaves correctly', () {
     test(
-      'sets currentSessionId/currentTrustState and triggers retryOrphanedOperations',
+      'Method admitSession sets currentSessionId/currentTrustState and triggers retryOrphanedOperations',
       () {
         session.admitSession(
           sessionId: 'session-1',
@@ -204,21 +217,24 @@ void main() {
     );
   });
 
-  group('markTrusted', () {
-    test('sets currentTrustState without touching currentSessionId', () {
-      session.admitSession(
-        sessionId: 'session-1',
-        trustState: DovahLinkTrustState.unpaired,
-      );
+  group('Method markTrusted behaves correctly', () {
+    test(
+      'Method markTrusted sets currentTrustState without touching currentSessionId',
+      () {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+        );
 
-      session.markTrusted();
+        session.markTrusted();
 
-      expect(session.currentTrustState, DovahLinkTrustState.trusted);
-      expect(session.currentSessionId, 'session-1');
-    });
+        expect(session.currentTrustState, DovahLinkTrustState.trusted);
+        expect(session.currentSessionId, 'session-1');
+      },
+    );
 
     test(
-      'sets currentTrustState even when no session has been admitted yet',
+      'Method markTrusted sets currentTrustState even without an admitted session',
       () {
         session.markTrusted();
 
@@ -228,9 +244,9 @@ void main() {
     );
   });
 
-  group('onUnhealthy', () {
+  group('Method onUnhealthy behaves correctly', () {
     test(
-      'tears the connection down, orphaning retry-safe operations by default',
+      'Method onUnhealthy tears the connection down and orphans retry-safe operations by default',
       () async {
         await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
@@ -246,29 +262,32 @@ void main() {
     );
   });
 
-  group('onProtocolViolation', () {
-    test('tears down without orphaning when requested', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  group('Method onProtocolViolation behaves correctly', () {
+    test(
+      'Method onProtocolViolation tears down without orphaning when requested',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      session.onProtocolViolation(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'no match',
-          retryable: false,
-        ),
-        orphanRetrySafeOperations: false,
-      );
-      await pumpEventQueue();
+        session.onProtocolViolation(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'no match',
+            retryable: false,
+          ),
+          orphanRetrySafeOperations: false,
+        );
+        await pumpEventQueue();
 
-      verify(
-        () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
-      ).called(1);
-    });
+        verify(
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
+        ).called(1);
+      },
+    );
   });
 
-  group('onSessionInvalidated', () {
+  group('Method onSessionInvalidated behaves correctly', () {
     test(
-      'fails closed with no authenticated session, staying disconnected',
+      'Method onSessionInvalidated fails closed with no authenticated session',
       () async {
         session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
         await pumpEventQueue();
@@ -281,32 +300,35 @@ void main() {
       },
     );
 
-    test('sets invalidationReason/connectionState and fails everything without '
-        'orphaning, for an authenticated session', () async {
-      session.admitSession(
-        sessionId: 'session-1',
-        trustState: DovahLinkTrustState.unpaired,
-      );
+    test(
+      'Method onSessionInvalidated sets invalidationReason/connectionState and fails everything without '
+      'orphaning, for an authenticated session',
+      () async {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+        );
 
-      session.onSessionInvalidated(AdministrativeInvalidationReason.blocked);
-      await pumpEventQueue();
+        session.onSessionInvalidated(AdministrativeInvalidationReason.blocked);
+        await pumpEventQueue();
 
-      expect(
-        session.connectionState,
-        DovahLinkConnectionState.administrativelyInvalidated,
-      );
-      expect(
-        session.invalidationReason,
-        AdministrativeInvalidationReason.blocked,
-      );
-      verify(
-        () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
-      ).called(1);
-      verify(() => transport.close()).called(1);
-    });
+        expect(
+          session.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          session.invalidationReason,
+          AdministrativeInvalidationReason.blocked,
+        );
+        verify(
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
+        ).called(1);
+        verify(() => transport.close()).called(1);
+      },
+    );
 
     test(
-      'is never overwritten by a subsequent onUnhealthy call racing behind it',
+      'Method onSessionInvalidated is never overwritten by a racing onUnhealthy call',
       () async {
         session.admitSession(
           sessionId: 'session-1',
@@ -339,7 +361,7 @@ void main() {
     );
 
     test(
-      'is never overwritten by a subsequent onProtocolViolation call racing behind it',
+      'Method onSessionInvalidated is never overwritten by a racing onProtocolViolation call',
       () async {
         session.admitSession(
           sessionId: 'session-1',
@@ -374,7 +396,7 @@ void main() {
     );
 
     test(
-      'is never overwritten by a subsequent disconnect() call racing behind it',
+      'Method onSessionInvalidated is never overwritten by a racing disconnect call',
       () async {
         session.admitSession(
           sessionId: 'session-1',
@@ -401,7 +423,7 @@ void main() {
     );
 
     test(
-      'still reaches administrativelyInvalidated even when the transport close fails',
+      'Method onSessionInvalidated still reaches administrativelyInvalidated even when the transport close fails',
       () async {
         when(() => transport.close()).thenThrow(StateError('close failed'));
         session.admitSession(
@@ -420,31 +442,37 @@ void main() {
     );
   });
 
-  group('disconnect', () {
-    test('tears down without orphaning and resets connectionState', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  group('Method disconnect behaves correctly', () {
+    test(
+      'Method disconnect tears down without orphaning and resets connectionState',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      await session.disconnect();
+        await session.disconnect();
 
-      expect(session.connectionState, DovahLinkConnectionState.disconnected);
-      verify(() => transport.close()).called(1);
-      verify(
-        () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
-      ).called(1);
-    });
+        expect(session.connectionState, DovahLinkConnectionState.disconnected);
+        verify(() => transport.close()).called(1);
+        verify(
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
+        ).called(1);
+      },
+    );
 
-    test('is idempotent: calling it twice does not throw', () async {
-      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+    test(
+      'Method disconnect is idempotent and does not throw when called twice',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
-      await session.disconnect();
+        await session.disconnect();
 
-      await expectLater(session.disconnect(), completes);
-    });
+        await expectLater(session.disconnect(), completes);
+      },
+    );
   });
 
-  group('stale generation isolation', () {
+  group('Behavior stale generation isolation behaves correctly', () {
     test(
-      'a message delivered after teardown on the same broadcast stream is not routed',
+      'Behavior stale generation isolation ignores a message delivered after teardown',
       () async {
         await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
 
@@ -457,15 +485,18 @@ void main() {
     );
   });
 
-  group('requestManager', () {
-    test('exposes the same instance passed to withCollaborators', () {
-      expect(session.requestManager, same(requestManager));
-    });
+  group('Property requestManager behaves correctly', () {
+    test(
+      'Property requestManager exposes the same instance passed to withCollaborators',
+      () {
+        expect(session.requestManager, same(requestManager));
+      },
+    );
   });
 
-  group('primary constructor', () {
+  group('Method constructor behaves correctly', () {
     test(
-      'atomically builds a real, working RequestManager/MessageRouter wired to this session',
+      'Method constructor atomically builds real collaborators wired to this session',
       () async {
         final StreamControllerTransport realTransport =
             StreamControllerTransport();

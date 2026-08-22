@@ -1,6 +1,6 @@
 import 'package:go_router/go_router.dart';
 
-import 'app_routes.dart';
+import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 
 /// The only approved way to navigate. Middleware calls this, never [GoRouter] or
 /// `context.go`/`context.push` directly, and always with an [AppRoutes] constant, never an

@@ -1,4 +1,5 @@
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
@@ -161,7 +162,7 @@ class PairingService {
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
   /// @return The issued credential, already persisted.
-  /// @throws DovahLinkPairingException if the code was expired, invalid, paced too soon, or
+  /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
   ///     hit the hard wrong-attempt limit.
   Future<String> confirmPairingCode({
     required String code,
@@ -192,8 +193,26 @@ class PairingService {
         retryable: false,
       );
     }
+    final bool isConfirmOutcome = switch (outcome.outcome) {
+      PairingOutcome.credentialIssued ||
+      PairingOutcome.expired ||
+      PairingOutcome.invalid ||
+      PairingOutcome.pacingLimited ||
+      PairingOutcome.hardLimitReached => true,
+      _ => false,
+    };
+    if (!isConfirmOutcome) {
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'Unexpected pairing_confirm outcome: ${outcome.outcome}',
+        retryable: false,
+      );
+    }
     if (outcome.outcome != PairingOutcome.credentialIssued) {
-      throw DovahLinkPairingException(outcome.outcome);
+      throw DovahLinkPairingException(
+        outcome.outcome,
+        retryAfterSeconds: outcome.retryAfterSeconds,
+      );
     }
     final String? credential = outcome.credential;
     if (credential == null) {
@@ -218,7 +237,7 @@ class PairingService {
   /// The session's trust state becomes [DovahLinkTrustState.trusted] on success, and the
   /// persisted recovery state clears back to [PairingRecoveryState.none] while keeping the
   /// credential.
-  /// @throws DovahLinkPairingException if the bridge has no matching pending confirmation.
+  /// @throws [DovahLinkPairingException] if the bridge has no matching pending confirmation.
   Future<void> acknowledgeTrustedCredential(String credential) async {
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     _messageReceiver.ensureReceiving();
@@ -242,9 +261,24 @@ class PairingService {
         retryable: false,
       );
     }
-    if (outcome.outcome != PairingOutcome.trusted &&
-        outcome.outcome != PairingOutcome.alreadyTrusted) {
-      throw DovahLinkPairingException(outcome.outcome);
+    final bool isAckOutcome = switch (outcome.outcome) {
+      PairingOutcome.trusted ||
+      PairingOutcome.alreadyTrusted ||
+      PairingOutcome.pendingNotFound => true,
+      _ => false,
+    };
+    if (!isAckOutcome) {
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'Unexpected pairing_ack outcome: ${outcome.outcome}',
+        retryable: false,
+      );
+    }
+    if (outcome.outcome == PairingOutcome.pendingNotFound) {
+      throw DovahLinkPairingException(
+        outcome.outcome,
+        retryAfterSeconds: outcome.retryAfterSeconds,
+      );
     }
     _sessionTrustWriter.markTrusted();
 

@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import '../../dovahlink_client_exception.dart';
-import '../client_storage.dart';
-import '../persisted_client_state.dart';
-import 'dpapi.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 
 /// A [ClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
@@ -103,7 +103,7 @@ class DpapiClientStorage implements ClientStorage {
   }
 
   /// Decodes a JSON object into a [PersistedClientState].
-  /// @throws DovahLinkStorageException if the format version is unsupported, `recoveryState` is
+  /// @throws [DovahLinkStorageException] if the format version is unsupported, `recoveryState` is
   ///     unrecognized, or `clientId`/`credential` is present with the wrong type.
   PersistedClientState _decode(Map<String, dynamic> json) {
     final Object? formatVersion = json['formatVersion'];

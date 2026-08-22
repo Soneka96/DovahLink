@@ -1,4 +1,4 @@
-import '../shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Reports a connection-level event upward to whichever class owns the connection, for a
 /// collaborator that detects the event but does not itself own transport lifecycle or connection

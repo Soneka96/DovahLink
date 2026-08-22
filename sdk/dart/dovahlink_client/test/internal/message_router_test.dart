@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';

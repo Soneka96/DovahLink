@@ -6,7 +6,7 @@ import 'dart:typed_data';
 
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 
 void main() {

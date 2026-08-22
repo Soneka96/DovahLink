@@ -1,39 +1,76 @@
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// The pre-existing [DovahLinkConnectionException], [DovahLinkProtocolException], and
-/// [DovahLinkPairingException] are exercised indirectly through `dovahlink_client_test.dart`,
-/// matching this file's existing precedent; only the new [DovahLinkStorageException] is tested
-/// directly here.
+/// Runs typed exception behavior tests.
 void main() {
-  group('DovahLinkStorageException', () {
-    group('methods', () {
-      test('exposes the diagnostic message it was created with', () {
+  group('Method constructor behaves correctly for pairing exceptions', () {
+    test(
+      'Method constructor preserves outcome and retryAfterSeconds for pairing exceptions',
+      () {
+        const DovahLinkPairingException exception = DovahLinkPairingException(
+          PairingOutcome.pacingLimited,
+          retryAfterSeconds: 2,
+        );
+
+        expect(exception.outcome, PairingOutcome.pacingLimited);
+        expect(exception.retryAfterSeconds, 2);
+      },
+    );
+
+    test('Method constructor creates a throwable pairing exception', () {
+      expect(
+        () => throw const DovahLinkPairingException(PairingOutcome.expired),
+        throwsA(isA<DovahLinkPairingException>()),
+      );
+    });
+  });
+
+  group('Method toString behaves correctly for pairing outcomes', () {
+    test('Method toString returns the pairing outcome diagnostic', () {
+      const DovahLinkPairingException exception = DovahLinkPairingException(
+        PairingOutcome.expired,
+      );
+
+      expect(
+        exception.toString(),
+        'DovahLinkPairingException: PairingOutcome.expired',
+      );
+    });
+  });
+
+  group('Method toString behaves correctly for storage diagnostics', () {
+    test('Method toString returns the storage diagnostic message', () {
+      const DovahLinkStorageException exception = DovahLinkStorageException(
+        'undecryptable persisted state',
+      );
+
+      expect(
+        exception.toString(),
+        'DovahLinkStorageException: undecryptable persisted state',
+      );
+    });
+  });
+
+  group('Method constructor behaves correctly for storage exceptions', () {
+    test(
+      'Method constructor preserves the diagnostic message for storage exceptions',
+      () {
         const DovahLinkStorageException exception = DovahLinkStorageException(
           'undecryptable persisted state',
         );
 
         expect(exception.message, 'undecryptable persisted state');
-      });
+      },
+    );
 
-      test('toString includes the diagnostic message', () {
-        const DovahLinkStorageException exception = DovahLinkStorageException(
-          'undecryptable persisted state',
-        );
-
-        expect(
-          exception.toString(),
-          'DovahLinkStorageException: undecryptable persisted state',
-        );
-      });
-
-      test('is throwable and catchable as an Exception', () {
-        expect(
-          () => throw const DovahLinkStorageException('corrupt store'),
-          throwsA(isA<DovahLinkStorageException>()),
-        );
-      });
+    test('Method constructor creates a throwable storage exception', () {
+      expect(
+        () => throw const DovahLinkStorageException('corrupt store'),
+        throwsA(isA<DovahLinkStorageException>()),
+      );
     });
   });
 }

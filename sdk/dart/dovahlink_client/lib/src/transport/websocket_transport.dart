@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
 /// A [DovahLinkTransport] backed by `dart:io`'s built-in [WebSocket] -- no additional package
 /// dependency needed for this desktop client.
