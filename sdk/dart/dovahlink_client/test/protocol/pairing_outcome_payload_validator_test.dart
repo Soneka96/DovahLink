@@ -208,8 +208,29 @@ void main() {
       }
     });
 
-    test('Method validate rejects non-integral and negative raw retry values', () {
-      for (final Object value in <Object>[1.5, -1]) {
+    test(
+      'Method validate rejects non-integral and negative raw retry values',
+      () {
+        for (final Object value in <Object>[1.5, -1]) {
+          expect(
+            () => PairingOutcomePayloadValidator.validate(
+              outcome: PairingOutcome.pacingLimited,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              retryAfterSeconds: null,
+              json: <String, dynamic>{'retryAfterSeconds': value},
+            ),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$value is not a valid retryAfterSeconds value',
+          );
+        }
+      },
+    );
+
+    test(
+      'Method validate rejects a non-null raw retry value with an invalid type',
+      () {
         expect(
           () => PairingOutcomePayloadValidator.validate(
             outcome: PairingOutcome.pacingLimited,
@@ -217,26 +238,11 @@ void main() {
             shortId: null,
             displayName: null,
             retryAfterSeconds: null,
-            json: <String, dynamic>{'retryAfterSeconds': value},
+            json: <String, dynamic>{'retryAfterSeconds': 'soon'},
           ),
           throwsA(isA<ProtocolFormatException>()),
-          reason: '$value is not a valid retryAfterSeconds value',
         );
-      }
-    });
-
-    test('Method validate rejects a non-null raw retry value with an invalid type', () {
-      expect(
-        () => PairingOutcomePayloadValidator.validate(
-          outcome: PairingOutcome.pacingLimited,
-          credential: null,
-          shortId: null,
-          displayName: null,
-          retryAfterSeconds: null,
-          json: <String, dynamic>{'retryAfterSeconds': 'soon'},
-        ),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+      },
+    );
   });
 }

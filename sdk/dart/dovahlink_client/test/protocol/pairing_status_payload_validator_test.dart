@@ -15,47 +15,56 @@ PairingStatusPayload buildPairingStatusPayload({
 /// Runs pairing-status validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
-    test('Method validate accepts an available challenge with an integer expiry', () {
-      expect(
-        () => PairingStatusPayloadValidator.validate(
-          state: PairingAvailability.available,
-          expiresInSeconds: 300,
-          json: <String, dynamic>{
-            'state': 'available',
-            'expiresInSeconds': 300,
-          },
-        ),
-        returnsNormally,
-      );
-    });
-
-    test('Method validate accepts other-device pairing when expiry is omitted', () {
-      expect(
-        () => PairingStatusPayloadValidator.validate(
-          state: PairingAvailability.otherDevicePairing,
-          expiresInSeconds: null,
-          json: <String, dynamic>{'state': 'other_device_pairing'},
-        ),
-        returnsNormally,
-      );
-    });
-
-    test('Method validate accepts in-progress challenges with an integer or null expiry', () {
-      for (final int? expiry in <int?>[187, null]) {
+    test(
+      'Method validate accepts an available challenge with an integer expiry',
+      () {
         expect(
           () => PairingStatusPayloadValidator.validate(
-            state: PairingAvailability.inProgress,
-            expiresInSeconds: expiry,
+            state: PairingAvailability.available,
+            expiresInSeconds: 300,
             json: <String, dynamic>{
-              'state': 'in_progress',
-              'expiresInSeconds': expiry,
+              'state': 'available',
+              'expiresInSeconds': 300,
             },
           ),
           returnsNormally,
-          reason: '$expiry is a valid in-progress expiry',
         );
-      }
-    });
+      },
+    );
+
+    test(
+      'Method validate accepts other-device pairing when expiry is omitted',
+      () {
+        expect(
+          () => PairingStatusPayloadValidator.validate(
+            state: PairingAvailability.otherDevicePairing,
+            expiresInSeconds: null,
+            json: <String, dynamic>{'state': 'other_device_pairing'},
+          ),
+          returnsNormally,
+        );
+      },
+    );
+
+    test(
+      'Method validate accepts in-progress challenges with an integer or null expiry',
+      () {
+        for (final int? expiry in <int?>[187, null]) {
+          expect(
+            () => PairingStatusPayloadValidator.validate(
+              state: PairingAvailability.inProgress,
+              expiresInSeconds: expiry,
+              json: <String, dynamic>{
+                'state': 'in_progress',
+                'expiresInSeconds': expiry,
+              },
+            ),
+            returnsNormally,
+            reason: '$expiry is a valid in-progress expiry',
+          );
+        }
+      },
+    );
 
     test('Method validate rejects non-integral and negative expiry values', () {
       for (final Object value in <Object>[1.5, -1]) {

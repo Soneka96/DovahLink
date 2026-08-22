@@ -54,64 +54,73 @@ void expectInvalidEnvelope({
 /// Runs envelope validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
-    test('Method validate accepts valid hello, error, and capability shapes', () {
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.hello,
-        sessionId: null,
-        correlationId: null,
-        bridgeInstanceId: null,
-        playContextId: null,
-        clientId: null,
-      );
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.error,
-        sessionId: null,
-        correlationId: null,
-        bridgeInstanceId: null,
-        playContextId: null,
-        clientId: null,
-      );
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.capabilities,
-        sessionId: 'session-1',
-        correlationId: null,
-        bridgeInstanceId: 'bridge-1',
-        playContextId: null,
-        clientId: 'client-1',
-      );
-    });
+    test(
+      'Method validate accepts valid hello, error, and capability shapes',
+      () {
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.hello,
+          sessionId: null,
+          correlationId: null,
+          bridgeInstanceId: null,
+          playContextId: null,
+          clientId: null,
+        );
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.error,
+          sessionId: null,
+          correlationId: null,
+          bridgeInstanceId: null,
+          playContextId: null,
+          clientId: null,
+        );
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.capabilities,
+          sessionId: 'session-1',
+          correlationId: null,
+          bridgeInstanceId: 'bridge-1',
+          playContextId: null,
+          clientId: 'client-1',
+        );
+      },
+    );
 
-    test('Method validate accepts valid correlated replies and client requests', () {
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.pairingStatus,
-        sessionId: 'session-1',
-        correlationId: 'message-1',
-        bridgeInstanceId: 'bridge-1',
-        playContextId: null,
-        clientId: null,
-      );
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.pairingRequest,
-        sessionId: 'session-1',
-        correlationId: null,
-        bridgeInstanceId: 'bridge-1',
-        playContextId: null,
-        clientId: 'client-1',
-      );
-      expectValidEnvelope(
-        messageType: ProtocolMessageType.ping,
-        sessionId: 'session-1',
-        correlationId: null,
-        bridgeInstanceId: 'bridge-1',
-        playContextId: null,
-        clientId: 'client-1',
-      );
-    });
+    test(
+      'Method validate accepts valid correlated replies and client requests',
+      () {
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.pairingStatus,
+          sessionId: 'session-1',
+          correlationId: 'message-1',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: null,
+          clientId: null,
+        );
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.pairingRequest,
+          sessionId: 'session-1',
+          correlationId: null,
+          bridgeInstanceId: 'bridge-1',
+          playContextId: null,
+          clientId: 'client-1',
+        );
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.ping,
+          sessionId: 'session-1',
+          correlationId: null,
+          bridgeInstanceId: 'bridge-1',
+          playContextId: null,
+          clientId: 'client-1',
+        );
+      },
+    );
 
-    test('Method validate rejects empty message and correlation identifiers', () {
-      expectInvalidEnvelope(messageId: '');
-      expectInvalidEnvelope(correlationId: '');
-    });
+    test(
+      'Method validate rejects empty message and correlation identifiers',
+      () {
+        expectInvalidEnvelope(messageId: '');
+        expectInvalidEnvelope(correlationId: '');
+      },
+    );
 
     test('Method validate rejects impossible correlation requirements', () {
       expectInvalidEnvelope(

@@ -47,16 +47,16 @@ void main() {
                   'code',
                   ProtocolErrorCode.rateLimited,
                 )
-              .having(
-                (DovahLinkProtocolException error) => error.retryable,
-                'retryable',
-                isTrue,
-              )
-              .having(
-                (DovahLinkProtocolException error) => error.message,
-                'message',
-                'try again',
-              ),
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isTrue,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.message,
+                  'message',
+                  'try again',
+                ),
           ),
         );
       },
