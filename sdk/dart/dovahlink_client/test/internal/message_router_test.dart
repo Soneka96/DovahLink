@@ -197,27 +197,6 @@ void main() {
     );
 
     test(
-      'Method handleIncoming ignores an unsolicited capabilities message',
-      () {
-        router.handleIncoming(
-          rawEnvelope(
-            messageType: 'capabilities',
-            payload: const <String, dynamic>{},
-          ),
-        );
-
-        verifyNever(() => requestManager.resolveReply(any(), any()));
-        verifyNever(() => reporter.onSessionInvalidated(any()));
-        verifyNever(
-          () => reporter.onProtocolViolation(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
-      },
-    );
-
-    test(
       'Method handleIncoming reports a protocol violation for an unrecognized message type',
       () {
         router.handleIncoming(
@@ -270,50 +249,5 @@ void main() {
         verifyNever(() => requestManager.resolveReply(any(), any()));
       },
     );
-
-    /// One malformed `session_invalidated` payload per distinct `SessionInvalidatedPayload.fromJson`
-    /// failure cause -- an unrecognized enum value, a missing required key, and the wrong type for
-    /// that key are three different `CheckedFromJsonException` paths, all still wrapped as the
-    /// same `ProtocolFormatException` -> `DovahLinkProtocolException(malformed_message)`.
-    final Map<String, JsonMap> malformedSessionInvalidatedPayloads =
-        <String, JsonMap>{
-          'an unrecognized reason': const <String, dynamic>{
-            'reason': 'not-a-real-reason',
-          },
-          'a missing reason key': const <String, dynamic>{},
-          'the wrong type for reason': const <String, dynamic>{'reason': 7},
-        };
-    for (final MapEntry<String, JsonMap> entry
-        in malformedSessionInvalidatedPayloads.entries) {
-      test(
-        'Method handleIncoming reports a protocol violation without orphaning operations, for '
-        '${entry.key}',
-        () {
-          router.handleIncoming(
-            rawEnvelope(
-              messageType: 'session_invalidated',
-              payload: entry.value,
-            ),
-          );
-
-          final VerificationResult verification = verify(
-            () => reporter.onProtocolViolation(
-              captureAny(),
-              orphanRetrySafeOperations: captureAny(
-                named: 'orphanRetrySafeOperations',
-              ),
-            ),
-          );
-          expect(verification.captured[0], isA<DovahLinkProtocolException>());
-          expect(
-            (verification.captured[0] as DovahLinkProtocolException).code,
-            ProtocolErrorCode.malformedMessage,
-          );
-          expect(verification.captured[1], isFalse);
-          verifyNever(() => reporter.onSessionInvalidated(any()));
-          verifyNever(() => requestManager.resolveReply(any(), any()));
-        },
-      );
-    }
   });
 }

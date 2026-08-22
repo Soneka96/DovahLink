@@ -3,10 +3,9 @@ import 'dart:convert';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/unsolicited_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
-import 'package:dovahlink_client_sdk/src/protocol/session_invalidated_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns envelope decoding, correlation, and unsolicited routing, per
@@ -28,7 +27,12 @@ class MessageRouter {
     required RequestManager requestManager,
     required ConnectionLifecycleReporter reporter,
   }) : _requestManager = requestManager,
-       _reporter = reporter;
+       _reporter = reporter {
+    _unsolicitedMessageHandler = UnsolicitedMessageHandler(reporter: reporter);
+  }
+
+  /// Routes decoded unsolicited messages.
+  late final UnsolicitedMessageHandler _unsolicitedMessageHandler;
 
   /// Decodes and routes one inbound message. Matches a correlated reply to its pending operation
   /// strictly by `correlationId`/`messageId` through [RequestManager.resolveReply]; routes an
@@ -43,8 +47,10 @@ class MessageRouter {
       // A protocol-level anomaly on an otherwise-live connection, not ordinary connectivity
       // loss -- never assumed safe to retry, unlike a send failure/timeout/socket drop.
       _reporter.onProtocolViolation(
-        _malformedMessageException(
-          ProtocolFormatException('Invalid protocol envelope: $error'),
+        DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'Invalid protocol envelope: $error',
+          retryable: false,
         ),
         orphanRetrySafeOperations: false,
       );
@@ -53,7 +59,7 @@ class MessageRouter {
 
     final String? correlationId = envelope.correlationId;
     if (correlationId == null) {
-      _handleUnsolicited(envelope);
+      _unsolicitedMessageHandler.handle(envelope);
       return;
     }
 
@@ -72,47 +78,4 @@ class MessageRouter {
       );
     }
   }
-
-  /// Routes one unsolicited (`correlationId: null`) inbound message by its type.
-  void _handleUnsolicited(Envelope envelope) {
-    switch (envelope.messageType) {
-      case ProtocolMessageType.capabilities:
-        // Declared once after hello_ack; exposing it is out of this client's current scope.
-        break;
-      case ProtocolMessageType.sessionInvalidated:
-        _handleSessionInvalidated(envelope);
-        break;
-      default:
-        // A known but currently unsupported unsolicited message is ignored. An unknown wire value
-        // was already rejected while decoding [Envelope].
-        break;
-    }
-  }
-
-  /// Decodes an authoritative `session_invalidated` push and reports it through
-  /// [ConnectionLifecycleReporter.onSessionInvalidated]. Whether a session is even currently
-  /// authenticated to receive one is the reporter's own state to check, not this router's --
-  /// decoding is all this method owns.
-  void _handleSessionInvalidated(Envelope envelope) {
-    try {
-      final SessionInvalidatedPayload payload =
-          SessionInvalidatedPayload.fromJson(envelope.payload);
-      _reporter.onSessionInvalidated(payload.reason);
-    } on ProtocolFormatException catch (error) {
-      _reporter.onProtocolViolation(
-        _malformedMessageException(error),
-        orphanRetrySafeOperations: false,
-      );
-    }
-  }
-
-  /// Translates a DTO decode boundary failure into the typed exception SDK consumers already
-  /// handle, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
-  DovahLinkProtocolException _malformedMessageException(
-    ProtocolFormatException error,
-  ) => DovahLinkProtocolException(
-    code: ProtocolErrorCode.malformedMessage,
-    message: error.message,
-    retryable: false,
-  );
 }
