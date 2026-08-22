@@ -6,12 +6,14 @@ import 'package:dovahlink_client_sdk/src/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
@@ -28,7 +30,8 @@ class ClientSession
         ConnectionLifecycleReporter,
         SessionConnector,
         SessionTrustWriter,
-        MessageReceiver {
+        MessageReceiver,
+        SessionLifecycleState {
   /// The transport this session connects, sends over, and closes.
   final DovahLinkTransport _transport;
 
@@ -51,6 +54,12 @@ class ClientSession
       replyResolver: _requestManager,
       reporter: this,
     );
+    _teardownCoordinator = ConnectionTeardownCoordinator(
+      transport: transport,
+      lifecycleQueue: _lifecycleQueue,
+      pendingOperationFailureHandler: _requestManager,
+      state: this,
+    );
   }
 
   /// Creates a client session with directly-injected [requestManager] and [messageRouter],
@@ -64,7 +73,14 @@ class ClientSession
     required MessageRouter messageRouter,
   }) : _transport = transport,
        _requestManager = requestManager,
-       _messageRouter = messageRouter;
+       _messageRouter = messageRouter {
+    _teardownCoordinator = ConnectionTeardownCoordinator(
+      transport: transport,
+      lifecycleQueue: _lifecycleQueue,
+      pendingOperationFailureHandler: requestManager,
+      state: this,
+    );
+  }
 
   /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the shared
   /// coordinator used by this session's request-oriented services.
@@ -72,6 +88,9 @@ class ClientSession
 
   /// Owns envelope decoding, correlation, and unsolicited routing.
   late final MessageRouter _messageRouter;
+
+  /// Coordinates resource cleanup without owning this session's socket-scoped state.
+  late final ConnectionTeardownCoordinator _teardownCoordinator;
 
   /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
   /// connection is being received for. The SDK owns exactly one of these at a time, per
@@ -123,6 +142,15 @@ class ClientSession
   AdministrativeInvalidationReason? get invalidationReason =>
       _invalidationReason;
 
+  /// Implements [SessionLifecycleState.isAdministrativelyInvalidated].
+  @override
+  bool get isAdministrativelyInvalidated =>
+      _connectionState == DovahLinkConnectionState.administrativelyInvalidated;
+
+  /// Implements [SessionLifecycleState.connectionGeneration].
+  @override
+  int get connectionGeneration => _connectionGeneration;
+
   /// Implements [SessionConnector.connect].
   @override
   Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
@@ -142,7 +170,7 @@ class ClientSession
   /// Implements [SessionConnector.disconnect].
   @override
   Future<void> disconnect() async {
-    await _teardownConnection(
+    await _teardownCoordinator.tearDown(
       const DovahLinkConnectionException('Disconnected.'),
       orphanRetrySafeOperations: false,
     );
@@ -168,7 +196,7 @@ class ClientSession
   /// Implements [ConnectionLifecycleReporter.onUnhealthy].
   @override
   void onUnhealthy(Exception reason) {
-    unawaited(_teardownConnection(reason));
+    unawaited(_teardownCoordinator.tearDown(reason));
   }
 
   /// Implements [ConnectionLifecycleReporter.onProtocolViolation].
@@ -178,7 +206,7 @@ class ClientSession
     required bool orphanRetrySafeOperations,
   }) {
     unawaited(
-      _teardownConnection(
+      _teardownCoordinator.tearDown(
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,
       ),
@@ -188,12 +216,14 @@ class ClientSession
   /// See [ConnectionLifecycleReporter.onSessionInvalidated]. Receiving one with no currently
   /// authenticated session is an impossible state per `protocol/schema/README.md` (the event is
   /// only ever sent for an existing authenticated session) and fails closed as a protocol
-  /// violation via [_teardownConnection] rather than being accepted. Otherwise sets
+  /// violation via [ConnectionTeardownCoordinator.tearDown] rather than being accepted. Otherwise sets
   /// [connectionState] and [invalidationReason], fails every pending or retry-orphaned operation
-  /// (administrative invalidation is terminal and never eligible for
+  /// immediately (administrative invalidation is terminal and never eligible for
   /// [RequestManager.retryOrphanedOperations] -- recovery is Stage 2's explicit, user-initiated
-  /// Retry only), and tears the connection down directly rather than through
-  /// [_teardownConnection]/[disconnect], so a following socket close the bridge itself performs
+  /// Retry only), then delegates resource closure to
+  /// [ConnectionTeardownCoordinator.closeAfterInvalidation]. The immediate failure intentionally
+  /// precedes best-effort resource closure so callers stop awaiting work without depending on
+  /// transport cleanup; a following socket close the bridge itself performs
   /// cannot overwrite this typed reason back to generic transport loss -- see
   /// [_handleReceiveFailure]'s generation/state guard.
   @override
@@ -204,7 +234,7 @@ class ClientSession
     }
     if (_sessionId == null || _trustState == null) {
       unawaited(
-        _teardownConnection(
+        _teardownCoordinator.tearDown(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.malformedMessage,
             message:
@@ -230,34 +260,9 @@ class ClientSession
       orphanRetrySafeOperations: false,
     );
 
-    unawaited(_closeConnectionAfterInvalidation(_connectionGeneration));
-  }
-
-  /// Best-effort subscription cancellation and transport close for [onSessionInvalidated],
-  /// matching [disconnect]'s own tolerance for a close that cannot complete cleanly.
-  Future<void> _closeConnectionAfterInvalidation(int generation) async {
-    await _lifecycleQueue.run(() async {
-      if (generation != _connectionGeneration) {
-        return;
-      }
-      final StreamSubscription<String>? subscription = _messageSubscription;
-      _messageSubscription = null;
-      if (subscription != null) {
-        try {
-          await subscription.cancel();
-        } on Object {
-          // Best-effort, matching disconnect()'s existing tolerance.
-        }
-      }
-      if (generation != _connectionGeneration) {
-        return;
-      }
-      try {
-        await _transport.close();
-      } on Object {
-        // Best-effort, matching disconnect()'s existing tolerance.
-      }
-    });
+    unawaited(
+      _teardownCoordinator.closeAfterInvalidation(_connectionGeneration),
+    );
   }
 
   /// Ensures exactly one subscription is reading [_transport]'s inbound message stream for the
@@ -317,53 +322,28 @@ class ClientSession
     if (generation != _connectionGeneration) {
       return;
     }
-    unawaited(_teardownConnection(reason));
+    unawaited(_teardownCoordinator.tearDown(reason));
   }
 
-  /// The single path that tears an unhealthy connection down: bumps [_connectionGeneration] so a
-  /// stale callback still in flight recognizes it no longer applies, awaits cancelling
-  /// [_messageSubscription] and closing [_transport] before returning, then resolves every
-  /// currently pending operation through [RequestManager.failAll]. A no-op if [connectionState]
-  /// is already [DovahLinkConnectionState.administrativelyInvalidated] -- that typed reason is
-  /// never overwritten by a failure that follows it, such as the bridge's own follow-up socket
-  /// close. Otherwise always runs its full cleanup, even if [connectionState] was already
-  /// [DovahLinkConnectionState.disconnected] (for example a caller that never called [connect] at
-  /// all before a request failed) -- every step below ([_messageSubscription] cancellation,
-  /// [_transport] close) is independently idempotent, so a redundant call is harmless, but
-  /// skipping it entirely would leave [_transport] never actually closed for that caller.
-  Future<void> _teardownConnection(
-    Exception reason, {
-    bool orphanRetrySafeOperations = true,
-  }) => _lifecycleQueue.run(() async {
-    if (_connectionState ==
-        DovahLinkConnectionState.administrativelyInvalidated) {
-      return;
-    }
+  /// Implements [SessionLifecycleState.bumpConnectionGeneration].
+  @override
+  void bumpConnectionGeneration() {
     _connectionGeneration++;
+  }
 
+  /// Implements [SessionLifecycleState.detachMessageSubscription].
+  @override
+  StreamSubscription<String>? detachMessageSubscription() {
     final StreamSubscription<String>? subscription = _messageSubscription;
     _messageSubscription = null;
-    if (subscription != null) {
-      try {
-        await subscription.cancel();
-      } on Object {
-        // Best-effort: in-memory state resets below regardless.
-      }
-    }
-    try {
-      await _transport.close();
-    } on Object {
-      // Best-effort: in-memory state resets below regardless of whether the transport could
-      // close cleanly.
-    }
+    return subscription;
+  }
 
+  /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
+  @override
+  void resetAfterConnectionTeardown() {
     _connectionState = DovahLinkConnectionState.disconnected;
     _trustState = null;
     _sessionId = null;
-
-    _requestManager.failAll(
-      reason,
-      orphanRetrySafeOperations: orphanRetrySafeOperations,
-    );
-  });
+  }
 }

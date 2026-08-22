@@ -408,10 +408,10 @@ void main() {
         );
         expect(session.currentSessionId, isNull);
         expect(session.currentTrustState, isNull);
-        verify(
+        verifyInOrder([
           () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
-        ).called(1);
-        verify(() => transport.close()).called(1);
+          () => transport.close(),
+        ]);
       },
     );
 

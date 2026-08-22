@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_failure_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
@@ -19,7 +20,11 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// per [DovahLinkTransport] connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements.
 class RequestManager
-    implements RequestSender, ReplyResolver, PendingOperationRegistry {
+    implements
+        RequestSender,
+        ReplyResolver,
+        PendingOperationRegistry,
+        PendingOperationFailureHandler {
   /// The live session identity/trust state each outgoing and retried envelope is stamped with or
   /// revalidated against.
   final SessionContext _sessionContext;
@@ -125,6 +130,7 @@ class RequestManager
   /// retried once is parked in [_orphanedRetryableOperations] instead of being failed immediately,
   /// awaiting [retryOrphanedOperations]; when `false`, every pending operation is failed
   /// immediately and any already-orphaned operation is failed too.
+  @override
   void failAll(Exception reason, {required bool orphanRetrySafeOperations}) {
     final List<PendingOperation> pending = _pendingOperations.values.toList();
     _pendingOperations.clear();
