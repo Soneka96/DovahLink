@@ -5,8 +5,8 @@ import 'dart:typed_data';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state_decoder.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
-import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// A [ClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
@@ -48,7 +48,7 @@ class DpapiClientStorage implements ClientStorage {
         'Persisted client state is not a JSON object.',
       );
     }
-    return _decode(decoded);
+    return PersistedClientStateDecoder.decode(decoded);
   }
 
   /// See [ClientStorage.save]. Writes to a temporary file and atomically renames it over the
@@ -101,45 +101,5 @@ class DpapiClientStorage implements ClientStorage {
       );
     }
     return '$localAppData\\DovahLink\\sdk_client_state.dat';
-  }
-
-  /// Decodes a JSON object into a [PersistedClientState].
-  /// @throws [DovahLinkStorageException] if the format version is unsupported, `recoveryState` is
-  ///     unrecognized, or `clientId`/`credential` is present with the wrong type.
-  PersistedClientState _decode(Map<String, dynamic> json) {
-    final Object? formatVersion = json['formatVersion'];
-    if (formatVersion != PersistedClientState.currentFormatVersion) {
-      throw DovahLinkStorageException(
-        'Unsupported persisted client state format version: $formatVersion.',
-      );
-    }
-
-    final Object? recoveryStateRaw = json['recoveryState'];
-    final PairingRecoveryState recoveryState = switch (recoveryStateRaw) {
-      'none' => PairingRecoveryState.none,
-      'confirming' => PairingRecoveryState.confirming,
-      _ => throw DovahLinkStorageException(
-        'Unrecognized persisted recoveryState: $recoveryStateRaw.',
-      ),
-    };
-
-    final Object? clientId = json['clientId'];
-    if (clientId != null && clientId is! String) {
-      throw const DovahLinkStorageException(
-        'Persisted clientId is not a string.',
-      );
-    }
-    final Object? credential = json['credential'];
-    if (credential != null && credential is! String) {
-      throw const DovahLinkStorageException(
-        'Persisted credential is not a string.',
-      );
-    }
-
-    return PersistedClientState(
-      clientId: clientId as String?,
-      credential: credential as String?,
-      recoveryState: recoveryState,
-    );
   }
 }

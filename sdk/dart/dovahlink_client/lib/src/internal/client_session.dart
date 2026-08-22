@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
@@ -88,7 +89,7 @@ class ClientSession
 
   /// Serializes connect, close, and invalidation cleanup so an old transport close can never run
   /// after a newer connection has been established.
-  Future<void> _lifecycleTail = Future<void>.value();
+  final LifecycleOperationQueue _lifecycleQueue = LifecycleOperationQueue();
 
   /// The current connection lifecycle phase.
   DovahLinkConnectionState _connectionState =
@@ -127,7 +128,7 @@ class ClientSession
 
   /// Implements [SessionConnector.connect].
   @override
-  Future<void> connect(Uri uri) => _runLifecycleOperation(() async {
+  Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
     _connectionGeneration++;
     _invalidationReason = null;
     _connectionState = DovahLinkConnectionState.connecting;
@@ -238,7 +239,7 @@ class ClientSession
   /// Best-effort subscription cancellation and transport close for [onSessionInvalidated],
   /// matching [disconnect]'s own tolerance for a close that cannot complete cleanly.
   Future<void> _closeConnectionAfterInvalidation(int generation) async {
-    await _runLifecycleOperation(() async {
+    await _lifecycleQueue.run(() async {
       if (generation != _connectionGeneration) {
         return;
       }
@@ -336,7 +337,7 @@ class ClientSession
   Future<void> _teardownConnection(
     Exception reason, {
     bool orphanRetrySafeOperations = true,
-  }) => _runLifecycleOperation(() async {
+  }) => _lifecycleQueue.run(() async {
     if (_connectionState ==
         DovahLinkConnectionState.administrativelyInvalidated) {
       return;
@@ -368,19 +369,4 @@ class ClientSession
       orphanRetrySafeOperations: orphanRetrySafeOperations,
     );
   });
-
-  /// Runs one transport lifecycle operation after all earlier lifecycle operations finish.
-  Future<void> _runLifecycleOperation(Future<void> Function() operation) {
-    final Future<void> previous = _lifecycleTail;
-    final Completer<void> completion = Completer<void>();
-    _lifecycleTail = completion.future;
-    return () async {
-      try {
-        await previous;
-        await operation();
-      } finally {
-        completion.complete();
-      }
-    }();
-  }
 }
