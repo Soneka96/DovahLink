@@ -14,9 +14,11 @@ import 'persistence/persisted_client_state.dart';
 import 'persistence/windows/dpapi_client_storage.dart';
 import 'protocol/envelope.dart';
 import 'protocol/error_payload.dart';
-import 'protocol/hello_payloads.dart';
+import 'protocol/hello_ack_payload.dart';
+import 'protocol/hello_payload.dart';
 import 'protocol/json_map.dart';
 import 'protocol/pairing_payloads.dart';
+import 'protocol/protocol_format_exception.dart';
 import 'protocol/session_invalidated_payload.dart';
 import 'request_policy.dart';
 import 'shared/constants.dart';
@@ -184,9 +186,10 @@ class DovahLinkClient {
         ),
       );
       final HelloAckPayload ack = HelloAckPayload.fromJson(response.payload);
-      final DovahLinkTrustState trustState = _parseClientIdentityKind(
-        ack.clientIdentityKind,
-      );
+      final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
+        ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
+        ClientIdentityKind.paired => DovahLinkTrustState.trusted,
+      };
 
       _sessionId = response.sessionId;
       _trustState = trustState;
@@ -201,6 +204,17 @@ class DovahLinkClient {
       return HelloResult(
         bridgeVersion: ack.bridgeVersion,
         trustState: trustState,
+      );
+    } on ProtocolFormatException catch (error) {
+      // A DTO decode boundary failure (for example an unrecognized clientIdentityKind) is a
+      // protocol-level anomaly, not ordinary connectivity loss -- translated to the typed
+      // exception this client's callers already handle, per `ai/context/sdk/api-design.md`'s
+      // "Protocol DTO decoding" boundary translation, rather than leaking the DTO-layer type.
+      await disconnect();
+      throw DovahLinkProtocolException(
+        code: 'malformed_message',
+        message: error.message,
+        retryable: false,
       );
     } on Object {
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
@@ -902,17 +916,6 @@ class DovahLinkClient {
         .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
         .join();
   }
-
-  /// Interprets `hello_ack.clientIdentityKind`'s raw wire value.
-  DovahLinkTrustState _parseClientIdentityKind(String raw) => switch (raw) {
-    'unpaired' => DovahLinkTrustState.unpaired,
-    'paired' => DovahLinkTrustState.trusted,
-    _ => throw DovahLinkProtocolException(
-      code: 'malformed_message',
-      message: 'Unrecognized clientIdentityKind: $raw',
-      retryable: false,
-    ),
-  };
 
   /// Interprets `pairing_status.state`'s raw wire value.
   PairingAvailability _parsePairingAvailability(String raw) => switch (raw) {

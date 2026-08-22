@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
-import 'package:dovahlink_client_sdk/src/protocol/hello_payloads.dart';
+import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
@@ -50,7 +50,7 @@ void main() {
           messageId: 'test-hello-1',
           sessionId: null,
           correlationId: null,
-          payload: const HelloPayload(
+          payload: HelloPayload(
             clientId: 'client-1',
             authMethod: AuthMethod.unpaired,
           ).toJson(),
@@ -209,7 +209,7 @@ void main() {
         messageId: 'test-hello-1',
         sessionId: null,
         correlationId: null,
-        payload: const HelloPayload(
+        payload: HelloPayload(
           clientId: 'client-1',
           authMethod: AuthMethod.unpaired,
         ).toJson(),
@@ -337,7 +337,7 @@ void main() {
         messageId: 'test-hello-2',
         sessionId: null,
         correlationId: null,
-        payload: const HelloPayload(
+        payload: HelloPayload(
           clientId: 'client-2',
           authMethod: AuthMethod.unpaired,
         ).toJson(),
