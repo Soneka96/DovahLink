@@ -25,6 +25,7 @@ class WebSocketTransport implements DovahLinkTransport {
   /// reused across reconnects.
   bool _abandoned = false;
 
+  /// See [DovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     if (_socket != null) {
@@ -57,11 +58,13 @@ class WebSocketTransport implements DovahLinkTransport {
     });
   }
 
+  /// See [DovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     _requireSocket().add(text);
   }
 
+  /// See [DovahLinkTransport.messages].
   @override
   Stream<String> get messages {
     final Stream<String>? messages = _messages;
@@ -71,6 +74,7 @@ class WebSocketTransport implements DovahLinkTransport {
     return messages;
   }
 
+  /// See [DovahLinkTransport.close].
   @override
   Future<void> close() async {
     _abandoned = true;

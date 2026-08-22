@@ -16,24 +16,13 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// decrypted or parsed always throws [DovahLinkStorageException] rather than silently returning an
 /// empty or partial state.
 class DpapiClientStorage implements ClientStorage {
+  /// The absolute path of the encrypted state file.
+  final String _filePath;
+
   /// Creates a Windows DPAPI-backed storage adapter. [filePath] defaults to a fixed location
   /// under the current user's local application-data directory.
   DpapiClientStorage({String? filePath})
     : _filePath = filePath ?? _defaultFilePath();
-
-  /// The absolute path of the encrypted state file.
-  final String _filePath;
-
-  /// Resolves the default per-user state file path under `%LOCALAPPDATA%\DovahLink\`.
-  static String _defaultFilePath() {
-    final String? localAppData = Platform.environment['LOCALAPPDATA'];
-    if (localAppData == null || localAppData.isEmpty) {
-      throw StateError(
-        'LOCALAPPDATA is not set; DpapiClientStorage requires a Windows per-user profile.',
-      );
-    }
-    return '$localAppData\\DovahLink\\sdk_client_state.dat';
-  }
 
   /// See [ClientStorage.load].
   @override
@@ -101,6 +90,17 @@ class DpapiClientStorage implements ClientStorage {
     if (file.existsSync()) {
       file.deleteSync();
     }
+  }
+
+  /// Resolves the default per-user state file path under `%LOCALAPPDATA%\DovahLink\`.
+  static String _defaultFilePath() {
+    final String? localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) {
+      throw StateError(
+        'LOCALAPPDATA is not set; DpapiClientStorage requires a Windows per-user profile.',
+      );
+    }
+    return '$localAppData\\DovahLink\\sdk_client_state.dat';
   }
 
   /// Decodes a JSON object into a [PersistedClientState].

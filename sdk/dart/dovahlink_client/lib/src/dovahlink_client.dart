@@ -26,6 +26,10 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
+  /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
+  /// recovery state.
+  final ClientStorage _storage;
+
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
@@ -86,10 +90,6 @@ class DovahLinkClient {
       messageReceiver: _session,
     );
   }
-
-  /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
-  /// recovery state.
-  final ClientStorage _storage;
 
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
   /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state

@@ -20,19 +20,6 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// per [DovahLinkTransport] connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements.
 class RequestManager {
-  /// Creates a request manager sending over [transport], timed per [timeoutDurations], reading
-  /// live session state through [sessionContext], and reporting connection-health events to
-  /// [reporter].
-  RequestManager({
-    required DovahLinkTransport transport,
-    required Map<TimeoutClass, Duration> timeoutDurations,
-    required SessionContext sessionContext,
-    required ConnectionLifecycleReporter reporter,
-  }) : _transport = transport,
-       _timeoutDurations = timeoutDurations,
-       _sessionContext = sessionContext,
-       _reporter = reporter;
-
   /// The transport this manager sends outgoing envelopes over.
   final DovahLinkTransport _transport;
 
@@ -45,6 +32,19 @@ class RequestManager {
 
   /// Where a detected timeout or send failure is reported for connection teardown.
   final ConnectionLifecycleReporter _reporter;
+
+  /// Creates a request manager sending over [transport], timed per [timeoutDurations], reading
+  /// live session state through [sessionContext], and reporting connection-health events to
+  /// [reporter].
+  RequestManager({
+    required DovahLinkTransport transport,
+    required Map<TimeoutClass, Duration> timeoutDurations,
+    required SessionContext sessionContext,
+    required ConnectionLifecycleReporter reporter,
+  }) : _transport = transport,
+       _timeoutDurations = timeoutDurations,
+       _sessionContext = sessionContext,
+       _reporter = reporter;
 
   /// Source of randomness for generating outgoing `messageId` values.
   final Random _random = Random.secure();

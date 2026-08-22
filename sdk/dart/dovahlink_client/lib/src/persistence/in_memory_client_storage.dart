@@ -8,14 +8,17 @@ class InMemoryClientStorage implements ClientStorage {
   /// The currently held state, defaulting to the empty state a fresh install starts from.
   PersistedClientState _state = const PersistedClientState();
 
+  /// See [ClientStorage.load].
   @override
   Future<PersistedClientState> load() async => _state;
 
+  /// See [ClientStorage.save].
   @override
   Future<void> save(PersistedClientState state) async {
     _state = state;
   }
 
+  /// See [ClientStorage.clear].
   @override
   Future<void> clear() async {
     _state = const PersistedClientState();

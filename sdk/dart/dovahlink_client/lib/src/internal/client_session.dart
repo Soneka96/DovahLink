@@ -31,6 +31,40 @@ class ClientSession
   /// The transport this session connects, sends over, and closes.
   final DovahLinkTransport _transport;
 
+  /// Creates a client session over [transport], timed per [timeoutDurations]. Builds its own
+  /// [RequestManager] and [MessageRouter] in this constructor's body -- after [_transport] is
+  /// assigned, so `this` is available to hand them as their [SessionContext] and
+  /// [ConnectionLifecycleReporter] -- so that by the time this constructor returns, this session
+  /// is fully wired and no caller can ever observe a partially-initialized instance.
+  ClientSession({
+    required DovahLinkTransport transport,
+    required Map<TimeoutClass, Duration> timeoutDurations,
+  }) : _transport = transport {
+    _requestManager = RequestManager(
+      transport: transport,
+      timeoutDurations: timeoutDurations,
+      sessionContext: this,
+      reporter: this,
+    );
+    _messageRouter = MessageRouter(
+      requestManager: _requestManager,
+      reporter: this,
+    );
+  }
+
+  /// Creates a client session with directly-injected [requestManager] and [messageRouter],
+  /// bypassing the internal construction the unnamed constructor performs. Test-only: lets a
+  /// caller substitute mocked collaborators while still constructing atomically -- both are
+  /// assigned as regular constructor parameters, never late-mutated after the fact.
+  @visibleForTesting
+  ClientSession.withCollaborators({
+    required DovahLinkTransport transport,
+    required RequestManager requestManager,
+    required MessageRouter messageRouter,
+  }) : _transport = transport,
+       _requestManager = requestManager,
+       _messageRouter = messageRouter;
+
   /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the accessor
   /// composition roots use to hand this same instance to other collaborators (for example
   /// `AuthenticationService`/`PairingService`) that need to send requests without depending on
@@ -69,40 +103,6 @@ class ClientSession
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? _invalidationReason;
-
-  /// Creates a client session over [transport], timed per [timeoutDurations]. Builds its own
-  /// [RequestManager] and [MessageRouter] in this constructor's body -- after [_transport] is
-  /// assigned, so `this` is available to hand them as their [SessionContext] and
-  /// [ConnectionLifecycleReporter] -- so that by the time this constructor returns, this session
-  /// is fully wired and no caller can ever observe a partially-initialized instance.
-  ClientSession({
-    required DovahLinkTransport transport,
-    required Map<TimeoutClass, Duration> timeoutDurations,
-  }) : _transport = transport {
-    _requestManager = RequestManager(
-      transport: transport,
-      timeoutDurations: timeoutDurations,
-      sessionContext: this,
-      reporter: this,
-    );
-    _messageRouter = MessageRouter(
-      requestManager: _requestManager,
-      reporter: this,
-    );
-  }
-
-  /// Creates a client session with directly-injected [requestManager] and [messageRouter],
-  /// bypassing the internal construction the unnamed constructor performs. Test-only: lets a
-  /// caller substitute mocked collaborators while still constructing atomically -- both are
-  /// assigned as regular constructor parameters, never late-mutated after the fact.
-  @visibleForTesting
-  ClientSession.withCollaborators({
-    required DovahLinkTransport transport,
-    required RequestManager requestManager,
-    required MessageRouter messageRouter,
-  }) : _transport = transport,
-       _requestManager = requestManager,
-       _messageRouter = messageRouter;
 
   /// The [RequestManager] this session owns, exposed so a composition root can hand the same
   /// instance to other collaborators that need to send requests directly.
