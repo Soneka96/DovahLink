@@ -109,7 +109,17 @@ enum PairingRenotifyStatus {
   cooldown,
 
   /// No challenge or pending credential is owned by this client.
-  alreadyIdle,
+  alreadyIdle;
+
+  /// Converts a shared [PairingOutcome] into the `pairing_renotify` vocabulary, or returns `null`
+  /// when the outcome belongs to another exchange.
+  static PairingRenotifyStatus? fromOutcome(PairingOutcome outcome) =>
+      switch (outcome) {
+        PairingOutcome.renotified => PairingRenotifyStatus.renotified,
+        PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
+        PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
+        _ => null,
+      };
 }
 
 /// The outcome of `DovahLinkClient.cancelPairing`.
@@ -118,7 +128,16 @@ enum PairingCancelStatus {
   cancelled,
 
   /// Nothing was owned; cancellation was a no-op.
-  alreadyIdle,
+  alreadyIdle;
+
+  /// Converts a shared [PairingOutcome] into the `pairing_cancel` vocabulary, or returns `null`
+  /// when the outcome belongs to another exchange.
+  static PairingCancelStatus? fromOutcome(PairingOutcome outcome) =>
+      switch (outcome) {
+        PairingOutcome.cancelled => PairingCancelStatus.cancelled,
+        PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
+        _ => null,
+      };
 }
 
 /// The raw wire value of `pairing_outcome.outcome` (`protocol/schema/README.md`'s
@@ -174,26 +193,6 @@ enum PairingOutcome {
   /// From `pairing_renotify` or `pairing_cancel`: nothing was owned.
   @JsonValue('already_idle')
   alreadyIdle,
-}
-
-/// Adds exchange-specific semantic conversions to the shared [PairingOutcome] vocabulary.
-extension PairingOutcomeStatusMapping on PairingOutcome {
-  /// Converts this outcome to the `pairing_renotify` result vocabulary, or returns `null` when it
-  /// belongs to another exchange.
-  PairingRenotifyStatus? toRenotifyStatus() => switch (this) {
-    PairingOutcome.renotified => PairingRenotifyStatus.renotified,
-    PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
-    PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
-    _ => null,
-  };
-
-  /// Converts this outcome to the `pairing_cancel` result vocabulary, or returns `null` when it
-  /// belongs to another exchange.
-  PairingCancelStatus? toCancelStatus() => switch (this) {
-    PairingOutcome.cancelled => PairingCancelStatus.cancelled,
-    PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
-    _ => null,
-  };
 }
 
 // ---- Request policy ----

@@ -102,7 +102,9 @@ class PairingService {
         retryable: false,
       );
     }
-    final PairingRenotifyStatus? status = outcome.outcome.toRenotifyStatus();
+    final PairingRenotifyStatus? status = PairingRenotifyStatus.fromOutcome(
+      outcome.outcome,
+    );
     if (status == null) {
       throw DovahLinkProtocolException(
         code: ProtocolErrorCode.malformedMessage,
@@ -141,7 +143,9 @@ class PairingService {
         retryable: false,
       );
     }
-    final PairingCancelStatus? status = outcome.outcome.toCancelStatus();
+    final PairingCancelStatus? status = PairingCancelStatus.fromOutcome(
+      outcome.outcome,
+    );
     if (status == null) {
       throw DovahLinkProtocolException(
         code: ProtocolErrorCode.malformedMessage,

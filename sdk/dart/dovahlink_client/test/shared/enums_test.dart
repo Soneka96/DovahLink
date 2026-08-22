@@ -36,46 +36,74 @@ void main() {
     );
   });
 
-  group('Method toRenotifyStatus behaves correctly', () {
-    test('Method toRenotifyStatus maps every valid renotify outcome', () {
-      expect(
-        PairingOutcome.renotified.toRenotifyStatus(),
-        PairingRenotifyStatus.renotified,
-      );
-      expect(
-        PairingOutcome.renotifyCooldown.toRenotifyStatus(),
-        PairingRenotifyStatus.cooldown,
-      );
-      expect(
-        PairingOutcome.alreadyIdle.toRenotifyStatus(),
-        PairingRenotifyStatus.alreadyIdle,
-      );
-    });
+  group('Method PairingRenotifyStatus.fromOutcome behaves correctly', () {
+    test(
+      'PairingRenotifyStatus.fromOutcome maps every valid renotify outcome',
+      () {
+        expect(
+          PairingRenotifyStatus.fromOutcome(PairingOutcome.renotified),
+          PairingRenotifyStatus.renotified,
+        );
+        expect(
+          PairingRenotifyStatus.fromOutcome(PairingOutcome.renotifyCooldown),
+          PairingRenotifyStatus.cooldown,
+        );
+        expect(
+          PairingRenotifyStatus.fromOutcome(PairingOutcome.alreadyIdle),
+          PairingRenotifyStatus.alreadyIdle,
+        );
+      },
+    );
 
     test(
-      'Method toRenotifyStatus returns null for an outcome from another exchange',
+      'PairingRenotifyStatus.fromOutcome returns null for every other outcome',
       () {
-        expect(PairingOutcome.cancelled.toRenotifyStatus(), isNull);
+        const Set<PairingOutcome> validOutcomes = <PairingOutcome>{
+          PairingOutcome.renotified,
+          PairingOutcome.renotifyCooldown,
+          PairingOutcome.alreadyIdle,
+        };
+        for (final PairingOutcome outcome in PairingOutcome.values) {
+          if (!validOutcomes.contains(outcome)) {
+            expect(
+              PairingRenotifyStatus.fromOutcome(outcome),
+              isNull,
+              reason: '$outcome is not a renotify outcome',
+            );
+          }
+        }
       },
     );
   });
 
-  group('Method toCancelStatus behaves correctly', () {
-    test('Method toCancelStatus maps every valid cancel outcome', () {
+  group('Method PairingCancelStatus.fromOutcome behaves correctly', () {
+    test('PairingCancelStatus.fromOutcome maps every valid cancel outcome', () {
       expect(
-        PairingOutcome.cancelled.toCancelStatus(),
+        PairingCancelStatus.fromOutcome(PairingOutcome.cancelled),
         PairingCancelStatus.cancelled,
       );
       expect(
-        PairingOutcome.alreadyIdle.toCancelStatus(),
+        PairingCancelStatus.fromOutcome(PairingOutcome.alreadyIdle),
         PairingCancelStatus.alreadyIdle,
       );
     });
 
     test(
-      'Method toCancelStatus returns null for an outcome from another exchange',
+      'PairingCancelStatus.fromOutcome returns null for every other outcome',
       () {
-        expect(PairingOutcome.renotified.toCancelStatus(), isNull);
+        const Set<PairingOutcome> validOutcomes = <PairingOutcome>{
+          PairingOutcome.cancelled,
+          PairingOutcome.alreadyIdle,
+        };
+        for (final PairingOutcome outcome in PairingOutcome.values) {
+          if (!validOutcomes.contains(outcome)) {
+            expect(
+              PairingCancelStatus.fromOutcome(outcome),
+              isNull,
+              reason: '$outcome is not a cancel outcome',
+            );
+          }
+        }
       },
     );
   });

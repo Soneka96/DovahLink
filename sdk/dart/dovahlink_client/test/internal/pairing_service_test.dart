@@ -360,13 +360,25 @@ void main() {
         await expectLater(
           service.requestPairingRenotify(),
           throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              ProtocolErrorCode.malformedMessage,
-            ),
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException e) => e.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.retryable,
+                  'retryable',
+                  isFalse,
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.message,
+                  'message',
+                  contains('pairing_renotify'),
+                ),
           ),
         );
+        verifyNever(() => sessionTrustWriter.markTrusted());
       },
     );
 
@@ -480,13 +492,25 @@ void main() {
         await expectLater(
           service.cancelPairing(),
           throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              ProtocolErrorCode.malformedMessage,
-            ),
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException e) => e.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.retryable,
+                  'retryable',
+                  isFalse,
+                )
+                .having(
+                  (DovahLinkProtocolException e) => e.message,
+                  'message',
+                  contains('pairing_cancel'),
+                ),
           ),
         );
+        verifyNever(() => sessionTrustWriter.markTrusted());
       },
     );
 
