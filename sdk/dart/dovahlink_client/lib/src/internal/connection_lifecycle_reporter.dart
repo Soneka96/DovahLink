@@ -15,7 +15,10 @@ abstract interface class ConnectionLifecycleReporter {
   /// `retrySafe` pending operation is parked for a later retry instead of failed immediately, per
   /// `ai/context/sdk/api-design.md`'s "Request retry safety, session requirement, and timeout
   /// class".
-  void onProtocolViolation(Exception reason, {bool orphanRetrySafeOperations});
+  void onProtocolViolation(
+    Exception reason, {
+    required bool orphanRetrySafeOperations,
+  });
 
   /// Reports an authoritative `session_invalidated` push, decoded and validated by the caller.
   void onSessionInvalidated(AdministrativeInvalidationReason reason);

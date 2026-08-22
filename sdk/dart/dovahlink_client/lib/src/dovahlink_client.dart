@@ -6,7 +6,9 @@ import 'package:meta/meta.dart';
 
 import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
-import 'internal/pending_operation.dart';
+import 'internal/connection_lifecycle_reporter.dart';
+import 'internal/request_manager.dart';
+import 'internal/session_context.dart';
 import 'pairing_cancel_outcome.dart';
 import 'pairing_challenge_status.dart';
 import 'pairing_renotify_result.dart';
@@ -14,7 +16,6 @@ import 'persistence/client_storage.dart';
 import 'persistence/persisted_client_state.dart';
 import 'persistence/windows/dpapi_client_storage.dart';
 import 'protocol/envelope.dart';
-import 'protocol/error_payload.dart';
 import 'protocol/hello_ack_payload.dart';
 import 'protocol/hello_payload.dart';
 import 'protocol/json_map.dart';
@@ -36,7 +37,7 @@ import 'transport/websocket_transport.dart';
 /// never threads identity or credential material through this API by hand.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
-class DovahLinkClient {
+class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
@@ -44,8 +45,14 @@ class DovahLinkClient {
     DovahLinkTransport? transport,
     required ClientStorage storage,
   }) : _transport = transport ?? WebSocketTransport(),
-       _storage = storage,
-       _timeoutDurations = kTimeoutClassDurations;
+       _storage = storage {
+    _requestManager = RequestManager(
+      transport: _transport,
+      timeoutDurations: kTimeoutClassDurations,
+      sessionContext: this,
+      reporter: this,
+    );
+  }
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
   /// [DpapiClientStorage] persisting to this Windows user's default per-user location.
@@ -61,8 +68,14 @@ class DovahLinkClient {
     required ClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
   }) : _transport = transport,
-       _storage = storage,
-       _timeoutDurations = timeoutDurations;
+       _storage = storage {
+    _requestManager = RequestManager(
+      transport: _transport,
+      timeoutDurations: timeoutDurations,
+      sessionContext: this,
+      reporter: this,
+    );
+  }
 
   /// The transport this client sends and receives encoded envelopes over.
   final DovahLinkTransport _transport;
@@ -71,23 +84,15 @@ class DovahLinkClient {
   /// recovery state.
   final ClientStorage _storage;
 
-  /// The bounded wait allowed for each [TimeoutClass], keyed by class. `kTimeoutClassDurations`
-  /// in production; overridable only through [DovahLinkClient.withTimeoutDurations] for tests.
-  final Map<TimeoutClass, Duration> _timeoutDurations;
+  /// Owns pending requests, timeouts, and retry behavior; see
+  /// `ai/context/sdk/architecture.md`'s "Internal composition". Built in the constructor body,
+  /// after [_transport] is assigned, so it can be handed `this` as its [SessionContext] and
+  /// [ConnectionLifecycleReporter] -- a temporary arrangement until [ClientSession] (a later
+  /// extraction step) becomes the real implementation of those ports instead.
+  late final RequestManager _requestManager;
 
-  /// Source of randomness for generating outgoing `messageId` values and, on first use, this
-  /// installation's `clientId`.
+  /// Source of randomness for this installation's `clientId`, generated on first use.
   final Random _random = Random.secure();
-
-  /// Every operation awaiting a correlated reply on the current connection, keyed by the outgoing
-  /// `messageId` it was transmitted under.
-  final Map<String, PendingOperation> _pendingOperations =
-      <String, PendingOperation>{};
-
-  /// Retry-safe operations an ordinary (non-administrative) transport loss orphaned before they
-  /// received a reply, awaiting a chance to be retransmitted once the next `hello` succeeds.
-  final List<PendingOperation> _orphanedRetryableOperations =
-      <PendingOperation>[];
 
   /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
   /// connection is being received for. The SDK owns exactly one of these at a time, per
@@ -140,6 +145,44 @@ class DovahLinkClient {
   AdministrativeInvalidationReason? get invalidationReason =>
       _invalidationReason;
 
+  /// See [SessionContext.currentSessionId]. Temporary [this]-as-port scaffolding -- see
+  /// [_requestManager]'s documentation.
+  @override
+  String? get currentSessionId => _sessionId;
+
+  /// See [SessionContext.currentTrustState]. Temporary [this]-as-port scaffolding -- see
+  /// [_requestManager]'s documentation.
+  @override
+  DovahLinkTrustState? get currentTrustState => _trustState;
+
+  /// See [ConnectionLifecycleReporter.onUnhealthy]. Temporary [this]-as-port scaffolding -- see
+  /// [_requestManager]'s documentation.
+  @override
+  void onUnhealthy(Exception reason) {
+    unawaited(_teardownConnection(reason));
+  }
+
+  /// See [ConnectionLifecycleReporter.onProtocolViolation]. Temporary [this]-as-port scaffolding
+  /// -- see [_requestManager]'s documentation.
+  @override
+  void onProtocolViolation(
+    Exception reason, {
+    required bool orphanRetrySafeOperations,
+  }) {
+    unawaited(
+      _teardownConnection(
+        reason,
+        orphanRetrySafeOperations: orphanRetrySafeOperations,
+      ),
+    );
+  }
+
+  /// See [ConnectionLifecycleReporter.onSessionInvalidated]. Not yet wired through this path --
+  /// [_handleSessionInvalidated] still performs this directly until [MessageRouter] (a later
+  /// extraction step) routes `session_invalidated` through this reporter instead.
+  @override
+  void onSessionInvalidated(AdministrativeInvalidationReason reason) {}
+
   /// Establishes the transport connection to [uri]. Must be called before [hello].
   /// @throws DovahLinkConnectionException if the socket cannot be established.
   Future<void> connect(Uri uri) async {
@@ -179,7 +222,8 @@ class DovahLinkClient {
       authToken: credential,
     );
     try {
-      final Envelope response = await _sendAndAwait(
+      _ensureReceiving();
+      final Envelope response = await _requestManager.sendAndAwait(
         messageType: 'hello',
         payload: payload.toJson(),
         expectedType: 'hello_ack',
@@ -203,7 +247,7 @@ class DovahLinkClient {
       // arrives as an unsolicited (null-correlationId) message and is discarded by
       // _handleUnsolicited -- exposing it is out of this client's current scope. hello() does not
       // wait for it.
-      _retryOrphanedOperations();
+      _requestManager.retryOrphanedOperations();
 
       return HelloResult(
         bridgeVersion: ack.bridgeVersion,
@@ -277,7 +321,8 @@ class DovahLinkClient {
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
   /// different clientId currently owns the active challenge or pending credential.
   Future<PairingChallengeStatus> requestPairing() async {
-    final Envelope response = await _sendAndAwait(
+    _ensureReceiving();
+    final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_request',
       payload: const <String, dynamic>{},
       expectedType: 'pairing_status',
@@ -303,7 +348,8 @@ class DovahLinkClient {
   /// new code and never sends the code itself over the wire -- redisplay occurs through the
   /// in-game notification, not the connection. Valid only on an `unpaired` session.
   Future<PairingRenotifyResult> requestPairingRenotify() async {
-    final Envelope response = await _sendAndAwait(
+    _ensureReceiving();
+    final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_renotify',
       payload: const <String, dynamic>{},
       expectedType: 'pairing_outcome',
@@ -329,7 +375,8 @@ class DovahLinkClient {
   /// [requestPairing]. Never touches persisted trust or an already-committed credential. Valid
   /// only on an `unpaired` session.
   Future<PairingCancelOutcome> cancelPairing() async {
-    final Envelope response = await _sendAndAwait(
+    _ensureReceiving();
+    final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_cancel',
       payload: const <String, dynamic>{},
       expectedType: 'pairing_outcome',
@@ -365,7 +412,8 @@ class DovahLinkClient {
       code: code,
       displayName: displayName,
     );
-    final Envelope response = await _sendAndAwait(
+    _ensureReceiving();
+    final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_confirm',
       payload: payload.toJson(),
       expectedType: 'pairing_outcome',
@@ -409,7 +457,8 @@ class DovahLinkClient {
   /// @throws DovahLinkPairingException if the bridge has no matching pending confirmation.
   Future<void> acknowledgeTrustedCredential(String credential) async {
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
-    final Envelope response = await _sendAndAwait(
+    _ensureReceiving();
+    final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_ack',
       payload: payload.toJson(),
       expectedType: 'pairing_outcome',
@@ -541,100 +590,6 @@ class DovahLinkClient {
     );
   }
 
-  /// Sends one envelope carrying [messageType]/[payload], classified against [policy], and
-  /// returns its correlated reply. The reply may arrive on a later wire attempt than the one this
-  /// call makes: if the connection is lost before a reply arrives and [policy] is `retrySafe`,
-  /// this same call keeps waiting while the operation is retransmitted once, automatically, after
-  /// the next successful [hello] -- see [_retryOrphanedOperations]. A
-  /// [DovahLinkConnectionException] means the connection itself is unhealthy (transport failure,
-  /// timeout, or a non-retriable/failed retry); a [DovahLinkProtocolException] means the bridge
-  /// answered on an otherwise-live connection with a wire-level rejection or an unexpected reply.
-  Future<Envelope> _sendAndAwait({
-    required String messageType,
-    required JsonMap payload,
-    required String expectedType,
-    required RequestPolicy policy,
-  }) async {
-    _ensureReceiving();
-    final PendingOperation operation = PendingOperation(
-      messageType: messageType,
-      payload: payload,
-      policy: policy,
-    );
-    _transmit(operation);
-    final Envelope envelope = await operation.completer.future;
-    return _validateReply(expectedType: expectedType, envelope: envelope);
-  }
-
-  /// Generates a fresh `messageId`, registers [operation] as pending under it, arms its timeout,
-  /// and sends it. Used both for an operation's initial transmission and its at-most-one retry
-  /// after reconnect, so both share identical wire behavior. Fire-and-forget: a send failure
-  /// routes through [_teardownConnection] rather than throwing here, since nothing local is
-  /// positioned to catch it synchronously once retries are involved -- see [operation]'s shared
-  /// `completer`.
-  void _transmit(PendingOperation operation) {
-    final String messageId = _generateMessageId();
-    _pendingOperations[messageId] = operation;
-    operation.timer = Timer(
-      _timeoutDurations[operation.policy.timeoutClass]!,
-      () {
-        unawaited(
-          _teardownConnection(
-            DovahLinkConnectionException(
-              'Timed out awaiting a reply to ${operation.messageType}.',
-            ),
-          ),
-        );
-      },
-    );
-
-    final Envelope outgoing = Envelope(
-      messageType: operation.messageType,
-      messageId: messageId,
-      sessionId: _sessionId,
-      correlationId: null,
-      payload: operation.payload,
-      bridgeInstanceId: null,
-      playContextId: null,
-      clientId: null,
-    );
-    unawaited(
-      _transport.send(jsonEncode(outgoing.toJson())).catchError((Object error) {
-        unawaited(
-          _teardownConnection(
-            DovahLinkConnectionException(
-              'Failed to send ${operation.messageType}: $error',
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
-  /// Translates a wire `error` or an unexpected message type into a typed exception; otherwise
-  /// returns [envelope] unchanged.
-  Envelope _validateReply({
-    required String expectedType,
-    required Envelope envelope,
-  }) {
-    if (envelope.messageType == 'error') {
-      final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
-      throw DovahLinkProtocolException(
-        code: error.code,
-        message: error.message,
-        retryable: error.retryable,
-      );
-    }
-    if (envelope.messageType != expectedType) {
-      throw DovahLinkProtocolException(
-        code: 'unexpected_message_type',
-        message: 'Expected $expectedType but received ${envelope.messageType}.',
-        retryable: false,
-      );
-    }
-    return envelope;
-  }
-
   /// Dispatches one decoded inbound message from the connection [generation] its subscription was
   /// established under. A stale message from an already-superseded generation is ignored, never
   /// mutating current state. Matches a correlated reply to its pending operation strictly by
@@ -668,10 +623,8 @@ class DovahLinkClient {
       return;
     }
 
-    final PendingOperation? operation = _pendingOperations.remove(
-      correlationId,
-    );
-    if (operation == null) {
+    final bool resolved = _requestManager.resolveReply(correlationId, envelope);
+    if (!resolved) {
       // Protocol violation, not ordinary connectivity loss -- see _handleIncomingMessage's
       // malformed-JSON branch above for why this never orphans a retry-safe operation either.
       unawaited(
@@ -685,11 +638,6 @@ class DovahLinkClient {
           orphanRetrySafeOperations: false,
         ),
       );
-      return;
-    }
-    operation.timer?.cancel();
-    if (!operation.completer.isCompleted) {
-      operation.completer.complete(envelope);
     }
   }
 
@@ -748,23 +696,12 @@ class DovahLinkClient {
     _connectionState = DovahLinkConnectionState.administrativelyInvalidated;
     _connectionGeneration++;
 
-    final DovahLinkConnectionException invalidatedException =
-        DovahLinkConnectionException(
-          'Session invalidated ($reason) while awaiting a reply.',
-        );
-    for (final PendingOperation operation in _pendingOperations.values) {
-      operation.timer?.cancel();
-      if (!operation.completer.isCompleted) {
-        operation.completer.completeError(invalidatedException);
-      }
-    }
-    _pendingOperations.clear();
-    for (final PendingOperation operation in _orphanedRetryableOperations) {
-      if (!operation.completer.isCompleted) {
-        operation.completer.completeError(invalidatedException);
-      }
-    }
-    _orphanedRetryableOperations.clear();
+    _requestManager.failAll(
+      DovahLinkConnectionException(
+        'Session invalidated ($reason) while awaiting a reply.',
+      ),
+      orphanRetrySafeOperations: false,
+    );
 
     final StreamSubscription<String>? subscription = _messageSubscription;
     _messageSubscription = null;
@@ -844,59 +781,11 @@ class DovahLinkClient {
     _trustState = null;
     _sessionId = null;
 
-    final List<PendingOperation> pending = _pendingOperations.values.toList();
-    _pendingOperations.clear();
-    for (final PendingOperation operation in pending) {
-      operation.timer?.cancel();
-      if (orphanRetrySafeOperations &&
-          operation.policy.retrySafe &&
-          !operation.hasRetried) {
-        _orphanedRetryableOperations.add(operation);
-      } else if (!operation.completer.isCompleted) {
-        operation.completer.completeError(reason);
-      }
-    }
-
-    if (!orphanRetrySafeOperations) {
-      final List<PendingOperation> orphaned = _orphanedRetryableOperations
-          .toList();
-      _orphanedRetryableOperations.clear();
-      for (final PendingOperation operation in orphaned) {
-        if (!operation.completer.isCompleted) {
-          operation.completer.completeError(reason);
-        }
-      }
-    }
+    _requestManager.failAll(
+      reason,
+      orphanRetrySafeOperations: orphanRetrySafeOperations,
+    );
   }
-
-  /// Retransmits, at most once each, every operation an earlier ordinary transport loss orphaned,
-  /// now that [hello] has re-established [trustState]. An operation whose
-  /// [RequestPolicy.requiredTrustState] the new session no longer satisfies fails without
-  /// retransmission instead of being retried into a session it was never classified for.
-  void _retryOrphanedOperations() {
-    final List<PendingOperation> toRetry = _orphanedRetryableOperations
-        .toList();
-    _orphanedRetryableOperations.clear();
-    for (final PendingOperation operation in toRetry) {
-      final DovahLinkTrustState? required = operation.policy.requiredTrustState;
-      if (required != null && required != _trustState) {
-        if (!operation.completer.isCompleted) {
-          operation.completer.completeError(
-            DovahLinkConnectionException(
-              'Cannot retry ${operation.messageType} after reconnect: the new session no '
-              'longer satisfies its required trust state.',
-            ),
-          );
-        }
-        continue;
-      }
-      operation.hasRetried = true;
-      _transmit(operation);
-    }
-  }
-
-  /// Generates a cryptographically random, session-unique `messageId`.
-  String _generateMessageId() => _generateRandomHex(16);
 
   /// Generates a random RFC 4122 version-4 UUID string.
   String _generateUuidV4() {
@@ -911,17 +800,6 @@ class DovahLinkClient {
 
     return '${hexRange(0, 4)}-${hexRange(4, 6)}-${hexRange(6, 8)}-'
         '${hexRange(8, 10)}-${hexRange(10, 16)}';
-  }
-
-  /// Generates [byteCount] cryptographically random bytes, hex-encoded.
-  String _generateRandomHex(int byteCount) {
-    final List<int> bytes = List<int>.generate(
-      byteCount,
-      (_) => _random.nextInt(256),
-    );
-    return bytes
-        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
   }
 
   /// Interprets a [PairingOutcome] returned in reply to `pairing_renotify`. Every [PairingOutcome]
