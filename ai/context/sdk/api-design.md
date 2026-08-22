@@ -63,16 +63,17 @@ consumers remain free to inspect or display the precise reason.
 
 Protocol DTOs in `lib/src/protocol/` use standard `json_serializable` with generated `.g.dart`
 files — including outgoing, encode-only DTOs; a DTO is not hand-written merely because it is
-simpler to construct directly. Every closed/finite wire value gets its own typed enum field,
-annotated per member with `@JsonValue` for its wire name; an unrecognized value fails inside that
-DTO's `fromJson` as a `ProtocolFormatException`, never silently accepted or defaulted. Do not use
+simpler to construct directly. Every canonical wire value with a finite vocabulary gets its own
+typed enum field, including envelope `messageType` and `error.code`, annotated per member with
+`@JsonValue` for its wire name; an unrecognized value fails inside that DTO's `fromJson` as a
+`ProtocolFormatException`, never silently accepted or defaulted. Do not use
 enhanced enums with a `wireValue`-style property, and do not add an enum extension that duplicates
 the wire mapping `@JsonValue` already expresses — an enum extension may still add semantic
 behavior unrelated to wire mapping (for example `hasActiveChallenge`). Do not reach into another
 DTO's or enum's generated private map from a different library; each DTO's own generated
-`fromJson`/`toJson` is the only place that mapping is used. Genuinely open-ended values — an
-unknown message type, an extensible error code, a credential, a version string — stay `String`;
-only a value with a truly closed, finite wire vocabulary becomes a typed enum.
+`fromJson`/`toJson` is the only place that mapping is used. Credentials, versions, and fields the
+canonical schema explicitly declares open-ended stay `String`; canonical message types and error
+codes do not.
 
 A `ProtocolFormatException` from DTO decoding is translated back into the SDK's existing public
 `DovahLinkProtocolException(code: 'malformed_message', retryable: false)` at the point each DTO is

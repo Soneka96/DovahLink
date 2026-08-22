@@ -142,7 +142,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   action carries no fields or the handler does not read `store`, for a uniform, self-documenting
   signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
   injected constructor/parameter dependencies; raw values and `BuildContext` are not handler
-  parameters.
+  parameters. These narrowly prescribed action handlers are the Flutter exception to
+  `ai/context/dart/dart-style.md`'s rule against private methods with independent responsibilities;
+  do not extend that exception to ordinary feature or infrastructure code.
 - Fold a use case's `Either<Failure, T>` result with `.fold((Failure failure) => ..., (T value) =>
   ...)`, dispatching a result or failure action from each branch.
 - To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.

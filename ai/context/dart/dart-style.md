@@ -13,6 +13,10 @@ area; only genuinely language-wide conventions live here.
   state, or presentation code.
 - Use the null assertion operator (`!`) only when an immediately visible check or constructor
   contract establishes the invariant; otherwise handle null explicitly.
+- Every finite canonical wire vocabulary, including protocol message types and error codes, is a
+  typed enum. Decode it at the DTO boundary with `@JsonValue`; an unrecognized value is a typed,
+  fail-closed protocol-format failure. A compatible Bridge/SDK pair must never rely on raw wire
+  strings for branching.
 
 ## File organization
 
@@ -39,11 +43,22 @@ No private named classes in Dart production or test code. The only exceptions ar
 serialization code and private Flutter `State<T>` lifecycle subclasses. ViewModels are allowed only
 as named classes in their own files.
 
-This rule governs class-level privacy, not member-level privacy: private fields and methods remain
-the normal way to express internal state and invariants within a named class. A behavior or helper
-with meaningful logic belongs in a named class with a clear responsibility, in its own file -- never
-as a private class inline in the file that uses it, in production code or in a test file. Avoid
-generic `Helper`/`Utils` names; name a class after the responsibility it owns.
+Private fields remain the normal way to express internal state and invariants. Avoid private methods:
+a method with its own responsibility -- transforming data, generating a value, performing I/O,
+coordinating collaborators, classifying an error, or containing independently testable control flow
+-- belongs in a named class with a clear responsibility in its own file. A private method is allowed
+only when it is a small, inseparable expression of its owner's invariant and has no independent
+responsibility. Avoid generic `Helper`/`Utils` names; name a class after the responsibility it owns.
+Flutter Redux action handlers required by `ai/context/flutter/architecture.md` are the narrow
+framework-specific exception.
+
+## Member declaration order
+
+Within a class, declare static constants first, then `final` dependencies supplied by a constructor,
+then constructors and factories, then internally-created or mutable private state, public getters,
+public methods, and the remaining permitted private operations. This makes a type's dependencies
+visible before the constructor that wires them, while keeping state that does not come from callers
+next to the behavior that owns it.
 
 ## Documentation
 
@@ -72,7 +87,10 @@ Follow the shared documentation rules in `ai/context/common.md`.
 - Never prefix methods with `get`; use a getter or a descriptive verb.
 - Use `to___()` to convert to a new object and `as___()` for a view or representation.
 - Use `dart format`, trailing commas, braces for flow control, and single quotes.
-- Import in groups: `dart:`, package imports, then project imports; alphabetize each group.
+- Inside `lib/`, never use relative imports; import repository code through its owning package URI.
+  `tidy_imports` owns import grouping and ordering: run `dart run tidy_imports` from the package
+  root after changing imports, and use `dart run tidy_imports --exit-if-changed` for verification.
+  It orders `dart:`, Flutter, third-party package, and own-package imports deterministically.
 - Use explicit types for `final` locals and declare return and parameter types on functions.
 - Do not explicitly initialize variables to `null`; avoid `late` unless necessary.
 - Prefer interpolation and collection literals; use `.isEmpty`/`.isNotEmpty` instead of length

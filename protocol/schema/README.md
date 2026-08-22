@@ -20,7 +20,7 @@ object per message; framing is not part of the JSON payload.
 
 | Field | Type | Required | Meaning |
 |---|---|---:|---|
-| `messageType` | string | yes | Canonical message identifier. |
+| `messageType` | string enum | yes | Canonical message identifier; exactly one registered message type. |
 | `messageId` | string | yes | Cryptographically random and unique within the connection session; duplicate IDs are rejected. |
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
@@ -81,6 +81,14 @@ An accepted snapshot becomes the baseline for its state area and supersedes olde
 area.
 
 ## Message types
+
+`messageType` is a closed canonical vocabulary. Its complete set is `hello`, `hello_ack`,
+`pairing_request`, `pairing_status`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
+`pairing_cancel`, `pairing_outcome`, `rename_request`, `rename_outcome`, `capabilities`,
+`subscribe`, `subscription_ack`, `snapshot_request`, `state_snapshot`, `state_event`, `error`,
+`session_invalidated`, `ping`, and `pong`. A Bridge/SDK compatibility check occurs immediately
+after `hello_ack`; an unrecognized message type is malformed protocol input and is rejected rather
+than interpreted as a forward-compatible value.
 
 ### `hello`
 
@@ -468,7 +476,7 @@ Reports a structured failure without exposing infrastructure exceptions:
 
 Required payload fields: `code`, `message`, `retryable`. `details` is nullable and optional when no safe diagnostic details exist.
 
-Canonical error codes include `malformed_message`, `frame_too_large`, `unsupported_capability`,
+Canonical error codes are exactly `malformed_message`, `frame_too_large`, `unsupported_capability`,
 `unauthenticated`, `unauthorized`, `revoked`, `blocked`, `replayed_message`, `stale_session`,
 `rate_limited`, and `internal_error`. `revoked` is a `trusted_device_credential` hello rejected
 because the presented `clientId` was explicitly revoked, distinct from `unauthenticated`'s "never
