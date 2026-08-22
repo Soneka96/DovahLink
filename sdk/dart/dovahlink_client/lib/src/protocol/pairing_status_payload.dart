@@ -16,7 +16,42 @@ class PairingStatusPayload {
   /// Decodes and validates one `pairing_status` payload.
   factory PairingStatusPayload.fromJson(JsonMap json) {
     try {
-      return _$PairingStatusPayloadFromJson(json);
+      final PairingStatusPayload payload = _$PairingStatusPayloadFromJson(json);
+      final bool hasExpiry = json.containsKey('expiresInSeconds');
+      final Object? rawExpiry = json['expiresInSeconds'];
+      if (rawExpiry != null && rawExpiry is! int) {
+        throw const ProtocolFormatException(
+          'expiresInSeconds must be an integer or null.',
+        );
+      }
+      if (rawExpiry is int && rawExpiry < 0) {
+        throw const ProtocolFormatException(
+          'expiresInSeconds must not be negative.',
+        );
+      }
+
+      final bool isOtherDevicePairing =
+          payload.state == PairingAvailability.otherDevicePairing;
+      if (isOtherDevicePairing == hasExpiry) {
+        throw ProtocolFormatException(
+          isOtherDevicePairing
+              ? 'expiresInSeconds must be omitted for other_device_pairing.'
+              : 'expiresInSeconds must be present for ${payload.state}.',
+        );
+      }
+      if (payload.state == PairingAvailability.available &&
+          payload.expiresInSeconds == null) {
+        throw const ProtocolFormatException(
+          'expiresInSeconds must be a number for available.',
+        );
+      }
+      if (payload.state == PairingAvailability.unavailable &&
+          payload.expiresInSeconds != null) {
+        throw const ProtocolFormatException(
+          'expiresInSeconds must be null for unavailable.',
+        );
+      }
+      return payload;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid pairing_status payload: $error');
     }

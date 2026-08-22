@@ -264,6 +264,71 @@ void main() {
     );
 
     test(
+      'Method requestPairing translates an impossible pairing_status expiry into malformed_message',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: <String, dynamic>{
+              'state': 'available',
+              'expiresInSeconds': null,
+            },
+          ),
+        );
+
+        await expectLater(
+          service.requestPairing(),
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException error) => error.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isFalse,
+                ),
+          ),
+        );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+      },
+    );
+
+    test(
+      'Method requestPairing translates an omitted required expiry into malformed_message',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: <String, dynamic>{'state': 'in_progress'},
+          ),
+        );
+
+        await expectLater(
+          service.requestPairing(),
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException error) => error.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isFalse,
+                ),
+          ),
+        );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+      },
+    );
+
+    test(
       'Method requestPairing propagates a connection failure without changing trust state',
       () async {
         when(
