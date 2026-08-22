@@ -1,16 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/reply_validator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
-import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
@@ -46,8 +45,8 @@ class RequestManager {
        _sessionContext = sessionContext,
        _reporter = reporter;
 
-  /// Source of randomness for generating outgoing `messageId` values.
-  final Random _random = Random.secure();
+  /// Generates outgoing `messageId` values.
+  final MessageIdGenerator _messageIdGenerator = MessageIdGenerator();
 
   /// Every operation awaiting a correlated reply on the current connection, keyed by the outgoing
   /// `messageId` it was transmitted under.
@@ -80,7 +79,10 @@ class RequestManager {
     );
     _transmit(operation);
     final Envelope envelope = await operation.completer.future;
-    return _validateReply(expectedType: expectedType, envelope: envelope);
+    return ReplyValidator.validate(
+      expectedType: expectedType,
+      envelope: envelope,
+    );
   }
 
   /// Generates a fresh `messageId`, registers [operation] as pending under it, arms its timeout,
@@ -90,7 +92,7 @@ class RequestManager {
   /// nothing local is positioned to catch it synchronously once retries are involved -- see
   /// [operation]'s shared `completer`.
   void _transmit(PendingOperation operation) {
-    final String messageId = _generateMessageId();
+    final String messageId = _messageIdGenerator.generate();
     _pendingOperations[messageId] = operation;
     operation.timer = Timer(
       _timeoutDurations[operation.policy.timeoutClass]!,
@@ -122,38 +124,6 @@ class RequestManager {
         );
       }),
     );
-  }
-
-  /// Translates a wire `error` or an unexpected message type into a typed exception; otherwise
-  /// returns [envelope] unchanged.
-  Envelope _validateReply({
-    required ProtocolMessageType expectedType,
-    required Envelope envelope,
-  }) {
-    if (envelope.messageType == ProtocolMessageType.error) {
-      try {
-        final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
-        throw DovahLinkProtocolException(
-          code: error.code,
-          message: error.message,
-          retryable: error.retryable,
-        );
-      } on ProtocolFormatException catch (error) {
-        throw DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: error.message,
-          retryable: false,
-        );
-      }
-    }
-    if (envelope.messageType != expectedType) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: 'Expected $expectedType but received ${envelope.messageType}.',
-        retryable: false,
-      );
-    }
-    return envelope;
   }
 
   /// Resolves the pending operation matching [correlationId] with [envelope], completing its
@@ -230,19 +200,5 @@ class RequestManager {
       operation.hasRetried = true;
       _transmit(operation);
     }
-  }
-
-  /// Generates a cryptographically random, session-unique `messageId`.
-  String _generateMessageId() => _generateRandomHex(16);
-
-  /// Generates [byteCount] cryptographically random bytes, hex-encoded.
-  String _generateRandomHex(int byteCount) {
-    final List<int> bytes = List<int>.generate(
-      byteCount,
-      (_) => _random.nextInt(256),
-    );
-    return bytes
-        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
   }
 }
