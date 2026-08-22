@@ -52,6 +52,18 @@ responsibility. Avoid generic `Helper`/`Utils` names; name a class after the res
 Flutter Redux action handlers required by `ai/context/flutter/architecture.md` are the narrow
 framework-specific exception.
 
+Keep handwritten `fromJson`/`fromMap` factories as small decoding boundaries: decode the generated
+or primitive representation, invoke semantic validation, return the typed value, and translate
+errors at the boundary. When a decoder contains several independent semantic rule families, move
+those responsibilities into named, independently testable types in their own files rather than
+letting the factory become a long sequence of unrelated branches or generic helper calls. Each
+extracted type must own a coherent domain responsibility, not merely split one method's branches
+into private methods, and its direct behavior belongs in that type's owning test file. DTO tests
+cover decoding, boundary error translation, and composition with the validator. A single small
+invariant may remain inline. Generated JSON adapters decode DTO shape; they do not replace
+handwritten semantic validation at the DTO/protocol boundary, and protocol semantics must not be
+delegated to domain or service layers.
+
 ## Member declaration order
 
 Within a class, declare static constants first, then `final` dependencies supplied by a constructor,
