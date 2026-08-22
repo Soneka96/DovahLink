@@ -1,9 +1,9 @@
 import 'package:meta/meta.dart';
 
-import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
 import 'internal/authentication_service.dart';
 import 'internal/client_session.dart';
+import 'internal/pairing_service.dart';
 import 'internal/request_manager.dart';
 import 'pairing_cancel_outcome.dart';
 import 'pairing_challenge_status.dart';
@@ -11,12 +11,6 @@ import 'pairing_renotify_result.dart';
 import 'persistence/client_storage.dart';
 import 'persistence/persisted_client_state.dart';
 import 'persistence/windows/dpapi_client_storage.dart';
-import 'protocol/envelope.dart';
-import 'protocol/pairing_ack_payload.dart';
-import 'protocol/pairing_confirm_payload.dart';
-import 'protocol/pairing_outcome_payload.dart';
-import 'protocol/pairing_status_payload.dart';
-import 'protocol/protocol_format_exception.dart';
 import 'request_policy.dart';
 import 'shared/constants.dart';
 import 'shared/enums.dart';
@@ -49,6 +43,12 @@ class DovahLinkClient {
       sessionContext: _session,
       messageReceiver: _session,
     );
+    _pairingService = PairingService(
+      requestManager: _requestManager,
+      storage: _storage,
+      sessionTrustWriter: _session,
+      messageReceiver: _session,
+    );
   }
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
@@ -77,6 +77,12 @@ class DovahLinkClient {
       sessionContext: _session,
       messageReceiver: _session,
     );
+    _pairingService = PairingService(
+      requestManager: _requestManager,
+      storage: _storage,
+      sessionTrustWriter: _session,
+      messageReceiver: _session,
+    );
   }
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
@@ -90,13 +96,15 @@ class DovahLinkClient {
   late final ClientSession _session;
 
   /// Owns pending requests, timeouts, and retry behavior. The same instance [_session] itself
-  /// uses internally, exposed via [ClientSession.requestManager] so this façade (and, in a later
-  /// extraction step, `PairingService`) can send requests directly without depending on the whole
-  /// session.
+  /// uses internally, exposed via [ClientSession.requestManager] so [_authenticationService] and
+  /// [_pairingService] can send requests directly without depending on the whole session.
   late final RequestManager _requestManager;
 
   /// Owns `hello`/authentication and credential-rejection recovery.
   late final AuthenticationService _authenticationService;
+
+  /// Owns pairing operations.
+  late final PairingService _pairingService;
 
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState => _session.connectionState;
@@ -151,82 +159,20 @@ class DovahLinkClient {
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
   /// different clientId currently owns the active challenge or pending credential.
-  Future<PairingChallengeStatus> requestPairing() async {
-    _session.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_request',
-      payload: const <String, dynamic>{},
-      expectedType: 'pairing_status',
-      policy: const RequestPolicy(
-        retrySafe: true,
-        requiredTrustState: DovahLinkTrustState.unpaired,
-        timeoutClass: TimeoutClass.short,
-      ),
-    );
-    final PairingStatusPayload status;
-    try {
-      status = PairingStatusPayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
-    }
-    return PairingChallengeStatus(
-      availability: status.state,
-      expiresInSeconds: status.expiresInSeconds,
-    );
-  }
+  Future<PairingChallengeStatus> requestPairing() =>
+      _pairingService.requestPairing();
 
   /// Requests redisplay of the active pairing challenge's code the caller owns. Never generates a
   /// new code and never sends the code itself over the wire -- redisplay occurs through the
   /// in-game notification, not the connection. Valid only on an `unpaired` session.
-  Future<PairingRenotifyResult> requestPairingRenotify() async {
-    _session.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_renotify',
-      payload: const <String, dynamic>{},
-      expectedType: 'pairing_outcome',
-      policy: const RequestPolicy(
-        retrySafe: true,
-        requiredTrustState: DovahLinkTrustState.unpaired,
-        timeoutClass: TimeoutClass.short,
-      ),
-    );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
-    }
-    return PairingRenotifyResult(
-      status: _parsePairingRenotifyStatus(outcome.outcome),
-      retryAfterSeconds: outcome.retryAfterSeconds,
-    );
-  }
+  Future<PairingRenotifyResult> requestPairingRenotify() =>
+      _pairingService.requestPairingRenotify();
 
   /// Gives up an owned active challenge or pending credential, freeing the slot for a fresh
   /// [requestPairing]. Never touches persisted trust or an already-committed credential. Valid
   /// only on an `unpaired` session.
-  Future<PairingCancelOutcome> cancelPairing() async {
-    _session.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_cancel',
-      payload: const <String, dynamic>{},
-      expectedType: 'pairing_outcome',
-      policy: const RequestPolicy(
-        retrySafe: true,
-        requiredTrustState: DovahLinkTrustState.unpaired,
-        timeoutClass: TimeoutClass.short,
-      ),
-    );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
-    }
-    return PairingCancelOutcome(
-      status: _parsePairingCancelStatus(outcome.outcome),
-    );
-  }
+  Future<PairingCancelOutcome> cancelPairing() =>
+      _pairingService.cancelPairing();
 
   /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
   /// and a `CONFIRMING` recovery state before returning it, per
@@ -238,84 +184,15 @@ class DovahLinkClient {
   Future<String> confirmPairingCode({
     required String code,
     String? displayName,
-  }) async {
-    final PairingConfirmPayload payload = PairingConfirmPayload(
-      code: code,
-      displayName: displayName,
-    );
-    _session.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_confirm',
-      payload: payload.toJson(),
-      expectedType: 'pairing_outcome',
-      policy: const RequestPolicy(
-        retrySafe: false,
-        requiredTrustState: DovahLinkTrustState.unpaired,
-        timeoutClass: TimeoutClass.normal,
-      ),
-    );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
-    }
-    if (outcome.outcome != PairingOutcome.credentialIssued) {
-      throw DovahLinkPairingException(outcome.outcome);
-    }
-    final String? credential = outcome.credential;
-    if (credential == null) {
-      throw const DovahLinkProtocolException(
-        code: 'malformed_message',
-        message: 'The bridge reported credential_issued with no credential.',
-        retryable: false,
-      );
-    }
-
-    final PersistedClientState state = await _storage.load();
-    await _storage.save(
-      state.copyWith(
-        credential: credential,
-        recoveryState: PairingRecoveryState.confirming,
-      ),
-    );
-    return credential;
-  }
+  }) =>
+      _pairingService.confirmPairingCode(code: code, displayName: displayName);
 
   /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
   /// [trustState] becomes [DovahLinkTrustState.trusted] on success, and the persisted recovery
   /// state clears back to [PairingRecoveryState.none] while keeping the credential.
   /// @throws DovahLinkPairingException if the bridge has no matching pending confirmation.
-  Future<void> acknowledgeTrustedCredential(String credential) async {
-    final PairingAckPayload payload = PairingAckPayload(credential: credential);
-    _session.ensureReceiving();
-    final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_ack',
-      payload: payload.toJson(),
-      expectedType: 'pairing_outcome',
-      policy: const RequestPolicy(
-        retrySafe: true,
-        requiredTrustState: DovahLinkTrustState.unpaired,
-        timeoutClass: TimeoutClass.short,
-      ),
-    );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
-    }
-    if (outcome.outcome != PairingOutcome.trusted &&
-        outcome.outcome != PairingOutcome.alreadyTrusted) {
-      throw DovahLinkPairingException(outcome.outcome);
-    }
-    _session.markTrusted();
-
-    final PersistedClientState state = await _storage.load();
-    await _storage.save(
-      state.copyWith(recoveryState: PairingRecoveryState.none),
-    );
-  }
+  Future<void> acknowledgeTrustedCredential(String credential) =>
+      _pairingService.acknowledgeTrustedCredential(credential);
 
   /// Resumes an interrupted pairing confirmation after a crash or relaunch, per
   /// `ai/context/protocol/security.md`'s "a client that saves the credential but crashes before
@@ -326,24 +203,8 @@ class DovahLinkClient {
   /// `pending_not_found` outcome (the bridge restarted and lost the pending credential) discards
   /// the local credential and resets to unpaired rather than treating that as a fatal error; any
   /// other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry again.
-  Future<DovahLinkTrustState> recoverPendingPairing() async {
-    final PersistedClientState state = await _storage.load();
-    if (state.recoveryState != PairingRecoveryState.confirming ||
-        state.credential == null) {
-      return DovahLinkTrustState.unpaired;
-    }
-
-    try {
-      await acknowledgeTrustedCredential(state.credential!);
-      return DovahLinkTrustState.trusted;
-    } on DovahLinkPairingException catch (error) {
-      if (error.outcome == PairingOutcome.pendingNotFound) {
-        await _storage.save(PersistedClientState(clientId: state.clientId));
-        return DovahLinkTrustState.unpaired;
-      }
-      rethrow;
-    }
-  }
+  Future<DovahLinkTrustState> recoverPendingPairing() =>
+      _pairingService.recoverPendingPairing();
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
   /// is a best-effort cleanup operation, matching [DovahLinkTransport.close]'s own "Idempotent"
@@ -366,45 +227,4 @@ class DovahLinkClient {
   /// itself invalid, only its stored credential. Does not touch the transport or in-memory
   /// connection state; call [disconnect] separately if the connection also needs resetting.
   Future<void> forgetCredential() => _authenticationService.forgetCredential();
-
-  /// Interprets a [PairingOutcome] returned in reply to `pairing_renotify`. Every [PairingOutcome]
-  /// value is a recognized wire value -- decoded and validated as a closed enum by
-  /// `PairingOutcomePayload.fromJson` -- but only a subset is a valid reply to this specific
-  /// exchange; a value valid elsewhere (for example [PairingOutcome.credentialIssued]) is still a
-  /// protocol violation here.
-  PairingRenotifyStatus _parsePairingRenotifyStatus(PairingOutcome outcome) =>
-      switch (outcome) {
-        PairingOutcome.renotified => PairingRenotifyStatus.renotified,
-        PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
-        PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
-        _ => throw DovahLinkProtocolException(
-          code: 'malformed_message',
-          message: 'Unexpected pairing_renotify outcome: $outcome',
-          retryable: false,
-        ),
-      };
-
-  /// Interprets a [PairingOutcome] returned in reply to `pairing_cancel`; see
-  /// [_parsePairingRenotifyStatus] for why an otherwise-valid [PairingOutcome] can still be
-  /// rejected here.
-  PairingCancelStatus _parsePairingCancelStatus(PairingOutcome outcome) =>
-      switch (outcome) {
-        PairingOutcome.cancelled => PairingCancelStatus.cancelled,
-        PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
-        _ => throw DovahLinkProtocolException(
-          code: 'malformed_message',
-          message: 'Unexpected pairing_cancel outcome: $outcome',
-          retryable: false,
-        ),
-      };
-
-  /// Throws the SDK's public `DovahLinkProtocolException(code: 'malformed_message', retryable:
-  /// false)` translated from a DTO decode boundary failure, per
-  /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
-  Never _throwMalformedMessage(ProtocolFormatException error) =>
-      throw DovahLinkProtocolException(
-        code: 'malformed_message',
-        message: error.message,
-        retryable: false,
-      );
 }
