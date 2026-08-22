@@ -323,6 +323,27 @@ void main() {
     });
 
     test(
+      'Method fromJson rejects a payload missing each required nullable field',
+      () {
+        for (final String key in <String>[
+          'credential',
+          'shortId',
+          'displayName',
+        ]) {
+          final JsonMap withMissingKey = _readPayload(
+            'pairing/pairing-outcome-trusted.json',
+          )..remove(key);
+
+          expect(
+            () => PairingOutcomePayload.fromJson(withMissingKey),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$key is required even when its value may be null',
+          );
+        }
+      },
+    );
+
+    test(
       'Method fromJson rejects a payload missing the required retryAfterSeconds key',
       () {
         final JsonMap withMissingKey = _readPayload(
@@ -362,6 +383,49 @@ void main() {
         expect(
           () => PairingOutcomePayload.fromJson(withWrongType),
           throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson rejects a payload with the wrong type for each nullable string field',
+      () {
+        for (final String key in <String>[
+          'credential',
+          'shortId',
+          'displayName',
+        ]) {
+          final JsonMap withWrongType = _readPayload(
+            'pairing/pairing-outcome-trusted.json',
+          )..[key] = 7;
+
+          expect(
+            () => PairingOutcomePayload.fromJson(withWrongType),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$key must be a nullable string',
+          );
+        }
+      },
+    );
+
+    test(
+      'Method fromJson preserves the contextual validator error boundary',
+      () {
+        expect(
+          () => PairingOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'expired',
+            'credential': 'credential-1',
+            'shortId': null,
+            'displayName': null,
+            'retryAfterSeconds': null,
+          }),
+          throwsA(
+            isA<ProtocolFormatException>().having(
+              (ProtocolFormatException error) => error.message,
+              'message',
+              startsWith('Invalid pairing_outcome payload:'),
+            ),
+          ),
         );
       },
     );
