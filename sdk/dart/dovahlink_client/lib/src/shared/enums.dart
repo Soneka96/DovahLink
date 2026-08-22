@@ -374,3 +374,17 @@ enum ProtocolErrorCode {
   @JsonValue('internal_error')
   internalError,
 }
+
+// ---- Persistence ----
+
+/// The client's local recovery standing for an in-progress pairing confirmation, persisted so a
+/// crash or relaunch between issuing a credential and confirming it can resume correctly. See
+/// `ai/context/protocol/security.md`'s "Persistent local trust" recoverable confirmation handshake.
+enum PairingRecoveryState {
+  /// No pairing confirmation is outstanding.
+  none,
+
+  /// A credential was issued and durably saved, but final confirmation (`pairing_ack`) has not yet
+  /// been acknowledged by the bridge as `trusted`/`already_trusted`.
+  confirming,
+}

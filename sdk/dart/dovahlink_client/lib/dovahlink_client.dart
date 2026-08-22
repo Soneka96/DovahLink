@@ -19,6 +19,7 @@ export 'src/shared/enums.dart'
         PairingAvailability,
         PairingCancelStatus,
         PairingOutcome,
+        PairingRecoveryState,
         PairingRenotifyStatus,
         ProtocolErrorCode;
 export 'src/hello_result.dart' show HelloResult;
@@ -31,8 +32,7 @@ export 'src/dovahlink_pairing_exception.dart' show DovahLinkPairingException;
 export 'src/dovahlink_protocol_exception.dart' show DovahLinkProtocolException;
 export 'src/dovahlink_storage_exception.dart' show DovahLinkStorageException;
 export 'src/persistence/client_storage.dart' show ClientStorage;
-export 'src/persistence/persisted_client_state.dart'
-    show PairingRecoveryState, PersistedClientState;
+export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/windows/dpapi_client_storage.dart'
     show DpapiClientStorage;
 // DovahLinkTransport is exported alongside DovahLinkClient, not hidden as a purely internal type:

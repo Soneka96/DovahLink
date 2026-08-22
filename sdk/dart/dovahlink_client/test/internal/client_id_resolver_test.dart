@@ -4,11 +4,13 @@ import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
+/// Runs client-ID resolver behavior tests.
 void main() {
-  group('ClientIdResolver', () {
+  group('Method resolve behaves correctly', () {
     test(
-      'reuses an existing persisted client ID without replacing the state',
+      'Method resolve reuses an existing persisted client ID without replacing the state',
       () async {
         final InMemoryClientStorage storage = InMemoryClientStorage();
         const PersistedClientState state = PersistedClientState(
@@ -29,35 +31,38 @@ void main() {
       },
     );
 
-    test('generates and persists a client ID on first use', () async {
-      final InMemoryClientStorage storage = InMemoryClientStorage();
-      const PersistedClientState state = PersistedClientState(
-        credential: 'credential-1',
-        recoveryState: PairingRecoveryState.confirming,
-      );
-      await storage.save(state);
-      final ClientIdResolver resolver = ClientIdResolver(
-        storage: storage,
-        uuidV4Generator: UuidV4Generator(),
-      );
+    test(
+      'Method resolve generates and persists a client ID on first use',
+      () async {
+        final InMemoryClientStorage storage = InMemoryClientStorage();
+        const PersistedClientState state = PersistedClientState(
+          credential: 'credential-1',
+          recoveryState: PairingRecoveryState.confirming,
+        );
+        await storage.save(state);
+        final ClientIdResolver resolver = ClientIdResolver(
+          storage: storage,
+          uuidV4Generator: UuidV4Generator(),
+        );
 
-      final String clientId = await resolver.resolve(await storage.load());
-      final PersistedClientState persisted = await storage.load();
+        final String clientId = await resolver.resolve(await storage.load());
+        final PersistedClientState persisted = await storage.load();
 
-      expect(
-        clientId,
-        matches(
-          RegExp(
-            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+        expect(
+          clientId,
+          matches(
+            RegExp(
+              r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+            ),
           ),
-        ),
-      );
-      expect(persisted.clientId, clientId);
-      expect(persisted.credential, 'credential-1');
-      expect(persisted.recoveryState, PairingRecoveryState.confirming);
-    });
+        );
+        expect(persisted.clientId, clientId);
+        expect(persisted.credential, 'credential-1');
+        expect(persisted.recoveryState, PairingRecoveryState.confirming);
+      },
+    );
 
-    test('replaces an empty persisted client ID', () async {
+    test('Method resolve replaces an empty persisted client ID', () async {
       final InMemoryClientStorage storage = InMemoryClientStorage();
       await storage.save(
         const PersistedClientState(

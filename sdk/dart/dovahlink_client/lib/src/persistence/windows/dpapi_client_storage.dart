@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// A [ClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
