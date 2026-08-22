@@ -91,6 +91,18 @@ void main() {
     );
 
     test(
+      'Method fromJson accepts a null expiry for an in-progress pending credential',
+      () {
+        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          <String, dynamic>{'state': 'in_progress', 'expiresInSeconds': null},
+        );
+
+        expect(payload.state, PairingAvailability.inProgress);
+        expect(payload.expiresInSeconds, isNull);
+      },
+    );
+
+    test(
       'Method fromJson decodes an omitted expiry only for other_device_pairing',
       () {
         final PairingStatusPayload payload = PairingStatusPayload.fromJson(
@@ -126,6 +138,10 @@ void main() {
           <String, dynamic>{
             'state': 'other_device_pairing',
             'expiresInSeconds': null,
+          },
+          <String, dynamic>{
+            'state': 'other_device_pairing',
+            'expiresInSeconds': 1,
           },
         ];
 
@@ -184,6 +200,24 @@ void main() {
             'expiresInSeconds': 'soon',
           }),
           throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson preserves the contextual validator error boundary',
+      () {
+        expect(
+          () => PairingStatusPayload.fromJson(<String, dynamic>{
+            'state': 'available',
+          }),
+          throwsA(
+            isA<ProtocolFormatException>().having(
+              (ProtocolFormatException error) => error.message,
+              'message',
+              startsWith('Invalid pairing_status payload:'),
+            ),
+          ),
         );
       },
     );

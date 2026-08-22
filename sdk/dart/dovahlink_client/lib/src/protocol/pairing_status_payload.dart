@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload_validator.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -17,40 +18,11 @@ class PairingStatusPayload {
   factory PairingStatusPayload.fromJson(JsonMap json) {
     try {
       final PairingStatusPayload payload = _$PairingStatusPayloadFromJson(json);
-      final bool hasExpiry = json.containsKey('expiresInSeconds');
-      final Object? rawExpiry = json['expiresInSeconds'];
-      if (rawExpiry != null && rawExpiry is! int) {
-        throw const ProtocolFormatException(
-          'expiresInSeconds must be an integer or null.',
-        );
-      }
-      if (rawExpiry is int && rawExpiry < 0) {
-        throw const ProtocolFormatException(
-          'expiresInSeconds must not be negative.',
-        );
-      }
-
-      final bool isOtherDevicePairing =
-          payload.state == PairingAvailability.otherDevicePairing;
-      if (isOtherDevicePairing == hasExpiry) {
-        throw ProtocolFormatException(
-          isOtherDevicePairing
-              ? 'expiresInSeconds must be omitted for other_device_pairing.'
-              : 'expiresInSeconds must be present for ${payload.state}.',
-        );
-      }
-      if (payload.state == PairingAvailability.available &&
-          payload.expiresInSeconds == null) {
-        throw const ProtocolFormatException(
-          'expiresInSeconds must be a number for available.',
-        );
-      }
-      if (payload.state == PairingAvailability.unavailable &&
-          payload.expiresInSeconds != null) {
-        throw const ProtocolFormatException(
-          'expiresInSeconds must be null for unavailable.',
-        );
-      }
+      PairingStatusPayloadValidator.validate(
+        state: payload.state,
+        expiresInSeconds: payload.expiresInSeconds,
+        json: json,
+      );
       return payload;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid pairing_status payload: $error');
