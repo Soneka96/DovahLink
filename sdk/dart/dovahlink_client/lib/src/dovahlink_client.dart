@@ -1,14 +1,11 @@
-import 'dart:async';
 import 'dart:math';
 
 import 'package:meta/meta.dart';
 
 import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
-import 'internal/connection_lifecycle_reporter.dart';
-import 'internal/message_router.dart';
+import 'internal/client_session.dart';
 import 'internal/request_manager.dart';
-import 'internal/session_context.dart';
 import 'pairing_cancel_outcome.dart';
 import 'pairing_challenge_status.dart';
 import 'pairing_renotify_result.dart';
@@ -35,25 +32,19 @@ import 'transport/websocket_transport.dart';
 /// never threads identity or credential material through this API by hand.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
-class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
+class DovahLinkClient {
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
   DovahLinkClient({
     DovahLinkTransport? transport,
     required ClientStorage storage,
-  }) : _transport = transport ?? WebSocketTransport(),
-       _storage = storage {
-    _requestManager = RequestManager(
-      transport: _transport,
+  }) : _storage = storage {
+    _session = ClientSession(
+      transport: transport ?? WebSocketTransport(),
       timeoutDurations: kTimeoutClassDurations,
-      sessionContext: this,
-      reporter: this,
     );
-    _messageRouter = MessageRouter(
-      requestManager: _requestManager,
-      reporter: this,
-    );
+    _requestManager = _session.requestManager;
   }
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
@@ -69,63 +60,32 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
     required DovahLinkTransport transport,
     required ClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
-  }) : _transport = transport,
-       _storage = storage {
-    _requestManager = RequestManager(
-      transport: _transport,
+  }) : _storage = storage {
+    _session = ClientSession(
+      transport: transport,
       timeoutDurations: timeoutDurations,
-      sessionContext: this,
-      reporter: this,
     );
-    _messageRouter = MessageRouter(
-      requestManager: _requestManager,
-      reporter: this,
-    );
+    _requestManager = _session.requestManager;
   }
-
-  /// The transport this client sends and receives encoded envelopes over.
-  final DovahLinkTransport _transport;
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
   final ClientStorage _storage;
 
-  /// Owns pending requests, timeouts, and retry behavior; see
-  /// `ai/context/sdk/architecture.md`'s "Internal composition". Built in the constructor body,
-  /// after [_transport] is assigned, so it can be handed `this` as its [SessionContext] and
-  /// [ConnectionLifecycleReporter] -- a temporary arrangement until [ClientSession] (a later
-  /// extraction step) becomes the real implementation of those ports instead.
-  late final RequestManager _requestManager;
+  /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
+  /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state
+  /// ownership". This façade never assigns session state directly, only through [ClientSession]'s
+  /// own commands ([ClientSession.admitSession], [ClientSession.markTrusted]).
+  late final ClientSession _session;
 
-  /// Owns envelope decoding, correlation, and unsolicited routing; see
-  /// `ai/context/sdk/architecture.md`'s "Internal composition". Built in the constructor body,
-  /// right after [_requestManager], for the same temporary [this]-as-port reason.
-  late final MessageRouter _messageRouter;
+  /// Owns pending requests, timeouts, and retry behavior. The same instance [_session] itself
+  /// uses internally, exposed via [ClientSession.requestManager] so this façade (and, in a later
+  /// extraction step, `AuthenticationService`/`PairingService`) can send requests directly without
+  /// depending on the whole session.
+  late final RequestManager _requestManager;
 
   /// Source of randomness for this installation's `clientId`, generated on first use.
   final Random _random = Random.secure();
-
-  /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
-  /// connection is being received for. The SDK owns exactly one of these at a time, per
-  /// `ai/context/sdk/architecture.md`'s "Inbound message handling".
-  StreamSubscription<String>? _messageSubscription;
-
-  /// Identifies the connection [_messageSubscription] currently belongs to. Incremented every
-  /// time that connection is torn down, so a callback still in flight from an old subscription
-  /// can recognize it no longer belongs to the current connection and must not mutate this
-  /// client's state -- teardown itself still awaits full cancellation before a new subscription
-  /// is established; this is defense in depth on top of that ordering, not a substitute for it.
-  int _connectionGeneration = 0;
-
-  /// The current connection lifecycle phase.
-  DovahLinkConnectionState _connectionState =
-      DovahLinkConnectionState.disconnected;
-
-  /// The current trust standing, or `null` before [hello] succeeds.
-  DovahLinkTrustState? _trustState;
-
-  /// The server-issued session identifier, or `null` before [hello] succeeds.
-  String? _sessionId;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
   String? _clientId;
@@ -135,18 +95,14 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// `hello` on an already-admitted session.
   String? _bridgeVersion;
 
-  /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
-  /// `null` otherwise.
-  AdministrativeInvalidationReason? _invalidationReason;
-
   /// The current connection lifecycle phase.
-  DovahLinkConnectionState get connectionState => _connectionState;
+  DovahLinkConnectionState get connectionState => _session.connectionState;
 
   /// The current trust standing, or `null` before [hello] succeeds.
-  DovahLinkTrustState? get trustState => _trustState;
+  DovahLinkTrustState? get trustState => _session.currentTrustState;
 
   /// The server-issued session identifier, or `null` before [hello] succeeds.
-  String? get sessionId => _sessionId;
+  String? get sessionId => _session.currentSessionId;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
   String? get clientId => _clientId;
@@ -154,115 +110,11 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason =>
-      _invalidationReason;
-
-  /// See [SessionContext.currentSessionId]. Temporary [this]-as-port scaffolding -- see
-  /// [_requestManager]'s documentation.
-  @override
-  String? get currentSessionId => _sessionId;
-
-  /// See [SessionContext.currentTrustState]. Temporary [this]-as-port scaffolding -- see
-  /// [_requestManager]'s documentation.
-  @override
-  DovahLinkTrustState? get currentTrustState => _trustState;
-
-  /// See [ConnectionLifecycleReporter.onUnhealthy]. Temporary [this]-as-port scaffolding -- see
-  /// [_requestManager]'s documentation.
-  @override
-  void onUnhealthy(Exception reason) {
-    unawaited(_teardownConnection(reason));
-  }
-
-  /// See [ConnectionLifecycleReporter.onProtocolViolation]. Temporary [this]-as-port scaffolding
-  /// -- see [_requestManager]'s documentation.
-  @override
-  void onProtocolViolation(
-    Exception reason, {
-    required bool orphanRetrySafeOperations,
-  }) {
-    unawaited(
-      _teardownConnection(
-        reason,
-        orphanRetrySafeOperations: orphanRetrySafeOperations,
-      ),
-    );
-  }
-
-  /// See [ConnectionLifecycleReporter.onSessionInvalidated]. Receiving one with no currently
-  /// authenticated session is an impossible state per `protocol/schema/README.md` (the event is
-  /// only ever sent for an existing authenticated session) and fails closed as a protocol
-  /// violation via [_teardownConnection] rather than being accepted. Otherwise sets
-  /// [connectionState] and [invalidationReason], fails every pending or retry-orphaned operation
-  /// (administrative invalidation is terminal and never eligible for
-  /// [RequestManager.retryOrphanedOperations] -- recovery is Stage 2's explicit, user-initiated
-  /// Retry only), and tears the connection down directly rather than through
-  /// [_teardownConnection]/[disconnect], so a following socket close the bridge itself performs
-  /// cannot overwrite this typed reason back to generic transport loss -- see
-  /// [_handleReceiveFailure]'s generation/state guard. Temporary [this]-as-port scaffolding --
-  /// see [_requestManager]'s documentation.
-  @override
-  void onSessionInvalidated(AdministrativeInvalidationReason reason) {
-    if (_sessionId == null || _trustState == null) {
-      unawaited(
-        _teardownConnection(
-          const DovahLinkProtocolException(
-            code: 'malformed_message',
-            message:
-                'Received session_invalidated with no authenticated session.',
-            retryable: false,
-          ),
-        ),
-      );
-      return;
-    }
-
-    _invalidationReason = reason;
-    _connectionState = DovahLinkConnectionState.administrativelyInvalidated;
-    _connectionGeneration++;
-
-    _requestManager.failAll(
-      DovahLinkConnectionException(
-        'Session invalidated ($reason) while awaiting a reply.',
-      ),
-      orphanRetrySafeOperations: false,
-    );
-
-    unawaited(_closeConnectionAfterInvalidation());
-  }
-
-  /// Best-effort subscription cancellation and transport close for
-  /// [onSessionInvalidated], matching [disconnect]'s own tolerance for a close that cannot
-  /// complete cleanly.
-  Future<void> _closeConnectionAfterInvalidation() async {
-    final StreamSubscription<String>? subscription = _messageSubscription;
-    _messageSubscription = null;
-    if (subscription != null) {
-      try {
-        await subscription.cancel();
-      } on Object {
-        // Best-effort, matching disconnect()'s existing tolerance.
-      }
-    }
-    try {
-      await _transport.close();
-    } on Object {
-      // Best-effort, matching disconnect()'s existing tolerance.
-    }
-  }
+      _session.invalidationReason;
 
   /// Establishes the transport connection to [uri]. Must be called before [hello].
   /// @throws DovahLinkConnectionException if the socket cannot be established.
-  Future<void> connect(Uri uri) async {
-    _connectionState = DovahLinkConnectionState.connecting;
-    try {
-      await _transport.connect(uri);
-      _connectionState = DovahLinkConnectionState.connected;
-      _ensureReceiving();
-    } on Object catch (error) {
-      _connectionState = DovahLinkConnectionState.disconnected;
-      throw DovahLinkConnectionException('Failed to connect to $uri: $error');
-    }
-  }
+  Future<void> connect(Uri uri) => _session.connect(uri);
 
   /// Sends `hello` and negotiates the session. Resolves and persists this installation's
   /// `clientId` on first use, and automatically presents a stored trusted credential as
@@ -271,7 +123,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
-  /// trust state; see [RequestPolicy.requiredTrustState].
+  /// trust state; see [RequestPolicy.requiredTrustState] and [ClientSession.admitSession].
   /// @throws DovahLinkProtocolException if the bridge rejects authentication.
   Future<HelloResult> hello() async {
     final PersistedClientState state = await _storage.load();
@@ -289,7 +141,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
       authToken: credential,
     );
     try {
-      _ensureReceiving();
+      _session.ensureReceiving();
       final Envelope response = await _requestManager.sendAndAwait(
         messageType: 'hello',
         payload: payload.toJson(),
@@ -306,15 +158,27 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
         ClientIdentityKind.paired => DovahLinkTrustState.trusted,
       };
 
-      _sessionId = response.sessionId;
-      _trustState = trustState;
+      final String? sessionId = response.sessionId;
+      if (sessionId == null) {
+        // hello_ack always carries a real sessionId per `protocol/schema/README.md`; a null one
+        // is a malformed reply, not a state ClientSession.admitSession's typed contract accepts
+        // silently the way the pre-extraction field assignment once did.
+        throw const DovahLinkProtocolException(
+          code: 'malformed_message',
+          message: 'The bridge reported hello_ack with no sessionId.',
+          retryable: false,
+        );
+      }
+      // admitSession also retransmits any retry-safe operation an earlier ordinary transport
+      // loss orphaned, now that this new session's trust state is known -- see
+      // ClientSession.admitSession's documentation.
+      _session.admitSession(sessionId: sessionId, trustState: trustState);
       _bridgeVersion = ack.bridgeVersion;
 
       // The bridge always sends an unprompted `capabilities` message right after `hello_ack`; it
       // arrives as an unsolicited (null-correlationId) message and is discarded by
-      // _handleUnsolicited -- exposing it is out of this client's current scope. hello() does not
+      // MessageRouter -- exposing it is out of this client's current scope. hello() does not
       // wait for it.
-      _requestManager.retryOrphanedOperations();
 
       return HelloResult(
         bridgeVersion: ack.bridgeVersion,
@@ -355,8 +219,8 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   ///     retry attempt is itself rejected.
   Future<HelloResult> authenticate(Uri uri) async {
     final String? cachedBridgeVersion = _bridgeVersion;
-    if (_connectionState == DovahLinkConnectionState.connected &&
-        _trustState == DovahLinkTrustState.trusted &&
+    if (_session.connectionState == DovahLinkConnectionState.connected &&
+        _session.currentTrustState == DovahLinkTrustState.trusted &&
         cachedBridgeVersion != null) {
       return HelloResult(
         bridgeVersion: cachedBridgeVersion,
@@ -388,7 +252,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
   /// different clientId currently owns the active challenge or pending credential.
   Future<PairingChallengeStatus> requestPairing() async {
-    _ensureReceiving();
+    _session.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_request',
       payload: const <String, dynamic>{},
@@ -415,7 +279,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// new code and never sends the code itself over the wire -- redisplay occurs through the
   /// in-game notification, not the connection. Valid only on an `unpaired` session.
   Future<PairingRenotifyResult> requestPairingRenotify() async {
-    _ensureReceiving();
+    _session.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_renotify',
       payload: const <String, dynamic>{},
@@ -442,7 +306,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// [requestPairing]. Never touches persisted trust or an already-committed credential. Valid
   /// only on an `unpaired` session.
   Future<PairingCancelOutcome> cancelPairing() async {
-    _ensureReceiving();
+    _session.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_cancel',
       payload: const <String, dynamic>{},
@@ -479,7 +343,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
       code: code,
       displayName: displayName,
     );
-    _ensureReceiving();
+    _session.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_confirm',
       payload: payload.toJson(),
@@ -524,7 +388,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// @throws DovahLinkPairingException if the bridge has no matching pending confirmation.
   Future<void> acknowledgeTrustedCredential(String credential) async {
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
-    _ensureReceiving();
+    _session.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
       messageType: 'pairing_ack',
       payload: payload.toJson(),
@@ -545,7 +409,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
         outcome.outcome != PairingOutcome.alreadyTrusted) {
       throw DovahLinkPairingException(outcome.outcome);
     }
-    _trustState = DovahLinkTrustState.trusted;
+    _session.markTrusted();
 
     final PersistedClientState state = await _storage.load();
     await _storage.save(
@@ -593,12 +457,7 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
   /// [DovahLinkConnectionState.disconnected]/[DovahLinkConnectionState.administrativelyInvalidated] --
   /// an administrative invalidation's typed reason is preserved, not reset to a generic
   /// disconnect.
-  Future<void> disconnect() async {
-    await _teardownConnection(
-      const DovahLinkConnectionException('Disconnected.'),
-      orphanRetrySafeOperations: false,
-    );
-  }
+  Future<void> disconnect() => _session.disconnect();
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
   /// the next [hello] presents [AuthMethod.unpaired] instead of a credential the bridge has
@@ -621,118 +480,6 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
     final String generated = _generateUuidV4();
     await _storage.save(state.copyWith(clientId: generated));
     return generated;
-  }
-
-  /// Ensures exactly one subscription is reading [_transport]'s inbound message stream for the
-  /// current connection. Idempotent: a no-op once a subscription already exists. Called both from
-  /// [connect] (the normal production trigger -- the SDK owns one reader for the connection's
-  /// whole lifetime, not only while a request happens to be outstanding) and defensively from
-  /// [_sendAndAwait] (a no-op in production, since [connect] always runs first there; it only
-  /// matters for a caller that sends before ever calling [connect]).
-  void _ensureReceiving() {
-    if (_messageSubscription != null) {
-      return;
-    }
-    final int generation = _connectionGeneration;
-    final Stream<String> messages;
-    try {
-      messages = _transport.messages;
-    } on Object catch (error) {
-      // A caller that sends before ever calling connect() reaches this synchronously (the real
-      // transport's messages getter throws when not connected) -- convert to the same typed
-      // exception every other connection-level failure in this class already uses, rather than
-      // letting a raw transport-specific error type escape.
-      throw DovahLinkConnectionException('Cannot receive: $error');
-    }
-    _messageSubscription = messages.listen(
-      (String raw) => _handleIncomingMessage(raw, generation),
-      onError: (Object error, StackTrace stackTrace) => _handleReceiveFailure(
-        generation,
-        DovahLinkConnectionException('Connection lost while receiving: $error'),
-      ),
-      onDone: () => _handleReceiveFailure(
-        generation,
-        const DovahLinkConnectionException('Connection closed by the bridge.'),
-      ),
-    );
-  }
-
-  /// Dispatches one inbound message from the connection [generation] its subscription was
-  /// established under. A stale message from an already-superseded generation is ignored, never
-  /// mutating current state; otherwise decoding and routing belongs to [MessageRouter].
-  void _handleIncomingMessage(String raw, int generation) {
-    if (generation != _connectionGeneration) {
-      return;
-    }
-    _messageRouter.handleIncoming(raw);
-  }
-
-  /// Handles a transport-level failure (`onError`/`onDone`) reported for the connection
-  /// [generation]'s subscription. Ignored if [generation] has already been superseded -- a stale
-  /// receiver's own failure must not tear down a newer, already-healthy connection.
-  void _handleReceiveFailure(
-    int generation,
-    DovahLinkConnectionException reason,
-  ) {
-    if (generation != _connectionGeneration) {
-      return;
-    }
-    unawaited(_teardownConnection(reason));
-  }
-
-  /// The single path that tears an unhealthy connection down: bumps [_connectionGeneration] so a
-  /// stale callback still in flight recognizes it no longer applies, awaits cancelling
-  /// [_messageSubscription] and closing [_transport] before returning, then resolves every
-  /// currently pending operation. A no-op if [connectionState] is already
-  /// [DovahLinkConnectionState.administrativelyInvalidated] -- that typed reason is never
-  /// overwritten by a failure that follows it, such as the bridge's own follow-up socket close.
-  /// Otherwise always runs its full cleanup, even if [connectionState] was already
-  /// [DovahLinkConnectionState.disconnected] (for example a caller that never called [connect] at
-  /// all before a request failed) -- every step below ([_messageSubscription] cancellation,
-  /// [_transport] close) is independently idempotent, so a redundant call is harmless, but
-  /// skipping it entirely would leave [_transport] never actually closed for that caller.
-  ///
-  /// When [orphanRetrySafeOperations] is `true` (a genuine transport-level cause: send failure,
-  /// timeout, receive error/done), a `retrySafe` operation that has not already been retried once
-  /// is parked in [_orphanedRetryableOperations] instead of being failed immediately, awaiting
-  /// [_retryOrphanedOperations]. When `false` (a protocol violation -- malformed JSON, an
-  /// unmatched correlationId -- or [disconnect]'s deliberate, explicit teardown), every pending
-  /// operation is failed immediately and any already-orphaned operation is failed too: a protocol
-  /// violation is not assumed safe to blindly retry, and a deliberate disconnect never retries.
-  Future<void> _teardownConnection(
-    Exception reason, {
-    bool orphanRetrySafeOperations = true,
-  }) async {
-    if (_connectionState ==
-        DovahLinkConnectionState.administrativelyInvalidated) {
-      return;
-    }
-    _connectionGeneration++;
-
-    final StreamSubscription<String>? subscription = _messageSubscription;
-    _messageSubscription = null;
-    if (subscription != null) {
-      try {
-        await subscription.cancel();
-      } on Object {
-        // Best-effort: in-memory state resets below regardless.
-      }
-    }
-    try {
-      await _transport.close();
-    } on Object {
-      // Best-effort: in-memory state resets below regardless of whether the transport could
-      // close cleanly.
-    }
-
-    _connectionState = DovahLinkConnectionState.disconnected;
-    _trustState = null;
-    _sessionId = null;
-
-    _requestManager.failAll(
-      reason,
-      orphanRetrySafeOperations: orphanRetrySafeOperations,
-    );
   }
 
   /// Generates a random RFC 4122 version-4 UUID string.
@@ -781,20 +528,15 @@ class DovahLinkClient implements SessionContext, ConnectionLifecycleReporter {
         ),
       };
 
-  /// Translates a DTO decode boundary failure into the typed exception SDK consumers already
-  /// handle, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
-  DovahLinkProtocolException _malformedMessageException(
-    ProtocolFormatException error,
-  ) => DovahLinkProtocolException(
-    code: 'malformed_message',
-    message: error.message,
-    retryable: false,
-  );
-
-  /// Throws [_malformedMessageException] for [error]. Used at a call site that reports the
-  /// translated failure by throwing rather than by passing it to [_teardownConnection].
+  /// Throws the SDK's public `DovahLinkProtocolException(code: 'malformed_message', retryable:
+  /// false)` translated from a DTO decode boundary failure, per
+  /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
   Never _throwMalformedMessage(ProtocolFormatException error) =>
-      throw _malformedMessageException(error);
+      throw DovahLinkProtocolException(
+        code: 'malformed_message',
+        message: error.message,
+        retryable: false,
+      );
 
   /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
   /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
