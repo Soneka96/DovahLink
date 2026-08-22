@@ -176,6 +176,26 @@ enum PairingOutcome {
   alreadyIdle,
 }
 
+/// Adds exchange-specific semantic conversions to the shared [PairingOutcome] vocabulary.
+extension PairingOutcomeStatusMapping on PairingOutcome {
+  /// Converts this outcome to the `pairing_renotify` result vocabulary, or returns `null` when it
+  /// belongs to another exchange.
+  PairingRenotifyStatus? toRenotifyStatus() => switch (this) {
+    PairingOutcome.renotified => PairingRenotifyStatus.renotified,
+    PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
+    PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
+    _ => null,
+  };
+
+  /// Converts this outcome to the `pairing_cancel` result vocabulary, or returns `null` when it
+  /// belongs to another exchange.
+  PairingCancelStatus? toCancelStatus() => switch (this) {
+    PairingOutcome.cancelled => PairingCancelStatus.cancelled,
+    PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
+    _ => null,
+  };
+}
+
 // ---- Request policy ----
 
 /// A centralized bounded timeout category a request is classified against, per

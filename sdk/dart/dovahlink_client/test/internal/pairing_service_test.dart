@@ -15,37 +15,36 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../fixtures/protocol/envelope.fixture.dart';
 
+/// Mock request manager used to isolate pairing service tests.
 class MockRequestManager extends Mock implements RequestManager {}
 
+/// Mock session trust writer used to isolate pairing service tests.
 class MockSessionTrustWriter extends Mock implements SessionTrustWriter {}
 
+/// Mock message receiver used to isolate pairing service tests.
 class MockMessageReceiver extends Mock implements MessageReceiver {}
 
 /// Builds a decoded `pairing_outcome` reply envelope carrying [outcome], with every other field
 /// present-but-empty per that message's wire contract.
-Envelope _outcomeEnvelope(
-  PairingOutcome outcome, {
+Envelope buildPairingOutcomeEnvelope({
+  PairingOutcome outcome = PairingOutcome.credentialIssued,
   String? credential,
   int? retryAfterSeconds,
-}) => Envelope(
+}) => buildEnvelope(
   messageType: ProtocolMessageType.pairingOutcome,
-  messageId: 'reply-1',
-  sessionId: 'session-1',
-  correlationId: 'req-1',
   payload: <String, dynamic>{
-    'outcome': _wireOutcome(outcome),
+    'outcome': _wirePairingOutcome(outcome),
     'credential': credential,
     'shortId': null,
     'displayName': null,
     'retryAfterSeconds': retryAfterSeconds,
   },
-  bridgeInstanceId: 'bridge-1',
-  playContextId: null,
-  clientId: null,
 );
 
-String _wireOutcome(PairingOutcome outcome) => switch (outcome) {
+/// Converts a typed pairing outcome to its protocol wire value.
+String _wirePairingOutcome(PairingOutcome outcome) => switch (outcome) {
   PairingOutcome.credentialIssued => 'credential_issued',
   PairingOutcome.trusted => 'trusted',
   PairingOutcome.alreadyTrusted => 'already_trusted',
@@ -60,6 +59,19 @@ String _wireOutcome(PairingOutcome outcome) => switch (outcome) {
   PairingOutcome.alreadyIdle => 'already_idle',
 };
 
+/// Stubs `sendAndAwait` to answer with [envelope], matching any call.
+void stubSendAndAwait(RequestManager requestManager, Envelope envelope) {
+  when(
+    () => requestManager.sendAndAwait(
+      messageType: any(named: 'messageType'),
+      payload: any(named: 'payload'),
+      expectedType: any(named: 'expectedType'),
+      policy: any(named: 'policy'),
+    ),
+  ).thenAnswer((_) async => envelope);
+}
+
+/// Runs pairing service behavior tests.
 void main() {
   late MockRequestManager requestManager;
   late InMemoryClientStorage storage;
@@ -93,76 +105,140 @@ void main() {
     );
   });
 
-  /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
-  void stubSendAndAwait(Envelope envelope) {
-    when(
-      () => requestManager.sendAndAwait(
-        messageType: any(named: 'messageType'),
-        payload: any(named: 'payload'),
-        expectedType: any(named: 'expectedType'),
-        policy: any(named: 'policy'),
-      ),
-    ).thenAnswer((_) async => envelope);
-  }
-
-  group('requestPairing', () {
-    test('ensures receiving and decodes the pairing_status reply', () async {
-      stubSendAndAwait(
-        const Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: 'req-1',
-          payload: <String, dynamic>{
-            'state': 'available',
-            'expiresInSeconds': 60,
-          },
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: null,
-        ),
-      );
-
-      final PairingChallengeStatus status = await service.requestPairing();
-
-      verify(() => messageReceiver.ensureReceiving()).called(1);
-      verify(
-        () => requestManager.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: any(named: 'payload'),
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: any(named: 'policy'),
-        ),
-      ).called(1);
-      expect(status.availability, PairingAvailability.available);
-      expect(status.expiresInSeconds, 60);
-    });
-
-    test('decodes otherDevicePairing with a null expiresInSeconds', () async {
-      stubSendAndAwait(
-        const Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: 'req-1',
-          payload: <String, dynamic>{'state': 'other_device_pairing'},
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: null,
-        ),
-      );
-
-      final PairingChallengeStatus status = await service.requestPairing();
-
-      expect(status.availability, PairingAvailability.otherDevicePairing);
-      expect(status.expiresInSeconds, isNull);
-    });
-
+  group('Method requestPairing behaves correctly', () {
     test(
-      'throws malformed_message when pairing_status fails to decode',
+      'Method requestPairing ensures receiving and decodes the pairing_status reply',
       () async {
         stubSendAndAwait(
-          const Envelope(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: 'req-1',
+            payload: <String, dynamic>{
+              'state': 'available',
+              'expiresInSeconds': 60,
+            },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: null,
+          ),
+        );
+
+        final PairingChallengeStatus status = await service.requestPairing();
+
+        verifyInOrder([
+          () => messageReceiver.ensureReceiving(),
+          () => requestManager.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: const RequestPolicy(
+              retrySafe: true,
+              requiredTrustState: DovahLinkTrustState.unpaired,
+              timeoutClass: TimeoutClass.short,
+            ),
+          ),
+        ]);
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, 60);
+      },
+    );
+
+    test(
+      'Method requestPairing decodes otherDevicePairing with a null expiresInSeconds',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: 'req-1',
+            payload: <String, dynamic>{'state': 'other_device_pairing'},
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: null,
+          ),
+        );
+
+        final PairingChallengeStatus status = await service.requestPairing();
+
+        expect(status.availability, PairingAvailability.otherDevicePairing);
+        expect(status.expiresInSeconds, isNull);
+      },
+    );
+
+    test(
+      'Method requestPairing decodes unavailable with a null expiresInSeconds',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: <String, dynamic>{
+              'state': 'unavailable',
+              'expiresInSeconds': null,
+            },
+          ),
+        );
+
+        final PairingChallengeStatus status = await service.requestPairing();
+
+        expect(status.availability, PairingAvailability.unavailable);
+        expect(status.expiresInSeconds, isNull);
+      },
+    );
+
+    test(
+      'Method requestPairing decodes an active inProgress challenge with its expiry',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: <String, dynamic>{
+              'state': 'in_progress',
+              'expiresInSeconds': 45,
+            },
+          ),
+        );
+
+        final PairingChallengeStatus status = await service.requestPairing();
+
+        expect(status.availability, PairingAvailability.inProgress);
+        expect(status.expiresInSeconds, 45);
+      },
+    );
+
+    test(
+      'Method requestPairing decodes a pending inProgress state without an expiry',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: <String, dynamic>{
+              'state': 'in_progress',
+              'expiresInSeconds': null,
+            },
+          ),
+        );
+
+        final PairingChallengeStatus status = await service.requestPairing();
+
+        expect(status.availability, PairingAvailability.inProgress);
+        expect(status.expiresInSeconds, isNull);
+      },
+    );
+
+    test(
+      'Method requestPairing throws malformed_message when pairing_status fails to decode',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -186,33 +262,65 @@ void main() {
         );
       },
     );
-  });
-
-  group('requestPairingRenotify', () {
-    test('decodes a renotified outcome', () async {
-      stubSendAndAwait(_outcomeEnvelope(PairingOutcome.renotified));
-
-      final PairingRenotifyResult result = await service
-          .requestPairingRenotify();
-
-      verify(() => messageReceiver.ensureReceiving()).called(1);
-      verify(
-        () => requestManager.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRenotify,
-          payload: any(named: 'payload'),
-          expectedType: ProtocolMessageType.pairingOutcome,
-          policy: any(named: 'policy'),
-        ),
-      ).called(1);
-      expect(result.status, PairingRenotifyStatus.renotified);
-    });
 
     test(
-      'decodes a renotify_cooldown outcome with retryAfterSeconds',
+      'Method requestPairing propagates a connection failure without changing trust state',
+      () async {
+        when(
+          () => requestManager.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenThrow(const DovahLinkConnectionException('lost'));
+
+        await expectLater(
+          service.requestPairing(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+      },
+    );
+  });
+
+  group('Method requestPairingRenotify behaves correctly', () {
+    test(
+      'Method requestPairingRenotify decodes a renotified outcome',
       () async {
         stubSendAndAwait(
-          _outcomeEnvelope(
-            PairingOutcome.renotifyCooldown,
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
+        );
+
+        final PairingRenotifyResult result = await service
+            .requestPairingRenotify();
+
+        verify(() => messageReceiver.ensureReceiving()).called(1);
+        verify(
+          () => requestManager.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRenotify,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: const RequestPolicy(
+              retrySafe: true,
+              requiredTrustState: DovahLinkTrustState.unpaired,
+              timeoutClass: TimeoutClass.short,
+            ),
+          ),
+        ).called(1);
+        expect(result.status, PairingRenotifyStatus.renotified);
+        expect(result.retryAfterSeconds, isNull);
+      },
+    );
+
+    test(
+      'Method requestPairingRenotify decodes a renotify_cooldown outcome with retryAfterSeconds',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.renotifyCooldown,
             retryAfterSeconds: 5,
           ),
         );
@@ -225,19 +333,29 @@ void main() {
       },
     );
 
-    test('decodes an already_idle outcome', () async {
-      stubSendAndAwait(_outcomeEnvelope(PairingOutcome.alreadyIdle));
+    test(
+      'Method requestPairingRenotify decodes an already_idle outcome',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyIdle),
+        );
 
-      final PairingRenotifyResult result = await service
-          .requestPairingRenotify();
+        final PairingRenotifyResult result = await service
+            .requestPairingRenotify();
 
-      expect(result.status, PairingRenotifyStatus.alreadyIdle);
-    });
+        expect(result.status, PairingRenotifyStatus.alreadyIdle);
+        expect(result.retryAfterSeconds, isNull);
+      },
+    );
 
     test(
-      'throws malformed_message for an outcome not valid for this exchange',
+      'Method requestPairingRenotify throws malformed_message for an outcome not valid for this exchange',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.credentialIssued));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.credentialIssued),
+        );
 
         await expectLater(
           service.requestPairingRenotify(),
@@ -253,10 +371,11 @@ void main() {
     );
 
     test(
-      'throws malformed_message when pairing_outcome fails to decode',
+      'Method requestPairingRenotify throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          const Envelope(
+          requestManager,
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -280,11 +399,46 @@ void main() {
         );
       },
     );
+
+    test(
+      'Method requestPairingRenotify propagates a protocol failure without marking trust',
+      () async {
+        when(
+          () => requestManager.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.rateLimited,
+            message: 'slow down',
+            retryable: true,
+          ),
+        );
+
+        await expectLater(
+          service.requestPairingRenotify(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.rateLimited,
+            ),
+          ),
+        );
+        verifyNever(() => sessionTrustWriter.markTrusted());
+      },
+    );
   });
 
-  group('cancelPairing', () {
-    test('decodes a cancelled outcome', () async {
-      stubSendAndAwait(_outcomeEnvelope(PairingOutcome.cancelled));
+  group('Method cancelPairing behaves correctly', () {
+    test('Method cancelPairing decodes a cancelled outcome', () async {
+      stubSendAndAwait(
+        requestManager,
+        buildPairingOutcomeEnvelope(outcome: PairingOutcome.cancelled),
+      );
 
       final PairingCancelOutcome result = await service.cancelPairing();
 
@@ -292,16 +446,23 @@ void main() {
       verify(
         () => requestManager.sendAndAwait(
           messageType: ProtocolMessageType.pairingCancel,
-          payload: any(named: 'payload'),
+          payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingOutcome,
-          policy: any(named: 'policy'),
+          policy: const RequestPolicy(
+            retrySafe: true,
+            requiredTrustState: DovahLinkTrustState.unpaired,
+            timeoutClass: TimeoutClass.short,
+          ),
         ),
       ).called(1);
       expect(result.status, PairingCancelStatus.cancelled);
     });
 
-    test('decodes an already_idle outcome', () async {
-      stubSendAndAwait(_outcomeEnvelope(PairingOutcome.alreadyIdle));
+    test('Method cancelPairing decodes an already_idle outcome', () async {
+      stubSendAndAwait(
+        requestManager,
+        buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyIdle),
+      );
 
       final PairingCancelOutcome result = await service.cancelPairing();
 
@@ -309,9 +470,12 @@ void main() {
     });
 
     test(
-      'throws malformed_message for an outcome not valid for this exchange',
+      'Method cancelPairing throws malformed_message for an outcome not valid for this exchange',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.renotified));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
+        );
 
         await expectLater(
           service.cancelPairing(),
@@ -327,10 +491,11 @@ void main() {
     );
 
     test(
-      'throws malformed_message when pairing_outcome fails to decode',
+      'Method cancelPairing throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          const Envelope(
+          requestManager,
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -354,15 +519,46 @@ void main() {
         );
       },
     );
+
+    test(
+      'Method cancelPairing propagates a connection failure without changing storage',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'cred',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        when(
+          () => requestManager.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenThrow(const DovahLinkConnectionException('lost'));
+
+        await expectLater(
+          service.cancelPairing(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        final PersistedClientState state = await storage.load();
+        expect(state.credential, 'cred');
+        expect(state.recoveryState, PairingRecoveryState.confirming);
+        verifyNever(() => sessionTrustWriter.markTrusted());
+      },
+    );
   });
 
-  group('confirmPairingCode', () {
+  group('Method confirmPairingCode behaves correctly', () {
     test(
-      'persists the issued credential with a CONFIRMING recovery state',
+      'Method confirmPairingCode persists the issued credential with a CONFIRMING recovery state',
       () async {
         stubSendAndAwait(
-          _outcomeEnvelope(
-            PairingOutcome.credentialIssued,
+          requestManager,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
             credential: 'new-cred',
           ),
         );
@@ -380,9 +576,12 @@ void main() {
     );
 
     test(
-      'throws malformed_message when credential_issued carries no credential',
+      'Method confirmPairingCode throws malformed_message when credential_issued carries no credential',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.credentialIssued));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.credentialIssued),
+        );
 
         await expectLater(
           service.confirmPairingCode(code: '123456'),
@@ -398,10 +597,11 @@ void main() {
     );
 
     test(
-      'throws malformed_message when pairing_outcome fails to decode',
+      'Method confirmPairingCode throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          const Envelope(
+          requestManager,
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -426,34 +626,45 @@ void main() {
       },
     );
 
-    test('sends the code and displayName in the outgoing payload', () async {
-      stubSendAndAwait(
-        _outcomeEnvelope(
-          PairingOutcome.credentialIssued,
-          credential: 'new-cred',
-        ),
-      );
+    test(
+      'Method confirmPairingCode sends the code and displayName in the outgoing payload',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'new-cred',
+          ),
+        );
 
-      await service.confirmPairingCode(code: '123456', displayName: 'My PC');
+        await service.confirmPairingCode(code: '123456', displayName: 'My PC');
 
-      final JsonMap sentPayload =
-          verify(
-                () => requestManager.sendAndAwait(
-                  messageType: ProtocolMessageType.pairingConfirm,
-                  payload: captureAny(named: 'payload'),
-                  expectedType: ProtocolMessageType.pairingOutcome,
-                  policy: any(named: 'policy'),
-                ),
-              ).captured.single
-              as JsonMap;
-      expect(sentPayload['code'], '123456');
-      expect(sentPayload['displayName'], 'My PC');
-    });
+        final JsonMap sentPayload =
+            verify(
+                  () => requestManager.sendAndAwait(
+                    messageType: ProtocolMessageType.pairingConfirm,
+                    payload: captureAny(named: 'payload'),
+                    expectedType: ProtocolMessageType.pairingOutcome,
+                    policy: const RequestPolicy(
+                      retrySafe: false,
+                      requiredTrustState: DovahLinkTrustState.unpaired,
+                      timeoutClass: TimeoutClass.normal,
+                    ),
+                  ),
+                ).captured.single
+                as JsonMap;
+        expect(sentPayload['code'], '123456');
+        expect(sentPayload['displayName'], 'My PC');
+      },
+    );
 
     test(
-      'throws DovahLinkPairingException for a rejected code, without persisting',
+      'Method confirmPairingCode throws DovahLinkPairingException for a rejected code without persisting',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.expired));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
+        );
 
         await expectLater(
           service.confirmPairingCode(code: '123456'),
@@ -471,9 +682,9 @@ void main() {
     );
   });
 
-  group('acknowledgeTrustedCredential', () {
+  group('Method acknowledgeTrustedCredential behaves correctly', () {
     test(
-      'marks the session trusted and clears the recovery state on a trusted outcome',
+      'Method acknowledgeTrustedCredential marks the session trusted and clears the recovery state on a trusted outcome',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -482,7 +693,10 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.trusted));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.trusted),
+        );
 
         await service.acknowledgeTrustedCredential('cred');
 
@@ -490,9 +704,13 @@ void main() {
         verify(
           () => requestManager.sendAndAwait(
             messageType: ProtocolMessageType.pairingAck,
-            payload: any(named: 'payload'),
+            payload: <String, dynamic>{'credential': 'cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: any(named: 'policy'),
+            policy: const RequestPolicy(
+              retrySafe: true,
+              requiredTrustState: DovahLinkTrustState.unpaired,
+              timeoutClass: TimeoutClass.short,
+            ),
           ),
         ).called(1);
         verify(() => sessionTrustWriter.markTrusted()).called(1);
@@ -503,9 +721,12 @@ void main() {
     );
 
     test(
-      'also marks the session trusted on an already_trusted outcome',
+      'Method acknowledgeTrustedCredential also marks the session trusted on an already_trusted outcome',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.alreadyTrusted));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.alreadyTrusted),
+        );
 
         await service.acknowledgeTrustedCredential('cred');
 
@@ -514,8 +735,8 @@ void main() {
     );
 
     test(
-      'never marks the session trusted, and throws DovahLinkPairingException, for a '
-      'rejected acknowledgement',
+      'Method acknowledgeTrustedCredential never marks the session trusted and throws '
+      'DovahLinkPairingException for a rejected acknowledgement',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -524,7 +745,10 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.pendingNotFound));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
+        );
 
         await expectLater(
           service.acknowledgeTrustedCredential('cred'),
@@ -543,9 +767,12 @@ void main() {
     );
 
     test(
-      'never marks the session trusted for a plain outcome rejection (not pendingNotFound)',
+      'Method acknowledgeTrustedCredential never marks the session trusted for a plain outcome rejection (not pendingNotFound)',
       () async {
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.expired));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
+        );
 
         await expectLater(
           service.acknowledgeTrustedCredential('cred'),
@@ -556,10 +783,11 @@ void main() {
     );
 
     test(
-      'throws malformed_message when pairing_outcome fails to decode',
+      'Method acknowledgeTrustedCredential throws malformed_message when pairing_outcome fails to decode',
       () async {
         stubSendAndAwait(
-          const Envelope(
+          requestManager,
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -586,9 +814,9 @@ void main() {
     );
   });
 
-  group('recoverPendingPairing', () {
+  group('Method recoverPendingPairing behaves correctly', () {
     test(
-      'is a no-op returning unpaired when no confirmation is outstanding',
+      'Method recoverPendingPairing is a no-op returning unpaired when no confirmation is outstanding',
       () async {
         final DovahLinkTrustState result = await service
             .recoverPendingPairing();
@@ -607,7 +835,7 @@ void main() {
     );
 
     test(
-      'is a no-op returning unpaired when confirming but no credential is stored',
+      'Method recoverPendingPairing is a no-op returning unpaired when confirming but no credential is stored',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -633,7 +861,7 @@ void main() {
     );
 
     test(
-      'retries the stored credential and returns trusted on success',
+      'Method recoverPendingPairing retries the stored credential and returns trusted on success',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -642,19 +870,34 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.trusted));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.trusted),
+        );
 
         final DovahLinkTrustState result = await service
             .recoverPendingPairing();
 
         expect(result, DovahLinkTrustState.trusted);
+        verify(
+          () => requestManager.sendAndAwait(
+            messageType: ProtocolMessageType.pairingAck,
+            payload: <String, dynamic>{'credential': 'stored-cred'},
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: const RequestPolicy(
+              retrySafe: true,
+              requiredTrustState: DovahLinkTrustState.unpaired,
+              timeoutClass: TimeoutClass.short,
+            ),
+          ),
+        ).called(1);
         verify(() => sessionTrustWriter.markTrusted()).called(1);
       },
     );
 
     test(
-      'discards the credential and resets to unpaired when the bridge reports '
-      'pending_not_found',
+      'Method recoverPendingPairing discards the credential and resets to unpaired when the bridge '
+      'reports pending_not_found',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -663,7 +906,10 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.pendingNotFound));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
+        );
 
         final DovahLinkTrustState result = await service
             .recoverPendingPairing();
@@ -676,7 +922,7 @@ void main() {
     );
 
     test(
-      'leaves the CONFIRMING state untouched and rethrows for any other failure',
+      'Method recoverPendingPairing leaves the CONFIRMING state untouched and rethrows for any other failure',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -685,7 +931,10 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        stubSendAndAwait(_outcomeEnvelope(PairingOutcome.expired));
+        stubSendAndAwait(
+          requestManager,
+          buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
+        );
 
         await expectLater(
           service.recoverPendingPairing(),

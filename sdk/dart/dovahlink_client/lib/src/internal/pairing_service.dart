@@ -21,6 +21,18 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// acknowledging the issued credential, and resuming an interrupted confirmation after a crash or
 /// relaunch.
 class PairingService {
+  /// Sends a pairing message and awaits its correlated reply.
+  final RequestManager _requestManager;
+
+  /// The SDK-owned persistence boundary for this client's credential and pairing recovery state.
+  final ClientStorage _storage;
+
+  /// Upgrades trust standing once a pairing acknowledgement succeeds.
+  final SessionTrustWriter _sessionTrustWriter;
+
+  /// Ensures the transport's inbound message stream is being read before a pairing message sends.
+  final MessageReceiver _messageReceiver;
+
   /// Creates a pairing service sending through [requestManager], persisting credential and
   /// pairing recovery state through [storage], upgrading trust through [sessionTrustWriter], and
   /// ensuring the connection is receiving through [messageReceiver].
@@ -33,18 +45,6 @@ class PairingService {
        _storage = storage,
        _sessionTrustWriter = sessionTrustWriter,
        _messageReceiver = messageReceiver;
-
-  /// Sends a pairing message and awaits its correlated reply.
-  final RequestManager _requestManager;
-
-  /// The SDK-owned persistence boundary for this client's credential and pairing recovery state.
-  final ClientStorage _storage;
-
-  /// Upgrades trust standing once a pairing acknowledgement succeeds.
-  final SessionTrustWriter _sessionTrustWriter;
-
-  /// Ensures the transport's inbound message stream is being read before a pairing message sends.
-  final MessageReceiver _messageReceiver;
 
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
@@ -65,7 +65,11 @@ class PairingService {
     try {
       status = PairingStatusPayload.fromJson(response.payload);
     } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
     }
     return PairingChallengeStatus(
       availability: status.state,
@@ -92,10 +96,22 @@ class PairingService {
     try {
       outcome = PairingOutcomePayload.fromJson(response.payload);
     } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
+    }
+    final PairingRenotifyStatus? status = outcome.outcome.toRenotifyStatus();
+    if (status == null) {
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'Unexpected pairing_renotify outcome: ${outcome.outcome}',
+        retryable: false,
+      );
     }
     return PairingRenotifyResult(
-      status: _parsePairingRenotifyStatus(outcome.outcome),
+      status: status,
       retryAfterSeconds: outcome.retryAfterSeconds,
     );
   }
@@ -119,11 +135,21 @@ class PairingService {
     try {
       outcome = PairingOutcomePayload.fromJson(response.payload);
     } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
     }
-    return PairingCancelOutcome(
-      status: _parsePairingCancelStatus(outcome.outcome),
-    );
+    final PairingCancelStatus? status = outcome.outcome.toCancelStatus();
+    if (status == null) {
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'Unexpected pairing_cancel outcome: ${outcome.outcome}',
+        retryable: false,
+      );
+    }
+    return PairingCancelOutcome(status: status);
   }
 
   /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
@@ -156,7 +182,11 @@ class PairingService {
     try {
       outcome = PairingOutcomePayload.fromJson(response.payload);
     } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
     }
     if (outcome.outcome != PairingOutcome.credentialIssued) {
       throw DovahLinkPairingException(outcome.outcome);
@@ -202,7 +232,11 @@ class PairingService {
     try {
       outcome = PairingOutcomePayload.fromJson(response.payload);
     } on ProtocolFormatException catch (error) {
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
     }
     if (outcome.outcome != PairingOutcome.trusted &&
         outcome.outcome != PairingOutcome.alreadyTrusted) {
@@ -243,45 +277,4 @@ class PairingService {
       rethrow;
     }
   }
-
-  /// Interprets a [PairingOutcome] returned in reply to `pairing_renotify`. Every [PairingOutcome]
-  /// value is a recognized wire value -- decoded and validated as a closed enum by
-  /// `PairingOutcomePayload.fromJson` -- but only a subset is a valid reply to this specific
-  /// exchange; a value valid elsewhere (for example [PairingOutcome.credentialIssued]) is still a
-  /// protocol violation here.
-  PairingRenotifyStatus _parsePairingRenotifyStatus(PairingOutcome outcome) =>
-      switch (outcome) {
-        PairingOutcome.renotified => PairingRenotifyStatus.renotified,
-        PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
-        PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
-        _ => throw DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'Unexpected pairing_renotify outcome: $outcome',
-          retryable: false,
-        ),
-      };
-
-  /// Interprets a [PairingOutcome] returned in reply to `pairing_cancel`; see
-  /// [_parsePairingRenotifyStatus] for why an otherwise-valid [PairingOutcome] can still be
-  /// rejected here.
-  PairingCancelStatus _parsePairingCancelStatus(PairingOutcome outcome) =>
-      switch (outcome) {
-        PairingOutcome.cancelled => PairingCancelStatus.cancelled,
-        PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
-        _ => throw DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'Unexpected pairing_cancel outcome: $outcome',
-          retryable: false,
-        ),
-      };
-
-  /// Throws the SDK's public `DovahLinkProtocolException(code: ProtocolErrorCode.malformedMessage, retryable:
-  /// false)` translated from a DTO decode boundary failure, per
-  /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
-  Never _throwMalformedMessage(ProtocolFormatException error) =>
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
 }
