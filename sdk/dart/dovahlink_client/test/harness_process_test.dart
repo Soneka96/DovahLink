@@ -28,9 +28,10 @@ Future<HarnessProcess> _startHarness() async {
   return harness;
 }
 
+/// Runs harness parsing and startup behavior tests.
 void main() {
-  group('HarnessProcess', () {
-    test('two instances started at the same time bind different ports', () async {
+  group('Behavior concurrent harness startup behaves correctly', () {
+    test('Behavior concurrent harness startup assigns different ports', () async {
       // Proves the actual premise DOVAHLINK_HARNESS_PORT_OVERRIDE exists for: two harnesses
       // alive at once -- not disposed between spawns -- never contend for the same port.
       final HarnessProcess first = await _startHarness();
@@ -40,84 +41,93 @@ void main() {
     });
   });
 
-  group('parseBridgeInstanceId', () {
-    test('returns the id text after a well-formed line', () {
-      expect(parseBridgeInstanceId('BRIDGE_INSTANCE abc123', ''), 'abc123');
-    });
+  group('Method parseBridgeInstanceId behaves correctly', () {
+    test(
+      'Method parseBridgeInstanceId returns the id after a well-formed line',
+      () {
+        expect(parseBridgeInstanceId('BRIDGE_INSTANCE abc123', ''), 'abc123');
+      },
+    );
 
-    test('throws for a line missing the expected prefix', () {
-      expect(
-        () => parseBridgeInstanceId('NOT_AN_INSTANCE_LINE', ''),
-        throwsStateError,
-      );
-    });
+    test(
+      'Method parseBridgeInstanceId throws for a line missing the expected prefix',
+      () {
+        expect(
+          () => parseBridgeInstanceId('NOT_AN_INSTANCE_LINE', ''),
+          throwsStateError,
+        );
+      },
+    );
 
-    test('throws for a blank id', () {
+    test('Method parseBridgeInstanceId throws for a blank id', () {
       expect(
         () => parseBridgeInstanceId('BRIDGE_INSTANCE ', ''),
         throwsStateError,
       );
     });
 
-    test('throws for a whitespace-only id', () {
+    test('Method parseBridgeInstanceId throws for a whitespace-only id', () {
       expect(
         () => parseBridgeInstanceId('BRIDGE_INSTANCE    ', ''),
         throwsStateError,
       );
     });
 
-    test('embeds stderrOutput in the thrown message for diagnostics', () {
-      expect(
-        () => parseBridgeInstanceId('BRIDGE_INSTANCE ', 'boom'),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            contains('boom'),
+    test(
+      'Method parseBridgeInstanceId embeds stderrOutput in the thrown message',
+      () {
+        expect(
+          () => parseBridgeInstanceId('BRIDGE_INSTANCE ', 'boom'),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains('boom'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 
-  group('parsePort', () {
-    test('returns the parsed port for a well-formed line', () {
+  group('Method parsePort behaves correctly', () {
+    test('Method parsePort returns the parsed port for a well-formed line', () {
       expect(parsePort('PORT 58231', ''), 58231);
     });
 
-    test('accepts the lowest valid port, 1', () {
+    test('Method parsePort accepts the lowest valid port, 1', () {
       expect(parsePort('PORT 1', ''), 1);
     });
 
-    test('accepts the highest valid port, 65535', () {
+    test('Method parsePort accepts the highest valid port, 65535', () {
       expect(parsePort('PORT 65535', ''), 65535);
     });
 
-    test('throws for a line missing the expected prefix', () {
+    test('Method parsePort throws for a line missing the expected prefix', () {
       expect(() => parsePort('NOT_A_PORT_LINE', ''), throwsStateError);
     });
 
-    test('throws for a non-numeric value', () {
+    test('Method parsePort throws for a non-numeric value', () {
       expect(() => parsePort('PORT not-a-number', ''), throwsStateError);
     });
 
-    test('throws for port 0', () {
+    test('Method parsePort throws for port 0', () {
       expect(() => parsePort('PORT 0', ''), throwsStateError);
     });
 
-    test('throws for a negative port', () {
+    test('Method parsePort throws for a negative port', () {
       expect(() => parsePort('PORT -1', ''), throwsStateError);
     });
 
-    test('throws for a port above 65535', () {
+    test('Method parsePort throws for a port above 65535', () {
       expect(() => parsePort('PORT 65536', ''), throwsStateError);
     });
 
-    test('throws for a decimal value', () {
+    test('Method parsePort throws for a decimal value', () {
       expect(() => parsePort('PORT 80.5', ''), throwsStateError);
     });
 
-    test('embeds stderrOutput in the thrown message for diagnostics', () {
+    test('Method parsePort embeds stderrOutput in the thrown message', () {
       expect(
         () => parsePort('PORT 0', 'boom'),
         throwsA(

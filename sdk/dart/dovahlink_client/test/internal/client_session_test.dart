@@ -15,30 +15,42 @@ import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
+/// Mock transport used to isolate client-session lifecycle behavior.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
+/// Mock request manager used to capture session teardown and retry decisions.
 class MockRequestManager extends Mock implements RequestManager {}
 
+/// Mock message router used to capture inbound message dispatch.
 class MockMessageRouter extends Mock implements MessageRouter {}
 
 /// A minimal [DovahLinkTransport] backed by a [StreamController], for the one test that exercises
 /// [ClientSession]'s primary constructor end to end with real (not mocked) collaborators.
 class StreamControllerTransport implements DovahLinkTransport {
+  /// The inbound stream controlled by this transport.
   final StreamController<String> controller = StreamController<String>();
+
+  /// Raw text messages sent through this transport.
   final List<String> sent = <String>[];
+
+  /// Whether [close] has been called.
   bool closeCalled = false;
 
+  /// See [DovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {}
 
+  /// See [DovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     sent.add(text);
   }
 
+  /// See [DovahLinkTransport.messages].
   @override
   Stream<String> get messages => controller.stream;
 
+  /// See [DovahLinkTransport.close].
   @override
   Future<void> close() async {
     closeCalled = true;
@@ -52,6 +64,7 @@ const Map<TimeoutClass, Duration> _timeouts = <TimeoutClass, Duration>{
   TimeoutClass.heavy: Duration(seconds: 30),
 };
 
+/// Runs client-session behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
   late MockRequestManager requestManager;

@@ -25,10 +25,11 @@ String _isolatedTrustStorePath() =>
     '${Directory.systemTemp.path}${Platform.pathSeparator}'
     'dovahlink-trust-${DateTime.now().microsecondsSinceEpoch}.json';
 
+/// Runs WebSocket transport behavior tests.
 void main() {
-  group('WebSocketTransport', () {
+  group('Behavior transport connection lifecycle behaves correctly', () {
     test(
-      'connects to the real bridge harness and round-trips a raw hello/hello_ack',
+      'Behavior transport connection lifecycle connects to the real bridge harness and round-trips a raw hello/hello_ack',
       () async {
         final HarnessProcess harness = await HarnessProcess.start(
           token: _validHexToken,
@@ -72,27 +73,30 @@ void main() {
       },
     );
 
-    test('close() tears down the real socket without hanging', () async {
-      final HarnessProcess harness = await HarnessProcess.start(
-        token: _validHexToken,
-        extraEnvironment: <String, String>{
-          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-              _isolatedTrustStorePath(),
-        },
-      );
-      addTearDown(harness.dispose);
-      await harness.waitForReady();
+    test(
+      'Behavior transport connection lifecycle close() tears down the real socket without hanging',
+      () async {
+        final HarnessProcess harness = await HarnessProcess.start(
+          token: _validHexToken,
+          extraEnvironment: <String, String>{
+            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+                _isolatedTrustStorePath(),
+          },
+        );
+        addTearDown(harness.dispose);
+        await harness.waitForReady();
 
-      final WebSocketTransport transport = WebSocketTransport();
-      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+        final WebSocketTransport transport = WebSocketTransport();
+        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
-      await transport.close().timeout(_socketTimeout);
+        await transport.close().timeout(_socketTimeout);
 
-      expect(() => transport.send('irrelevant'), throwsStateError);
-    });
+        expect(() => transport.send('irrelevant'), throwsStateError);
+      },
+    );
 
     test(
-      'connect() to an unreachable port fails promptly rather than hanging',
+      'Behavior transport connection lifecycle connect() to an unreachable port fails promptly rather than hanging',
       () async {
         final WebSocketTransport transport = WebSocketTransport();
         addTearDown(transport.close);
@@ -107,7 +111,7 @@ void main() {
     );
 
     test(
-      'close() during an in-flight connect() discards the late socket instead of adopting it',
+      'Behavior transport connection lifecycle close() during an in-flight connect() discards the late socket instead of adopting it',
       () async {
         final HarnessProcess harness = await HarnessProcess.start(
           token: _validHexToken,
@@ -136,52 +140,55 @@ void main() {
       },
     );
 
-    test('a fresh connect() after an abandoned one succeeds normally', () async {
-      final HarnessProcess harness = await HarnessProcess.start(
-        token: _validHexToken,
-        extraEnvironment: <String, String>{
-          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
-              _isolatedTrustStorePath(),
-        },
-      );
-      addTearDown(harness.dispose);
-      await harness.waitForReady();
+    test(
+      'Behavior transport connection lifecycle reconnects successfully after an abandoned connect()',
+      () async {
+        final HarnessProcess harness = await HarnessProcess.start(
+          token: _validHexToken,
+          extraEnvironment: <String, String>{
+            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+                _isolatedTrustStorePath(),
+          },
+        );
+        addTearDown(harness.dispose);
+        await harness.waitForReady();
 
-      final WebSocketTransport transport = WebSocketTransport();
-      addTearDown(transport.close);
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
 
-      // Abandon a first in-flight connect(), then reconnect on the same instance -- this is
-      // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
-      // a stale _abandoned flag must not sabotage it.
-      final Future<void> firstConnect = transport
-          .connect(harness.bridgeUri)
-          .timeout(_socketTimeout);
-      await transport.close();
-      await firstConnect;
+        // Abandon a first in-flight connect(), then reconnect on the same instance -- this is
+        // exactly what a real reconnect does (DovahLinkClient reuses one WebSocketTransport), so
+        // a stale _abandoned flag must not sabotage it.
+        final Future<void> firstConnect = transport
+            .connect(harness.bridgeUri)
+            .timeout(_socketTimeout);
+        await transport.close();
+        await firstConnect;
 
-      // The bridge's connection slot is released once its own worker thread notices the closed
-      // socket, not the instant this client's close() call returns -- a real, if usually brief,
-      // delay. Retry briefly rather than requiring the first attempt to land, mirroring
-      // dovahlink_bridge_harness_test.cpp's own "binding a real OS port can still lag a moment
-      // behind that; retry briefly" pattern.
-      const int maxAttempts = 20;
-      for (int attempt = 1; ; attempt++) {
-        try {
-          await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
-          break;
-        } on IOException {
-          if (attempt >= maxAttempts) {
-            rethrow;
+        // The bridge's connection slot is released once its own worker thread notices the closed
+        // socket, not the instant this client's close() call returns -- a real, if usually brief,
+        // delay. Retry briefly rather than requiring the first attempt to land, mirroring
+        // dovahlink_bridge_harness_test.cpp's own "binding a real OS port can still lag a moment
+        // behind that; retry briefly" pattern.
+        const int maxAttempts = 20;
+        for (int attempt = 1; ; attempt++) {
+          try {
+            await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+            break;
+          } on IOException {
+            if (attempt >= maxAttempts) {
+              rethrow;
+            }
+            await Future<void>.delayed(const Duration(milliseconds: 50));
           }
-          await Future<void>.delayed(const Duration(milliseconds: 50));
         }
-      }
 
-      // Proves the new socket was actually adopted this time, not discarded like the first.
-      await transport.send('probe');
-    });
+        // Proves the new socket was actually adopted this time, not discarded like the first.
+        await transport.send('probe');
+      },
+    );
 
-    test('one subscription receives multiple frames in order: hello_ack then the bridge\'s own '
+    test('Behavior transport connection lifecycle delivers hello_ack then the bridge\'s own '
         'follow-up capabilities push', () async {
       final HarnessProcess harness = await HarnessProcess.start(
         token: _validHexToken,
@@ -240,7 +247,7 @@ void main() {
     });
 
     test(
-      'the inbound stream reports done rather than hanging when the bridge process ends',
+      'Behavior transport connection lifecycle reports stream completion when the bridge process ends',
       () async {
         final HarnessProcess harness = await HarnessProcess.start(
           token: _validHexToken,
@@ -280,7 +287,7 @@ void main() {
       },
     );
 
-    test('reconnect installs a fresh, independent inbound stream: the old one stays a spent, '
+    test('Behavior transport connection lifecycle reconnect installs a fresh inbound stream while the old one stays spent, '
         'single-subscription stream, never reused', () async {
       final HarnessProcess harness = await HarnessProcess.start(
         token: _validHexToken,

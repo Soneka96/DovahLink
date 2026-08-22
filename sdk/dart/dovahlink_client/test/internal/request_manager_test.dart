@@ -53,6 +53,7 @@ const RequestPolicy _nonRetrySafePolicy = RequestPolicy(
   timeoutClass: TimeoutClass.normal,
 );
 
+/// Runs request-manager behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
   late MockSessionContext sessionContext;
@@ -75,6 +76,7 @@ void main() {
     when(() => transport.send(any())).thenAnswer((_) async {});
   });
 
+  /// Builds a request manager using the current test doubles and timeout policy.
   RequestManager buildManager({
     Map<TimeoutClass, Duration> timeoutDurations = _longTimeouts,
   }) => RequestManager(
@@ -93,96 +95,107 @@ void main() {
   }
 
   group('Method sendAndAwait behaves correctly', () {
-    test('Method sendAndAwait stamps the outgoing envelope with the current sessionId', () async {
-      final RequestManager manager = buildManager();
+    test(
+      'Method sendAndAwait stamps the outgoing envelope with the current sessionId',
+      () async {
+        final RequestManager manager = buildManager();
 
-      unawaited(
-        manager.sendAndAwait(
+        unawaited(
+          manager.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: _retrySafeUnpairedPolicy,
+          ),
+        );
+        await pumpEventQueue();
+
+        final JsonMap sent =
+            jsonDecode(
+                  verify(() => transport.send(captureAny())).captured.single,
+                )
+                as JsonMap;
+        expect(sent['messageType'], 'pairing_request');
+        expect(sent['sessionId'], 'session-1');
+        expect(sent['payload'], <String, dynamic>{});
+      },
+    );
+
+    test(
+      'Method sendAndAwait resolves with the correlated reply envelope',
+      () async {
+        final RequestManager manager = buildManager();
+
+        final Future<Envelope> pending = manager.sendAndAwait(
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
-        ),
-      );
-      await pumpEventQueue();
+        );
+        await pumpEventQueue();
+        final String messageId = sentMessageId();
 
-      final JsonMap sent =
-          jsonDecode(verify(() => transport.send(captureAny())).captured.single)
-              as JsonMap;
-      expect(sent['messageType'], 'pairing_request');
-      expect(sent['sessionId'], 'session-1');
-      expect(sent['payload'], <String, dynamic>{});
-    });
-
-    test('Method sendAndAwait resolves with the correlated reply envelope', () async {
-      final RequestManager manager = buildManager();
-
-      final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _retrySafeUnpairedPolicy,
-      );
-      await pumpEventQueue();
-      final String messageId = sentMessageId();
-
-      final Envelope reply = Envelope(
-        messageType: ProtocolMessageType.pairingStatus,
-        messageId: 'reply-1',
-        sessionId: 'session-1',
-        correlationId: messageId,
-        payload: const <String, dynamic>{'state': 'unavailable'},
-        bridgeInstanceId: 'bridge-1',
-        playContextId: null,
-        clientId: 'client-1',
-      );
-      final bool resolved = manager.resolveReply(messageId, reply);
-
-      expect(resolved, isTrue);
-      expect(await pending, same(reply));
-    });
-
-    test('Method sendAndAwait throws DovahLinkProtocolException for a wire error reply', () async {
-      final RequestManager manager = buildManager();
-
-      final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _retrySafeUnpairedPolicy,
-      );
-      await pumpEventQueue();
-      final String messageId = sentMessageId();
-
-      manager.resolveReply(
-        messageId,
-        Envelope(
-          messageType: ProtocolMessageType.error,
+        final Envelope reply = Envelope(
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: messageId,
-          payload: const <String, dynamic>{
-            'code': 'unauthenticated',
-            'message': 'nope',
-            'retryable': false,
-          },
+          payload: const <String, dynamic>{'state': 'unavailable'},
           bridgeInstanceId: 'bridge-1',
           playContextId: null,
           clientId: 'client-1',
-        ),
-      );
+        );
+        final bool resolved = manager.resolveReply(messageId, reply);
 
-      await expectLater(
-        pending,
-        throwsA(
-          isA<DovahLinkProtocolException>().having(
-            (DovahLinkProtocolException e) => e.code,
-            'code',
-            ProtocolErrorCode.unauthenticated,
+        expect(resolved, isTrue);
+        expect(await pending, same(reply));
+      },
+    );
+
+    test(
+      'Method sendAndAwait throws DovahLinkProtocolException for a wire error reply',
+      () async {
+        final RequestManager manager = buildManager();
+
+        final Future<Envelope> pending = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: _retrySafeUnpairedPolicy,
+        );
+        await pumpEventQueue();
+        final String messageId = sentMessageId();
+
+        manager.resolveReply(
+          messageId,
+          Envelope(
+            messageType: ProtocolMessageType.error,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: messageId,
+            payload: const <String, dynamic>{
+              'code': 'unauthenticated',
+              'message': 'nope',
+              'retryable': false,
+            },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: 'client-1',
           ),
-        ),
-      );
-    });
+        );
+
+        await expectLater(
+          pending,
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException e) => e.code,
+              'code',
+              ProtocolErrorCode.unauthenticated,
+            ),
+          ),
+        );
+      },
+    );
 
     test(
       'Method sendAndAwait translates a malformed wire error payload into malformed_message',
@@ -321,29 +334,32 @@ void main() {
       },
     );
 
-    test('Method sendAndAwait reports onUnhealthy and never resolves on timeout', () async {
-      final RequestManager manager = buildManager(
-        timeoutDurations: _shortTimeouts,
-      );
+    test(
+      'Method sendAndAwait reports onUnhealthy and never resolves on timeout',
+      () async {
+        final RequestManager manager = buildManager(
+          timeoutDurations: _shortTimeouts,
+        );
 
-      final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _retrySafeUnpairedPolicy,
-      );
-      // Silence the "unhandled" warning for a Future this test deliberately never awaits --
-      // the timeout path never completes it, by design.
-      pending.ignore();
+        final Future<Envelope> pending = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: _retrySafeUnpairedPolicy,
+        );
+        // Silence the "unhandled" warning for a Future this test deliberately never awaits --
+        // the timeout path never completes it, by design.
+        pending.ignore();
 
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+        await Future<void>.delayed(const Duration(milliseconds: 60));
 
-      final List<Exception> reported = verify(
-        () => reporter.onUnhealthy(captureAny()),
-      ).captured.cast<Exception>();
-      expect(reported, hasLength(1));
-      expect(reported.single, isA<DovahLinkConnectionException>());
-    });
+        final List<Exception> reported = verify(
+          () => reporter.onUnhealthy(captureAny()),
+        ).captured.cast<Exception>();
+        expect(reported, hasLength(1));
+        expect(reported.single, isA<DovahLinkConnectionException>());
+      },
+    );
 
     test(
       'Method sendAndAwait a reply that arrives after the timer fires but before failAll runs still resolves '
@@ -383,49 +399,55 @@ void main() {
       },
     );
 
-    test('Method sendAndAwait reports onUnhealthy when the transport send fails', () async {
-      when(
-        () => transport.send(any()),
-      ).thenAnswer((_) async => throw StateError('socket closed'));
-      final RequestManager manager = buildManager();
+    test(
+      'Method sendAndAwait reports onUnhealthy when the transport send fails',
+      () async {
+        when(
+          () => transport.send(any()),
+        ).thenAnswer((_) async => throw StateError('socket closed'));
+        final RequestManager manager = buildManager();
 
-      final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _retrySafeUnpairedPolicy,
-      );
-      pending.ignore();
-      await pumpEventQueue();
+        final Future<Envelope> pending = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: _retrySafeUnpairedPolicy,
+        );
+        pending.ignore();
+        await pumpEventQueue();
 
-      final List<Exception> reported = verify(
-        () => reporter.onUnhealthy(captureAny()),
-      ).captured.cast<Exception>();
-      expect(reported, hasLength(1));
-      expect(reported.single, isA<DovahLinkConnectionException>());
-    });
+        final List<Exception> reported = verify(
+          () => reporter.onUnhealthy(captureAny()),
+        ).captured.cast<Exception>();
+        expect(reported, hasLength(1));
+        expect(reported.single, isA<DovahLinkConnectionException>());
+      },
+    );
   });
 
   group('Method resolveReply behaves correctly', () {
-    test('Method resolveReply returns false when no pending operation matches', () {
-      final RequestManager manager = buildManager();
+    test(
+      'Method resolveReply returns false when no pending operation matches',
+      () {
+        final RequestManager manager = buildManager();
 
-      final bool resolved = manager.resolveReply(
-        'no-such-id',
-        const Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: 'no-such-id',
-          payload: <String, dynamic>{},
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: 'client-1',
-        ),
-      );
+        final bool resolved = manager.resolveReply(
+          'no-such-id',
+          const Envelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: 'no-such-id',
+            payload: <String, dynamic>{},
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: 'client-1',
+          ),
+        );
 
-      expect(resolved, isFalse);
-    });
+        expect(resolved, isFalse);
+      },
+    );
   });
 
   group('Method failAll behaves correctly', () {
@@ -521,73 +543,84 @@ void main() {
       },
     );
 
-    test('Method failAll retransmits with the live sessionId, not a stale snapshot', () async {
-      final RequestManager manager = buildManager();
+    test(
+      'Method failAll retransmits with the live sessionId, not a stale snapshot',
+      () async {
+        final RequestManager manager = buildManager();
 
-      manager
-          .sendAndAwait(
-            messageType: ProtocolMessageType.pairingRequest,
-            payload: const <String, dynamic>{},
-            expectedType: ProtocolMessageType.pairingStatus,
-            policy: _retrySafeUnpairedPolicy,
-          )
-          .ignore();
-      await pumpEventQueue();
-      verify(() => transport.send(any())).called(1);
+        manager
+            .sendAndAwait(
+              messageType: ProtocolMessageType.pairingRequest,
+              payload: const <String, dynamic>{},
+              expectedType: ProtocolMessageType.pairingStatus,
+              policy: _retrySafeUnpairedPolicy,
+            )
+            .ignore();
+        await pumpEventQueue();
+        verify(() => transport.send(any())).called(1);
 
-      manager.failAll(
-        const DovahLinkConnectionException('lost'),
-        orphanRetrySafeOperations: true,
-      );
-      // A new session was admitted by the time of retry -- currentSessionId changed.
-      when(() => sessionContext.currentSessionId).thenReturn('session-2');
-      manager.retryOrphanedOperations();
-      await pumpEventQueue();
-
-      final JsonMap sent =
-          jsonDecode(verify(() => transport.send(captureAny())).captured.single)
-              as JsonMap;
-      expect(sent['sessionId'], 'session-2');
-    });
-
-    test('Method failAll is a no-op with no pending or orphaned operations', () {
-      final RequestManager manager = buildManager();
-
-      expect(
-        () => manager.failAll(
-          const DovahLinkConnectionException('nothing to fail'),
+        manager.failAll(
+          const DovahLinkConnectionException('lost'),
           orphanRetrySafeOperations: true,
-        ),
-        returnsNormally,
-      );
-      verifyNever(() => transport.send(any()));
-    });
+        );
+        // A new session was admitted by the time of retry -- currentSessionId changed.
+        when(() => sessionContext.currentSessionId).thenReturn('session-2');
+        manager.retryOrphanedOperations();
+        await pumpEventQueue();
 
-    test('Method failAll fails every pending operation, not just the first', () async {
-      final RequestManager manager = buildManager();
+        final JsonMap sent =
+            jsonDecode(
+                  verify(() => transport.send(captureAny())).captured.single,
+                )
+                as JsonMap;
+        expect(sent['sessionId'], 'session-2');
+      },
+    );
 
-      final Future<Envelope> first = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _nonRetrySafePolicy,
-      );
-      final Future<Envelope> second = manager.sendAndAwait(
-        messageType: ProtocolMessageType.pairingCancel,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingOutcome,
-        policy: _nonRetrySafePolicy,
-      );
-      await pumpEventQueue();
+    test(
+      'Method failAll is a no-op with no pending or orphaned operations',
+      () {
+        final RequestManager manager = buildManager();
 
-      manager.failAll(
-        const DovahLinkConnectionException('lost'),
-        orphanRetrySafeOperations: true,
-      );
+        expect(
+          () => manager.failAll(
+            const DovahLinkConnectionException('nothing to fail'),
+            orphanRetrySafeOperations: true,
+          ),
+          returnsNormally,
+        );
+        verifyNever(() => transport.send(any()));
+      },
+    );
 
-      await expectLater(first, throwsA(isA<DovahLinkConnectionException>()));
-      await expectLater(second, throwsA(isA<DovahLinkConnectionException>()));
-    });
+    test(
+      'Method failAll fails every pending operation, not just the first',
+      () async {
+        final RequestManager manager = buildManager();
+
+        final Future<Envelope> first = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: _nonRetrySafePolicy,
+        );
+        final Future<Envelope> second = manager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingCancel,
+          payload: const <String, dynamic>{},
+          expectedType: ProtocolMessageType.pairingOutcome,
+          policy: _nonRetrySafePolicy,
+        );
+        await pumpEventQueue();
+
+        manager.failAll(
+          const DovahLinkConnectionException('lost'),
+          orphanRetrySafeOperations: true,
+        );
+
+        await expectLater(first, throwsA(isA<DovahLinkConnectionException>()));
+        await expectLater(second, throwsA(isA<DovahLinkConnectionException>()));
+      },
+    );
   });
 
   group('Method retryOrphanedOperations behaves correctly', () {
