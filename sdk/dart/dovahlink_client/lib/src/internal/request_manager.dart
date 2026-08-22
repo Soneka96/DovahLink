@@ -130,9 +130,8 @@ class RequestManager implements RequestSender, ReplyResolver {
   }
 
   /// Resolves the pending operation matching [correlationId] with [envelope], completing its
-  /// caller's [sendAndAwait]. Returns `false` if no pending operation matches -- a protocol
-  /// violation for the caller (typically [MessageRouter]) to report, not a case this method
-  /// handles itself.
+  /// [sendAndAwait] future. Returns `false` if no pending operation matches, allowing the routing
+  /// layer to fail closed on an unmatched correlation.
   @override
   bool resolveReply(String correlationId, Envelope envelope) {
     final PendingOperation? operation = _pendingOperations.remove(

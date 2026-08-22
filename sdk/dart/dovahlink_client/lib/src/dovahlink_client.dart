@@ -93,14 +93,12 @@ class DovahLinkClient {
 
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
   /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state
-  /// ownership". This façade never assigns session state directly; [ClientSession]'s own commands
-  /// ([ClientSession.admitSession], [ClientSession.markTrusted]) are invoked only by
-  /// [_authenticationService] and [_pairingService] respectively.
+  /// ownership". This façade never assigns session state directly; session transitions remain
+  /// owned by [ClientSession].
   late final ClientSession _session;
 
-  /// Owns pending requests, timeouts, and retry behavior. The same instance [_session] itself
-  /// uses internally, exposed via [ClientSession.requestManager] so [_authenticationService] and
-  /// [_pairingService] can send requests directly without depending on the whole session.
+  /// The request manager associated with this client's session. Pending requests, timeouts, and
+  /// retry behavior remain owned by [ClientSession].
   late final RequestManager _requestManager;
 
   /// Owns `hello`/authentication and credential-rejection recovery.

@@ -18,11 +18,10 @@ class WebSocketTransport implements DovahLinkTransport {
   Stream<String>? _messages;
 
   /// Set by [close] to discard a still-resolving [connect] instead of adopting its socket.
-  /// `dart:io`'s [WebSocket.connect] has no cancellation: a caller that gives up on [connect] (for
-  /// example via its own `.timeout()`) does not stop it from eventually succeeding in the
-  /// background, and without this flag that late socket would silently end up open with nothing
-  /// managing it. Reset at the start of every [connect] call, since one transport instance is
-  /// reused across reconnects.
+  /// `dart:io`'s [WebSocket.connect] has no cancellation: abandoning [connect] (for example via
+  /// `.timeout()`) does not stop it from eventually succeeding in the background, and without this
+  /// flag that late socket would silently end up open with nothing managing it. Reset at the start
+  /// of every [connect] call, since one transport instance is reused across reconnects.
   bool _abandoned = false;
 
   /// See [DovahLinkTransport.connect].
@@ -34,10 +33,9 @@ class WebSocketTransport implements DovahLinkTransport {
       );
     }
     // Known limitation: connect() assumes no other connect() call is already in flight on this
-    // instance -- true of every caller in this codebase today (DovahLinkClient always awaits one
-    // attempt before starting another). A second overlapping connect() would race this reset
-    // against the first call's own _abandoned check. Add a "connecting" guard if a caller ever
-    // needs to start connect() again before a previous call has resolved or thrown.
+    // instance. A second overlapping connect() would race this reset against the first call's own
+    // _abandoned check. Add a "connecting" guard if overlapping connection attempts become a
+    // supported transport contract.
     _abandoned = false;
     final WebSocket socket = await WebSocket.connect(uri.toString());
     if (_abandoned) {
@@ -48,7 +46,8 @@ class WebSocketTransport implements DovahLinkTransport {
     // A non-text frame throws inside map(), which the stream delivers as an error to whoever is
     // listening -- DovahLink only ever sends text frames, so this is a protocol-violation signal,
     // not an expected branch.
-    _messages = socket.map((dynamic event) {
+    final Stream<Object> events = socket.cast<Object>();
+    _messages = events.map((Object event) {
       if (event is! String) {
         throw StateError(
           'Received a non-text WebSocket frame; DovahLink only sends text frames.',

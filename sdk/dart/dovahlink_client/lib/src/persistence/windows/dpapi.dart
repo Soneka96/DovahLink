@@ -17,9 +17,8 @@ const int _cryptProtectUiForbidden = 0x1;
 const String _dataDescription = 'DovahLink SDK client state';
 
 /// Thin, directly testable wrapper over Windows DPAPI (`CryptProtectData`/`CryptUnprotectData`) in
-/// its default per-user scope. [DpapiClientStorage] is this SDK's only production caller; tests
-/// also call these directly to construct deliberately corrupt or foreign-format encrypted fixtures
-/// that [DpapiClientStorage]'s own private encoding would not otherwise let a test produce.
+/// its default per-user scope. It exposes only the encryption operations needed by the SDK's
+/// Windows persistence boundary.
 class Dpapi {
   /// Prevents instantiation; every member is static.
   const Dpapi._();

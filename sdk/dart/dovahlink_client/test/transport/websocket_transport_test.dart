@@ -373,5 +373,52 @@ void main() {
       // traffic to a stale listener.
       expect(() => firstMessages.listen((_) {}), throwsStateError);
     });
+
+    test(
+      'Behavior transport connection lifecycle rejects a binary frame as a non-text protocol violation',
+      () async {
+        final HttpServer server = await HttpServer.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        final List<WebSocket> sockets = <WebSocket>[];
+        final StreamSubscription<HttpRequest> serverSubscription = server
+            .listen((HttpRequest request) async {
+              final WebSocket socket = await WebSocketTransformer.upgrade(
+                request,
+              );
+              sockets.add(socket);
+              socket.add(<int>[1, 2, 3]);
+            });
+        addTearDown(() async {
+          await serverSubscription.cancel();
+          for (final WebSocket socket in sockets) {
+            await socket.close();
+          }
+          await server.close(force: true);
+        });
+
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
+        await transport.connect(Uri.parse('ws://127.0.0.1:${server.port}/'));
+
+        final Completer<Object> streamError = Completer<Object>();
+        final StreamSubscription<String> subscription = transport.messages
+            .listen(
+              (_) {},
+              onError: (Object error) {
+                if (!streamError.isCompleted) {
+                  streamError.complete(error);
+                }
+              },
+            );
+        addTearDown(subscription.cancel);
+
+        await expectLater(
+          streamError.future.timeout(_socketTimeout),
+          completion(isA<StateError>()),
+        );
+      },
+    );
   });
 }

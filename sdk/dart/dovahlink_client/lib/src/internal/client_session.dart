@@ -66,10 +66,8 @@ class ClientSession
        _requestManager = requestManager,
        _messageRouter = messageRouter;
 
-  /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the accessor
-  /// composition roots use to hand this same instance to other collaborators (for example
-  /// `AuthenticationService`/`PairingService`) that need to send requests without depending on
-  /// this whole session.
+  /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the shared
+  /// coordinator used by this session's request-oriented services.
   late final RequestManager _requestManager;
 
   /// Owns envelope decoding, correlation, and unsolicited routing.
@@ -105,8 +103,7 @@ class ClientSession
   /// `null` otherwise.
   AdministrativeInvalidationReason? _invalidationReason;
 
-  /// The [RequestManager] this session owns, exposed so a composition root can hand the same
-  /// instance to other collaborators that need to send requests directly.
+  /// The [RequestManager] this session owns.
   RequestManager get requestManager => _requestManager;
 
   /// Implements [SessionConnector.connectionState].
