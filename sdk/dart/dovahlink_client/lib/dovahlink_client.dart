@@ -9,6 +9,7 @@ library;
 export 'src/dovahlink_client.dart' show DovahLinkClient;
 export 'src/shared/enums.dart'
     show
+        AdministrativeInvalidationReason,
         CredentialRejectionReason,
         DovahLinkConnectionState,
         DovahLinkTrustState,

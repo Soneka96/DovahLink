@@ -181,5 +181,191 @@ void main() {
       // Proves the new socket was actually adopted this time, not discarded like the first.
       await transport.send('probe');
     });
+
+    test('one subscription receives multiple frames in order: hello_ack then the bridge\'s own '
+        'follow-up capabilities push', () async {
+      final HarnessProcess harness = await HarnessProcess.start(
+        token: _validHexToken,
+        extraEnvironment: <String, String>{
+          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+              _isolatedTrustStorePath(),
+        },
+      );
+      addTearDown(harness.dispose);
+      await harness.waitForReady();
+
+      final WebSocketTransport transport = WebSocketTransport();
+      addTearDown(transport.close);
+      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+
+      final List<String> received = <String>[];
+      final StreamSubscription<String> subscription = transport.messages.listen(
+        received.add,
+      );
+      addTearDown(subscription.cancel);
+
+      final Envelope helloEnvelope = Envelope(
+        messageType: 'hello',
+        messageId: 'test-hello-1',
+        sessionId: null,
+        correlationId: null,
+        payload: const HelloPayload(
+          clientId: 'client-1',
+          authMethod: AuthMethod.unpaired,
+        ).toJson(),
+        bridgeInstanceId: null,
+        playContextId: null,
+        clientId: null,
+      );
+      await transport.send(jsonEncode(helloEnvelope.toJson()));
+
+      // Both messages arrive on this one subscription -- proves the transport's stream is a
+      // genuine continuous, ordered stream for the connection's lifetime, not a one-shot per
+      // access.
+      await Future.doWhile(() async {
+        if (received.length >= 2) {
+          return false;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return true;
+      }).timeout(_socketTimeout);
+
+      final Envelope first = Envelope.fromJson(
+        jsonDecode(received[0]) as Map<String, dynamic>,
+      );
+      final Envelope second = Envelope.fromJson(
+        jsonDecode(received[1]) as Map<String, dynamic>,
+      );
+      expect(first.messageType, 'hello_ack');
+      expect(second.messageType, 'capabilities');
+    });
+
+    test(
+      'the inbound stream reports done rather than hanging when the bridge process ends',
+      () async {
+        final HarnessProcess harness = await HarnessProcess.start(
+          token: _validHexToken,
+          extraEnvironment: <String, String>{
+            'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+                _isolatedTrustStorePath(),
+          },
+        );
+        await harness.waitForReady();
+
+        final WebSocketTransport transport = WebSocketTransport();
+        addTearDown(transport.close);
+        await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+
+        final Completer<void> streamEnded = Completer<void>();
+        final StreamSubscription<String> subscription = transport.messages
+            .listen(
+              (_) {},
+              onError: (Object _) {
+                if (!streamEnded.isCompleted) {
+                  streamEnded.complete();
+                }
+              },
+              onDone: () {
+                if (!streamEnded.isCompleted) {
+                  streamEnded.complete();
+                }
+              },
+            );
+        addTearDown(subscription.cancel);
+
+        // Ends the bridge process outright rather than a graceful close, dropping the socket out
+        // from under this still-active subscription.
+        await harness.dispose();
+
+        await streamEnded.future.timeout(_socketTimeout);
+      },
+    );
+
+    test('reconnect installs a fresh, independent inbound stream: the old one stays a spent, '
+        'single-subscription stream, never reused', () async {
+      final HarnessProcess harness = await HarnessProcess.start(
+        token: _validHexToken,
+        extraEnvironment: <String, String>{
+          'DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE':
+              _isolatedTrustStorePath(),
+        },
+      );
+      addTearDown(harness.dispose);
+      await harness.waitForReady();
+
+      final WebSocketTransport transport = WebSocketTransport();
+      addTearDown(transport.close);
+      await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+      final Stream<String> firstMessages = transport.messages;
+      // Listened to exactly once, matching how DovahLinkClient's single receiver behaves --
+      // proves the *second* listen attempt below is rejected because this stream was already
+      // listened to, not merely because it was never listened to at all.
+      final StreamSubscription<String> firstSubscription = firstMessages.listen(
+        (_) {},
+      );
+      await firstSubscription.cancel();
+
+      await transport.close();
+
+      const int maxAttempts = 20;
+      for (int attempt = 1; ; attempt++) {
+        try {
+          await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
+          break;
+        } on IOException {
+          if (attempt >= maxAttempts) {
+            rethrow;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+      }
+
+      final Stream<String> secondMessages = transport.messages;
+      expect(
+        identical(firstMessages, secondMessages),
+        isFalse,
+        reason: 'reconnect must install a fresh stream, not reuse the old one',
+      );
+
+      // The new stream genuinely works: a fresh hello/hello_ack round trip over it.
+      final List<String> received = <String>[];
+      final StreamSubscription<String> secondSubscription = secondMessages
+          .listen(received.add);
+      addTearDown(secondSubscription.cancel);
+      final Envelope helloEnvelope = Envelope(
+        messageType: 'hello',
+        messageId: 'test-hello-2',
+        sessionId: null,
+        correlationId: null,
+        payload: const HelloPayload(
+          clientId: 'client-2',
+          authMethod: AuthMethod.unpaired,
+        ).toJson(),
+        bridgeInstanceId: null,
+        playContextId: null,
+        clientId: null,
+      );
+      await transport.send(jsonEncode(helloEnvelope.toJson()));
+      // The bridge also sends a follow-up capabilities push after hello_ack; this test only
+      // needs to see the first message actually arrive over the fresh stream.
+      await Future.doWhile(() async {
+        if (received.isNotEmpty) {
+          return false;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return true;
+      }).timeout(_socketTimeout);
+      expect(
+        Envelope.fromJson(
+          jsonDecode(received.first) as Map<String, dynamic>,
+        ).messageType,
+        'hello_ack',
+      );
+
+      // The old, already-once-listened-to stream is spent: a second listen on it is rejected
+      // by dart:io's single-subscription contract, never silently delivering new-connection
+      // traffic to a stale listener.
+      expect(() => firstMessages.listen((_) {}), throwsStateError);
+    });
   });
 }

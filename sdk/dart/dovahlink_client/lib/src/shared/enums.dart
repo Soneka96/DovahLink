@@ -10,6 +10,12 @@ enum DovahLinkConnectionState {
 
   /// A socket is connected.
   connected,
+
+  /// An administrator deliberately invalidated the authenticated session (`revoked`, `blocked`,
+  /// `trustReset`, or `factoryReset`); see `DovahLinkClient.invalidationReason`. Terminal for the
+  /// current session -- recovery is only ever a fresh, explicit `DovahLinkClient.connect`, never
+  /// automatic.
+  administrativelyInvalidated,
 }
 
 /// The client's own trust standing with the bridge, established once `DovahLinkClient.hello`
@@ -81,4 +87,44 @@ enum PairingCancelStatus {
 
   /// Nothing was owned; cancellation was a no-op.
   alreadyIdle,
+}
+
+// ---- Request policy ----
+
+/// A centralized bounded timeout category a request is classified against, per
+/// `ai/context/sdk/api-design.md`'s "Request retry safety, session requirement, and timeout
+/// class". Durations live in `shared/constants.dart`'s `kTimeoutClassDurations` rather than here,
+/// so a call site's classification and the SDK's tuned duration policy stay independently
+/// editable.
+enum TimeoutClass {
+  /// A fast administrative round trip (a query, an acknowledgement).
+  short,
+
+  /// The common case: a request that may involve a little more bridge-side work than [short].
+  normal,
+
+  /// Reserved for a request expected to take meaningfully longer than [normal]. Unused until a
+  /// real operation actually needs it.
+  heavy,
+}
+
+// ---- Trust invalidation ----
+
+/// The typed reason `DovahLinkClient.invalidationReason` reports once
+/// `DovahLinkConnectionState.administrativelyInvalidated` is reached -- the parsed form of an
+/// incoming `session_invalidated.reason` (`protocol/schema/README.md`'s `session_invalidated`).
+/// Never durable authoritative trust state; the Bridge remains the sole authority.
+enum AdministrativeInvalidationReason {
+  /// The presented device credential's `clientId` was explicitly revoked.
+  revoked,
+
+  /// The presented `clientId` is a currently blocked Known Device.
+  blocked,
+
+  /// The Known Device this session belonged to became Revoked (a Trusted device's trust reset).
+  trustReset,
+
+  /// The Bridge's Known Device trust store was cleared. May end a developer-token session even
+  /// though the configured developer token remains valid.
+  factoryReset,
 }
