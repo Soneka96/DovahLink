@@ -41,12 +41,14 @@ const Map<TimeoutClass, Duration> _longTimeouts = <TimeoutClass, Duration>{
   TimeoutClass.heavy: Duration(seconds: 30),
 };
 
+/// Retry-safe policy for operations that require an admitted unpaired session.
 const RequestPolicy _retrySafeUnpairedPolicy = RequestPolicy(
   retrySafe: true,
   requiredTrustState: DovahLinkTrustState.unpaired,
   timeoutClass: TimeoutClass.short,
 );
 
+/// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
 const RequestPolicy _nonRetrySafePolicy = RequestPolicy(
   retrySafe: false,
   requiredTrustState: null,

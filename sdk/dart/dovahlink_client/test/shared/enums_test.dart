@@ -24,21 +24,28 @@ void main() {
     );
 
     test(
-      'Method fromProtocolErrorCode returns null for non-recoverable typed protocol errors',
+      'Method fromProtocolErrorCode returns null for every non-recoverable typed protocol error',
       () {
-        expect(
-          CredentialRejectionReason.fromProtocolErrorCode(
-            ProtocolErrorCode.rateLimited,
-          ),
-          isNull,
-        );
+        const Set<ProtocolErrorCode> recoverable = <ProtocolErrorCode>{
+          ProtocolErrorCode.revoked,
+          ProtocolErrorCode.unauthenticated,
+        };
+        for (final ProtocolErrorCode code in ProtocolErrorCode.values) {
+          if (!recoverable.contains(code)) {
+            expect(
+              CredentialRejectionReason.fromProtocolErrorCode(code),
+              isNull,
+              reason: '$code is not a recoverable credential rejection',
+            );
+          }
+        }
       },
     );
   });
 
-  group('Method fromOutcome behaves correctly', () {
+  group('Method fromOutcome in PairingRenotifyStatus behaves correctly', () {
     test(
-      'PairingRenotifyStatus.fromOutcome maps every valid renotify outcome',
+      'Method fromOutcome in PairingRenotifyStatus maps every valid renotify outcome',
       () {
         expect(
           PairingRenotifyStatus.fromOutcome(PairingOutcome.renotified),
@@ -56,7 +63,7 @@ void main() {
     );
 
     test(
-      'PairingRenotifyStatus.fromOutcome returns null for every other outcome',
+      'Method fromOutcome in PairingRenotifyStatus returns null for every other outcome',
       () {
         const Set<PairingOutcome> validOutcomes = <PairingOutcome>{
           PairingOutcome.renotified,
@@ -76,20 +83,23 @@ void main() {
     );
   });
 
-  group('Method fromOutcome behaves correctly', () {
-    test('PairingCancelStatus.fromOutcome maps every valid cancel outcome', () {
-      expect(
-        PairingCancelStatus.fromOutcome(PairingOutcome.cancelled),
-        PairingCancelStatus.cancelled,
-      );
-      expect(
-        PairingCancelStatus.fromOutcome(PairingOutcome.alreadyIdle),
-        PairingCancelStatus.alreadyIdle,
-      );
-    });
+  group('Method fromOutcome in PairingCancelStatus behaves correctly', () {
+    test(
+      'Method fromOutcome in PairingCancelStatus maps every valid cancel outcome',
+      () {
+        expect(
+          PairingCancelStatus.fromOutcome(PairingOutcome.cancelled),
+          PairingCancelStatus.cancelled,
+        );
+        expect(
+          PairingCancelStatus.fromOutcome(PairingOutcome.alreadyIdle),
+          PairingCancelStatus.alreadyIdle,
+        );
+      },
+    );
 
     test(
-      'PairingCancelStatus.fromOutcome returns null for every other outcome',
+      'Method fromOutcome in PairingCancelStatus returns null for every other outcome',
       () {
         const Set<PairingOutcome> validOutcomes = <PairingOutcome>{
           PairingOutcome.cancelled,

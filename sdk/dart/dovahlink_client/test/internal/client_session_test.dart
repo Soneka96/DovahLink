@@ -58,6 +58,7 @@ class StreamControllerTransport implements DovahLinkTransport {
   }
 }
 
+/// Long timeout durations used by client-session tests that must not expire during setup.
 const Map<TimeoutClass, Duration> _timeouts = <TimeoutClass, Duration>{
   TimeoutClass.short: Duration(seconds: 30),
   TimeoutClass.normal: Duration(seconds: 30),
@@ -410,6 +411,56 @@ void main() {
         verify(
           () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
         ).called(1);
+        verify(() => transport.close()).called(1);
+      },
+    );
+
+    test(
+      'Method onSessionInvalidated preserves trustReset as the typed invalidation reason',
+      () async {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+
+        session.onSessionInvalidated(
+          AdministrativeInvalidationReason.trustReset,
+        );
+        await pumpEventQueue();
+
+        expect(
+          session.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          session.invalidationReason,
+          AdministrativeInvalidationReason.trustReset,
+        );
+        verify(() => transport.close()).called(1);
+      },
+    );
+
+    test(
+      'Method onSessionInvalidated preserves factoryReset as the typed invalidation reason',
+      () async {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+
+        session.onSessionInvalidated(
+          AdministrativeInvalidationReason.factoryReset,
+        );
+        await pumpEventQueue();
+
+        expect(
+          session.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          session.invalidationReason,
+          AdministrativeInvalidationReason.factoryReset,
+        );
         verify(() => transport.close()).called(1);
       },
     );

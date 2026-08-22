@@ -734,7 +734,7 @@ void main() {
         expect(state.credential, isNull);
         expect(state.clientId, 'client-1');
         verify(() => sessionConnector.connect(any())).called(2);
-        final List<dynamic> sentPayloads = verify(
+        final List<Object?> sentPayloads = verify(
           () => requestSender.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: captureAny(named: 'payload'),
