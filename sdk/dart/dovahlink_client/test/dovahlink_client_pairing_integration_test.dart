@@ -131,7 +131,7 @@ void main() {
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
               'outcome',
-              'invalid',
+              PairingOutcome.invalid,
             ),
           ),
         );

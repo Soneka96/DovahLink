@@ -1034,25 +1034,56 @@ void main() {
       expect(result.retryAfterSeconds, isNull);
     });
 
-    test(
-      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
-      () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
+    test('a recognized outcome invalid for this exchange throws '
+        'DovahLinkProtocolException(malformed_message)', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-trusted.json'),
+      );
 
-        await expectLater(
-          client.requestPairingRenotify(),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
+      await expectLater(
+        client.requestPairingRenotify(),
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (DovahLinkProtocolException e) => e.code,
+            'code',
+            'malformed_message',
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
+
+    test('a genuinely unrecognized outcome throws '
+        'DovahLinkProtocolException(malformed_message)', () async {
+      transport.queueResponse(
+        jsonEncode(<String, dynamic>{
+          'messageType': 'pairing_outcome',
+          'messageId': 'message-1',
+          'sessionId': null,
+          'correlationId': 'irrelevant',
+          'payload': <String, dynamic>{
+            'outcome': 'not-a-real-outcome',
+            'credential': null,
+            'shortId': null,
+            'displayName': null,
+            'retryAfterSeconds': null,
+          },
+          'bridgeInstanceId': 'bridge-1',
+          'playContextId': null,
+          'clientId': null,
+        }),
+      );
+
+      await expectLater(
+        client.requestPairingRenotify(),
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (DovahLinkProtocolException e) => e.code,
+            'code',
+            'malformed_message',
+          ),
+        ),
+      );
+    });
 
     test(
       'sends an empty payload, matching the pairing_renotify fixture shape',
@@ -1105,25 +1136,23 @@ void main() {
       expect(outcome.status, PairingCancelStatus.alreadyIdle);
     });
 
-    test(
-      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
-      () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
+    test('a recognized outcome invalid for this exchange throws '
+        'DovahLinkProtocolException(malformed_message)', () async {
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-trusted.json'),
+      );
 
-        await expectLater(
-          client.cancelPairing(),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
+      await expectLater(
+        client.cancelPairing(),
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (DovahLinkProtocolException e) => e.code,
+            'code',
+            'malformed_message',
           ),
-        );
-      },
-    );
+        ),
+      );
+    });
 
     test(
       'sends an empty payload, matching the pairing_cancel fixture shape',
@@ -1201,13 +1230,17 @@ void main() {
       },
     );
 
-    const Map<String, String> failureFixtures = <String, String>{
-      'expired': 'pairing/pairing-outcome-expired.json',
-      'invalid': 'pairing/pairing-outcome-invalid.json',
-      'pacing_limited': 'pairing/pairing-outcome-pacing-limited.json',
-      'hard_limit_reached': 'pairing/pairing-outcome-hard-limit-reached.json',
-    };
-    for (final MapEntry<String, String> entry in failureFixtures.entries) {
+    const Map<PairingOutcome, String> failureFixtures =
+        <PairingOutcome, String>{
+          PairingOutcome.expired: 'pairing/pairing-outcome-expired.json',
+          PairingOutcome.invalid: 'pairing/pairing-outcome-invalid.json',
+          PairingOutcome.pacingLimited:
+              'pairing/pairing-outcome-pacing-limited.json',
+          PairingOutcome.hardLimitReached:
+              'pairing/pairing-outcome-hard-limit-reached.json',
+        };
+    for (final MapEntry<PairingOutcome, String> entry
+        in failureFixtures.entries) {
       test(
         'throws DovahLinkPairingException(${entry.key}) on that outcome without persisting anything',
         () async {
@@ -1228,6 +1261,39 @@ void main() {
         },
       );
     }
+
+    test('a genuinely unrecognized outcome throws '
+        'DovahLinkProtocolException(malformed_message)', () async {
+      transport.queueResponse(
+        jsonEncode(<String, dynamic>{
+          'messageType': 'pairing_outcome',
+          'messageId': 'message-1',
+          'sessionId': null,
+          'correlationId': 'irrelevant',
+          'payload': <String, dynamic>{
+            'outcome': 'not-a-real-outcome',
+            'credential': null,
+            'shortId': null,
+            'displayName': null,
+            'retryAfterSeconds': null,
+          },
+          'bridgeInstanceId': 'bridge-1',
+          'playContextId': null,
+          'clientId': null,
+        }),
+      );
+
+      await expectLater(
+        client.confirmPairingCode(code: '000000'),
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (DovahLinkProtocolException e) => e.code,
+            'code',
+            'malformed_message',
+          ),
+        ),
+      );
+    });
 
     test(
       'leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
@@ -1316,7 +1382,7 @@ void main() {
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
               'outcome',
-              'pending_not_found',
+              PairingOutcome.pendingNotFound,
             ),
           ),
         );
@@ -1491,7 +1557,7 @@ void main() {
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
               'outcome',
-              'expired',
+              PairingOutcome.expired,
             ),
           ),
         );

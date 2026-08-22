@@ -7,6 +7,9 @@
 library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;
+// PairingOutcome is exported alongside the other domain enums, not hidden as a purely internal
+// wire-decode detail: DovahLinkPairingException.outcome exposes it directly, so a consumer must be
+// able to name and compare against it without reaching into src/.
 export 'src/shared/enums.dart'
     show
         AdministrativeInvalidationReason,
@@ -15,6 +18,7 @@ export 'src/shared/enums.dart'
         DovahLinkTrustState,
         PairingAvailability,
         PairingCancelStatus,
+        PairingOutcome,
         PairingRenotifyStatus;
 export 'src/hello_result.dart' show HelloResult;
 export 'src/pairing_cancel_outcome.dart' show PairingCancelOutcome;

@@ -90,18 +90,15 @@ void main() {
         },
       );
 
-      test(
-        'rejects constructing oneTimeLocalToken with a null authToken',
-        () {
-          expect(
-            () => HelloPayload(
-              clientId: 'client-1',
-              authMethod: AuthMethod.oneTimeLocalToken,
-            ),
-            throwsA(isA<AssertionError>()),
-          );
-        },
-      );
+      test('rejects constructing oneTimeLocalToken with a null authToken', () {
+        expect(
+          () => HelloPayload(
+            clientId: 'client-1',
+            authMethod: AuthMethod.oneTimeLocalToken,
+          ),
+          throwsA(isA<AssertionError>()),
+        );
+      });
     });
   });
 }

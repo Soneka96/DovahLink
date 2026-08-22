@@ -1,3 +1,5 @@
+import 'shared/enums.dart';
+
 /// Thrown when establishing or maintaining the transport connection fails -- a socket-level
 /// problem, not a bridge-reported failure.
 class DovahLinkConnectionException implements Exception {
@@ -42,9 +44,10 @@ class DovahLinkPairingException implements Exception {
   /// Creates a pairing exception from the bridge's reported [outcome].
   const DovahLinkPairingException(this.outcome);
 
-  /// The raw wire outcome: `expired`, `invalid`, `pacing_limited`, or `hard_limit_reached` (from
-  /// `pairing_confirm`), `pending_not_found` (from `pairing_ack`).
-  final String outcome;
+  /// The bridge's reported outcome: [PairingOutcome.expired], [PairingOutcome.invalid],
+  /// [PairingOutcome.pacingLimited], or [PairingOutcome.hardLimitReached] (from
+  /// `pairing_confirm`), [PairingOutcome.pendingNotFound] (from `pairing_ack`).
+  final PairingOutcome outcome;
 
   @override
   String toString() => 'DovahLinkPairingException: $outcome';

@@ -17,7 +17,10 @@ import 'protocol/error_payload.dart';
 import 'protocol/hello_ack_payload.dart';
 import 'protocol/hello_payload.dart';
 import 'protocol/json_map.dart';
-import 'protocol/pairing_payloads.dart';
+import 'protocol/pairing_ack_payload.dart';
+import 'protocol/pairing_confirm_payload.dart';
+import 'protocol/pairing_outcome_payload.dart';
+import 'protocol/pairing_status_payload.dart';
 import 'protocol/protocol_format_exception.dart';
 import 'protocol/session_invalidated_payload.dart';
 import 'request_policy.dart';
@@ -211,11 +214,7 @@ class DovahLinkClient {
       // exception this client's callers already handle, per `ai/context/sdk/api-design.md`'s
       // "Protocol DTO decoding" boundary translation, rather than leaking the DTO-layer type.
       await disconnect();
-      throw DovahLinkProtocolException(
-        code: 'malformed_message',
-        message: error.message,
-        retryable: false,
-      );
+      _throwMalformedMessage(error);
     } on Object {
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
       // always sets closeConnection), and a genuine transport failure leaves the socket equally
@@ -287,11 +286,14 @@ class DovahLinkClient {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingStatusPayload status = PairingStatusPayload.fromJson(
-      response.payload,
-    );
+    final PairingStatusPayload status;
+    try {
+      status = PairingStatusPayload.fromJson(response.payload);
+    } on ProtocolFormatException catch (error) {
+      _throwMalformedMessage(error);
+    }
     return PairingChallengeStatus(
-      availability: _parsePairingAvailability(status.state),
+      availability: status.state,
       expiresInSeconds: status.expiresInSeconds,
     );
   }
@@ -310,9 +312,12 @@ class DovahLinkClient {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
-      response.payload,
-    );
+    final PairingOutcomePayload outcome;
+    try {
+      outcome = PairingOutcomePayload.fromJson(response.payload);
+    } on ProtocolFormatException catch (error) {
+      _throwMalformedMessage(error);
+    }
     return PairingRenotifyResult(
       status: _parsePairingRenotifyStatus(outcome.outcome),
       retryAfterSeconds: outcome.retryAfterSeconds,
@@ -333,9 +338,12 @@ class DovahLinkClient {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
-      response.payload,
-    );
+    final PairingOutcomePayload outcome;
+    try {
+      outcome = PairingOutcomePayload.fromJson(response.payload);
+    } on ProtocolFormatException catch (error) {
+      _throwMalformedMessage(error);
+    }
     return PairingCancelOutcome(
       status: _parsePairingCancelStatus(outcome.outcome),
     );
@@ -366,10 +374,13 @@ class DovahLinkClient {
         timeoutClass: TimeoutClass.normal,
       ),
     );
-    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
-      response.payload,
-    );
-    if (outcome.outcome != 'credential_issued') {
+    final PairingOutcomePayload outcome;
+    try {
+      outcome = PairingOutcomePayload.fromJson(response.payload);
+    } on ProtocolFormatException catch (error) {
+      _throwMalformedMessage(error);
+    }
+    if (outcome.outcome != PairingOutcome.credentialIssued) {
       throw DovahLinkPairingException(outcome.outcome);
     }
     final String? credential = outcome.credential;
@@ -407,10 +418,14 @@ class DovahLinkClient {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome = PairingOutcomePayload.fromJson(
-      response.payload,
-    );
-    if (outcome.outcome != 'trusted' && outcome.outcome != 'already_trusted') {
+    final PairingOutcomePayload outcome;
+    try {
+      outcome = PairingOutcomePayload.fromJson(response.payload);
+    } on ProtocolFormatException catch (error) {
+      _throwMalformedMessage(error);
+    }
+    if (outcome.outcome != PairingOutcome.trusted &&
+        outcome.outcome != PairingOutcome.alreadyTrusted) {
       throw DovahLinkPairingException(outcome.outcome);
     }
     _trustState = DovahLinkTrustState.trusted;
@@ -441,7 +456,7 @@ class DovahLinkClient {
       await acknowledgeTrustedCredential(state.credential!);
       return DovahLinkTrustState.trusted;
     } on DovahLinkPairingException catch (error) {
-      if (error.outcome == 'pending_not_found') {
+      if (error.outcome == PairingOutcome.pendingNotFound) {
         await _storage.save(PersistedClientState(clientId: state.clientId));
         return DovahLinkTrustState.unpaired;
       }
@@ -917,43 +932,45 @@ class DovahLinkClient {
         .join();
   }
 
-  /// Interprets `pairing_status.state`'s raw wire value.
-  PairingAvailability _parsePairingAvailability(String raw) => switch (raw) {
-    'unavailable' => PairingAvailability.unavailable,
-    'available' => PairingAvailability.available,
-    'in_progress' => PairingAvailability.inProgress,
-    'other_device_pairing' => PairingAvailability.otherDevicePairing,
-    _ => throw DovahLinkProtocolException(
-      code: 'malformed_message',
-      message: 'Unrecognized pairing_status.state: $raw',
-      retryable: false,
-    ),
-  };
-
-  /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to
-  /// `pairing_renotify`.
-  PairingRenotifyStatus _parsePairingRenotifyStatus(String raw) =>
-      switch (raw) {
-        'renotified' => PairingRenotifyStatus.renotified,
-        'renotify_cooldown' => PairingRenotifyStatus.cooldown,
-        'already_idle' => PairingRenotifyStatus.alreadyIdle,
+  /// Interprets a [PairingOutcome] returned in reply to `pairing_renotify`. Every [PairingOutcome]
+  /// value is a recognized wire value -- decoded and validated as a closed enum by
+  /// `PairingOutcomePayload.fromJson` -- but only a subset is a valid reply to this specific
+  /// exchange; a value valid elsewhere (for example [PairingOutcome.credentialIssued]) is still a
+  /// protocol violation here.
+  PairingRenotifyStatus _parsePairingRenotifyStatus(PairingOutcome outcome) =>
+      switch (outcome) {
+        PairingOutcome.renotified => PairingRenotifyStatus.renotified,
+        PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
+        PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
         _ => throw DovahLinkProtocolException(
           code: 'malformed_message',
-          message: 'Unrecognized pairing_renotify outcome: $raw',
+          message: 'Unexpected pairing_renotify outcome: $outcome',
           retryable: false,
         ),
       };
 
-  /// Interprets a `pairing_outcome.outcome` raw wire value returned in reply to `pairing_cancel`.
-  PairingCancelStatus _parsePairingCancelStatus(String raw) => switch (raw) {
-    'cancelled' => PairingCancelStatus.cancelled,
-    'already_idle' => PairingCancelStatus.alreadyIdle,
-    _ => throw DovahLinkProtocolException(
-      code: 'malformed_message',
-      message: 'Unrecognized pairing_cancel outcome: $raw',
-      retryable: false,
-    ),
-  };
+  /// Interprets a [PairingOutcome] returned in reply to `pairing_cancel`; see
+  /// [_parsePairingRenotifyStatus] for why an otherwise-valid [PairingOutcome] can still be
+  /// rejected here.
+  PairingCancelStatus _parsePairingCancelStatus(PairingOutcome outcome) =>
+      switch (outcome) {
+        PairingOutcome.cancelled => PairingCancelStatus.cancelled,
+        PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
+        _ => throw DovahLinkProtocolException(
+          code: 'malformed_message',
+          message: 'Unexpected pairing_cancel outcome: $outcome',
+          retryable: false,
+        ),
+      };
+
+  /// Translates a DTO decode boundary failure into the typed exception SDK consumers already
+  /// handle, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
+  Never _throwMalformedMessage(ProtocolFormatException error) =>
+      throw DovahLinkProtocolException(
+        code: 'malformed_message',
+        message: error.message,
+        retryable: false,
+      );
 
   /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
   /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.

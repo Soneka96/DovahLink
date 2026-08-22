@@ -4,170 +4,59 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/protocol/pairing_payloads.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_outcome_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Reads one canonical protocol fixture, relative to `protocol/fixtures/`.
-JsonMap _readFixture(String relativePath) {
+/// Reads one canonical protocol fixture's payload object, relative to `protocol/fixtures/`.
+JsonMap _readPayload(String relativePath) {
   final File file = File('../../../protocol/fixtures/$relativePath');
-  return jsonDecode(file.readAsStringSync()) as JsonMap;
+  final JsonMap fixture = jsonDecode(file.readAsStringSync()) as JsonMap;
+  return fixture['payload'] as JsonMap;
 }
 
-/// Reads one canonical protocol fixture's payload object.
-JsonMap _readPayload(String relativePath) =>
-    _readFixture(relativePath)['payload'] as JsonMap;
-
 void main() {
-  group('PairingConfirmPayload', () {
+  group('PairingOutcomePayload', () {
     group('methods', () {
-      test('toJson matches the canonical fixture with a display name', () {
-        const PairingConfirmPayload payload = PairingConfirmPayload(
-          code: '123456',
-          displayName: 'My PC',
-        );
-
-        expect(payload.toJson(), _readPayload('pairing/pairing-confirm.json'));
-      });
-
-      test('toJson includes displayName as null, not absent, when omitted', () {
-        const PairingConfirmPayload payload = PairingConfirmPayload(
-          code: '123456',
-        );
-
-        final JsonMap json = payload.toJson();
-
-        expect(json.containsKey('displayName'), isTrue);
-        expect(json['displayName'], isNull);
-      });
-    });
-  });
-
-  group('PairingAckPayload', () {
-    group('methods', () {
-      test('toJson matches the canonical fixture', () {
-        const PairingAckPayload payload = PairingAckPayload(
-          credential: 'a1b2c3d4e5f6',
-        );
-
-        expect(payload.toJson(), _readPayload('pairing/pairing-ack.json'));
-      });
-    });
-  });
-
-  group('PairingStatusPayload', () {
-    group('methods', () {
-      const Map<String, String> stateFixtures = <String, String>{
-        'unavailable': 'pairing/pairing-status-unavailable.json',
-        'available': 'pairing/pairing-status-available.json',
-        'in_progress': 'pairing/pairing-status-in-progress.json',
-        'other_device_pairing': 'pairing/pairing-status-other-device.json',
+      const Map<PairingOutcome, String>
+      outcomeFixtures = <PairingOutcome, String>{
+        PairingOutcome.credentialIssued:
+            'pairing/pairing-outcome-credential-issued.json',
+        PairingOutcome.trusted: 'pairing/pairing-outcome-trusted.json',
+        PairingOutcome.alreadyTrusted:
+            'pairing/pairing-outcome-already-trusted.json',
+        PairingOutcome.expired: 'pairing/pairing-outcome-expired.json',
+        PairingOutcome.invalid: 'pairing/pairing-outcome-invalid.json',
+        PairingOutcome.pacingLimited:
+            'pairing/pairing-outcome-pacing-limited.json',
+        PairingOutcome.hardLimitReached:
+            'pairing/pairing-outcome-hard-limit-reached.json',
+        PairingOutcome.pendingNotFound:
+            'pairing/pairing-outcome-pending-not-found.json',
+        PairingOutcome.renotified: 'pairing/pairing-outcome-renotified.json',
+        PairingOutcome.renotifyCooldown:
+            'pairing/pairing-outcome-renotify-cooldown.json',
+        PairingOutcome.cancelled: 'pairing/pairing-outcome-cancelled.json',
+        PairingOutcome.alreadyIdle: 'pairing/pairing-outcome-already-idle.json',
       };
-      for (final MapEntry<String, String> entry in stateFixtures.entries) {
+      // Every one of PairingOutcome's 12 wire values decodes correctly, per
+      // `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" full-enum-coverage expectation.
+      for (final MapEntry<PairingOutcome, String> entry
+          in outcomeFixtures.entries) {
         test('fromJson decodes the canonical ${entry.key} fixture', () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
+          final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
             _readPayload(entry.value),
           );
 
-          expect(payload.state, entry.key);
+          expect(payload.outcome, entry.key);
         });
       }
 
-      test('fromJson decodes expiresInSeconds for an available fixture', () {
-        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-          _readPayload('pairing/pairing-status-available.json'),
-        );
-
-        expect(payload.expiresInSeconds, 300);
-      });
-
-      test('fromJson decodes expiresInSeconds for an in_progress fixture', () {
-        final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-          _readPayload('pairing/pairing-status-in-progress.json'),
-        );
-
-        expect(payload.expiresInSeconds, 187);
-      });
-
-      test(
-        'fromJson decodes expiresInSeconds as null for an unavailable fixture',
-        () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-            _readPayload('pairing/pairing-status-unavailable.json'),
-          );
-
-          expect(payload.expiresInSeconds, isNull);
-        },
-      );
-
-      test(
-        'fromJson decodes expiresInSeconds as null for an other_device_pairing fixture',
-        () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-            _readPayload('pairing/pairing-status-other-device.json'),
-          );
-
-          expect(payload.expiresInSeconds, isNull);
-        },
-      );
-
-      test('fromJson rejects a payload missing the required state key', () {
-        expect(
-          () => PairingStatusPayload.fromJson(<String, dynamic>{
-            'expiresInSeconds': null,
-          }),
-          throwsA(isA<ProtocolFormatException>()),
-        );
-      });
-
-      test(
-        'fromJson decodes a payload with expiresInSeconds genuinely omitted as null, matching '
-        'other_device_pairing\'s wire contract',
-        () {
-          final PairingStatusPayload payload = PairingStatusPayload.fromJson(
-            <String, dynamic>{'state': 'other_device_pairing'},
-          );
-
-          expect(payload.state, 'other_device_pairing');
-          expect(payload.expiresInSeconds, isNull);
-        },
-      );
-
-      test(
-        'fromJson rejects a payload with the wrong type for the required state key',
-        () {
-          expect(
-            () => PairingStatusPayload.fromJson(<String, dynamic>{
-              'state': 7,
-              'expiresInSeconds': null,
-            }),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
-      );
-
-      test(
-        'fromJson rejects a payload with the wrong type for expiresInSeconds',
-        () {
-          expect(
-            () => PairingStatusPayload.fromJson(<String, dynamic>{
-              'state': 'available',
-              'expiresInSeconds': 'soon',
-            }),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
-      );
-    });
-  });
-
-  group('PairingOutcomePayload', () {
-    group('methods', () {
       test('fromJson decodes credential_issued with no shortId yet', () {
         final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
           _readPayload('pairing/pairing-outcome-credential-issued.json'),
         );
 
-        expect(payload.outcome, 'credential_issued');
         expect(payload.credential, 'a1b2c3d4e5f6');
         expect(payload.shortId, isNull);
         expect(payload.displayName, 'My PC');
@@ -179,7 +68,6 @@ void main() {
           _readPayload('pairing/pairing-outcome-trusted.json'),
         );
 
-        expect(payload.outcome, 'trusted');
         expect(payload.credential, 'a1b2c3d4e5f6');
         expect(payload.shortId, '12345');
         expect(payload.displayName, 'My PC');
@@ -193,7 +81,6 @@ void main() {
             _readPayload('pairing/pairing-outcome-already-trusted.json'),
           );
 
-          expect(payload.outcome, 'already_trusted');
           expect(payload.credential, 'a1b2c3d4e5f6');
           expect(payload.shortId, '12345');
           expect(payload.displayName, 'My PC');
@@ -208,7 +95,6 @@ void main() {
             _readPayload('pairing/pairing-outcome-expired.json'),
           );
 
-          expect(payload.outcome, 'expired');
           expect(payload.credential, isNull);
           expect(payload.shortId, isNull);
           expect(payload.displayName, isNull);
@@ -223,7 +109,6 @@ void main() {
             _readPayload('pairing/pairing-outcome-pacing-limited.json'),
           );
 
-          expect(payload.outcome, 'pacing_limited');
           expect(payload.retryAfterSeconds, 1);
         },
       );
@@ -235,7 +120,6 @@ void main() {
             _readPayload('pairing/pairing-outcome-hard-limit-reached.json'),
           );
 
-          expect(payload.outcome, 'hard_limit_reached');
           expect(payload.retryAfterSeconds, isNull);
         },
       );
@@ -247,7 +131,6 @@ void main() {
             _readPayload('pairing/pairing-outcome-renotify-cooldown.json'),
           );
 
-          expect(payload.outcome, 'renotify_cooldown');
           expect(payload.retryAfterSeconds, 3);
         },
       );
@@ -265,6 +148,22 @@ void main() {
 
             expect(payload.retryAfterSeconds, isNull, reason: fixture);
           }
+        },
+      );
+
+      test(
+        'fromJson rejects an unrecognized outcome as ProtocolFormatException',
+        () {
+          expect(
+            () => PairingOutcomePayload.fromJson(<String, dynamic>{
+              'outcome': 'not-a-real-outcome',
+              'credential': null,
+              'shortId': null,
+              'displayName': null,
+              'retryAfterSeconds': null,
+            }),
+            throwsA(isA<ProtocolFormatException>()),
+          );
         },
       );
 
