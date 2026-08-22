@@ -53,7 +53,17 @@ enum CredentialRejectionReason {
   revoked,
 
   /// The presented credential did not match any credential the bridge currently trusts.
-  unrecognized,
+  unrecognized;
+
+  /// Returns the recovery reason for a rejected credential [code], or `null` when the rejection
+  /// must surface to the caller.
+  static CredentialRejectionReason? fromProtocolErrorCode(
+    ProtocolErrorCode code,
+  ) => switch (code) {
+    ProtocolErrorCode.revoked => CredentialRejectionReason.revoked,
+    ProtocolErrorCode.unauthenticated => CredentialRejectionReason.unrecognized,
+    _ => null,
+  };
 }
 
 /// The raw wire value of `hello_ack.clientIdentityKind` (`protocol/schema/README.md`'s

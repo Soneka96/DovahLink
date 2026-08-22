@@ -1,11 +1,11 @@
-import 'dart:math';
-
 import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -20,28 +20,15 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// installation's `clientId`, negotiates trust with the bridge, and recovers from a rejected
 /// `trusted_device_credential` hello by discarding it and retrying once as `unpaired`.
 class AuthenticationService {
-  /// Creates an authentication service sending through [requestManager], persisting identity and
-  /// credential state through [storage], connecting/admitting sessions through [sessionConnector],
-  /// reading live trust state through [sessionContext], and ensuring the connection is receiving
-  /// through [messageReceiver].
-  AuthenticationService({
-    required RequestManager requestManager,
-    required ClientStorage storage,
-    required SessionConnector sessionConnector,
-    required SessionContext sessionContext,
-    required MessageReceiver messageReceiver,
-  }) : _requestManager = requestManager,
-       _storage = storage,
-       _sessionConnector = sessionConnector,
-       _sessionContext = sessionContext,
-       _messageReceiver = messageReceiver;
-
   /// Sends `hello` and awaits its correlated reply.
   final RequestManager _requestManager;
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
   final ClientStorage _storage;
+
+  /// Resolves this installation's persisted client ID on first use.
+  final ClientIdResolver _clientIdResolver;
 
   /// Connects, disconnects, reads connection state, and admits a newly authenticated session.
   final SessionConnector _sessionConnector;
@@ -53,8 +40,28 @@ class AuthenticationService {
   /// Ensures the transport's inbound message stream is being read before [hello] sends.
   final MessageReceiver _messageReceiver;
 
-  /// Source of randomness for this installation's `clientId`, generated on first use.
-  final Random _random = Random.secure();
+  /// Creates an authentication service sending through [requestManager], persisting identity and
+  /// credential state through [storage], connecting/admitting sessions through [sessionConnector],
+  /// reading live trust state through [sessionContext], and ensuring the connection is receiving
+  /// through [messageReceiver].
+  AuthenticationService({
+    required RequestManager requestManager,
+    required ClientStorage storage,
+    required SessionConnector sessionConnector,
+    required SessionContext sessionContext,
+    required MessageReceiver messageReceiver,
+    ClientIdResolver? clientIdResolver,
+  }) : _requestManager = requestManager,
+       _storage = storage,
+       _clientIdResolver =
+           clientIdResolver ??
+           ClientIdResolver(
+             storage: storage,
+             uuidV4Generator: UuidV4Generator(),
+           ),
+       _sessionConnector = sessionConnector,
+       _sessionContext = sessionContext,
+       _messageReceiver = messageReceiver;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
   String? _clientId;
@@ -78,7 +85,7 @@ class AuthenticationService {
   /// @throws DovahLinkProtocolException if the bridge rejects authentication.
   Future<HelloResult> hello() async {
     final PersistedClientState state = await _storage.load();
-    final String clientId = await _resolveClientId(state);
+    final String clientId = await _clientIdResolver.resolve(state);
     final String? credential = state.recoveryState == PairingRecoveryState.none
         ? state.credential
         : null;
@@ -144,7 +151,11 @@ class AuthenticationService {
       // exception this client's callers already handle, per `ai/context/sdk/api-design.md`'s
       // "Protocol DTO decoding" boundary translation, rather than leaking the DTO-layer type.
       await _sessionConnector.disconnect();
-      _throwMalformedMessage(error);
+      throw DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: error.message,
+        retryable: false,
+      );
     } on Object {
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
       // always sets closeConnection), and a genuine transport failure leaves the socket equally
@@ -186,9 +197,8 @@ class AuthenticationService {
     try {
       return await hello();
     } on DovahLinkProtocolException catch (error) {
-      final CredentialRejectionReason? reason = _credentialRejectionReason(
-        error.code,
-      );
+      final CredentialRejectionReason? reason =
+          CredentialRejectionReason.fromProtocolErrorCode(error.code);
       if (reason == null) {
         rethrow;
       }
@@ -213,51 +223,4 @@ class AuthenticationService {
     final PersistedClientState state = await _storage.load();
     await _storage.save(PersistedClientState(clientId: state.clientId));
   }
-
-  /// Returns the persisted `clientId`, generating and persisting a fresh RFC 4122 version-4 UUID
-  /// on first use.
-  Future<String> _resolveClientId(PersistedClientState state) async {
-    final String? existing = state.clientId;
-    if (existing != null && existing.isNotEmpty) {
-      return existing;
-    }
-    final String generated = _generateUuidV4();
-    await _storage.save(state.copyWith(clientId: generated));
-    return generated;
-  }
-
-  /// Generates a random RFC 4122 version-4 UUID string.
-  String _generateUuidV4() {
-    final List<int> bytes = List<int>.generate(16, (_) => _random.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    String hexRange(int start, int end) => bytes
-        .sublist(start, end)
-        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
-
-    return '${hexRange(0, 4)}-${hexRange(4, 6)}-${hexRange(6, 8)}-'
-        '${hexRange(8, 10)}-${hexRange(10, 16)}';
-  }
-
-  /// Throws the SDK's public `DovahLinkProtocolException(code: ProtocolErrorCode.malformedMessage, retryable:
-  /// false)` translated from a DTO decode boundary failure, per
-  /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
-  Never _throwMalformedMessage(ProtocolFormatException error) =>
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-
-  /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
-  /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
-  CredentialRejectionReason? _credentialRejectionReason(
-    ProtocolErrorCode code,
-  ) => switch (code) {
-    ProtocolErrorCode.revoked => CredentialRejectionReason.revoked,
-    ProtocolErrorCode.unauthenticated => CredentialRejectionReason.unrecognized,
-    _ => null,
-  };
 }

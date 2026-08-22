@@ -87,6 +87,32 @@ void main() {
     );
   });
 
+  group('CredentialRejectionReason', () {
+    test('maps the recoverable typed protocol errors', () {
+      expect(
+        CredentialRejectionReason.fromProtocolErrorCode(
+          ProtocolErrorCode.revoked,
+        ),
+        CredentialRejectionReason.revoked,
+      );
+      expect(
+        CredentialRejectionReason.fromProtocolErrorCode(
+          ProtocolErrorCode.unauthenticated,
+        ),
+        CredentialRejectionReason.unrecognized,
+      );
+    });
+
+    test('does not map non-recoverable typed protocol errors', () {
+      expect(
+        CredentialRejectionReason.fromProtocolErrorCode(
+          ProtocolErrorCode.rateLimited,
+        ),
+        isNull,
+      );
+    });
+  });
+
   /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
   void stubSendAndAwait(Envelope envelope) {
     when(
