@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 
 import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
+import 'internal/pending_operation.dart';
 import 'pairing_cancel_outcome.dart';
 import 'pairing_challenge_status.dart';
 import 'pairing_renotify_result.dart';
@@ -80,13 +81,13 @@ class DovahLinkClient {
 
   /// Every operation awaiting a correlated reply on the current connection, keyed by the outgoing
   /// `messageId` it was transmitted under.
-  final Map<String, _PendingOperation> _pendingOperations =
-      <String, _PendingOperation>{};
+  final Map<String, PendingOperation> _pendingOperations =
+      <String, PendingOperation>{};
 
   /// Retry-safe operations an ordinary (non-administrative) transport loss orphaned before they
   /// received a reply, awaiting a chance to be retransmitted once the next `hello` succeeds.
-  final List<_PendingOperation> _orphanedRetryableOperations =
-      <_PendingOperation>[];
+  final List<PendingOperation> _orphanedRetryableOperations =
+      <PendingOperation>[];
 
   /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
   /// connection is being received for. The SDK owns exactly one of these at a time, per
@@ -555,7 +556,7 @@ class DovahLinkClient {
     required RequestPolicy policy,
   }) async {
     _ensureReceiving();
-    final _PendingOperation operation = _PendingOperation(
+    final PendingOperation operation = PendingOperation(
       messageType: messageType,
       payload: payload,
       policy: policy,
@@ -571,7 +572,7 @@ class DovahLinkClient {
   /// routes through [_teardownConnection] rather than throwing here, since nothing local is
   /// positioned to catch it synchronously once retries are involved -- see [operation]'s shared
   /// `completer`.
-  void _transmit(_PendingOperation operation) {
+  void _transmit(PendingOperation operation) {
     final String messageId = _generateMessageId();
     _pendingOperations[messageId] = operation;
     operation.timer = Timer(
@@ -667,7 +668,7 @@ class DovahLinkClient {
       return;
     }
 
-    final _PendingOperation? operation = _pendingOperations.remove(
+    final PendingOperation? operation = _pendingOperations.remove(
       correlationId,
     );
     if (operation == null) {
@@ -751,14 +752,14 @@ class DovahLinkClient {
         DovahLinkConnectionException(
           'Session invalidated ($reason) while awaiting a reply.',
         );
-    for (final _PendingOperation operation in _pendingOperations.values) {
+    for (final PendingOperation operation in _pendingOperations.values) {
       operation.timer?.cancel();
       if (!operation.completer.isCompleted) {
         operation.completer.completeError(invalidatedException);
       }
     }
     _pendingOperations.clear();
-    for (final _PendingOperation operation in _orphanedRetryableOperations) {
+    for (final PendingOperation operation in _orphanedRetryableOperations) {
       if (!operation.completer.isCompleted) {
         operation.completer.completeError(invalidatedException);
       }
@@ -843,9 +844,9 @@ class DovahLinkClient {
     _trustState = null;
     _sessionId = null;
 
-    final List<_PendingOperation> pending = _pendingOperations.values.toList();
+    final List<PendingOperation> pending = _pendingOperations.values.toList();
     _pendingOperations.clear();
-    for (final _PendingOperation operation in pending) {
+    for (final PendingOperation operation in pending) {
       operation.timer?.cancel();
       if (orphanRetrySafeOperations &&
           operation.policy.retrySafe &&
@@ -857,10 +858,10 @@ class DovahLinkClient {
     }
 
     if (!orphanRetrySafeOperations) {
-      final List<_PendingOperation> orphaned = _orphanedRetryableOperations
+      final List<PendingOperation> orphaned = _orphanedRetryableOperations
           .toList();
       _orphanedRetryableOperations.clear();
-      for (final _PendingOperation operation in orphaned) {
+      for (final PendingOperation operation in orphaned) {
         if (!operation.completer.isCompleted) {
           operation.completer.completeError(reason);
         }
@@ -873,10 +874,10 @@ class DovahLinkClient {
   /// [RequestPolicy.requiredTrustState] the new session no longer satisfies fails without
   /// retransmission instead of being retried into a session it was never classified for.
   void _retryOrphanedOperations() {
-    final List<_PendingOperation> toRetry = _orphanedRetryableOperations
+    final List<PendingOperation> toRetry = _orphanedRetryableOperations
         .toList();
     _orphanedRetryableOperations.clear();
-    for (final _PendingOperation operation in toRetry) {
+    for (final PendingOperation operation in toRetry) {
       final DovahLinkTrustState? required = operation.policy.requiredTrustState;
       if (required != null && required != _trustState) {
         if (!operation.completer.isCompleted) {
@@ -977,39 +978,4 @@ class DovahLinkClient {
         'unauthenticated' => CredentialRejectionReason.unrecognized,
         _ => null,
       };
-}
-
-/// One request awaiting its correlated reply -- or, if `policy.retrySafe` and the connection was
-/// lost before a reply arrived, awaiting a chance to be retransmitted once after the next
-/// successful `hello`. Mutable bookkeeping for exactly one logical request across however many
-/// wire attempts (the initial send, plus at most one retry) it takes to resolve [completer].
-class _PendingOperation {
-  /// Creates a pending operation for one logical request.
-  _PendingOperation({
-    required this.messageType,
-    required this.payload,
-    required this.policy,
-  });
-
-  /// The outgoing message type this operation sends.
-  final String messageType;
-
-  /// The outgoing payload this operation sends.
-  final JsonMap payload;
-
-  /// This operation's classification against the retry-safety/session-requirement/timeout-class
-  /// model.
-  final RequestPolicy policy;
-
-  /// Resolved once, either by a correlated reply on the wire or by an outright failure -- shared
-  /// across the initial attempt and its at-most-one retry, so the original caller's `await`
-  /// resolves transparently regardless of which attempt actually succeeds.
-  final Completer<Envelope> completer = Completer<Envelope>();
-
-  /// Whether this operation has already been retransmitted once after a reconnect -- caps retry
-  /// at exactly one attempt, per [RequestPolicy.retrySafe]'s contract.
-  bool hasRetried = false;
-
-  /// Bounds the current wire attempt; cancelled once [completer] settles or a new attempt starts.
-  Timer? timer;
 }
