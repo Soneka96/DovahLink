@@ -13,16 +13,15 @@ JsonMap _readPayload(String relativePath) {
   return fixture['payload'] as JsonMap;
 }
 
+/// Runs pairing-ack encoding behavior tests.
 void main() {
-  group('PairingAckPayload', () {
-    group('methods', () {
-      test('toJson matches the canonical fixture', () {
-        const PairingAckPayload payload = PairingAckPayload(
-          credential: 'a1b2c3d4e5f6',
-        );
+  group('Method toJson behaves correctly', () {
+    test('Method toJson matches the canonical fixture', () {
+      const PairingAckPayload payload = PairingAckPayload(
+        credential: 'a1b2c3d4e5f6',
+      );
 
-        expect(payload.toJson(), _readPayload('pairing/pairing-ack.json'));
-      });
+      expect(payload.toJson(), _readPayload('pairing/pairing-ack.json'));
     });
   });
 }

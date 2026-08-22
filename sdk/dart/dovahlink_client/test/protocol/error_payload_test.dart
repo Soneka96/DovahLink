@@ -15,64 +15,69 @@ JsonMap _readPayload(String relativePath) {
   return fixture['payload'] as JsonMap;
 }
 
+/// Runs error-payload decoding behavior tests.
 void main() {
-  group('ErrorPayload', () {
-    group('methods', () {
-      test(
-        'fromJson decodes a non-retryable authentication failure with no details',
-        () {
-          final ErrorPayload payload = ErrorPayload.fromJson(
-            _readPayload('errors/error-unauthenticated-invalid-token.json'),
-          );
-
-          expect(payload.code, ProtocolErrorCode.unauthenticated);
-          expect(payload.message, isNotEmpty);
-          expect(payload.retryable, isFalse);
-          expect(payload.details, isNull);
-        },
-      );
-
-      test('fromJson decodes a retryable rate-limit failure', () {
+  group('Method fromJson behaves correctly', () {
+    test(
+      'Method fromJson decodes a non-retryable authentication failure with no details',
+      () {
         final ErrorPayload payload = ErrorPayload.fromJson(
-          _readPayload('errors/error-rate-limited.json'),
+          _readPayload('errors/error-unauthenticated-invalid-token.json'),
         );
 
-        expect(payload.code, ProtocolErrorCode.rateLimited);
-        expect(payload.retryable, isTrue);
-      });
+        expect(payload.code, ProtocolErrorCode.unauthenticated);
+        expect(payload.message, isNotEmpty);
+        expect(payload.retryable, isFalse);
+        expect(payload.details, isNull);
+      },
+    );
 
-      test('fromJson decodes a non-retryable revoked-credential failure', () {
+    test('Method fromJson decodes a retryable rate-limit failure', () {
+      final ErrorPayload payload = ErrorPayload.fromJson(
+        _readPayload('errors/error-rate-limited.json'),
+      );
+
+      expect(payload.code, ProtocolErrorCode.rateLimited);
+      expect(payload.retryable, isTrue);
+    });
+
+    test(
+      'Method fromJson decodes a non-retryable revoked-credential failure',
+      () {
         final ErrorPayload payload = ErrorPayload.fromJson(
           _readPayload('errors/error-revoked.json'),
         );
 
         expect(payload.code, ProtocolErrorCode.revoked);
         expect(payload.retryable, isFalse);
-      });
+      },
+    );
 
-      test('fromJson rejects a payload missing a required key', () {
-        final JsonMap withMissingKey = _readPayload(
-          'errors/error-rate-limited.json',
-        )..remove('code');
+    test('Method fromJson rejects a payload missing a required key', () {
+      final JsonMap withMissingKey = _readPayload(
+        'errors/error-rate-limited.json',
+      )..remove('code');
 
-        expect(
-          () => ErrorPayload.fromJson(withMissingKey),
-          throwsA(isA<ProtocolFormatException>()),
-        );
-      });
+      expect(
+        () => ErrorPayload.fromJson(withMissingKey),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
 
-      test('fromJson rejects an unrecognized error code', () {
-        final JsonMap withUnknownCode = _readPayload(
-          'errors/error-rate-limited.json',
-        )..['code'] = 'future_code';
+    test('Method fromJson rejects an unrecognized error code', () {
+      final JsonMap withUnknownCode = _readPayload(
+        'errors/error-rate-limited.json',
+      )..['code'] = 'future_code';
 
-        expect(
-          () => ErrorPayload.fromJson(withUnknownCode),
-          throwsA(isA<ProtocolFormatException>()),
-        );
-      });
+      expect(
+        () => ErrorPayload.fromJson(withUnknownCode),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
 
-      test('maps every canonical error code from its exact wire value', () {
+    test(
+      'Method fromJson maps every canonical error code from its exact wire value',
+      () {
         const Map<ProtocolErrorCode, String> wireValues =
             <ProtocolErrorCode, String>{
               ProtocolErrorCode.malformedMessage: 'malformed_message',
@@ -96,48 +101,48 @@ void main() {
 
           expect(ErrorPayload.fromJson(json).code, entry.key);
         }
-      });
+      },
+    );
 
-      test(
-        'fromJson rejects a payload with the wrong type for a required key',
-        () {
-          final JsonMap withWrongType = _readPayload(
-            'errors/error-rate-limited.json',
-          );
-          withWrongType['retryable'] = 'not a bool';
-
-          expect(
-            () => ErrorPayload.fromJson(withWrongType),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
-      );
-
-      test(
-        'fromJson accepts a payload with the details key entirely absent',
-        () {
-          final JsonMap withoutDetailsKey = _readPayload(
-            'errors/error-rate-limited.json',
-          )..remove('details');
-
-          final ErrorPayload payload = ErrorPayload.fromJson(withoutDetailsKey);
-
-          expect(payload.details, isNull);
-        },
-      );
-
-      test('fromJson decodes a populated details object', () {
-        // No canonical fixture carries a populated `details` object yet, so this hand-builds the
-        // one case none of the shared error fixtures cover.
-        final JsonMap withDetails = _readPayload(
+    test(
+      'Method fromJson rejects a payload with the wrong type for a required key',
+      () {
+        final JsonMap withWrongType = _readPayload(
           'errors/error-rate-limited.json',
         );
-        withDetails['details'] = <String, dynamic>{'retryAfterMs': 500};
+        withWrongType['retryable'] = 'not a bool';
 
-        final ErrorPayload payload = ErrorPayload.fromJson(withDetails);
+        expect(
+          () => ErrorPayload.fromJson(withWrongType),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-        expect(payload.details, <String, dynamic>{'retryAfterMs': 500});
-      });
+    test(
+      'Method fromJson accepts a payload with the details key entirely absent',
+      () {
+        final JsonMap withoutDetailsKey = _readPayload(
+          'errors/error-rate-limited.json',
+        )..remove('details');
+
+        final ErrorPayload payload = ErrorPayload.fromJson(withoutDetailsKey);
+
+        expect(payload.details, isNull);
+      },
+    );
+
+    test('Method fromJson decodes a populated details object', () {
+      // No canonical fixture carries a populated `details` object yet, so this hand-builds the
+      // one case none of the shared error fixtures cover.
+      final JsonMap withDetails = _readPayload(
+        'errors/error-rate-limited.json',
+      );
+      withDetails['details'] = <String, dynamic>{'retryAfterMs': 500};
+
+      final ErrorPayload payload = ErrorPayload.fromJson(withDetails);
+
+      expect(payload.details, <String, dynamic>{'retryAfterMs': 500});
     });
   });
 }

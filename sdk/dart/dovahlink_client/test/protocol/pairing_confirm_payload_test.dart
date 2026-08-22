@@ -13,19 +13,21 @@ JsonMap _readPayload(String relativePath) {
   return fixture['payload'] as JsonMap;
 }
 
+/// Runs pairing-confirm encoding behavior tests.
 void main() {
-  group('PairingConfirmPayload', () {
-    group('methods', () {
-      test('toJson matches the canonical fixture with a display name', () {
-        const PairingConfirmPayload payload = PairingConfirmPayload(
-          code: '123456',
-          displayName: 'My PC',
-        );
+  group('Method toJson behaves correctly', () {
+    test('Method toJson matches the canonical fixture with a display name', () {
+      const PairingConfirmPayload payload = PairingConfirmPayload(
+        code: '123456',
+        displayName: 'My PC',
+      );
 
-        expect(payload.toJson(), _readPayload('pairing/pairing-confirm.json'));
-      });
+      expect(payload.toJson(), _readPayload('pairing/pairing-confirm.json'));
+    });
 
-      test('toJson includes displayName as null, not absent, when omitted', () {
+    test(
+      'Method toJson includes displayName as null, not absent, when omitted',
+      () {
         const PairingConfirmPayload payload = PairingConfirmPayload(
           code: '123456',
         );
@@ -34,7 +36,7 @@ void main() {
 
         expect(json.containsKey('displayName'), isTrue);
         expect(json['displayName'], isNull);
-      });
-    });
+      },
+    );
   });
 }
