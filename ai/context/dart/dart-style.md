@@ -94,6 +94,14 @@ Follow the shared documentation rules in `ai/context/common.md`.
   not include the class name. Tests for actions, selectors, reducers, middleware, widgets, and
   protocol fixtures target the specific action, selector, entry point, widget behavior, or fixture
   behavior being proven rather than the whole type.
+- When the same callable entry-point name appears for multiple declaring types in one test file,
+  qualify every colliding group and its test descriptions with `in <DeclaringType>` to keep the
+  output unambiguous. Put the qualification after the entry-point name and before the expected
+  behavior, for example `Method fromOutcome in PairingRenotifyStatus behaves correctly` and
+  `Method fromOutcome in PairingRenotifyStatus maps every valid outcome`. Apply the same pattern
+  to other labels (`Property`, `Behavior`, and so on); use the declaring type's normal symbol name
+  for an enum, class, extension type, or other declaration. Top-level functions and fixture
+  builders keep their unique function names because they have no declaring type to disambiguate.
 - Keep every test inside one group and do not nest groups. Test descriptions name the method,
   action, selector, or behavior and state the expected result or side effect.
 - Place top-level test helpers and fixture builders before `main()`. Keep a helper local to
