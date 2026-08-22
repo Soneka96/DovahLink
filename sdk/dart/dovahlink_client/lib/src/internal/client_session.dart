@@ -28,6 +28,48 @@ class ClientSession
         SessionConnector,
         SessionTrustWriter,
         MessageReceiver {
+  /// The transport this session connects, sends over, and closes.
+  final DovahLinkTransport _transport;
+
+  /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the accessor
+  /// composition roots use to hand this same instance to other collaborators (for example
+  /// `AuthenticationService`/`PairingService`) that need to send requests without depending on
+  /// this whole session.
+  late final RequestManager _requestManager;
+
+  /// Owns envelope decoding, correlation, and unsolicited routing.
+  late final MessageRouter _messageRouter;
+
+  /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
+  /// connection is being received for. The SDK owns exactly one of these at a time, per
+  /// `ai/context/sdk/architecture.md`'s "Inbound message handling".
+  StreamSubscription<String>? _messageSubscription;
+
+  /// Identifies the connection [_messageSubscription] currently belongs to. Incremented every
+  /// time that connection is torn down, so a callback still in flight from an old subscription
+  /// can recognize it no longer belongs to the current connection and must not mutate this
+  /// session's state -- teardown itself still awaits full cancellation before a new subscription
+  /// is established; this is defense in depth on top of that ordering, not a substitute for it.
+  int _connectionGeneration = 0;
+
+  /// Serializes connect, close, and invalidation cleanup so an old transport close can never run
+  /// after a newer connection has been established.
+  Future<void> _lifecycleTail = Future<void>.value();
+
+  /// The current connection lifecycle phase.
+  DovahLinkConnectionState _connectionState =
+      DovahLinkConnectionState.disconnected;
+
+  /// The current trust standing, or `null` before [admitSession] is called.
+  DovahLinkTrustState? _trustState;
+
+  /// The server-issued session identifier, or `null` before [admitSession] is called.
+  String? _sessionId;
+
+  /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
+  /// `null` otherwise.
+  AdministrativeInvalidationReason? _invalidationReason;
+
   /// Creates a client session over [transport], timed per [timeoutDurations]. Builds its own
   /// [RequestManager] and [MessageRouter] in this constructor's body -- after [_transport] is
   /// assigned, so `this` is available to hand them as their [SessionContext] and
@@ -62,47 +104,9 @@ class ClientSession
        _requestManager = requestManager,
        _messageRouter = messageRouter;
 
-  /// The transport this session connects, sends over, and closes.
-  final DovahLinkTransport _transport;
-
-  /// Owns pending requests, timeouts, and retry behavior; see [requestManager] for the accessor
-  /// composition roots use to hand this same instance to other collaborators (for example
-  /// `AuthenticationService`/`PairingService`) that need to send requests without depending on
-  /// this whole session.
-  late final RequestManager _requestManager;
-
-  /// Owns envelope decoding, correlation, and unsolicited routing.
-  late final MessageRouter _messageRouter;
-
   /// The [RequestManager] this session owns, exposed so a composition root can hand the same
   /// instance to other collaborators that need to send requests directly.
   RequestManager get requestManager => _requestManager;
-
-  /// The subscription currently reading [_transport]'s inbound message stream, or `null` when no
-  /// connection is being received for. The SDK owns exactly one of these at a time, per
-  /// `ai/context/sdk/architecture.md`'s "Inbound message handling".
-  StreamSubscription<String>? _messageSubscription;
-
-  /// Identifies the connection [_messageSubscription] currently belongs to. Incremented every
-  /// time that connection is torn down, so a callback still in flight from an old subscription
-  /// can recognize it no longer belongs to the current connection and must not mutate this
-  /// session's state -- teardown itself still awaits full cancellation before a new subscription
-  /// is established; this is defense in depth on top of that ordering, not a substitute for it.
-  int _connectionGeneration = 0;
-
-  /// The current connection lifecycle phase.
-  DovahLinkConnectionState _connectionState =
-      DovahLinkConnectionState.disconnected;
-
-  /// The current trust standing, or `null` before [admitSession] is called.
-  DovahLinkTrustState? _trustState;
-
-  /// The server-issued session identifier, or `null` before [admitSession] is called.
-  String? _sessionId;
-
-  /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
-  /// `null` otherwise.
-  AdministrativeInvalidationReason? _invalidationReason;
 
   /// Implements [SessionConnector.connectionState].
   @override
@@ -123,7 +127,9 @@ class ClientSession
 
   /// Implements [SessionConnector.connect].
   @override
-  Future<void> connect(Uri uri) async {
+  Future<void> connect(Uri uri) => _runLifecycleOperation(() async {
+    _connectionGeneration++;
+    _invalidationReason = null;
     _connectionState = DovahLinkConnectionState.connecting;
     try {
       await _transport.connect(uri);
@@ -133,7 +139,7 @@ class ClientSession
       _connectionState = DovahLinkConnectionState.disconnected;
       throw DovahLinkConnectionException('Failed to connect to $uri: $error');
     }
-  }
+  });
 
   /// Implements [SessionConnector.disconnect].
   @override
@@ -194,6 +200,10 @@ class ClientSession
   /// [_handleReceiveFailure]'s generation/state guard.
   @override
   void onSessionInvalidated(AdministrativeInvalidationReason reason) {
+    if (_connectionState ==
+        DovahLinkConnectionState.administrativelyInvalidated) {
+      return;
+    }
     if (_sessionId == null || _trustState == null) {
       unawaited(
         _teardownConnection(
@@ -203,6 +213,7 @@ class ClientSession
                 'Received session_invalidated with no authenticated session.',
             retryable: false,
           ),
+          orphanRetrySafeOperations: false,
         ),
       );
       return;
@@ -210,6 +221,8 @@ class ClientSession
 
     _invalidationReason = reason;
     _connectionState = DovahLinkConnectionState.administrativelyInvalidated;
+    _sessionId = null;
+    _trustState = null;
     _connectionGeneration++;
 
     _requestManager.failAll(
@@ -219,26 +232,34 @@ class ClientSession
       orphanRetrySafeOperations: false,
     );
 
-    unawaited(_closeConnectionAfterInvalidation());
+    unawaited(_closeConnectionAfterInvalidation(_connectionGeneration));
   }
 
   /// Best-effort subscription cancellation and transport close for [onSessionInvalidated],
   /// matching [disconnect]'s own tolerance for a close that cannot complete cleanly.
-  Future<void> _closeConnectionAfterInvalidation() async {
-    final StreamSubscription<String>? subscription = _messageSubscription;
-    _messageSubscription = null;
-    if (subscription != null) {
+  Future<void> _closeConnectionAfterInvalidation(int generation) async {
+    await _runLifecycleOperation(() async {
+      if (generation != _connectionGeneration) {
+        return;
+      }
+      final StreamSubscription<String>? subscription = _messageSubscription;
+      _messageSubscription = null;
+      if (subscription != null) {
+        try {
+          await subscription.cancel();
+        } on Object {
+          // Best-effort, matching disconnect()'s existing tolerance.
+        }
+      }
+      if (generation != _connectionGeneration) {
+        return;
+      }
       try {
-        await subscription.cancel();
+        await _transport.close();
       } on Object {
         // Best-effort, matching disconnect()'s existing tolerance.
       }
-    }
-    try {
-      await _transport.close();
-    } on Object {
-      // Best-effort, matching disconnect()'s existing tolerance.
-    }
+    });
   }
 
   /// Ensures exactly one subscription is reading [_transport]'s inbound message stream for the
@@ -315,7 +336,7 @@ class ClientSession
   Future<void> _teardownConnection(
     Exception reason, {
     bool orphanRetrySafeOperations = true,
-  }) async {
+  }) => _runLifecycleOperation(() async {
     if (_connectionState ==
         DovahLinkConnectionState.administrativelyInvalidated) {
       return;
@@ -346,5 +367,20 @@ class ClientSession
       reason,
       orphanRetrySafeOperations: orphanRetrySafeOperations,
     );
+  });
+
+  /// Runs one transport lifecycle operation after all earlier lifecycle operations finish.
+  Future<void> _runLifecycleOperation(Future<void> Function() operation) {
+    final Future<void> previous = _lifecycleTail;
+    final Completer<void> completion = Completer<void>();
+    _lifecycleTail = completion.future;
+    return () async {
+      try {
+        await previous;
+        await operation();
+      } finally {
+        completion.complete();
+      }
+    }();
   }
 }

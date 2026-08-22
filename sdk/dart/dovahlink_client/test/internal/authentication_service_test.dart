@@ -34,9 +34,11 @@ Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
   String bridgeVersion = '1.0',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
+  String? clientId = 'client-1',
 }) => buildEnvelope(
   messageType: ProtocolMessageType.helloAck,
   sessionId: sessionId,
+  clientId: clientId,
   payload: <String, dynamic>{
     'bridgeVersion': bridgeVersion,
     'clientIdentityKind': kind == ClientIdentityKind.paired

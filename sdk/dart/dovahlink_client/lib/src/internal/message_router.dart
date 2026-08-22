@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
@@ -16,6 +15,13 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// itself (a correlated reply, an authoritative `session_invalidated` push, a protocol violation)
 /// is reported to [ConnectionLifecycleReporter] or resolved through [RequestManager] instead.
 class MessageRouter {
+  /// Where a correlated reply is resolved.
+  final RequestManager _requestManager;
+
+  /// Where an unsolicited `session_invalidated` push and every protocol violation this router
+  /// detects are reported.
+  final ConnectionLifecycleReporter _reporter;
+
   /// Creates a message router resolving correlated replies through [requestManager] and
   /// reporting everything else to [reporter].
   MessageRouter({
@@ -23,13 +29,6 @@ class MessageRouter {
     required ConnectionLifecycleReporter reporter,
   }) : _requestManager = requestManager,
        _reporter = reporter;
-
-  /// Where a correlated reply is resolved.
-  final RequestManager _requestManager;
-
-  /// Where an unsolicited `session_invalidated` push and every protocol violation this router
-  /// detects are reported.
-  final ConnectionLifecycleReporter _reporter;
 
   /// Decodes and routes one inbound message. Matches a correlated reply to its pending operation
   /// strictly by `correlationId`/`messageId` through [RequestManager.resolveReply]; routes an
@@ -44,8 +43,8 @@ class MessageRouter {
       // A protocol-level anomaly on an otherwise-live connection, not ordinary connectivity
       // loss -- never assumed safe to retry, unlike a send failure/timeout/socket drop.
       _reporter.onProtocolViolation(
-        DovahLinkConnectionException(
-          'Received malformed JSON from the bridge: $error',
+        _malformedMessageException(
+          ProtocolFormatException('Invalid protocol envelope: $error'),
         ),
         orphanRetrySafeOperations: false,
       );
@@ -102,7 +101,7 @@ class MessageRouter {
     } on ProtocolFormatException catch (error) {
       _reporter.onProtocolViolation(
         _malformedMessageException(error),
-        orphanRetrySafeOperations: true,
+        orphanRetrySafeOperations: false,
       );
     }
   }

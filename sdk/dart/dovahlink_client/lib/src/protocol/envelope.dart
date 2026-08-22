@@ -27,7 +27,145 @@ class Envelope {
   /// Decodes and validates one protocol envelope.
   factory Envelope.fromJson(JsonMap json) {
     try {
-      return _$EnvelopeFromJson(json);
+      final Envelope envelope = _$EnvelopeFromJson(json);
+      if (envelope.messageId.isEmpty) {
+        throw const ProtocolFormatException('messageId must not be empty.');
+      }
+      if (envelope.correlationId?.isEmpty ?? false) {
+        throw const ProtocolFormatException(
+          'correlationId must be null or non-empty.',
+        );
+      }
+      if (envelope.messageType == ProtocolMessageType.helloAck &&
+          envelope.correlationId == null) {
+        throw const ProtocolFormatException(
+          'correlationId must be present for hello_ack.',
+        );
+      }
+      if (envelope.messageType == ProtocolMessageType.hello &&
+          envelope.correlationId != null) {
+        throw const ProtocolFormatException(
+          'correlationId must be null for hello.',
+        );
+      }
+      if (envelope.messageType == ProtocolMessageType.sessionInvalidated &&
+          envelope.correlationId != null) {
+        throw const ProtocolFormatException(
+          'correlationId must be null for session_invalidated.',
+        );
+      }
+      final bool correlationIsRequired = switch (envelope.messageType) {
+        ProtocolMessageType.helloAck ||
+        ProtocolMessageType.pairingStatus ||
+        ProtocolMessageType.pairingOutcome ||
+        ProtocolMessageType.renameOutcome ||
+        ProtocolMessageType.subscriptionAck ||
+        ProtocolMessageType.stateSnapshot ||
+        ProtocolMessageType.pong => true,
+        _ => false,
+      };
+      final bool correlationMustBeNull = switch (envelope.messageType) {
+        ProtocolMessageType.hello ||
+        ProtocolMessageType.capabilities ||
+        ProtocolMessageType.stateEvent ||
+        ProtocolMessageType.sessionInvalidated ||
+        ProtocolMessageType.ping ||
+        ProtocolMessageType.pairingRequest ||
+        ProtocolMessageType.pairingConfirm ||
+        ProtocolMessageType.pairingAck ||
+        ProtocolMessageType.pairingRenotify ||
+        ProtocolMessageType.pairingCancel ||
+        ProtocolMessageType.renameRequest ||
+        ProtocolMessageType.subscribe ||
+        ProtocolMessageType.snapshotRequest => true,
+        _ => false,
+      };
+      if (correlationMustBeNull && envelope.correlationId != null) {
+        throw ProtocolFormatException(
+          'correlationId must be null for ${envelope.messageType}.',
+        );
+      }
+      if (correlationIsRequired && envelope.correlationId == null) {
+        throw ProtocolFormatException(
+          'correlationId must be present for ${envelope.messageType}.',
+        );
+      }
+      final String? sessionId = envelope.sessionId;
+      switch (envelope.messageType) {
+        case ProtocolMessageType.hello:
+          if (sessionId != null) {
+            throw const ProtocolFormatException(
+              'sessionId must be null for hello.',
+            );
+          }
+        case ProtocolMessageType.error:
+          if (sessionId?.isEmpty ?? false) {
+            throw const ProtocolFormatException(
+              'sessionId must be null or non-empty for error.',
+            );
+          }
+        default:
+          if (sessionId == null || sessionId.isEmpty) {
+            throw ProtocolFormatException(
+              'sessionId must be non-empty for ${envelope.messageType}.',
+            );
+          }
+      }
+      if (envelope.bridgeInstanceId?.isEmpty ?? false) {
+        throw const ProtocolFormatException(
+          'bridgeInstanceId must be null or non-empty.',
+        );
+      }
+      if (envelope.playContextId?.isEmpty ?? false) {
+        throw const ProtocolFormatException(
+          'playContextId must be null or non-empty.',
+        );
+      }
+      if (envelope.clientId?.isEmpty ?? false) {
+        throw const ProtocolFormatException(
+          'clientId must be null or non-empty.',
+        );
+      }
+      final bool clientIdIsRequired = switch (envelope.messageType) {
+        ProtocolMessageType.pairingRequest ||
+        ProtocolMessageType.pairingConfirm ||
+        ProtocolMessageType.pairingAck ||
+        ProtocolMessageType.pairingRenotify ||
+        ProtocolMessageType.pairingCancel ||
+        ProtocolMessageType.renameRequest ||
+        ProtocolMessageType.subscribe ||
+        ProtocolMessageType.snapshotRequest ||
+        ProtocolMessageType.ping => true,
+        _ => false,
+      };
+      if (envelope.messageType == ProtocolMessageType.helloAck &&
+          (envelope.clientId == null || envelope.clientId!.isEmpty)) {
+        throw const ProtocolFormatException(
+          'clientId must be non-empty for hello_ack.',
+        );
+      }
+      if (clientIdIsRequired && envelope.clientId == null) {
+        throw ProtocolFormatException(
+          'clientId must be non-empty for ${envelope.messageType}.',
+        );
+      }
+      if (envelope.messageType != ProtocolMessageType.capabilities &&
+          !clientIdIsRequired &&
+          envelope.messageType != ProtocolMessageType.helloAck &&
+          envelope.clientId != null) {
+        throw ProtocolFormatException(
+          'clientId must be null for ${envelope.messageType}.',
+        );
+      }
+      if (envelope.messageType == ProtocolMessageType.hello &&
+          (envelope.bridgeInstanceId != null ||
+              envelope.playContextId != null ||
+              envelope.clientId != null)) {
+        throw const ProtocolFormatException(
+          'hello identity fields must be null.',
+        );
+      }
+      return envelope;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid protocol envelope: $error');
     }
@@ -41,7 +179,8 @@ class Envelope {
   @JsonKey(required: true)
   final String messageId;
 
-  /// The server-issued session identifier, when available.
+  /// The server-issued session identifier. It is `null` only for `hello` and pre-session `error`
+  /// messages; every other message requires a non-empty value.
   @JsonKey(required: true)
   final String? sessionId;
 

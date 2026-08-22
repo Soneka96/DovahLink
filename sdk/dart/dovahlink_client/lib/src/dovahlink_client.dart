@@ -217,11 +217,9 @@ class DovahLinkClient {
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are
   /// untouched -- trust survives a disconnect. Fails any operation still awaiting a reply, and any
   /// operation an earlier transport loss orphaned for retry, instead of leaving it to hang
-  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. A no-op
-  /// when [connectionState] is already
-  /// [DovahLinkConnectionState.disconnected]/[DovahLinkConnectionState.administrativelyInvalidated] --
-  /// an administrative invalidation's typed reason is preserved, not reset to a generic
-  /// disconnect.
+  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Repeated
+  /// calls remain safe because transport close and pending-operation failure are idempotent; an
+  /// administrative invalidation's typed reason is preserved, not reset to generic disconnect.
   Future<void> disconnect() => _session.disconnect();
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so

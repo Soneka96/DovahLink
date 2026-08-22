@@ -102,6 +102,59 @@ void main() {
     );
 
     test(
+      'Method connect waits for invalidation cleanup before opening a new transport',
+      () async {
+        final Completer<void> closeCompleter = Completer<void>();
+        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+
+        session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+        final Future<void> reconnect = session.connect(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await pumpEventQueue();
+
+        verifyNever(
+          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        );
+        closeCompleter.complete();
+        await reconnect;
+
+        verify(
+          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method connect waits for ordinary disconnect cleanup before opening a new transport',
+      () async {
+        final Completer<void> closeCompleter = Completer<void>();
+        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+
+        final Future<void> disconnect = session.disconnect();
+        final Future<void> reconnect = session.connect(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await pumpEventQueue();
+
+        verifyNever(
+          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        );
+        closeCompleter.complete();
+        await disconnect;
+        await reconnect;
+
+        verify(
+          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        ).called(1);
+      },
+    );
+
+    test(
       'Method connect resets to disconnected and throws DovahLinkConnectionException on failure',
       () async {
         when(
@@ -141,6 +194,25 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         expect(session.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Method connect clears an old invalidation reason for a fresh session',
+      () async {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+        session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+        await pumpEventQueue();
+
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+
+        expect(session.connectionState, DovahLinkConnectionState.connected);
+        expect(session.invalidationReason, isNull);
+        expect(session.currentSessionId, isNull);
+        expect(session.currentTrustState, isNull);
       },
     );
   });
@@ -295,7 +367,7 @@ void main() {
         expect(session.connectionState, DovahLinkConnectionState.disconnected);
         expect(session.invalidationReason, isNull);
         verify(
-          () => requestManager.failAll(any(), orphanRetrySafeOperations: true),
+          () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
         ).called(1);
       },
     );
@@ -320,6 +392,8 @@ void main() {
           session.invalidationReason,
           AdministrativeInvalidationReason.blocked,
         );
+        expect(session.currentSessionId, isNull);
+        expect(session.currentTrustState, isNull);
         verify(
           () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
         ).called(1);
@@ -351,6 +425,32 @@ void main() {
           AdministrativeInvalidationReason.revoked,
         );
         // Only the one failAll from onSessionInvalidated -- the later onUnhealthy is a no-op.
+        verify(
+          () => requestManager.failAll(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onSessionInvalidated ignores a duplicate event after teardown',
+      () async {
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+        session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+        await pumpEventQueue();
+
+        session.onSessionInvalidated(AdministrativeInvalidationReason.blocked);
+        await pumpEventQueue();
+
+        expect(
+          session.invalidationReason,
+          AdministrativeInvalidationReason.revoked,
+        );
         verify(
           () => requestManager.failAll(
             any(),

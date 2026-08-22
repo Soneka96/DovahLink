@@ -221,9 +221,9 @@ void main() {
     client = DovahLinkClient(transport: transport, storage: storage);
   });
 
-  group('connect', () {
+  group('Method connect behaves correctly', () {
     test(
-      'reaches connected state and forwards the URI to the transport',
+      'Method connect reaches connected state and forwards the URI to the transport',
       () async {
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
 
@@ -235,9 +235,9 @@ void main() {
     );
   });
 
-  group('hello', () {
+  group('Method hello behaves correctly', () {
     test(
-      'an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
+      'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(_rawCapabilities());
@@ -259,7 +259,7 @@ void main() {
     );
 
     test(
-      'a rejected hello throws DovahLinkProtocolException and leaves state unset',
+      'Method hello a rejected hello throws DovahLinkProtocolException and leaves state unset',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -297,7 +297,7 @@ void main() {
     );
 
     test(
-      'the original rejection still surfaces even when cleanup itself fails',
+      'Method hello the original rejection still surfaces even when cleanup itself fails',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -328,11 +328,11 @@ void main() {
       },
     );
 
-    test('a malformed message arriving after hello succeeds still resets session state, via the '
+    test('Method hello a malformed message arriving after hello succeeds still resets session state, via the '
         'background receiver', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       // hello_ack resolves hello() as soon as it is correlated -- hello() does not wait for
-      // capabilities. Queuing malformed JSON in its place proves the persistent receiver's own
+      // capabilities. Queuing a malformed protocol message in its place proves the persistent receiver's own
       // cleanup covers state set moments earlier in this same call, not just the "never got
       // that far" case above -- even though it now runs after hello() has already returned.
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
@@ -351,7 +351,7 @@ void main() {
     });
 
     test(
-      'a freshly generated clientId is still persisted even when the hello_ack is rejected',
+      'Method hello a freshly generated clientId is still persisted even when the hello_ack is rejected',
       () async {
         transport.queueResponse(
           _rawFixture('errors/error-unauthenticated-invalid-token.json'),
@@ -366,13 +366,19 @@ void main() {
     );
 
     test(
-      'a malformed JSON response throws DovahLinkConnectionException',
+      'Method hello a malformed JSON response throws malformed_message',
       () async {
         transport.queueResponse('not valid json');
 
         await expectLater(
           client.hello(),
-          throwsA(isA<DovahLinkConnectionException>()),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
         );
         // A transport-level failure leaves the socket just as unusable as a protocol rejection;
         // the reset must cover both, not only DovahLinkProtocolException.
@@ -381,22 +387,25 @@ void main() {
     );
   });
 
-  group('authenticate', () {
-    test('delegates to connect and hello when nothing is rejected', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
+  group('Method authenticate behaves correctly', () {
+    test(
+      'Method authenticate delegates to connect and hello when nothing is rejected',
+      () async {
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
 
-      final HelloResult result = await client.authenticate(
-        Uri.parse('ws://127.0.0.1:58231/'),
-      );
+        final HelloResult result = await client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
 
-      expect(result.trustState, DovahLinkTrustState.unpaired);
-      expect(result.recoveredFromRejectedCredential, isNull);
-      expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
-    });
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+        expect(result.recoveredFromRejectedCredential, isNull);
+        expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
+      },
+    );
 
     test(
-      'reconnects after disconnect even though the client was last trusted',
+      'Method authenticate reconnects after disconnect even though the client was last trusted',
       () async {
         transport.queueResponse(
           jsonEncode(<String, dynamic>{
@@ -441,9 +450,9 @@ void main() {
     );
   });
 
-  group('requestPairing', () {
+  group('Method requestPairing behaves correctly', () {
     test(
-      'reports available with expiresInSeconds from the real fixture',
+      'Method requestPairing reports available with expiresInSeconds from the real fixture',
       () async {
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
@@ -456,7 +465,7 @@ void main() {
       },
     );
 
-    test('a transport failure mid-request resets connection state, not just hello\'s, for a '
+    test('Method requestPairing a transport failure mid-request resets connection state, not just hello\'s, for a '
         'non-retry-safe operation', () async {
       // pairing_confirm is not retrySafe (unlike pairing_request): a send failure must fail it
       // immediately rather than parking it to retry after a reconnect -- see the "retry-safe
@@ -473,35 +482,41 @@ void main() {
     });
   });
 
-  group('requestPairingRenotify', () {
-    test('reports renotified from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-renotified.json'),
-      );
-
-      final PairingRenotifyResult result = await client
-          .requestPairingRenotify();
-
-      expect(result.status, PairingRenotifyStatus.renotified);
-      expect(result.retryAfterSeconds, isNull);
-    });
-  });
-
-  group('cancelPairing', () {
-    test('reports cancelled from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-cancelled.json'),
-      );
-
-      final PairingCancelOutcome outcome = await client.cancelPairing();
-
-      expect(outcome.status, PairingCancelStatus.cancelled);
-    });
-  });
-
-  group('confirmPairingCode', () {
+  group('Method requestPairingRenotify behaves correctly', () {
     test(
-      'returns the issued credential and persists it with CONFIRMING recovery',
+      'Method requestPairingRenotify reports renotified from the real fixture',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-renotified.json'),
+        );
+
+        final PairingRenotifyResult result = await client
+            .requestPairingRenotify();
+
+        expect(result.status, PairingRenotifyStatus.renotified);
+        expect(result.retryAfterSeconds, isNull);
+      },
+    );
+  });
+
+  group('Method cancelPairing behaves correctly', () {
+    test(
+      'Method cancelPairing reports cancelled from the real fixture',
+      () async {
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-cancelled.json'),
+        );
+
+        final PairingCancelOutcome outcome = await client.cancelPairing();
+
+        expect(outcome.status, PairingCancelStatus.cancelled);
+      },
+    );
+  });
+
+  group('Method confirmPairingCode behaves correctly', () {
+    test(
+      'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
       () async {
         await storage.save(const PersistedClientState(clientId: 'client-1'));
         transport.queueResponse(
@@ -522,7 +537,7 @@ void main() {
     );
 
     test(
-      'leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
+      'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -547,9 +562,9 @@ void main() {
     );
   });
 
-  group('acknowledgeTrustedCredential', () {
+  group('Method acknowledgeTrustedCredential behaves correctly', () {
     test(
-      'sets trustState to trusted and clears recovery to none on a trusted outcome',
+      'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -572,7 +587,7 @@ void main() {
     );
 
     test(
-      'persists the previously stored credential, not the method argument, on success',
+      'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -595,9 +610,9 @@ void main() {
     );
   });
 
-  group('recoverPendingPairing', () {
+  group('Method recoverPendingPairing behaves correctly', () {
     test(
-      'leaves CONFIRMING untouched when the retry fails for another reason',
+      'Method recoverPendingPairing leaves CONFIRMING untouched when the retry fails for another reason',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -610,7 +625,13 @@ void main() {
 
         await expectLater(
           client.recoverPendingPairing(),
-          throwsA(isA<DovahLinkConnectionException>()),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
         );
 
         final PersistedClientState stored = await storage.load();
@@ -620,24 +641,27 @@ void main() {
     );
   });
 
-  group('disconnect', () {
-    test('closes the transport and resets session state', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
+  group('Method disconnect behaves correctly', () {
+    test(
+      'Method disconnect closes the transport and resets session state',
+      () async {
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(_rawCapabilities());
+        await client.hello();
 
-      await client.disconnect();
+        await client.disconnect();
 
-      expect(transport.closeCalled, isTrue);
-      expect(client.connectionState, DovahLinkConnectionState.disconnected);
-      expect(client.trustState, isNull);
-      expect(client.sessionId, isNull);
-    });
+        expect(transport.closeCalled, isTrue);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+      },
+    );
   });
 
-  group('forgetCredential', () {
+  group('Method forgetCredential behaves correctly', () {
     test(
-      'a later hello presents unpaired instead of the forgotten credential',
+      'Method forgetCredential a later hello presents unpaired instead of the forgotten credential',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -659,7 +683,7 @@ void main() {
     );
   });
 
-  group('inbound message router', () {
+  group('Behavior inbound message routing behaves correctly', () {
     test(
       'two sequential requests each receive their own correctly correlated reply',
       () async {
@@ -752,7 +776,7 @@ void main() {
     );
   });
 
-  group('session_invalidated', () {
+  group('Behavior session_invalidated handling behaves correctly', () {
     test(
       'exposes the typed invalidationReason decoded from the real wire value',
       () async {
@@ -843,7 +867,7 @@ void main() {
     });
   });
 
-  group('retry-safe operations across reconnect', () {
+  group('Behavior retry-safe operations across reconnect behaves correctly', () {
     test('orphaned by ordinary transport loss, a retry-safe operation is retransmitted after '
         'reconnect and resolves the original caller', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
@@ -978,7 +1002,7 @@ void main() {
     );
   });
 
-  group('stale receiver isolation', () {
+  group('Behavior stale receiver isolation behaves correctly', () {
     test('a late reply correlated to an old, already-superseded generation is not consumed by a '
         'new pending operation', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
@@ -1039,7 +1063,7 @@ void main() {
     });
   });
 
-  group('request policy: timeout, and generalizing beyond one call site', () {
+  group('Behavior request policy timeout handling behaves correctly', () {
     test('a request against a real, never-connected transport surfaces '
         'DovahLinkConnectionException, not a raw transport error', () async {
       final DovahLinkClient realTransportClient = DovahLinkClient(
