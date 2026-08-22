@@ -187,7 +187,7 @@ class ClientSession
       unawaited(
         _teardownConnection(
           const DovahLinkProtocolException(
-            code: 'malformed_message',
+            code: ProtocolErrorCode.malformedMessage,
             message:
                 'Received session_invalidated with no authenticated session.',
             retryable: false,

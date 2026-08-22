@@ -8,7 +8,6 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
-
 import '../harness_process.dart';
 
 /// A valid 64-character hex-encoded developer token, matching the fixed value the `.NET`
@@ -46,7 +45,7 @@ void main() {
         await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
         final Envelope helloEnvelope = Envelope(
-          messageType: 'hello',
+          messageType: ProtocolMessageType.hello,
           messageId: 'test-hello-1',
           sessionId: null,
           correlationId: null,
@@ -67,7 +66,7 @@ void main() {
           jsonDecode(rawResponse) as Map<String, dynamic>,
         );
 
-        expect(response.messageType, 'hello_ack');
+        expect(response.messageType, ProtocolMessageType.helloAck);
         expect(response.sessionId, isNotEmpty);
         expect(response.correlationId, 'test-hello-1');
       },
@@ -205,7 +204,7 @@ void main() {
       addTearDown(subscription.cancel);
 
       final Envelope helloEnvelope = Envelope(
-        messageType: 'hello',
+        messageType: ProtocolMessageType.hello,
         messageId: 'test-hello-1',
         sessionId: null,
         correlationId: null,
@@ -236,8 +235,8 @@ void main() {
       final Envelope second = Envelope.fromJson(
         jsonDecode(received[1]) as Map<String, dynamic>,
       );
-      expect(first.messageType, 'hello_ack');
-      expect(second.messageType, 'capabilities');
+      expect(first.messageType, ProtocolMessageType.helloAck);
+      expect(second.messageType, ProtocolMessageType.capabilities);
     });
 
     test(
@@ -333,7 +332,7 @@ void main() {
           .listen(received.add);
       addTearDown(secondSubscription.cancel);
       final Envelope helloEnvelope = Envelope(
-        messageType: 'hello',
+        messageType: ProtocolMessageType.hello,
         messageId: 'test-hello-2',
         sessionId: null,
         correlationId: null,
@@ -359,7 +358,7 @@ void main() {
         Envelope.fromJson(
           jsonDecode(received.first) as Map<String, dynamic>,
         ).messageType,
-        'hello_ack',
+        ProtocolMessageType.helloAck,
       );
 
       // The old, already-once-listened-to stream is spent: a second listen on it is rejected

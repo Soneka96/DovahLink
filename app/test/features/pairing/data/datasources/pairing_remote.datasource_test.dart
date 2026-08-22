@@ -176,7 +176,7 @@ void main() {
     test('maps a protocol failure to NetworkFailure', () async {
       when(() => mockClient.authenticate(any())).thenThrow(
         const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'bad reply',
           retryable: false,
         ),
@@ -369,7 +369,7 @@ void main() {
     test('maps a protocol failure to NetworkFailure', () async {
       when(() => mockClient.requestPairing()).thenThrow(
         const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'bad reply',
           retryable: false,
         ),
@@ -479,7 +479,9 @@ void main() {
             code: any(named: 'code'),
             displayName: any(named: 'displayName'),
           ),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.pacingLimited));
+        ).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.pacingLimited),
+        );
 
         final Either<Failure, Unit> result = await dataSource
             .confirmPairingCode(code: '000000');
@@ -501,7 +503,9 @@ void main() {
             code: any(named: 'code'),
             displayName: any(named: 'displayName'),
           ),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.hardLimitReached));
+        ).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.hardLimitReached),
+        );
 
         final Either<Failure, Unit> result = await dataSource
             .confirmPairingCode(code: '000000');
@@ -509,10 +513,15 @@ void main() {
         expect(
           result,
           const Left<Failure, Unit>(
-            PairingFailure('Too many wrong attempts. Request a new pairing code.'),
+            PairingFailure(
+              'Too many wrong attempts. Request a new pairing code.',
+            ),
           ),
         );
-        expect(result.fold((f) => f, (_) => null), isNot(isA<PairingRetriableFailure>()));
+        expect(
+          result.fold((f) => f, (_) => null),
+          isNot(isA<PairingRetriableFailure>()),
+        );
       },
     );
 
@@ -527,7 +536,9 @@ void main() {
         ).thenAnswer((_) async => 'credential-1');
         when(
           () => mockClient.acknowledgeTrustedCredential('credential-1'),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.pendingNotFound));
+        ).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.pendingNotFound),
+        );
 
         final Either<Failure, Unit> result = await dataSource
             .confirmPairingCode(code: '123456');
@@ -569,7 +580,7 @@ void main() {
         ),
       ).thenThrow(
         const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'bad reply',
           retryable: false,
         ),
@@ -729,7 +740,7 @@ void main() {
     test('maps a protocol failure to NetworkFailure', () async {
       when(() => mockClient.requestPairingRenotify()).thenThrow(
         const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'bad reply',
           retryable: false,
         ),
@@ -787,9 +798,9 @@ void main() {
         // credentialIssued is a real PairingOutcome value, just never a valid reply to
         // pairing_renotify -- exercises _pairingOutcomeMessage's defensive fallback arm the same
         // way an unrecognized wire value used to, before PairingOutcome became a closed enum.
-        when(
-          () => mockClient.requestPairingRenotify(),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.credentialIssued));
+        when(() => mockClient.requestPairingRenotify()).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.credentialIssued),
+        );
 
         final Either<Failure, int?> result = await dataSource
             .requestPairingRenotify();
@@ -862,7 +873,7 @@ void main() {
     test('maps a protocol failure to NetworkFailure', () async {
       when(() => mockClient.cancelPairing()).thenThrow(
         const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'bad reply',
           retryable: false,
         ),

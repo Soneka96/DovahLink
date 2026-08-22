@@ -94,9 +94,9 @@ void main() {
 
       unawaited(
         manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         ),
       );
@@ -114,16 +114,16 @@ void main() {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _retrySafeUnpairedPolicy,
       );
       await pumpEventQueue();
       final String messageId = sentMessageId();
 
       final Envelope reply = Envelope(
-        messageType: 'pairing_status',
+        messageType: ProtocolMessageType.pairingStatus,
         messageId: 'reply-1',
         sessionId: 'session-1',
         correlationId: messageId,
@@ -142,9 +142,9 @@ void main() {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _retrySafeUnpairedPolicy,
       );
       await pumpEventQueue();
@@ -153,7 +153,7 @@ void main() {
       manager.resolveReply(
         messageId,
         Envelope(
-          messageType: 'error',
+          messageType: ProtocolMessageType.error,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: messageId,
@@ -174,7 +174,7 @@ void main() {
           isA<DovahLinkProtocolException>().having(
             (DovahLinkProtocolException e) => e.code,
             'code',
-            'unauthenticated',
+            ProtocolErrorCode.unauthenticated,
           ),
         ),
       );
@@ -186,9 +186,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -197,12 +197,12 @@ void main() {
         manager.resolveReply(
           messageId,
           Envelope(
-            messageType: 'error',
+            messageType: ProtocolMessageType.error,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: messageId,
             payload: const <String, dynamic>{
-              'code': 'bridge_unavailable',
+              'code': 'rate_limited',
               'message': 'try again',
               'retryable': true,
             },
@@ -231,9 +231,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -242,7 +242,7 @@ void main() {
         manager.resolveReply(
           messageId,
           Envelope(
-            messageType: 'pairing_outcome',
+            messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: messageId,
@@ -259,7 +259,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'unexpected_message_type',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -272,9 +272,9 @@ void main() {
       );
 
       final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _retrySafeUnpairedPolicy,
       );
       // Silence the "unhandled" warning for a Future this test deliberately never awaits --
@@ -300,9 +300,9 @@ void main() {
         );
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -312,7 +312,7 @@ void main() {
         verify(() => reporter.onUnhealthy(any())).called(1);
 
         final Envelope reply = Envelope(
-          messageType: 'pairing_status',
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: messageId,
@@ -335,9 +335,9 @@ void main() {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _retrySafeUnpairedPolicy,
       );
       pending.ignore();
@@ -358,7 +358,7 @@ void main() {
       final bool resolved = manager.resolveReply(
         'no-such-id',
         const Envelope(
-          messageType: 'pairing_status',
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: 'no-such-id',
@@ -380,9 +380,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'hello',
+          messageType: ProtocolMessageType.hello,
           payload: const <String, dynamic>{},
-          expectedType: 'hello_ack',
+          expectedType: ProtocolMessageType.helloAck,
           policy: _nonRetrySafePolicy,
         );
         await pumpEventQueue();
@@ -405,9 +405,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -431,9 +431,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -451,7 +451,7 @@ void main() {
         final String retryMessageId = sentMessageId();
 
         final Envelope reply = Envelope(
-          messageType: 'pairing_status',
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: retryMessageId,
@@ -471,9 +471,9 @@ void main() {
 
       manager
           .sendAndAwait(
-            messageType: 'pairing_request',
+            messageType: ProtocolMessageType.pairingRequest,
             payload: const <String, dynamic>{},
-            expectedType: 'pairing_status',
+            expectedType: ProtocolMessageType.pairingStatus,
             policy: _retrySafeUnpairedPolicy,
           )
           .ignore();
@@ -512,15 +512,15 @@ void main() {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> first = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _nonRetrySafePolicy,
       );
       final Future<Envelope> second = manager.sendAndAwait(
-        messageType: 'pairing_cancel',
+        messageType: ProtocolMessageType.pairingCancel,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_outcome',
+        expectedType: ProtocolMessageType.pairingOutcome,
         policy: _nonRetrySafePolicy,
       );
       await pumpEventQueue();
@@ -551,9 +551,9 @@ void main() {
         final RequestManager manager = buildManager();
 
         final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: 'pairing_request',
+          messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
-          expectedType: 'pairing_status',
+          expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
@@ -581,9 +581,9 @@ void main() {
       final RequestManager manager = buildManager();
 
       final Future<Envelope> pending = manager.sendAndAwait(
-        messageType: 'pairing_request',
+        messageType: ProtocolMessageType.pairingRequest,
         payload: const <String, dynamic>{},
-        expectedType: 'pairing_status',
+        expectedType: ProtocolMessageType.pairingStatus,
         policy: _retrySafeUnpairedPolicy,
       );
       await pumpEventQueue();

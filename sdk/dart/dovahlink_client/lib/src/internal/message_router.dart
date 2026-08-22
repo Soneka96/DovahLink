@@ -1,12 +1,13 @@
 import 'dart:convert';
 
-import '../dovahlink_client_exception.dart';
-import '../protocol/envelope.dart';
-import '../protocol/json_map.dart';
-import '../protocol/protocol_format_exception.dart';
-import '../protocol/session_invalidated_payload.dart';
-import 'connection_lifecycle_reporter.dart';
-import 'request_manager.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/session_invalidated_payload.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns envelope decoding, correlation, and unsolicited routing, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition" and "Inbound message handling". Does
@@ -62,7 +63,7 @@ class MessageRouter {
       // above for why this never orphans a retry-safe operation either.
       _reporter.onProtocolViolation(
         DovahLinkProtocolException(
-          code: 'unexpected_correlation_id',
+          code: ProtocolErrorCode.malformedMessage,
           message:
               'Received a reply correlated to $correlationId with no matching pending operation.',
           retryable: false,
@@ -75,16 +76,15 @@ class MessageRouter {
   /// Routes one unsolicited (`correlationId: null`) inbound message by its type.
   void _handleUnsolicited(Envelope envelope) {
     switch (envelope.messageType) {
-      case 'capabilities':
+      case ProtocolMessageType.capabilities:
         // Declared once after hello_ack; exposing it is out of this client's current scope.
         break;
-      case 'session_invalidated':
+      case ProtocolMessageType.sessionInvalidated:
         _handleSessionInvalidated(envelope);
         break;
       default:
-        // Forward-compatible: an unsolicited message type this client does not yet model is
-        // ignored rather than treated as a protocol violation -- only a non-null correlationId
-        // matching no pending operation fails closed.
+        // A known but currently unsupported unsolicited message is ignored. An unknown wire value
+        // was already rejected while decoding [Envelope].
         break;
     }
   }
@@ -111,7 +111,7 @@ class MessageRouter {
   DovahLinkProtocolException _malformedMessageException(
     ProtocolFormatException error,
   ) => DovahLinkProtocolException(
-    code: 'malformed_message',
+    code: ProtocolErrorCode.malformedMessage,
     message: error.message,
     retryable: false,
   );

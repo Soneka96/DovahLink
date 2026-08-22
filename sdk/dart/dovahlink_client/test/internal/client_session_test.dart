@@ -252,7 +252,7 @@ void main() {
 
       session.onProtocolViolation(
         const DovahLinkProtocolException(
-          code: 'unexpected_correlation_id',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'no match',
           retryable: false,
         ),
@@ -350,7 +350,7 @@ void main() {
 
         session.onProtocolViolation(
           const DovahLinkProtocolException(
-            code: 'unexpected_correlation_id',
+            code: ProtocolErrorCode.malformedMessage,
             message: 'no match',
             retryable: false,
           ),
@@ -477,9 +477,9 @@ void main() {
         await realSession.connect(Uri.parse('ws://127.0.0.1:58231/'));
         final Future<Envelope> pending = realSession.requestManager
             .sendAndAwait(
-              messageType: 'hello',
+              messageType: ProtocolMessageType.hello,
               payload: const <String, dynamic>{},
-              expectedType: 'hello_ack',
+              expectedType: ProtocolMessageType.helloAck,
               policy: const RequestPolicy(
                 retrySafe: false,
                 requiredTrustState: null,
@@ -509,7 +509,7 @@ void main() {
         );
 
         final Envelope response = await pending;
-        expect(response.messageType, 'hello_ack');
+        expect(response.messageType, ProtocolMessageType.helloAck);
       },
     );
   });

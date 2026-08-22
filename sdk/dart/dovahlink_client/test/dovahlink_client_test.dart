@@ -278,7 +278,7 @@ void main() {
                 .having(
                   (DovahLinkProtocolException e) => e.code,
                   'code',
-                  'unauthenticated',
+                  ProtocolErrorCode.unauthenticated,
                 )
                 .having(
                   (DovahLinkProtocolException e) => e.retryable,
@@ -316,7 +316,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'unauthenticated',
+              ProtocolErrorCode.unauthenticated,
             ),
           ),
         );
@@ -718,7 +718,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'unexpected_correlation_id',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );

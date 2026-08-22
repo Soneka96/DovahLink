@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Reads one canonical protocol fixture, relative to `protocol/fixtures/`.
 JsonMap _readFixture(String relativePath) {
@@ -25,7 +26,7 @@ void main() {
 
           final Envelope envelope = Envelope.fromJson(json);
 
-          expect(envelope.messageType, 'hello');
+          expect(envelope.messageType, ProtocolMessageType.hello);
           expect(envelope.sessionId, isNull);
           expect(envelope.bridgeInstanceId, isNull);
           expect(envelope.clientId, isNull);
@@ -40,7 +41,7 @@ void main() {
 
           final Envelope envelope = Envelope.fromJson(json);
 
-          expect(envelope.messageType, 'hello_ack');
+          expect(envelope.messageType, ProtocolMessageType.helloAck);
           expect(envelope.sessionId, 'session-1');
           expect(envelope.correlationId, 'message-hello-1');
           expect(envelope.bridgeInstanceId, 'bridge-1');
@@ -90,9 +91,59 @@ void main() {
         );
       });
 
+      test('fromJson rejects an unrecognized message type', () {
+        final JsonMap withUnknownMessageType = _readFixture(
+          'connection/hello.json',
+        )..['messageType'] = 'future_message';
+
+        expect(
+          () => Envelope.fromJson(withUnknownMessageType),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      });
+
+      test('maps every canonical message type to its exact wire value', () {
+        const Map<ProtocolMessageType, String> wireValues =
+            <ProtocolMessageType, String>{
+              ProtocolMessageType.hello: 'hello',
+              ProtocolMessageType.helloAck: 'hello_ack',
+              ProtocolMessageType.pairingRequest: 'pairing_request',
+              ProtocolMessageType.pairingStatus: 'pairing_status',
+              ProtocolMessageType.pairingConfirm: 'pairing_confirm',
+              ProtocolMessageType.pairingAck: 'pairing_ack',
+              ProtocolMessageType.pairingRenotify: 'pairing_renotify',
+              ProtocolMessageType.pairingCancel: 'pairing_cancel',
+              ProtocolMessageType.pairingOutcome: 'pairing_outcome',
+              ProtocolMessageType.renameRequest: 'rename_request',
+              ProtocolMessageType.renameOutcome: 'rename_outcome',
+              ProtocolMessageType.capabilities: 'capabilities',
+              ProtocolMessageType.subscribe: 'subscribe',
+              ProtocolMessageType.subscriptionAck: 'subscription_ack',
+              ProtocolMessageType.snapshotRequest: 'snapshot_request',
+              ProtocolMessageType.stateSnapshot: 'state_snapshot',
+              ProtocolMessageType.stateEvent: 'state_event',
+              ProtocolMessageType.error: 'error',
+              ProtocolMessageType.sessionInvalidated: 'session_invalidated',
+              ProtocolMessageType.ping: 'ping',
+              ProtocolMessageType.pong: 'pong',
+            };
+
+        expect(wireValues.keys, ProtocolMessageType.values);
+        for (final MapEntry<ProtocolMessageType, String> entry
+            in wireValues.entries) {
+          final JsonMap json = _readFixture('connection/hello.json')
+            ..['messageType'] = entry.value;
+
+          final Envelope envelope = Envelope.fromJson(json);
+
+          expect(envelope.messageType, entry.key);
+          expect(envelope.toJson()['messageType'], entry.value);
+        }
+      });
+
       test('toJson always includes the identity keys, value or null', () {
         const Envelope envelope = Envelope(
-          messageType: 'pong',
+          messageType: ProtocolMessageType.pong,
           messageId: 'message-1',
           sessionId: 'session-1',
           correlationId: null,
@@ -110,6 +161,7 @@ void main() {
         expect(json['bridgeInstanceId'], isNull);
         expect(json['playContextId'], isNull);
         expect(json['clientId'], isNull);
+        expect(json['messageType'], 'pong');
       });
     });
   });

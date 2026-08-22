@@ -1,7 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'envelope.g.dart';
 
@@ -34,7 +35,7 @@ class Envelope {
 
   /// The canonical message type.
   @JsonKey(required: true)
-  final String messageType;
+  final ProtocolMessageType messageType;
 
   /// The unique message identifier for the session.
   @JsonKey(required: true)

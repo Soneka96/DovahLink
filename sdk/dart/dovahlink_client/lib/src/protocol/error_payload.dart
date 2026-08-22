@@ -1,7 +1,8 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'error_payload.g.dart';
 
@@ -28,7 +29,7 @@ class ErrorPayload {
 
   /// The canonical machine-readable failure code. For branching; never [message].
   @JsonKey(required: true)
-  final String code;
+  final ProtocolErrorCode code;
 
   /// Diagnostic text. Never used for branching.
   @JsonKey(required: true)

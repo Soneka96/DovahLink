@@ -1,19 +1,19 @@
 import 'dart:math';
 
-import '../dovahlink_client_exception.dart';
-import '../hello_result.dart';
-import '../persistence/client_storage.dart';
-import '../persistence/persisted_client_state.dart';
-import '../protocol/envelope.dart';
-import '../protocol/hello_ack_payload.dart';
-import '../protocol/hello_payload.dart';
-import '../protocol/protocol_format_exception.dart';
-import '../request_policy.dart';
-import '../shared/enums.dart';
-import 'message_receiver.dart';
-import 'request_manager.dart';
-import 'session_connector.dart';
-import 'session_context.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/hello_ack_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns `hello`/authentication and credential-rejection recovery, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition". Resolves and persists this
@@ -94,9 +94,9 @@ class AuthenticationService {
     try {
       _messageReceiver.ensureReceiving();
       final Envelope response = await _requestManager.sendAndAwait(
-        messageType: 'hello',
+        messageType: ProtocolMessageType.hello,
         payload: payload.toJson(),
-        expectedType: 'hello_ack',
+        expectedType: ProtocolMessageType.helloAck,
         policy: const RequestPolicy(
           retrySafe: false,
           requiredTrustState: null,
@@ -115,7 +115,7 @@ class AuthenticationService {
         // is a malformed reply, not a state SessionConnector.admitSession's typed contract
         // accepts silently the way the pre-extraction field assignment once did.
         throw const DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'The bridge reported hello_ack with no sessionId.',
           retryable: false,
         );
@@ -241,22 +241,23 @@ class AuthenticationService {
         '${hexRange(8, 10)}-${hexRange(10, 16)}';
   }
 
-  /// Throws the SDK's public `DovahLinkProtocolException(code: 'malformed_message', retryable:
+  /// Throws the SDK's public `DovahLinkProtocolException(code: ProtocolErrorCode.malformedMessage, retryable:
   /// false)` translated from a DTO decode boundary failure, per
   /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
   Never _throwMalformedMessage(ProtocolFormatException error) =>
       throw DovahLinkProtocolException(
-        code: 'malformed_message',
+        code: ProtocolErrorCode.malformedMessage,
         message: error.message,
         retryable: false,
       );
 
   /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
   /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
-  CredentialRejectionReason? _credentialRejectionReason(String code) =>
-      switch (code) {
-        'revoked' => CredentialRejectionReason.revoked,
-        'unauthenticated' => CredentialRejectionReason.unrecognized,
-        _ => null,
-      };
+  CredentialRejectionReason? _credentialRejectionReason(
+    ProtocolErrorCode code,
+  ) => switch (code) {
+    ProtocolErrorCode.revoked => CredentialRejectionReason.revoked,
+    ProtocolErrorCode.unauthenticated => CredentialRejectionReason.unrecognized,
+    _ => null,
+  };
 }

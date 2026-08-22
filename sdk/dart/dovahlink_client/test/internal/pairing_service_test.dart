@@ -29,7 +29,7 @@ Envelope _outcomeEnvelope(
   String? credential,
   int? retryAfterSeconds,
 }) => Envelope(
-  messageType: 'pairing_outcome',
+  messageType: ProtocolMessageType.pairingOutcome,
   messageId: 'reply-1',
   sessionId: 'session-1',
   correlationId: 'req-1',
@@ -68,6 +68,7 @@ void main() {
   late PairingService service;
 
   setUpAll(() {
+    registerFallbackValue(ProtocolMessageType.pairingRequest);
     registerFallbackValue(
       const RequestPolicy(
         retrySafe: false,
@@ -108,7 +109,7 @@ void main() {
     test('ensures receiving and decodes the pairing_status reply', () async {
       stubSendAndAwait(
         const Envelope(
-          messageType: 'pairing_status',
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: 'req-1',
@@ -125,6 +126,14 @@ void main() {
       final PairingChallengeStatus status = await service.requestPairing();
 
       verify(() => messageReceiver.ensureReceiving()).called(1);
+      verify(
+        () => requestManager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRequest,
+          payload: any(named: 'payload'),
+          expectedType: ProtocolMessageType.pairingStatus,
+          policy: any(named: 'policy'),
+        ),
+      ).called(1);
       expect(status.availability, PairingAvailability.available);
       expect(status.expiresInSeconds, 60);
     });
@@ -132,7 +141,7 @@ void main() {
     test('decodes otherDevicePairing with a null expiresInSeconds', () async {
       stubSendAndAwait(
         const Envelope(
-          messageType: 'pairing_status',
+          messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
           correlationId: 'req-1',
@@ -154,7 +163,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'pairing_status',
+            messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -171,7 +180,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -187,6 +196,14 @@ void main() {
           .requestPairingRenotify();
 
       verify(() => messageReceiver.ensureReceiving()).called(1);
+      verify(
+        () => requestManager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingRenotify,
+          payload: any(named: 'payload'),
+          expectedType: ProtocolMessageType.pairingOutcome,
+          policy: any(named: 'policy'),
+        ),
+      ).called(1);
       expect(result.status, PairingRenotifyStatus.renotified);
     });
 
@@ -228,7 +245,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -240,7 +257,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'pairing_outcome',
+            messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -257,7 +274,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -272,6 +289,14 @@ void main() {
       final PairingCancelOutcome result = await service.cancelPairing();
 
       verify(() => messageReceiver.ensureReceiving()).called(1);
+      verify(
+        () => requestManager.sendAndAwait(
+          messageType: ProtocolMessageType.pairingCancel,
+          payload: any(named: 'payload'),
+          expectedType: ProtocolMessageType.pairingOutcome,
+          policy: any(named: 'policy'),
+        ),
+      ).called(1);
       expect(result.status, PairingCancelStatus.cancelled);
     });
 
@@ -294,7 +319,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -306,7 +331,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'pairing_outcome',
+            messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -323,7 +348,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -365,7 +390,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -377,7 +402,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'pairing_outcome',
+            messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -394,7 +419,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -414,9 +439,9 @@ void main() {
       final JsonMap sentPayload =
           verify(
                 () => requestManager.sendAndAwait(
-                  messageType: any(named: 'messageType'),
+                  messageType: ProtocolMessageType.pairingConfirm,
                   payload: captureAny(named: 'payload'),
-                  expectedType: any(named: 'expectedType'),
+                  expectedType: ProtocolMessageType.pairingOutcome,
                   policy: any(named: 'policy'),
                 ),
               ).captured.single
@@ -462,6 +487,14 @@ void main() {
         await service.acknowledgeTrustedCredential('cred');
 
         verify(() => messageReceiver.ensureReceiving()).called(1);
+        verify(
+          () => requestManager.sendAndAwait(
+            messageType: ProtocolMessageType.pairingAck,
+            payload: any(named: 'payload'),
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: any(named: 'policy'),
+          ),
+        ).called(1);
         verify(() => sessionTrustWriter.markTrusted()).called(1);
         final PersistedClientState state = await storage.load();
         expect(state.recoveryState, PairingRecoveryState.none);
@@ -527,7 +560,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'pairing_outcome',
+            messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -544,7 +577,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );

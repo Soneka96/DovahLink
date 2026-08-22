@@ -209,3 +209,139 @@ enum AdministrativeInvalidationReason {
   @JsonValue('factory_reset')
   factoryReset,
 }
+
+// ---- Protocol envelope ----
+
+/// The canonical wire value of an envelope's `messageType` field.
+enum ProtocolMessageType {
+  /// Begins connection authentication.
+  @JsonValue('hello')
+  hello,
+
+  /// Acknowledges a validated [hello].
+  @JsonValue('hello_ack')
+  helloAck,
+
+  /// Starts or queries a pairing challenge.
+  @JsonValue('pairing_request')
+  pairingRequest,
+
+  /// Reports pairing availability.
+  @JsonValue('pairing_status')
+  pairingStatus,
+
+  /// Submits a pairing code.
+  @JsonValue('pairing_confirm')
+  pairingConfirm,
+
+  /// Acknowledges a persisted pairing credential.
+  @JsonValue('pairing_ack')
+  pairingAck,
+
+  /// Requests redisplay of an owned pairing code.
+  @JsonValue('pairing_renotify')
+  pairingRenotify,
+
+  /// Cancels an owned pairing challenge or pending credential.
+  @JsonValue('pairing_cancel')
+  pairingCancel,
+
+  /// Reports a pairing operation outcome.
+  @JsonValue('pairing_outcome')
+  pairingOutcome,
+
+  /// Requests a trusted device rename.
+  @JsonValue('rename_request')
+  renameRequest,
+
+  /// Reports a trusted device rename outcome.
+  @JsonValue('rename_outcome')
+  renameOutcome,
+
+  /// Exchanges runtime capabilities.
+  @JsonValue('capabilities')
+  capabilities,
+
+  /// Requests state-area subscription.
+  @JsonValue('subscribe')
+  subscribe,
+
+  /// Confirms state-area subscription results.
+  @JsonValue('subscription_ack')
+  subscriptionAck,
+
+  /// Requests a current state snapshot.
+  @JsonValue('snapshot_request')
+  snapshotRequest,
+
+  /// Delivers a complete state snapshot.
+  @JsonValue('state_snapshot')
+  stateSnapshot,
+
+  /// Delivers an incremental state event.
+  @JsonValue('state_event')
+  stateEvent,
+
+  /// Reports a structured protocol failure.
+  @JsonValue('error')
+  error,
+
+  /// Notifies an authenticated client that its session was invalidated.
+  @JsonValue('session_invalidated')
+  sessionInvalidated,
+
+  /// Probes WebSocket session liveness.
+  @JsonValue('ping')
+  ping,
+
+  /// Replies to a [ping].
+  @JsonValue('pong')
+  pong,
+}
+
+/// The canonical wire value of an error payload's `code` field.
+enum ProtocolErrorCode {
+  /// The peer sent structurally invalid protocol data.
+  @JsonValue('malformed_message')
+  malformedMessage,
+
+  /// The peer sent a frame larger than the allowed limit.
+  @JsonValue('frame_too_large')
+  frameTooLarge,
+
+  /// The requested capability is unavailable.
+  @JsonValue('unsupported_capability')
+  unsupportedCapability,
+
+  /// Authentication material was invalid, expired, reused, or unrecognized.
+  @JsonValue('unauthenticated')
+  unauthenticated,
+
+  /// The peer is not authorized for the requested operation.
+  @JsonValue('unauthorized')
+  unauthorized,
+
+  /// The presented device credential belongs to a revoked client.
+  @JsonValue('revoked')
+  revoked,
+
+  /// The presented client ID belongs to a blocked device.
+  @JsonValue('blocked')
+  blocked,
+
+  /// The peer reused a message ID within a session.
+  @JsonValue('replayed_message')
+  replayedMessage,
+
+  /// The peer presented a stale or foreign session ID.
+  @JsonValue('stale_session')
+  staleSession,
+
+  /// The peer exceeded an approved message-rate limit.
+  @JsonValue('rate_limited')
+  rateLimited,
+
+  /// The bridge could not complete an operation safely.
+  @JsonValue('internal_error')
+  internalError,
+}

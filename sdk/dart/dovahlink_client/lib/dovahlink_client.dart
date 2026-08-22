@@ -19,7 +19,8 @@ export 'src/shared/enums.dart'
         PairingAvailability,
         PairingCancelStatus,
         PairingOutcome,
-        PairingRenotifyStatus;
+        PairingRenotifyStatus,
+        ProtocolErrorCode;
 export 'src/hello_result.dart' show HelloResult;
 export 'src/pairing_cancel_outcome.dart' show PairingCancelOutcome;
 export 'src/pairing_challenge_status.dart' show PairingChallengeStatus;

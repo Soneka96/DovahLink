@@ -2,16 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
-import '../dovahlink_client_exception.dart';
-import '../protocol/envelope.dart';
-import '../protocol/error_payload.dart';
-import '../protocol/json_map.dart';
-import '../request_policy.dart';
-import '../shared/enums.dart';
-import '../transport/dovahlink_transport.dart';
-import 'connection_lifecycle_reporter.dart';
-import 'pending_operation.dart';
-import 'session_context.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
 /// Owns pending requests, timeouts, and retry behavior, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
@@ -66,9 +66,9 @@ class RequestManager {
   /// non-retriable/failed retry); a [DovahLinkProtocolException] means the bridge answered on an
   /// otherwise-live connection with a wire-level rejection or an unexpected reply.
   Future<Envelope> sendAndAwait({
-    required String messageType,
+    required ProtocolMessageType messageType,
     required JsonMap payload,
-    required String expectedType,
+    required ProtocolMessageType expectedType,
     required RequestPolicy policy,
   }) async {
     final PendingOperation operation = PendingOperation(
@@ -125,10 +125,10 @@ class RequestManager {
   /// Translates a wire `error` or an unexpected message type into a typed exception; otherwise
   /// returns [envelope] unchanged.
   Envelope _validateReply({
-    required String expectedType,
+    required ProtocolMessageType expectedType,
     required Envelope envelope,
   }) {
-    if (envelope.messageType == 'error') {
+    if (envelope.messageType == ProtocolMessageType.error) {
       final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
       throw DovahLinkProtocolException(
         code: error.code,
@@ -138,7 +138,7 @@ class RequestManager {
     }
     if (envelope.messageType != expectedType) {
       throw DovahLinkProtocolException(
-        code: 'unexpected_message_type',
+        code: ProtocolErrorCode.malformedMessage,
         message: 'Expected $expectedType but received ${envelope.messageType}.',
         retryable: false,
       );

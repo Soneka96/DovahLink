@@ -4,7 +4,6 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
-
 import 'harness_process.dart';
 
 /// A valid 64-character hex-encoded developer token, matching the fixed value the `.NET`

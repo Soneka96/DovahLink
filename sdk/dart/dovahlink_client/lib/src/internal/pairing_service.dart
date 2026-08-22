@@ -1,20 +1,20 @@
-import '../dovahlink_client_exception.dart';
-import '../pairing_cancel_outcome.dart';
-import '../pairing_challenge_status.dart';
-import '../pairing_renotify_result.dart';
-import '../persistence/client_storage.dart';
-import '../persistence/persisted_client_state.dart';
-import '../protocol/envelope.dart';
-import '../protocol/pairing_ack_payload.dart';
-import '../protocol/pairing_confirm_payload.dart';
-import '../protocol/pairing_outcome_payload.dart';
-import '../protocol/pairing_status_payload.dart';
-import '../protocol/protocol_format_exception.dart';
-import '../request_policy.dart';
-import '../shared/enums.dart';
-import 'message_receiver.dart';
-import 'request_manager.dart';
-import 'session_trust_writer.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
+import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
+import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
+import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_ack_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_confirm_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_outcome_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns pairing operations, per `ai/context/sdk/architecture.md`'s "Internal composition":
 /// starting/querying a pairing challenge, redisplaying or cancelling it, confirming a code,
@@ -52,9 +52,9 @@ class PairingService {
   Future<PairingChallengeStatus> requestPairing() async {
     _messageReceiver.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_request',
+      messageType: ProtocolMessageType.pairingRequest,
       payload: const <String, dynamic>{},
-      expectedType: 'pairing_status',
+      expectedType: ProtocolMessageType.pairingStatus,
       policy: const RequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.unpaired,
@@ -79,9 +79,9 @@ class PairingService {
   Future<PairingRenotifyResult> requestPairingRenotify() async {
     _messageReceiver.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_renotify',
+      messageType: ProtocolMessageType.pairingRenotify,
       payload: const <String, dynamic>{},
-      expectedType: 'pairing_outcome',
+      expectedType: ProtocolMessageType.pairingOutcome,
       policy: const RequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.unpaired,
@@ -106,9 +106,9 @@ class PairingService {
   Future<PairingCancelOutcome> cancelPairing() async {
     _messageReceiver.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_cancel',
+      messageType: ProtocolMessageType.pairingCancel,
       payload: const <String, dynamic>{},
-      expectedType: 'pairing_outcome',
+      expectedType: ProtocolMessageType.pairingOutcome,
       policy: const RequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.unpaired,
@@ -143,9 +143,9 @@ class PairingService {
     );
     _messageReceiver.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_confirm',
+      messageType: ProtocolMessageType.pairingConfirm,
       payload: payload.toJson(),
-      expectedType: 'pairing_outcome',
+      expectedType: ProtocolMessageType.pairingOutcome,
       policy: const RequestPolicy(
         retrySafe: false,
         requiredTrustState: DovahLinkTrustState.unpaired,
@@ -164,7 +164,7 @@ class PairingService {
     final String? credential = outcome.credential;
     if (credential == null) {
       throw const DovahLinkProtocolException(
-        code: 'malformed_message',
+        code: ProtocolErrorCode.malformedMessage,
         message: 'The bridge reported credential_issued with no credential.',
         retryable: false,
       );
@@ -189,9 +189,9 @@ class PairingService {
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     _messageReceiver.ensureReceiving();
     final Envelope response = await _requestManager.sendAndAwait(
-      messageType: 'pairing_ack',
+      messageType: ProtocolMessageType.pairingAck,
       payload: payload.toJson(),
-      expectedType: 'pairing_outcome',
+      expectedType: ProtocolMessageType.pairingOutcome,
       policy: const RequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.unpaired,
@@ -255,7 +255,7 @@ class PairingService {
         PairingOutcome.renotifyCooldown => PairingRenotifyStatus.cooldown,
         PairingOutcome.alreadyIdle => PairingRenotifyStatus.alreadyIdle,
         _ => throw DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'Unexpected pairing_renotify outcome: $outcome',
           retryable: false,
         ),
@@ -269,18 +269,18 @@ class PairingService {
         PairingOutcome.cancelled => PairingCancelStatus.cancelled,
         PairingOutcome.alreadyIdle => PairingCancelStatus.alreadyIdle,
         _ => throw DovahLinkProtocolException(
-          code: 'malformed_message',
+          code: ProtocolErrorCode.malformedMessage,
           message: 'Unexpected pairing_cancel outcome: $outcome',
           retryable: false,
         ),
       };
 
-  /// Throws the SDK's public `DovahLinkProtocolException(code: 'malformed_message', retryable:
+  /// Throws the SDK's public `DovahLinkProtocolException(code: ProtocolErrorCode.malformedMessage, retryable:
   /// false)` translated from a DTO decode boundary failure, per
   /// `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
   Never _throwMalformedMessage(ProtocolFormatException error) =>
       throw DovahLinkProtocolException(
-        code: 'malformed_message',
+        code: ProtocolErrorCode.malformedMessage,
         message: error.message,
         retryable: false,
       );

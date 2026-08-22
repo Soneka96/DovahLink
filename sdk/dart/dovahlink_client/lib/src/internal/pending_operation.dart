@@ -1,8 +1,9 @@
 import 'dart:async';
 
-import '../protocol/envelope.dart';
-import '../protocol/json_map.dart';
-import '../request_policy.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// One request awaiting its correlated reply -- or, if `policy.retrySafe` and the connection was
 /// lost before a reply arrived, awaiting a chance to be retransmitted once after the next
@@ -17,7 +18,7 @@ class PendingOperation {
   });
 
   /// The outgoing message type this operation sends.
-  final String messageType;
+  final ProtocolMessageType messageType;
 
   /// The outgoing payload this operation sends.
   final JsonMap payload;

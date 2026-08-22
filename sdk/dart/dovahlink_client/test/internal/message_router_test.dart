@@ -73,7 +73,7 @@ void main() {
                 ),
               ).captured.last
               as Envelope;
-      expect(resolved.messageType, 'pairing_status');
+      expect(resolved.messageType, ProtocolMessageType.pairingStatus);
       expect(resolved.correlationId, 'message-outgoing-1');
       expect(resolved.payload, <String, dynamic>{'state': 'unavailable'});
       expect(resolved.sessionId, 'session-1');
@@ -110,7 +110,7 @@ void main() {
         expect(verification.captured[0], isA<DovahLinkProtocolException>());
         expect(
           (verification.captured[0] as DovahLinkProtocolException).code,
-          'unexpected_correlation_id',
+          ProtocolErrorCode.malformedMessage,
         );
         expect(verification.captured[1], isFalse);
       },
@@ -170,26 +170,27 @@ void main() {
       );
     });
 
-    test(
-      'ignores an unsolicited message type this client does not yet model',
-      () {
-        router.handleIncoming(
-          rawEnvelope(
-            messageType: 'future_unmodeled_push',
-            payload: const <String, dynamic>{},
-          ),
-        );
+    test('reports a protocol violation for an unrecognized message type', () {
+      router.handleIncoming(
+        rawEnvelope(
+          messageType: 'future_unmodeled_push',
+          payload: const <String, dynamic>{},
+        ),
+      );
 
-        verifyNever(() => requestManager.resolveReply(any(), any()));
-        verifyNever(() => reporter.onSessionInvalidated(any()));
-        verifyNever(
-          () => reporter.onProtocolViolation(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+      final VerificationResult verification = verify(
+        () => reporter.onProtocolViolation(
+          captureAny(),
+          orphanRetrySafeOperations: captureAny(
+            named: 'orphanRetrySafeOperations',
           ),
-        );
-      },
-    );
+        ),
+      );
+      expect(verification.captured[0], isA<DovahLinkConnectionException>());
+      expect(verification.captured[1], isFalse);
+      verifyNever(() => requestManager.resolveReply(any(), any()));
+      verifyNever(() => reporter.onSessionInvalidated(any()));
+    });
 
     test(
       'routes a well-formed session_invalidated push to onSessionInvalidated',
@@ -247,7 +248,7 @@ void main() {
         expect(verification.captured[0], isA<DovahLinkProtocolException>());
         expect(
           (verification.captured[0] as DovahLinkProtocolException).code,
-          'malformed_message',
+          ProtocolErrorCode.malformedMessage,
         );
         expect(verification.captured[1], isTrue);
         verifyNever(() => reporter.onSessionInvalidated(any()));

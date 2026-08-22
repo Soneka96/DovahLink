@@ -1,4 +1,4 @@
-import 'shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Thrown when establishing or maintaining the transport connection fails -- a socket-level
 /// problem, not a bridge-reported failure.
@@ -26,7 +26,7 @@ class DovahLinkProtocolException implements Exception {
   });
 
   /// The canonical machine-readable failure code. For branching; never [message].
-  final String code;
+  final ProtocolErrorCode code;
 
   /// Diagnostic text. Never used for branching.
   final String message;

@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Reads one canonical protocol fixture's payload object, relative to `protocol/fixtures/`.
 JsonMap _readPayload(String relativePath) {
@@ -24,7 +25,7 @@ void main() {
             _readPayload('errors/error-unauthenticated-invalid-token.json'),
           );
 
-          expect(payload.code, 'unauthenticated');
+          expect(payload.code, ProtocolErrorCode.unauthenticated);
           expect(payload.message, isNotEmpty);
           expect(payload.retryable, isFalse);
           expect(payload.details, isNull);
@@ -36,7 +37,7 @@ void main() {
           _readPayload('errors/error-rate-limited.json'),
         );
 
-        expect(payload.code, 'rate_limited');
+        expect(payload.code, ProtocolErrorCode.rateLimited);
         expect(payload.retryable, isTrue);
       });
 
@@ -45,7 +46,7 @@ void main() {
           _readPayload('errors/error-revoked.json'),
         );
 
-        expect(payload.code, 'revoked');
+        expect(payload.code, ProtocolErrorCode.revoked);
         expect(payload.retryable, isFalse);
       });
 
@@ -58,6 +59,43 @@ void main() {
           () => ErrorPayload.fromJson(withMissingKey),
           throwsA(isA<ProtocolFormatException>()),
         );
+      });
+
+      test('fromJson rejects an unrecognized error code', () {
+        final JsonMap withUnknownCode = _readPayload(
+          'errors/error-rate-limited.json',
+        )..['code'] = 'future_code';
+
+        expect(
+          () => ErrorPayload.fromJson(withUnknownCode),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      });
+
+      test('maps every canonical error code from its exact wire value', () {
+        const Map<ProtocolErrorCode, String> wireValues =
+            <ProtocolErrorCode, String>{
+              ProtocolErrorCode.malformedMessage: 'malformed_message',
+              ProtocolErrorCode.frameTooLarge: 'frame_too_large',
+              ProtocolErrorCode.unsupportedCapability: 'unsupported_capability',
+              ProtocolErrorCode.unauthenticated: 'unauthenticated',
+              ProtocolErrorCode.unauthorized: 'unauthorized',
+              ProtocolErrorCode.revoked: 'revoked',
+              ProtocolErrorCode.blocked: 'blocked',
+              ProtocolErrorCode.replayedMessage: 'replayed_message',
+              ProtocolErrorCode.staleSession: 'stale_session',
+              ProtocolErrorCode.rateLimited: 'rate_limited',
+              ProtocolErrorCode.internalError: 'internal_error',
+            };
+
+        expect(wireValues.keys, ProtocolErrorCode.values);
+        for (final MapEntry<ProtocolErrorCode, String> entry
+            in wireValues.entries) {
+          final JsonMap json = _readPayload('errors/error-rate-limited.json')
+            ..['code'] = entry.value;
+
+          expect(ErrorPayload.fromJson(json).code, entry.key);
+        }
       });
 
       test(

@@ -29,7 +29,7 @@ Envelope _helloAckEnvelope({
   required String bridgeVersion,
   required ClientIdentityKind kind,
 }) => Envelope(
-  messageType: 'hello_ack',
+  messageType: ProtocolMessageType.helloAck,
   messageId: 'reply-1',
   sessionId: sessionId,
   correlationId: 'req-1',
@@ -53,6 +53,7 @@ void main() {
   late AuthenticationService service;
 
   setUpAll(() {
+    registerFallbackValue(ProtocolMessageType.hello);
     registerFallbackValue(
       const RequestPolicy(
         retrySafe: false,
@@ -183,9 +184,9 @@ void main() {
         final JsonMap sentPayload =
             verify(
                   () => requestManager.sendAndAwait(
-                    messageType: any(named: 'messageType'),
+                    messageType: ProtocolMessageType.hello,
                     payload: captureAny(named: 'payload'),
-                    expectedType: any(named: 'expectedType'),
+                    expectedType: ProtocolMessageType.helloAck,
                     policy: any(named: 'policy'),
                   ),
                 ).captured.single
@@ -251,7 +252,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -270,7 +271,7 @@ void main() {
       () async {
         stubSendAndAwait(
           const Envelope(
-            messageType: 'hello_ack',
+            messageType: ProtocolMessageType.helloAck,
             messageId: 'reply-1',
             sessionId: 'session-1',
             correlationId: 'req-1',
@@ -287,7 +288,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -423,7 +424,7 @@ void main() {
           ),
         ).thenThrow(
           const DovahLinkProtocolException(
-            code: 'revoked',
+            code: ProtocolErrorCode.revoked,
             message: 'nope',
             retryable: false,
           ),
@@ -435,7 +436,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'revoked',
+              ProtocolErrorCode.revoked,
             ),
           ),
         );
@@ -466,7 +467,7 @@ void main() {
           callCount++;
           if (callCount == 1) {
             throw const DovahLinkProtocolException(
-              code: 'revoked',
+              code: ProtocolErrorCode.revoked,
               message: 'nope',
               retryable: false,
             );
@@ -514,7 +515,7 @@ void main() {
           callCount++;
           if (callCount == 1) {
             throw const DovahLinkProtocolException(
-              code: 'unauthenticated',
+              code: ProtocolErrorCode.unauthenticated,
               message: 'nope',
               retryable: false,
             );
@@ -555,7 +556,7 @@ void main() {
           ),
         ).thenThrow(
           const DovahLinkProtocolException(
-            code: 'bridge_unavailable',
+            code: ProtocolErrorCode.rateLimited,
             message: 'no',
             retryable: true,
           ),
@@ -567,7 +568,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'bridge_unavailable',
+              ProtocolErrorCode.rateLimited,
             ),
           ),
         );
