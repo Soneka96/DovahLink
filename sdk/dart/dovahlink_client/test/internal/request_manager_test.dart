@@ -349,8 +349,7 @@ void main() {
           expectedType: ProtocolMessageType.pairingStatus,
           policy: _retrySafeUnpairedPolicy,
         );
-        // Silence the "unhandled" warning for a Future this test deliberately never awaits --
-        // the timeout path never completes it, by design.
+        // Silence the "unhandled" warning for a Future this test deliberately does not await.
         pending.ignore();
 
         await Future<void>.delayed(const Duration(milliseconds: 60));
@@ -364,9 +363,7 @@ void main() {
     );
 
     test(
-      'Method sendAndAwait a reply that arrives after the timer fires but before failAll runs still resolves '
-      'the operation -- RequestManager itself does not guard this race; that is whichever '
-      'caller sequences onUnhealthy and failAll together',
+      'Method sendAndAwait rejects a reply that arrives after the timeout has failed the operation',
       () async {
         final RequestManager manager = buildManager(
           timeoutDurations: _shortTimeouts,
@@ -380,6 +377,10 @@ void main() {
         );
         await pumpEventQueue();
         final String messageId = sentMessageId();
+        final Future<void> failed = expectLater(
+          pending,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
 
         await Future<void>.delayed(const Duration(milliseconds: 60));
         verify(() => reporter.onUnhealthy(any())).called(1);
@@ -396,8 +397,8 @@ void main() {
         );
         final bool resolved = manager.resolveReply(messageId, reply);
 
-        expect(resolved, isTrue);
-        expect(await pending, same(reply));
+        expect(resolved, isFalse);
+        await failed;
       },
     );
 
@@ -516,7 +517,7 @@ void main() {
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
-        verify(() => transport.send(any())).called(1);
+        final String initialMessageId = sentMessageId();
 
         manager.failAll(
           const DovahLinkConnectionException('lost'),
@@ -528,6 +529,7 @@ void main() {
         // Only the retry's send is unverified at this point -- the original send was already
         // verified above, so this captures exactly the retransmission.
         final String retryMessageId = sentMessageId();
+        expect(retryMessageId, isNot(initialMessageId));
 
         final Envelope reply = Envelope(
           messageType: ProtocolMessageType.pairingStatus,

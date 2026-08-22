@@ -110,10 +110,12 @@ separate.
 The client engine described above is implemented as a small set of internally composed,
 individually-testable classes rather than one class performing every mechanic. `ClientSession` owns
 transport lifecycle, connection state, and stream ownership; `MessageRouter` owns envelope decoding,
-correlation, and unsolicited routing; `RequestManager` owns pending requests, timeouts, and retry
-behavior; `AuthenticationService` owns `hello`/authentication and credential recovery;
-`PairingService` owns pairing operations; `PendingOperation` is the internal record of one request
-awaiting its reply. Each is a named class in its own file under `src/`, absent from the public
+correlation, and unsolicited routing; `RequestManager` owns pending requests, timeout policy, and
+retry behavior; `PendingOperationTransmitter` owns each operation's message-ID generation,
+registration, timeout arming, envelope construction, and transport error reporting;
+`AuthenticationService` owns `hello`/authentication and credential recovery; `PairingService` owns
+pairing operations; `PendingOperation` is the internal record of one request awaiting its reply.
+Each is a named class in its own file under `src/`, absent from the public
 barrel per `ai/context/sdk/api-design.md`'s "curated public exports" — a façade/coordinator class
 delegates to these instead of implementing their mechanics itself, per
 `ai/context/dart/dart-style.md`'s class-organization rule.
@@ -136,13 +138,17 @@ closures or a concrete back-reference to a specific class:
   that performs a protocol operation without owning pending-operation state.
 - `ReplyResolver` — resolves one inbound correlated reply, for the router that matches transport
   messages without owning pending-operation state.
+- `PendingOperationRegistry` — registers a generated outgoing `messageId` with the class that owns
+  pending-operation state before the corresponding wire attempt is sent, and removes an operation
+  when it fails before a correlated reply arrives.
 
-These seven ports are independent, not one merged interface and not related by inheritance: a
+These eight ports are independent, not one merged interface and not related by inheritance: a
 collaborator composes only the ports its own responsibility actually needs (for example
 `AuthenticationService` takes `RequestSender`, `SessionConnector`, `SessionContext`, and
 `MessageReceiver`, `PairingService` takes `RequestSender`, `SessionTrustWriter`, and
 `MessageReceiver`, and `MessageRouter` takes `ReplyResolver` and
-`ConnectionLifecycleReporter`), keeping each dependency as narrow as the class that declares it.
+`ConnectionLifecycleReporter`, while `PendingOperationTransmitter` takes
+`PendingOperationRegistry`), keeping each dependency as narrow as the class that declares it.
 
 ## Session-state ownership
 

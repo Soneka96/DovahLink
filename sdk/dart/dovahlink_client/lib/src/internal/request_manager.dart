@@ -1,11 +1,9 @@
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
-import 'package:dovahlink_client_sdk/src/internal/message_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/reply_validator.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
@@ -20,35 +18,31 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
 /// per [DovahLinkTransport] connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements.
-class RequestManager implements RequestSender, ReplyResolver {
-  /// The transport this manager sends outgoing envelopes over.
-  final DovahLinkTransport _transport;
-
-  /// The bounded wait allowed for each [TimeoutClass], keyed by class.
-  final Map<TimeoutClass, Duration> _timeoutDurations;
-
+class RequestManager
+    implements RequestSender, ReplyResolver, PendingOperationRegistry {
   /// The live session identity/trust state each outgoing and retried envelope is stamped with or
   /// revalidated against.
   final SessionContext _sessionContext;
 
-  /// Where a detected timeout or send failure is reported for connection teardown.
-  final ConnectionLifecycleReporter _reporter;
-
-  /// Creates a request manager sending over [transport], timed per [timeoutDurations], reading
-  /// live session state through [sessionContext], and reporting connection-health events to
-  /// [reporter].
+  /// Creates a request manager that owns pending requests and retry behavior while delegating
+  /// individual wire attempts to [PendingOperationTransmitter].
   RequestManager({
     required DovahLinkTransport transport,
     required Map<TimeoutClass, Duration> timeoutDurations,
     required SessionContext sessionContext,
     required ConnectionLifecycleReporter reporter,
-  }) : _transport = transport,
-       _timeoutDurations = timeoutDurations,
-       _sessionContext = sessionContext,
-       _reporter = reporter;
+  }) : _sessionContext = sessionContext {
+    _transmitter = PendingOperationTransmitter(
+      transport: transport,
+      timeoutDurations: timeoutDurations,
+      sessionContext: sessionContext,
+      reporter: reporter,
+      registry: this,
+    );
+  }
 
-  /// Generates outgoing `messageId` values.
-  final MessageIdGenerator _messageIdGenerator = MessageIdGenerator();
+  /// Owns one request's wire-attempt mechanics while this manager owns pending-operation state.
+  late final PendingOperationTransmitter _transmitter;
 
   /// Every operation awaiting a correlated reply on the current connection, keyed by the outgoing
   /// `messageId` it was transmitted under.
@@ -59,6 +53,25 @@ class RequestManager implements RequestSender, ReplyResolver {
   /// received a reply, awaiting a chance to be retransmitted once the next `hello` succeeds.
   final List<PendingOperation> _orphanedRetryableOperations =
       <PendingOperation>[];
+
+  /// Implements [PendingOperationRegistry.register].
+  @override
+  void register(String messageId, PendingOperation operation) {
+    _pendingOperations[messageId] = operation;
+  }
+
+  /// Implements [PendingOperationRegistry.fail].
+  @override
+  void fail(String messageId, PendingOperation operation, Exception reason) {
+    final PendingOperation? registered = _pendingOperations[messageId];
+    if (!identical(registered, operation)) {
+      return;
+    }
+    _pendingOperations.remove(messageId);
+    if (!operation.completer.isCompleted) {
+      operation.completer.completeError(reason);
+    }
+  }
 
   /// Sends one envelope carrying [messageType]/[payload], classified against [policy], and
   /// returns its correlated reply. The reply may arrive on a later wire attempt than the one this
@@ -80,52 +93,11 @@ class RequestManager implements RequestSender, ReplyResolver {
       payload: payload,
       policy: policy,
     );
-    _transmit(operation);
+    _transmitter.transmit(operation);
     final Envelope envelope = await operation.completer.future;
     return ReplyValidator.validate(
       expectedType: expectedType,
       envelope: envelope,
-    );
-  }
-
-  /// Generates a fresh `messageId`, registers [operation] as pending under it, arms its timeout,
-  /// and sends it. Used both for an operation's initial transmission and its at-most-one retry
-  /// after reconnect, so both share identical wire behavior. Fire-and-forget: a send failure
-  /// reports through [ConnectionLifecycleReporter.onUnhealthy] rather than throwing here, since
-  /// nothing local is positioned to catch it synchronously once retries are involved -- see
-  /// [operation]'s shared `completer`.
-  void _transmit(PendingOperation operation) {
-    final String messageId = _messageIdGenerator.generate();
-    _pendingOperations[messageId] = operation;
-    operation.timer = Timer(
-      _timeoutDurations[operation.policy.timeoutClass]!,
-      () {
-        _reporter.onUnhealthy(
-          DovahLinkConnectionException(
-            'Timed out awaiting a reply to ${operation.messageType}.',
-          ),
-        );
-      },
-    );
-
-    final Envelope outgoing = Envelope(
-      messageType: operation.messageType,
-      messageId: messageId,
-      sessionId: _sessionContext.currentSessionId,
-      correlationId: null,
-      payload: operation.payload,
-      bridgeInstanceId: null,
-      playContextId: null,
-      clientId: null,
-    );
-    unawaited(
-      _transport.send(jsonEncode(outgoing.toJson())).catchError((Object error) {
-        _reporter.onUnhealthy(
-          DovahLinkConnectionException(
-            'Failed to send ${operation.messageType}: $error',
-          ),
-        );
-      }),
     );
   }
 
@@ -201,7 +173,7 @@ class RequestManager implements RequestSender, ReplyResolver {
         continue;
       }
       operation.hasRetried = true;
-      _transmit(operation);
+      _transmitter.transmit(operation);
     }
   }
 }
