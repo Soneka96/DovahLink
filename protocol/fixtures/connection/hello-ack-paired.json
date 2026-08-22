@@ -1,0 +1,13 @@
+{
+  "messageType": "hello_ack",
+  "messageId": "message-hello-ack-paired-1",
+  "sessionId": "session-paired-1",
+  "correlationId": "message-hello-paired-1",
+  "payload": {
+    "bridgeVersion": "0.3.2",
+    "clientIdentityKind": "paired"
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": "client-1"
+}

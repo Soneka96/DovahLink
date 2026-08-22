@@ -14,93 +14,97 @@ JsonMap _readFixture(String relativePath) {
   return jsonDecode(file.readAsStringSync()) as JsonMap;
 }
 
+/// Runs [HelloAckPayload.fromJson] behavior tests.
 void main() {
-  group('HelloAckPayload', () {
-    group('methods', () {
-      test('fromJson decodes the canonical hello_ack fixture', () {
-        final JsonMap json =
-            _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
+  group('Method fromJson behaves correctly', () {
+    test('Method fromJson decodes the canonical hello_ack fixture', () {
+      final JsonMap json =
+          _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
 
-        final HelloAckPayload payload = HelloAckPayload.fromJson(json);
+      final HelloAckPayload payload = HelloAckPayload.fromJson(json);
 
-        expect(payload.bridgeVersion, '0.3.2');
-        expect(payload.clientIdentityKind, ClientIdentityKind.unpaired);
-      });
+      expect(payload.bridgeVersion, '0.3.2');
+      expect(payload.clientIdentityKind, ClientIdentityKind.unpaired);
+    });
 
-      test('fromJson decodes a paired clientIdentityKind', () {
-        // No canonical fixture carries "paired" yet, so this hand-builds the one case none of
-        // the shared connection fixtures cover.
-        final HelloAckPayload payload = HelloAckPayload.fromJson(
-          <String, dynamic>{
+    test('Method fromJson decodes a paired clientIdentityKind', () {
+      final JsonMap json =
+          _readFixture('connection/hello-ack-paired.json')['payload']
+              as JsonMap;
+      final HelloAckPayload payload = HelloAckPayload.fromJson(json);
+
+      expect(payload.clientIdentityKind, ClientIdentityKind.paired);
+    });
+
+    test(
+      'Method fromJson rejects an unrecognized clientIdentityKind as ProtocolFormatException',
+      () {
+        expect(
+          () => HelloAckPayload.fromJson(<String, dynamic>{
             'bridgeVersion': '0.2.0',
-            'clientIdentityKind': 'paired',
-          },
-        );
-
-        expect(payload.clientIdentityKind, ClientIdentityKind.paired);
-      });
-
-      test(
-        'fromJson rejects an unrecognized clientIdentityKind as ProtocolFormatException',
-        () {
-          expect(
-            () => HelloAckPayload.fromJson(<String, dynamic>{
-              'bridgeVersion': '0.2.0',
-              'clientIdentityKind': 'not-a-real-kind',
-            }),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
-      );
-
-      test('fromJson rejects a payload missing a required key', () {
-        final JsonMap withMissingKey =
-            (_readFixture('connection/hello-ack.json')['payload'] as JsonMap)
-              ..remove('bridgeVersion');
-
-        expect(
-          () => HelloAckPayload.fromJson(withMissingKey),
+            'clientIdentityKind': 'not-a-real-kind',
+          }),
           throwsA(isA<ProtocolFormatException>()),
         );
-      });
+      },
+    );
 
-      test(
-        'fromJson rejects a payload with the wrong type for a required key',
-        () {
-          final JsonMap withWrongType =
-              _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
-          withWrongType['bridgeVersion'] = 42;
+    test('Method fromJson rejects a payload missing a required key', () {
+      final JsonMap withMissingKey =
+          (_readFixture('connection/hello-ack.json')['payload'] as JsonMap)
+            ..remove('bridgeVersion');
 
-          expect(
-            () => HelloAckPayload.fromJson(withWrongType),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
+      expect(
+        () => HelloAckPayload.fromJson(withMissingKey),
+        throwsA(isA<ProtocolFormatException>()),
       );
+    });
 
-      test('fromJson rejects a payload missing clientIdentityKind', () {
-        final JsonMap withMissingKey =
-            (_readFixture('connection/hello-ack.json')['payload'] as JsonMap)
-              ..remove('clientIdentityKind');
+    test(
+      'Method fromJson rejects a payload with the wrong type for a required key',
+      () {
+        final JsonMap withWrongType =
+            _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
+        withWrongType['bridgeVersion'] = 42;
 
         expect(
-          () => HelloAckPayload.fromJson(withMissingKey),
+          () => HelloAckPayload.fromJson(withWrongType),
           throwsA(isA<ProtocolFormatException>()),
         );
-      });
+      },
+    );
 
-      test(
-        'fromJson rejects a payload with the wrong type for clientIdentityKind',
-        () {
-          final JsonMap withWrongType =
-              _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
-          withWrongType['clientIdentityKind'] = 42;
+    test('Method fromJson rejects a payload missing clientIdentityKind', () {
+      final JsonMap withMissingKey =
+          (_readFixture('connection/hello-ack.json')['payload'] as JsonMap)
+            ..remove('clientIdentityKind');
 
-          expect(
-            () => HelloAckPayload.fromJson(withWrongType),
-            throwsA(isA<ProtocolFormatException>()),
-          );
-        },
+      expect(
+        () => HelloAckPayload.fromJson(withMissingKey),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test(
+      'Method fromJson rejects a payload with the wrong type for clientIdentityKind',
+      () {
+        final JsonMap withWrongType =
+            _readFixture('connection/hello-ack.json')['payload'] as JsonMap;
+        withWrongType['clientIdentityKind'] = 42;
+
+        expect(
+          () => HelloAckPayload.fromJson(withWrongType),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+    test('Method fromJson rejects an empty bridgeVersion', () {
+      expect(
+        () => HelloAckPayload.fromJson(<String, dynamic>{
+          'bridgeVersion': '',
+          'clientIdentityKind': 'unpaired',
+        }),
+        throwsA(isA<ProtocolFormatException>()),
       );
     });
   });

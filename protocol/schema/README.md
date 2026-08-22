@@ -140,8 +140,8 @@ compatibility information a client needs before trusting the rest of the exchang
 }
 ```
 
-`bridgeVersion` is the DovahLink Bridge/mod release version (matching `bridge/vcpkg.json`'s
-`version-string`). The bridge always answers a validated `hello` with `hello_ack`; it does not
+`bridgeVersion` is a required, non-empty string containing the DovahLink Bridge/mod release version
+(matching `bridge/vcpkg.json`'s `version-string`). The bridge always answers a validated `hello` with `hello_ack`; it does not
 receive or evaluate a client-declared compatibility range itself. Checking `bridgeVersion` against
 its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
 responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.

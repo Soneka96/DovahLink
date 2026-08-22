@@ -19,7 +19,11 @@ class HelloAckPayload {
   /// Decodes and validates one `hello_ack` payload.
   factory HelloAckPayload.fromJson(JsonMap json) {
     try {
-      return _$HelloAckPayloadFromJson(json);
+      final HelloAckPayload payload = _$HelloAckPayloadFromJson(json);
+      if (payload.bridgeVersion.isEmpty) {
+        throw const ProtocolFormatException('bridgeVersion must not be empty.');
+      }
+      return payload;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid hello_ack payload: $error');
     }

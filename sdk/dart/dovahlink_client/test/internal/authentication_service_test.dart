@@ -337,6 +337,74 @@ void main() {
     );
 
     test(
+      'Method hello throws malformed_message and disconnects when bridgeVersion is empty',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.helloAck,
+            payload: <String, dynamic>{
+              'bridgeVersion': '',
+              'clientIdentityKind': 'unpaired',
+            },
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
+        );
+        verifyNever(
+          () => sessionConnector.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+        verify(() => sessionConnector.disconnect()).called(1);
+      },
+    );
+
+    test(
+      'Method hello throws malformed_message and disconnects for an unknown clientIdentityKind',
+      () async {
+        stubSendAndAwait(
+          requestManager,
+          buildEnvelope(
+            messageType: ProtocolMessageType.helloAck,
+            payload: <String, dynamic>{
+              'bridgeVersion': '1.0',
+              'clientIdentityKind': 'not-a-real-kind',
+            },
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
+        );
+        verifyNever(
+          () => sessionConnector.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+        verify(() => sessionConnector.disconnect()).called(1);
+      },
+    );
+
+    test(
       'Method hello disconnects and rethrows a connection failure from sendAndAwait',
       () async {
         when(
