@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import '../shared/enums.dart';
 import 'json_map.dart';
 import 'protocol_format_exception.dart';
 
@@ -23,9 +24,7 @@ class SessionInvalidatedPayload {
     }
   }
 
-  /// The raw wire value: `"revoked"`, `"blocked"`, `"trust_reset"`, or `"factory_reset"`.
-  /// Interpreted into a typed value by the client rather than here, per
-  /// `ai/context/flutter/architecture.md`'s "keep semantic validation outside generated code".
+  /// The wire vocabulary of `session_invalidated.reason`.
   @JsonKey(required: true)
-  final String reason;
+  final AdministrativeInvalidationReason reason;
 }

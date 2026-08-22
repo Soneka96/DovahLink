@@ -737,18 +737,9 @@ class DovahLinkClient {
     try {
       final SessionInvalidatedPayload payload =
           SessionInvalidatedPayload.fromJson(envelope.payload);
-      reason = _parseInvalidationReason(payload.reason);
-    } on DovahLinkProtocolException catch (error) {
-      await _teardownConnection(error);
-      return;
-    } on Object catch (error) {
-      await _teardownConnection(
-        DovahLinkProtocolException(
-          code: 'malformed_message',
-          message: 'Invalid session_invalidated payload: $error',
-          retryable: false,
-        ),
-      );
+      reason = payload.reason;
+    } on ProtocolFormatException catch (error) {
+      await _teardownConnection(_malformedMessageException(error));
       return;
     }
 
@@ -965,12 +956,18 @@ class DovahLinkClient {
 
   /// Translates a DTO decode boundary failure into the typed exception SDK consumers already
   /// handle, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" boundary translation.
+  DovahLinkProtocolException _malformedMessageException(
+    ProtocolFormatException error,
+  ) => DovahLinkProtocolException(
+    code: 'malformed_message',
+    message: error.message,
+    retryable: false,
+  );
+
+  /// Throws [_malformedMessageException] for [error]. Used at a call site that reports the
+  /// translated failure by throwing rather than by passing it to [_teardownConnection].
   Never _throwMalformedMessage(ProtocolFormatException error) =>
-      throw DovahLinkProtocolException(
-        code: 'malformed_message',
-        message: error.message,
-        retryable: false,
-      );
+      throw _malformedMessageException(error);
 
   /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
   /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
@@ -979,20 +976,6 @@ class DovahLinkClient {
         'revoked' => CredentialRejectionReason.revoked,
         'unauthenticated' => CredentialRejectionReason.unrecognized,
         _ => null,
-      };
-
-  /// Interprets `session_invalidated.reason`'s raw wire value.
-  AdministrativeInvalidationReason _parseInvalidationReason(String raw) =>
-      switch (raw) {
-        'revoked' => AdministrativeInvalidationReason.revoked,
-        'blocked' => AdministrativeInvalidationReason.blocked,
-        'trust_reset' => AdministrativeInvalidationReason.trustReset,
-        'factory_reset' => AdministrativeInvalidationReason.factoryReset,
-        _ => throw DovahLinkProtocolException(
-          code: 'malformed_message',
-          message: 'Unrecognized session_invalidated reason: $raw',
-          retryable: false,
-        ),
       };
 }
 
