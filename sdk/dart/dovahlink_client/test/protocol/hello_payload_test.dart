@@ -13,10 +13,12 @@ JsonMap _readFixture(String relativePath) {
   return jsonDecode(file.readAsStringSync()) as JsonMap;
 }
 
+/// Runs [HelloPayload.toJson] and constructor behavior tests.
 void main() {
-  group('HelloPayload', () {
-    group('methods', () {
-      test('toJson matches the canonical one_time_local_token fixture', () {
+  group('Method toJson behaves correctly', () {
+    test(
+      'Method toJson matches the canonical one_time_local_token fixture',
+      () {
         final HelloPayload payload = HelloPayload(
           clientId: 'client-1',
           authMethod: AuthMethod.oneTimeLocalToken,
@@ -27,78 +29,80 @@ void main() {
           payload.toJson(),
           _readFixture('connection/hello.json')['payload'],
         );
-      });
+      },
+    );
 
-      test(
-        'toJson matches the canonical trusted_device_credential fixture',
-        () {
-          final HelloPayload payload = HelloPayload(
-            clientId: 'client-1',
-            authMethod: AuthMethod.trustedDeviceCredential,
-            authToken: 'redacted-in-documentation',
-          );
+    test(
+      'Method toJson matches the canonical trusted_device_credential fixture',
+      () {
+        final HelloPayload payload = HelloPayload(
+          clientId: 'client-1',
+          authMethod: AuthMethod.trustedDeviceCredential,
+          authToken: 'redacted-in-documentation',
+        );
 
-          expect(
-            payload.toJson(),
-            _readFixture(
-              'connection/hello-trusted-device-credential.json',
-            )['payload'],
-          );
-        },
+        expect(
+          payload.toJson(),
+          _readFixture(
+            'connection/hello-trusted-device-credential.json',
+          )['payload'],
+        );
+      },
+    );
+
+    test(
+      'Method toJson omits auth.token entirely for unpaired, matching the canonical fixture',
+      () {
+        final HelloPayload payload = HelloPayload(
+          clientId: 'client-1',
+          authMethod: AuthMethod.unpaired,
+        );
+
+        final JsonMap json = payload.toJson();
+        final JsonMap auth = json['auth'] as JsonMap;
+
+        expect(json, _readFixture('connection/hello-unpaired.json')['payload']);
+        expect(auth.containsKey('token'), isFalse);
+      },
+    );
+  });
+
+  group('Method constructor behaves correctly', () {
+    test('Method constructor rejects unpaired with a non-null authToken', () {
+      expect(
+        () => HelloPayload(
+          clientId: 'client-1',
+          authMethod: AuthMethod.unpaired,
+          authToken: 'x',
+        ),
+        throwsA(isA<ArgumentError>()),
       );
+    });
 
-      test(
-        'toJson omits auth.token entirely for unpaired, matching the canonical fixture',
-        () {
-          final HelloPayload payload = HelloPayload(
-            clientId: 'client-1',
-            authMethod: AuthMethod.unpaired,
-          );
-
-          final JsonMap json = payload.toJson();
-          final JsonMap auth = json['auth'] as JsonMap;
-
-          expect(
-            json,
-            _readFixture('connection/hello-unpaired.json')['payload'],
-          );
-          expect(auth.containsKey('token'), isFalse);
-        },
-      );
-
-      test('rejects constructing unpaired with a non-null authToken', () {
+    test(
+      'Method constructor rejects a credentialed auth method with a null authToken',
+      () {
         expect(
           () => HelloPayload(
             clientId: 'client-1',
-            authMethod: AuthMethod.unpaired,
-            authToken: 'x',
+            authMethod: AuthMethod.trustedDeviceCredential,
           ),
-          throwsA(isA<AssertionError>()),
+          throwsA(isA<ArgumentError>()),
         );
-      });
+      },
+    );
 
-      test(
-        'rejects constructing a credentialed auth method with a null authToken',
-        () {
-          expect(
-            () => HelloPayload(
-              clientId: 'client-1',
-              authMethod: AuthMethod.trustedDeviceCredential,
-            ),
-            throwsA(isA<AssertionError>()),
-          );
-        },
-      );
-
-      test('rejects constructing oneTimeLocalToken with a null authToken', () {
+    test(
+      'Method constructor rejects oneTimeLocalToken with a null authToken',
+      () {
         expect(
           () => HelloPayload(
             clientId: 'client-1',
             authMethod: AuthMethod.oneTimeLocalToken,
           ),
-          throwsA(isA<AssertionError>()),
+          throwsA(isA<ArgumentError>()),
         );
-      });
-    });
+      },
+    );
   });
 }

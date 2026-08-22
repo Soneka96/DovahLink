@@ -19,11 +19,13 @@ class HelloPayload {
     required this.clientId,
     required AuthMethod authMethod,
     String? authToken,
-  }) : auth = HelloAuthPayload(method: authMethod, token: authToken),
-       assert(
-         (authMethod == AuthMethod.unpaired) == (authToken == null),
-         'authToken must be absent for unpaired, and present for every other auth method.',
-       );
+  }) : auth = HelloAuthPayload(method: authMethod, token: authToken) {
+    if ((authMethod == AuthMethod.unpaired) != (authToken == null)) {
+      throw ArgumentError(
+        'authToken must be absent for unpaired, and present for every other auth method.',
+      );
+    }
+  }
 
   /// The fixed endpoint identity every `hello` this client sends carries.
   final String endpoint = 'client';
