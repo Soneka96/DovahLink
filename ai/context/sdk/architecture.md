@@ -130,11 +130,14 @@ closures or a concrete back-reference to a specific class:
   authenticated session.
 - `SessionTrustWriter` — upgrades trust standing alone, for a collaborator that never connects or
   disconnects.
+- `MessageReceiver` — ensures the transport's inbound message stream is being read, for a
+  collaborator that sends a request before the connection is otherwise guaranteed to be receiving.
 
-These four ports are independent, not one merged interface and not related by inheritance: a
+These five ports are independent, not one merged interface and not related by inheritance: a
 collaborator composes only the ports its own responsibility actually needs (for example
-`PairingService` takes `SessionTrustWriter` alone, never the wider `SessionConnector`), keeping each
-dependency as narrow as the class that declares it.
+`AuthenticationService` takes `SessionConnector`, `SessionContext`, and `MessageReceiver`, while
+`PairingService` takes `SessionTrustWriter` and `MessageReceiver` alone, never the wider
+`SessionConnector`), keeping each dependency as narrow as the class that declares it.
 
 ## Session-state ownership
 

@@ -6,6 +6,7 @@ import '../dovahlink_client_exception.dart';
 import '../shared/enums.dart';
 import '../transport/dovahlink_transport.dart';
 import 'connection_lifecycle_reporter.dart';
+import 'message_receiver.dart';
 import 'message_router.dart';
 import 'request_manager.dart';
 import 'session_connector.dart';
@@ -23,7 +24,8 @@ class ClientSession
         SessionContext,
         ConnectionLifecycleReporter,
         SessionConnector,
-        SessionTrustWriter {
+        SessionTrustWriter,
+        MessageReceiver {
   /// Creates a client session over [transport], timed per [timeoutDurations]. Builds its own
   /// [RequestManager] and [MessageRouter] in this constructor's body -- after [_transport] is
   /// assigned, so `this` is available to hand them as their [SessionContext] and
@@ -235,6 +237,7 @@ class ClientSession
   /// caller that sends before ever calling [connect]: without this, a `retrySafe` request sent on
   /// a never-connected session would be silently orphaned awaiting a reconnect that never
   /// happens, instead of failing with a typed exception.
+  @override
   void ensureReceiving() {
     if (_messageSubscription != null) {
       return;

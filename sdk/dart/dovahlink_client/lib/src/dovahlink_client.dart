@@ -1,9 +1,8 @@
-import 'dart:math';
-
 import 'package:meta/meta.dart';
 
 import 'dovahlink_client_exception.dart';
 import 'hello_result.dart';
+import 'internal/authentication_service.dart';
 import 'internal/client_session.dart';
 import 'internal/request_manager.dart';
 import 'pairing_cancel_outcome.dart';
@@ -13,8 +12,6 @@ import 'persistence/client_storage.dart';
 import 'persistence/persisted_client_state.dart';
 import 'persistence/windows/dpapi_client_storage.dart';
 import 'protocol/envelope.dart';
-import 'protocol/hello_ack_payload.dart';
-import 'protocol/hello_payload.dart';
 import 'protocol/pairing_ack_payload.dart';
 import 'protocol/pairing_confirm_payload.dart';
 import 'protocol/pairing_outcome_payload.dart';
@@ -45,6 +42,13 @@ class DovahLinkClient {
       timeoutDurations: kTimeoutClassDurations,
     );
     _requestManager = _session.requestManager;
+    _authenticationService = AuthenticationService(
+      requestManager: _requestManager,
+      storage: _storage,
+      sessionConnector: _session,
+      sessionContext: _session,
+      messageReceiver: _session,
+    );
   }
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
@@ -66,6 +70,13 @@ class DovahLinkClient {
       timeoutDurations: timeoutDurations,
     );
     _requestManager = _session.requestManager;
+    _authenticationService = AuthenticationService(
+      requestManager: _requestManager,
+      storage: _storage,
+      sessionConnector: _session,
+      sessionContext: _session,
+      messageReceiver: _session,
+    );
   }
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
@@ -80,20 +91,12 @@ class DovahLinkClient {
 
   /// Owns pending requests, timeouts, and retry behavior. The same instance [_session] itself
   /// uses internally, exposed via [ClientSession.requestManager] so this façade (and, in a later
-  /// extraction step, `AuthenticationService`/`PairingService`) can send requests directly without
-  /// depending on the whole session.
+  /// extraction step, `PairingService`) can send requests directly without depending on the whole
+  /// session.
   late final RequestManager _requestManager;
 
-  /// Source of randomness for this installation's `clientId`, generated on first use.
-  final Random _random = Random.secure();
-
-  /// This installation's stable client ID, or `null` before [hello] has resolved it.
-  String? _clientId;
-
-  /// The DovahLink Bridge/mod release version reported by the last successful [hello], or `null`
-  /// before [hello] succeeds. Cached so [authenticate] can report it again without re-sending
-  /// `hello` on an already-admitted session.
-  String? _bridgeVersion;
+  /// Owns `hello`/authentication and credential-rejection recovery.
+  late final AuthenticationService _authenticationService;
 
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState => _session.connectionState;
@@ -105,7 +108,7 @@ class DovahLinkClient {
   String? get sessionId => _session.currentSessionId;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
-  String? get clientId => _clientId;
+  String? get clientId => _authenticationService.clientId;
 
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
@@ -125,82 +128,7 @@ class DovahLinkClient {
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state; see [RequestPolicy.requiredTrustState] and [ClientSession.admitSession].
   /// @throws DovahLinkProtocolException if the bridge rejects authentication.
-  Future<HelloResult> hello() async {
-    final PersistedClientState state = await _storage.load();
-    final String clientId = await _resolveClientId(state);
-    final String? credential = state.recoveryState == PairingRecoveryState.none
-        ? state.credential
-        : null;
-    _clientId = clientId;
-
-    final HelloPayload payload = HelloPayload(
-      clientId: clientId,
-      authMethod: credential == null
-          ? AuthMethod.unpaired
-          : AuthMethod.trustedDeviceCredential,
-      authToken: credential,
-    );
-    try {
-      _session.ensureReceiving();
-      final Envelope response = await _requestManager.sendAndAwait(
-        messageType: 'hello',
-        payload: payload.toJson(),
-        expectedType: 'hello_ack',
-        policy: const RequestPolicy(
-          retrySafe: false,
-          requiredTrustState: null,
-          timeoutClass: TimeoutClass.normal,
-        ),
-      );
-      final HelloAckPayload ack = HelloAckPayload.fromJson(response.payload);
-      final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
-        ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
-        ClientIdentityKind.paired => DovahLinkTrustState.trusted,
-      };
-
-      final String? sessionId = response.sessionId;
-      if (sessionId == null) {
-        // hello_ack always carries a real sessionId per `protocol/schema/README.md`; a null one
-        // is a malformed reply, not a state ClientSession.admitSession's typed contract accepts
-        // silently the way the pre-extraction field assignment once did.
-        throw const DovahLinkProtocolException(
-          code: 'malformed_message',
-          message: 'The bridge reported hello_ack with no sessionId.',
-          retryable: false,
-        );
-      }
-      // admitSession also retransmits any retry-safe operation an earlier ordinary transport
-      // loss orphaned, now that this new session's trust state is known -- see
-      // ClientSession.admitSession's documentation.
-      _session.admitSession(sessionId: sessionId, trustState: trustState);
-      _bridgeVersion = ack.bridgeVersion;
-
-      // The bridge always sends an unprompted `capabilities` message right after `hello_ack`; it
-      // arrives as an unsolicited (null-correlationId) message and is discarded by
-      // MessageRouter -- exposing it is out of this client's current scope. hello() does not
-      // wait for it.
-
-      return HelloResult(
-        bridgeVersion: ack.bridgeVersion,
-        trustState: trustState,
-      );
-    } on ProtocolFormatException catch (error) {
-      // A DTO decode boundary failure (for example an unrecognized clientIdentityKind) is a
-      // protocol-level anomaly, not ordinary connectivity loss -- translated to the typed
-      // exception this client's callers already handle, per `ai/context/sdk/api-design.md`'s
-      // "Protocol DTO decoding" boundary translation, rather than leaking the DTO-layer type.
-      await disconnect();
-      _throwMalformedMessage(error);
-    } on Object {
-      // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
-      // always sets closeConnection), and a genuine transport failure leaves the socket equally
-      // unusable either way -- reset so the next connect() attempt does not find a stale socket
-      // WebSocketTransport still considers open (its "Already connected" guard in connect()).
-      // disconnect() itself never throws, so this cannot mask the error being rethrown below.
-      await disconnect();
-      rethrow;
-    }
-  }
+  Future<HelloResult> hello() => _authenticationService.hello();
 
   /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
   /// hello (`revoked` or an unrecognized credential) by discarding it and retrying once as
@@ -217,36 +145,8 @@ class DovahLinkClient {
   /// @throws DovahLinkConnectionException if the socket cannot be established (initial or retry).
   /// @throws DovahLinkProtocolException if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
-  Future<HelloResult> authenticate(Uri uri) async {
-    final String? cachedBridgeVersion = _bridgeVersion;
-    if (_session.connectionState == DovahLinkConnectionState.connected &&
-        _session.currentTrustState == DovahLinkTrustState.trusted &&
-        cachedBridgeVersion != null) {
-      return HelloResult(
-        bridgeVersion: cachedBridgeVersion,
-        trustState: DovahLinkTrustState.trusted,
-      );
-    }
-    await connect(uri);
-    try {
-      return await hello();
-    } on DovahLinkProtocolException catch (error) {
-      final CredentialRejectionReason? reason = _credentialRejectionReason(
-        error.code,
-      );
-      if (reason == null) {
-        rethrow;
-      }
-      await forgetCredential();
-      await connect(uri);
-      final HelloResult result = await hello();
-      return HelloResult(
-        bridgeVersion: result.bridgeVersion,
-        trustState: result.trustState,
-        recoveredFromRejectedCredential: reason,
-      );
-    }
-  }
+  Future<HelloResult> authenticate(Uri uri) =>
+      _authenticationService.authenticate(uri);
 
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
@@ -465,37 +365,7 @@ class DovahLinkClient {
   /// (`unauthenticated`/`revoked`) and before retrying -- this installation's identity is not
   /// itself invalid, only its stored credential. Does not touch the transport or in-memory
   /// connection state; call [disconnect] separately if the connection also needs resetting.
-  Future<void> forgetCredential() async {
-    final PersistedClientState state = await _storage.load();
-    await _storage.save(PersistedClientState(clientId: state.clientId));
-  }
-
-  /// Returns the persisted `clientId`, generating and persisting a fresh RFC 4122 version-4 UUID
-  /// on first use.
-  Future<String> _resolveClientId(PersistedClientState state) async {
-    final String? existing = state.clientId;
-    if (existing != null && existing.isNotEmpty) {
-      return existing;
-    }
-    final String generated = _generateUuidV4();
-    await _storage.save(state.copyWith(clientId: generated));
-    return generated;
-  }
-
-  /// Generates a random RFC 4122 version-4 UUID string.
-  String _generateUuidV4() {
-    final List<int> bytes = List<int>.generate(16, (_) => _random.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-
-    String hexRange(int start, int end) => bytes
-        .sublist(start, end)
-        .map((int byte) => byte.toRadixString(16).padLeft(2, '0'))
-        .join();
-
-    return '${hexRange(0, 4)}-${hexRange(4, 6)}-${hexRange(6, 8)}-'
-        '${hexRange(8, 10)}-${hexRange(10, 16)}';
-  }
+  Future<void> forgetCredential() => _authenticationService.forgetCredential();
 
   /// Interprets a [PairingOutcome] returned in reply to `pairing_renotify`. Every [PairingOutcome]
   /// value is a recognized wire value -- decoded and validated as a closed enum by
@@ -537,13 +407,4 @@ class DovahLinkClient {
         message: error.message,
         retryable: false,
       );
-
-  /// Converts a rejected `trusted_device_credential` hello's wire error code into the typed
-  /// reason [authenticate] recovers from, or `null` when [code] is not a recoverable rejection.
-  CredentialRejectionReason? _credentialRejectionReason(String code) =>
-      switch (code) {
-        'revoked' => CredentialRejectionReason.revoked,
-        'unauthenticated' => CredentialRejectionReason.unrecognized,
-        _ => null,
-      };
 }
