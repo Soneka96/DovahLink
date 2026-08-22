@@ -25,6 +25,7 @@ void main() {
           authToken: 'redacted-in-documentation',
         );
 
+        expect(payload.endpoint, ProtocolEndpoint.client);
         expect(
           payload.toJson(),
           _readFixture('connection/hello.json')['payload'],

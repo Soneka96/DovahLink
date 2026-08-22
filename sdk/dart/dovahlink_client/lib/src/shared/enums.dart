@@ -375,6 +375,13 @@ enum ProtocolErrorCode {
   internalError,
 }
 
+/// The canonical wire value of the `hello.endpoint` field.
+enum ProtocolEndpoint {
+  /// Identifies the connecting side as the DovahLink client.
+  @JsonValue('client')
+  client,
+}
+
 // ---- Persistence ----
 
 /// The client's local recovery standing for an in-progress pairing confirmation, persisted so a

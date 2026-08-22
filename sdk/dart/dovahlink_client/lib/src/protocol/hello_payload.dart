@@ -28,7 +28,7 @@ class HelloPayload {
   }
 
   /// The fixed endpoint identity every `hello` this client sends carries.
-  final String endpoint = 'client';
+  final ProtocolEndpoint endpoint = ProtocolEndpoint.client;
 
   /// The logical client/installation identity, independent of any connection.
   final String clientId;
