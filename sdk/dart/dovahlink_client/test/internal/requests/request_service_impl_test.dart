@@ -325,6 +325,114 @@ void main() {
     );
   });
 
+  group('Behavior trustState guard behaves correctly', () {
+    test(
+      'Behavior trustState guard fails a request whose required state does not match, without transmitting',
+      () async {
+        when(
+          () => sessionService.currentTrustState,
+        ).thenReturn(DovahLinkTrustState.trusted);
+
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: _retrySafeUnpairedPolicy,
+          ),
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException e) => e.message,
+              'message',
+              contains('required trust state'),
+            ),
+          ),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
+
+    test(
+      'Behavior trustState guard fails a trusted request from an unpaired session, without transmitting',
+      () async {
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: buildRequestPolicy(
+              requiredTrustState: DovahLinkTrustState.trusted,
+            ),
+          ),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
+
+    test(
+      'Behavior trustState guard fails a required state when no session trust exists, without transmitting',
+      () async {
+        when(() => sessionService.currentTrustState).thenReturn(null);
+
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: _retrySafeUnpairedPolicy,
+          ),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
+
+    test(
+      'Behavior trustState guard allows a request whose required state matches',
+      () async {
+        when(
+          () => sessionService.currentTrustState,
+        ).thenReturn(DovahLinkTrustState.trusted);
+
+        unawaited(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.helloAck,
+            policy: buildRequestPolicy(
+              retrySafe: false,
+              requiredTrustState: DovahLinkTrustState.trusted,
+              timeoutClass: TimeoutClass.normal,
+            ),
+          ),
+        );
+        await pumpEventQueue();
+
+        verify(() => transmitter.transmit(any())).called(1);
+      },
+    );
+
+    test(
+      'Behavior trustState guard allows a request with no required state before admission',
+      () async {
+        when(() => sessionService.currentTrustState).thenReturn(null);
+
+        unawaited(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.helloAck,
+            policy: _nonRetrySafePolicy,
+          ),
+        );
+        await pumpEventQueue();
+
+        verify(() => transmitter.transmit(any())).called(1);
+      },
+    );
+  });
+
   group('Method handleIncoming behaves correctly', () {
     test('Method handleIncoming forwards to MessageRouter.handleIncoming', () {
       service.handleIncoming('raw-message');

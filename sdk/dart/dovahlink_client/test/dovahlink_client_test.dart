@@ -199,6 +199,17 @@ String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
   'clientId': null,
 });
 
+/// Connects [client] to the fake transport and admits an unpaired session for a public-client test.
+Future<void> _connectAndHello(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+) async {
+  await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+  transport.queueResponse(_rawFixture('capabilities/capabilities-bridge.json'));
+  await client.hello();
+}
+
 /// Runs public-client behavior tests.
 void main() {
   late FakeDovahLinkTransport transport;
@@ -570,7 +581,7 @@ void main() {
     test(
       'Method requestPairing reports available with expiresInSeconds from the real fixture',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
         );
@@ -587,7 +598,7 @@ void main() {
       // pairing_confirm is not retrySafe (unlike pairing_request): a send failure must fail it
       // immediately rather than parking it to retry after a reconnect -- see the "retry-safe
       // operations across reconnect" group below for the retrySafe counterpart of this case.
-      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      await _connectAndHello(transport, client);
       transport.failSendWith = const SocketException('reset');
 
       await expectLater(
@@ -613,7 +624,7 @@ void main() {
     test(
       'Method requestPairingRenotify reports renotified from the real fixture',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-renotified.json'),
         );
@@ -631,7 +642,7 @@ void main() {
     test(
       'Method cancelPairing reports cancelled from the real fixture',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-cancelled.json'),
         );
@@ -647,8 +658,8 @@ void main() {
     test(
       'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
@@ -669,7 +680,6 @@ void main() {
     test(
       'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -677,6 +687,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-expired.json'),
         );
@@ -697,7 +708,6 @@ void main() {
     test(
       'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -705,6 +715,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -721,13 +732,13 @@ void main() {
     test(
       'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             credential: 'stored-credential',
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -747,7 +758,6 @@ void main() {
     test(
       'Method recoverPendingPairing leaves CONFIRMING untouched when the retry fails for another reason',
       () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -755,6 +765,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse('not valid json');
 
         await expectLater(
