@@ -5,11 +5,10 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
-import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
@@ -18,16 +17,13 @@ import '../fixtures/internal/pending_operation.fixture.dart';
 /// Mock transport used to isolate transmission tests from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
-/// Mock session context used to supply the current session identity.
-class MockSessionContext extends Mock implements SessionContext {}
-
-/// Mock lifecycle reporter used to capture timeout and send-failure notifications.
-class MockConnectionLifecycleReporter extends Mock
-    implements ConnectionLifecycleReporter {}
+/// Mock session service used to supply the current session identity and capture timeout and
+/// send-failure notifications, per `ai/context/sdk/testing.md`'s "Service test boundaries".
+class MockSessionService extends Mock implements SessionService {}
 
 /// Mock pending-operation owner used to capture message-ID registration and failure.
-class MockPendingOperationRegistry extends Mock
-    implements PendingOperationRegistry {}
+class MockPendingOperationBookkeeping extends Mock
+    implements PendingOperationBookkeeping {}
 
 /// Short timeout durations used to exercise timeout reporting deterministically.
 const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
@@ -39,24 +35,21 @@ const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
 /// Builds a transmitter from the supplied test doubles and timeout policy.
 PendingOperationTransmitter buildTransmitter({
   required DovahLinkTransport transport,
-  required SessionContext sessionContext,
-  required ConnectionLifecycleReporter reporter,
-  required PendingOperationRegistry registry,
+  required SessionService sessionService,
+  required PendingOperationBookkeeping bookkeeping,
   Map<TimeoutClass, Duration> timeoutDurations = _shortTimeouts,
 }) => PendingOperationTransmitter(
   transport: transport,
   timeoutDurations: timeoutDurations,
-  sessionContext: sessionContext,
-  reporter: reporter,
-  registry: registry,
+  sessionService: sessionService,
+  bookkeeping: bookkeeping,
 );
 
 /// Runs pending-operation transmission behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
-  late MockSessionContext sessionContext;
-  late MockConnectionLifecycleReporter reporter;
-  late MockPendingOperationRegistry registry;
+  late MockSessionService sessionService;
+  late MockPendingOperationBookkeeping bookkeeping;
 
   setUpAll(() {
     registerFallbackValue(
@@ -66,10 +59,9 @@ void main() {
 
   setUp(() {
     transport = MockDovahLinkTransport();
-    sessionContext = MockSessionContext();
-    reporter = MockConnectionLifecycleReporter();
-    registry = MockPendingOperationRegistry();
-    when(() => sessionContext.currentSessionId).thenReturn('session-1');
+    sessionService = MockSessionService();
+    bookkeeping = MockPendingOperationBookkeeping();
+    when(() => sessionService.currentSessionId).thenReturn('session-1');
     when(() => transport.send(any())).thenAnswer((_) async {});
   });
 
@@ -80,9 +72,8 @@ void main() {
         final PendingOperation operation = buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
-          sessionContext: sessionContext,
-          reporter: reporter,
-          registry: registry,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
         );
 
         transmitter.transmit(operation);
@@ -90,7 +81,7 @@ void main() {
 
         final String registeredMessageId =
             verify(
-                  () => registry.register(captureAny(), operation),
+                  () => bookkeeping.register(captureAny(), operation),
                 ).captured.single
                 as String;
         final JsonMap envelope =
@@ -107,21 +98,20 @@ void main() {
     );
 
     test(
-      'Method transmit reports a timeout through the lifecycle reporter',
+      'Method transmit reports a timeout through the session service',
       () async {
         final PendingOperation operation = buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
-          sessionContext: sessionContext,
-          reporter: reporter,
-          registry: registry,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
         );
 
         transmitter.transmit(operation);
         await Future<void>.delayed(const Duration(milliseconds: 40));
 
         final List<Object?> reported = verify(
-          () => reporter.onUnhealthy(captureAny()),
+          () => sessionService.onUnhealthy(captureAny()),
         ).captured;
         expect(reported.single, isA<DovahLinkConnectionException>());
         expect(
@@ -133,7 +123,7 @@ void main() {
     );
 
     test(
-      'Method transmit reports a transport send failure through the lifecycle reporter',
+      'Method transmit reports a transport send failure through the session service',
       () async {
         when(
           () => transport.send(any()),
@@ -141,16 +131,15 @@ void main() {
         final PendingOperation operation = buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
-          sessionContext: sessionContext,
-          reporter: reporter,
-          registry: registry,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
         );
 
         transmitter.transmit(operation);
         await pumpEventQueue();
 
         final List<Object?> reported = verify(
-          () => reporter.onUnhealthy(captureAny()),
+          () => sessionService.onUnhealthy(captureAny()),
         ).captured;
         expect(reported.single, isA<DovahLinkConnectionException>());
         expect(

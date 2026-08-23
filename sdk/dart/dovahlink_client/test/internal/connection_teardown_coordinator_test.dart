@@ -6,16 +6,16 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
 /// Mock transport used to isolate teardown coordination from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
-/// Mock session-owned state port used to verify coordinator transitions, per
+/// Mock session state used to verify coordinator transitions, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed with closures over this test
 /// file's own local variables to simulate the same statefulness a real implementation would have.
-class MockSessionLifecycleState extends Mock implements SessionLifecycleState {}
+class MockSessionState extends Mock implements SessionState {}
 
 /// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- the
 /// queue's own scheduling behavior stays owned by `lifecycle_operation_queue_test.dart`. Stubbed to
@@ -26,7 +26,7 @@ class MockSessionLifecycleState extends Mock implements SessionLifecycleState {}
 class MockLifecycleOperationQueue extends Mock
     implements LifecycleOperationQueue {}
 
-/// Builds a coordinator from the supplied test doubles and state port.
+/// Builds a coordinator from the supplied test doubles and state.
 ConnectionTeardownCoordinator buildCoordinator({
   required DovahLinkTransport transport,
   required LifecycleOperationQueue lifecycleQueue,
@@ -35,7 +35,7 @@ ConnectionTeardownCoordinator buildCoordinator({
     required bool orphanRetrySafeOperations,
   })
   pendingOperationFailureHandler,
-  required SessionLifecycleState state,
+  required SessionState state,
 }) => ConnectionTeardownCoordinator(
   transport: transport,
   lifecycleQueue: lifecycleQueue,
@@ -54,7 +54,7 @@ void main() {
     required bool orphanRetrySafeOperations,
   })
   pendingOperationFailureHandler;
-  late MockSessionLifecycleState state;
+  late MockSessionState state;
   late bool administrativelyInvalidated;
   late int generation;
   late StreamSubscription<String>? subscription;
@@ -82,21 +82,19 @@ void main() {
     subscription = null;
     resetCalled = false;
     lastPreserveReconnecting = null;
-    state = MockSessionLifecycleState();
+    state = MockSessionState();
     when(
       () => state.isAdministrativelyInvalidated,
     ).thenAnswer((_) => administrativelyInvalidated);
     when(() => state.connectionGeneration).thenAnswer((_) => generation);
-    when(
-      () => state.bumpConnectionGeneration(),
-    ).thenAnswer((_) => generation++);
+    when(() => state.bumpGeneration()).thenAnswer((_) => generation++);
     when(() => state.detachMessageSubscription()).thenAnswer((_) {
       final StreamSubscription<String>? detached = subscription;
       subscription = null;
       return detached;
     });
     when(
-      () => state.resetAfterConnectionTeardown(
+      () => state.resetAfterTeardown(
         preserveReconnecting: any(named: 'preserveReconnecting'),
       ),
     ).thenAnswer((Invocation invocation) {

@@ -1,14 +1,10 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
-import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
-import 'package:dovahlink_client_sdk/src/internal/reply_resolver_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/reply_validator.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_context_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -19,11 +15,9 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// "Request/session boundary". Every collaborator ([PendingOperationBookkeeping],
 /// [PendingOperationTransmitter], [MessageRouter]) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
-/// its own dependencies, including the [SessionContextImpl]/[ConnectionLifecycleReporterImpl]/
-/// [ReplyResolverImpl]/[PendingOperationRegistryImpl] adapters the caller must build to satisfy
-/// [PendingOperationTransmitter]/[MessageRouter]'s own still-unchanged pre-decomposition ports;
-/// every adapter and port is eliminated when `RequestManager` is deleted at the composition-root
-/// cutover.
+/// its own dependencies. [PendingOperationTransmitter] and [MessageRouter] depend directly on
+/// [SessionService] and [PendingOperationBookkeeping], the same instances this class holds --
+/// no adapter stands between them.
 class RequestServiceImpl implements RequestService {
   /// The session this service reads identity/trust from.
   final SessionService _sessionService;

@@ -2,20 +2,19 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/unsolicited_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
 
-/// Mock lifecycle reporter used to capture unsolicited-message decisions.
-class MockConnectionLifecycleReporter extends Mock
-    implements ConnectionLifecycleReporter {}
+/// Mock session service used to capture unsolicited-message decisions.
+class MockSessionService extends Mock implements SessionService {}
 
 /// Runs unsolicited-message handler behavior tests.
 void main() {
-  late MockConnectionLifecycleReporter reporter;
+  late MockSessionService sessionService;
   late UnsolicitedMessageHandler handler;
 
   setUpAll(() {
@@ -31,8 +30,8 @@ void main() {
   });
 
   setUp(() {
-    reporter = MockConnectionLifecycleReporter();
-    handler = UnsolicitedMessageHandler(reporter: reporter);
+    sessionService = MockSessionService();
+    handler = UnsolicitedMessageHandler(sessionService: sessionService);
   });
 
   group('Method handle behaves correctly', () {
@@ -46,12 +45,12 @@ void main() {
       );
 
       verify(
-        () => reporter.onSessionInvalidated(
+        () => sessionService.onSessionInvalidated(
           AdministrativeInvalidationReason.revoked,
         ),
       ).called(1);
       verifyNever(
-        () => reporter.onProtocolViolation(
+        () => sessionService.onProtocolViolation(
           any(),
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
@@ -76,7 +75,7 @@ void main() {
       }
 
       final VerificationResult verification = verify(
-        () => reporter.onProtocolViolation(
+        () => sessionService.onProtocolViolation(
           captureAny(),
           orphanRetrySafeOperations: captureAny(
             named: 'orphanRetrySafeOperations',
@@ -91,7 +90,7 @@ void main() {
         );
         expect(verification.captured[index * 2 + 1], isFalse);
       }
-      verifyNever(() => reporter.onSessionInvalidated(any()));
+      verifyNever(() => sessionService.onSessionInvalidated(any()));
     });
 
     test('Method handle ignores known unsupported unsolicited messages', () {
@@ -103,9 +102,9 @@ void main() {
         ),
       );
 
-      verifyNever(() => reporter.onSessionInvalidated(any()));
+      verifyNever(() => sessionService.onSessionInvalidated(any()));
       verifyNever(
-        () => reporter.onProtocolViolation(
+        () => sessionService.onProtocolViolation(
           any(),
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
@@ -126,7 +125,7 @@ void main() {
       );
 
       final VerificationResult verification = verify(
-        () => reporter.onUnsolicitedError(captureAny()),
+        () => sessionService.onUnsolicitedError(captureAny()),
       );
       verification.called(1);
       final ErrorPayload payload = verification.captured.single as ErrorPayload;
@@ -134,12 +133,12 @@ void main() {
       expect(payload.message, 'Too many requests.');
       expect(payload.retryable, isTrue);
       verifyNever(
-        () => reporter.onProtocolViolation(
+        () => sessionService.onProtocolViolation(
           any(),
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
-      verifyNever(() => reporter.onSessionInvalidated(any()));
+      verifyNever(() => sessionService.onSessionInvalidated(any()));
     });
 
     test('Method handle reports malformed unsolicited error payloads', () {
@@ -168,7 +167,7 @@ void main() {
       }
 
       final VerificationResult verification = verify(
-        () => reporter.onProtocolViolation(
+        () => sessionService.onProtocolViolation(
           captureAny(),
           orphanRetrySafeOperations: captureAny(
             named: 'orphanRetrySafeOperations',
@@ -183,7 +182,7 @@ void main() {
         );
         expect(verification.captured[index * 2 + 1], isFalse);
       }
-      verifyNever(() => reporter.onUnsolicitedError(any()));
+      verifyNever(() => sessionService.onUnsolicitedError(any()));
     });
   });
 }

@@ -1,11 +1,11 @@
 import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
-/// Coordinates ordered connection-resource cleanup while [SessionLifecycleState] retains
-/// ownership of connection state and stream fields.
+/// Coordinates ordered connection-resource cleanup while [SessionState] retains ownership of
+/// connection state and stream fields.
 class ConnectionTeardownCoordinator {
   /// The transport whose resources must be closed.
   final DovahLinkTransport _transport;
@@ -14,10 +14,9 @@ class ConnectionTeardownCoordinator {
   final LifecycleOperationQueue _lifecycleQueue;
 
   /// Fails or orphans pending operations after resource cleanup completes. A plain callback,
-  /// rather than a `PendingOperationFailureHandler` port, so a caller whose own pending-operation
-  /// owner does not exist yet at construction time (see `SessionServiceImpl.onTeardown`) can
-  /// supply a forwarding closure instead of having to implement that port on itself and pass
-  /// itself under a second name.
+  /// rather than a constructor dependency on the pending-operation owner itself, so a caller
+  /// whose own pending-operation owner does not exist yet at construction time (see
+  /// `SessionServiceImpl.onTeardown`) can supply a forwarding closure instead.
   final void Function(
     Exception reason, {
     required bool orphanRetrySafeOperations,
@@ -25,10 +24,10 @@ class ConnectionTeardownCoordinator {
   _pendingOperationFailureHandler;
 
   /// The session-owned state changed by the teardown transition.
-  final SessionLifecycleState _state;
+  final SessionState _state;
 
   /// Creates a coordinator for one session's transport, lifecycle queue, pending-operation failure
-  /// callback, and state port.
+  /// callback, and state.
   ConnectionTeardownCoordinator({
     required DovahLinkTransport transport,
     required LifecycleOperationQueue lifecycleQueue,
@@ -37,7 +36,7 @@ class ConnectionTeardownCoordinator {
       required bool orphanRetrySafeOperations,
     })
     pendingOperationFailureHandler,
-    required SessionLifecycleState state,
+    required SessionState state,
   }) : _transport = transport,
        _lifecycleQueue = lifecycleQueue,
        _pendingOperationFailureHandler = pendingOperationFailureHandler,
@@ -47,8 +46,8 @@ class ConnectionTeardownCoordinator {
   /// may orphan one retry-safe operation; deliberate disconnect and protocol failure can disable
   /// that behavior through [orphanRetrySafeOperations] -- the same flag also controls whether an
   /// already-`reconnecting` session stays `reconnecting` (an intermediate teardown mid-recovery)
-  /// or resolves to `disconnected` (a final one), per
-  /// [SessionLifecycleState.resetAfterConnectionTeardown]. A no-op if a call queued ahead of this one
+  /// or resolves to `disconnected` (a final one), per [SessionState.resetAfterTeardown]. A no-op
+  /// if a call queued ahead of this one
   /// already tore down the same connection generation -- for example a stream's `onError` and
   /// `onDone` both firing for one dead subscription -- so the redundant second call cannot double
   /// -run cleanup or a second `failAll`. Does not skip a call made after the connection actually
@@ -66,7 +65,7 @@ class ConnectionTeardownCoordinator {
       if (_state.connectionGeneration != callGeneration) {
         return;
       }
-      _state.bumpConnectionGeneration();
+      _state.bumpGeneration();
       final int generation = _state.connectionGeneration;
       final StreamSubscription<String>? subscription = _state
           .detachMessageSubscription();
@@ -80,7 +79,7 @@ class ConnectionTeardownCoordinator {
           generation != _state.connectionGeneration) {
         return;
       }
-      _state.resetAfterConnectionTeardown(
+      _state.resetAfterTeardown(
         preserveReconnecting: orphanRetrySafeOperations,
       );
       _pendingOperationFailureHandler(

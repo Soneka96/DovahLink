@@ -4,19 +4,20 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
-import 'package:dovahlink_client_sdk/src/internal/reply_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Mock reply resolver used to isolate message routing tests.
-class MockReplyResolver extends Mock implements ReplyResolver {}
+/// Mock pending-operation bookkeeping used to isolate message routing tests, per
+/// `ai/context/sdk/testing.md`'s "Service test boundaries".
+class MockPendingOperationBookkeeping extends Mock
+    implements PendingOperationBookkeeping {}
 
-/// Mock lifecycle reporter used to capture router decisions.
-class MockConnectionLifecycleReporter extends Mock
-    implements ConnectionLifecycleReporter {}
+/// Mock session service used to capture router decisions.
+class MockSessionService extends Mock implements SessionService {}
 
 /// Fake envelope used to register mocktail fallbacks.
 class FakeEnvelope extends Fake implements Envelope {}
@@ -52,8 +53,8 @@ String rawEnvelope({
 
 /// Runs message-router behavior tests.
 void main() {
-  late MockReplyResolver replyResolver;
-  late MockConnectionLifecycleReporter reporter;
+  late MockPendingOperationBookkeeping bookkeeping;
+  late MockSessionService sessionService;
   late MessageRouter router;
 
   setUpAll(() {
@@ -63,16 +64,19 @@ void main() {
   });
 
   setUp(() {
-    replyResolver = MockReplyResolver();
-    reporter = MockConnectionLifecycleReporter();
-    router = MessageRouter(replyResolver: replyResolver, reporter: reporter);
+    bookkeeping = MockPendingOperationBookkeeping();
+    sessionService = MockSessionService();
+    router = MessageRouter(
+      bookkeeping: bookkeeping,
+      sessionService: sessionService,
+    );
   });
 
   group('Method handleIncoming behaves correctly', () {
     test(
-      'Method handleIncoming resolves a correlated reply through ReplyResolver',
+      'Method handleIncoming resolves a correlated reply through PendingOperationBookkeeping',
       () {
-        when(() => replyResolver.resolveReply(any(), any())).thenReturn(true);
+        when(() => bookkeeping.resolveReply(any(), any())).thenReturn(true);
 
         router.handleIncoming(
           rawEnvelope(
@@ -84,7 +88,7 @@ void main() {
 
         final Envelope resolved =
             verify(
-                  () => replyResolver.resolveReply(
+                  () => bookkeeping.resolveReply(
                     captureAny(that: equals('message-outgoing-1')),
                     captureAny(),
                   ),
@@ -96,7 +100,7 @@ void main() {
         expect(resolved.sessionId, 'session-1');
         expect(resolved.bridgeInstanceId, 'bridge-1');
         verifyNever(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             any(),
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
@@ -107,7 +111,7 @@ void main() {
     test(
       'Method handleIncoming reports a protocol violation when no pending operation matches the correlationId',
       () {
-        when(() => replyResolver.resolveReply(any(), any())).thenReturn(false);
+        when(() => bookkeeping.resolveReply(any(), any())).thenReturn(false);
 
         router.handleIncoming(
           rawEnvelope(
@@ -118,7 +122,7 @@ void main() {
         );
 
         final VerificationResult verification = verify(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             captureAny(),
             orphanRetrySafeOperations: captureAny(
               named: 'orphanRetrySafeOperations',
@@ -140,7 +144,7 @@ void main() {
         router.handleIncoming('not valid json');
 
         final VerificationResult verification = verify(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             captureAny(),
             orphanRetrySafeOperations: captureAny(
               named: 'orphanRetrySafeOperations',
@@ -161,7 +165,7 @@ void main() {
           contains('Invalid protocol envelope'),
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => replyResolver.resolveReply(any(), any()));
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
       },
     );
 
@@ -172,7 +176,7 @@ void main() {
         router.handleIncoming(jsonEncode(<String, dynamic>{}));
 
         final VerificationResult verification = verify(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             captureAny(),
             orphanRetrySafeOperations: captureAny(
               named: 'orphanRetrySafeOperations',
@@ -193,7 +197,7 @@ void main() {
           contains('Invalid protocol envelope'),
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => replyResolver.resolveReply(any(), any()));
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
       },
     );
 
@@ -208,7 +212,7 @@ void main() {
         );
 
         final VerificationResult verification = verify(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             captureAny(),
             orphanRetrySafeOperations: captureAny(
               named: 'orphanRetrySafeOperations',
@@ -221,8 +225,8 @@ void main() {
           ProtocolErrorCode.malformedMessage,
         );
         expect(verification.captured[1], isFalse);
-        verifyNever(() => replyResolver.resolveReply(any(), any()));
-        verifyNever(() => reporter.onSessionInvalidated(any()));
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
+        verifyNever(() => sessionService.onSessionInvalidated(any()));
       },
     );
 
@@ -237,17 +241,17 @@ void main() {
         );
 
         verify(
-          () => reporter.onSessionInvalidated(
+          () => sessionService.onSessionInvalidated(
             AdministrativeInvalidationReason.revoked,
           ),
         ).called(1);
         verifyNever(
-          () => reporter.onProtocolViolation(
+          () => sessionService.onProtocolViolation(
             any(),
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        verifyNever(() => replyResolver.resolveReply(any(), any()));
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
       },
     );
   });

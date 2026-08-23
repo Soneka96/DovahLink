@@ -4,7 +4,6 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
@@ -17,11 +16,8 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// drives its transitions. Every collaborator ([LifecycleOperationQueue],
 /// [ConnectionTeardownCoordinator]) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
-/// its own dependencies. `ConnectionTeardownCoordinator` is itself unchanged internally and still
-/// depends on the pre-decomposition `SessionLifecycleState` port -- satisfied by the caller
-/// supplying a [SessionLifecycleStateImpl] view over the same [SessionState], not by this class
-/// implementing that port itself; a concrete Service implementation carries exactly one
-/// architectural identity, per `ai/context/sdk/architecture.md`'s "Internal composition".
+/// its own dependencies. `ConnectionTeardownCoordinator` depends directly on the same [SessionState]
+/// instance this class holds.
 class SessionServiceImpl implements SessionService {
   /// The transport this service connects, sends over, and closes.
   final DovahLinkTransport _transport;

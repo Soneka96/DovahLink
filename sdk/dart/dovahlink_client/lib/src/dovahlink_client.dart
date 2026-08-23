@@ -5,24 +5,19 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
-import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect_service_impl.dart';
-import 'package:dovahlink_client_sdk/src/internal/reply_resolver_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_admission_service_impl.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_context_impl.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
@@ -109,7 +104,7 @@ class DovahLinkClient {
                     reason,
                     orphanRetrySafeOperations: orphanRetrySafeOperations,
                   ),
-          state: SessionLifecycleStateImpl(state),
+          state: state,
         );
     _sessionService = SessionServiceImpl(
       transport: transport,
@@ -120,18 +115,15 @@ class DovahLinkClient {
 
     final PendingOperationBookkeeping bookkeeping =
         PendingOperationBookkeeping();
-    final ConnectionLifecycleReporterImpl lifecycleReporter =
-        ConnectionLifecycleReporterImpl(_sessionService);
     final PendingOperationTransmitter transmitter = PendingOperationTransmitter(
       transport: transport,
       timeoutDurations: timeoutDurations,
-      sessionContext: SessionContextImpl(_sessionService),
-      reporter: lifecycleReporter,
-      registry: PendingOperationRegistryImpl(bookkeeping),
+      sessionService: _sessionService,
+      bookkeeping: bookkeeping,
     );
     final MessageRouter messageRouter = MessageRouter(
-      replyResolver: ReplyResolverImpl(bookkeeping),
-      reporter: lifecycleReporter,
+      bookkeeping: bookkeeping,
+      sessionService: _sessionService,
     );
     _requestService = RequestServiceImpl(
       sessionService: _sessionService,
