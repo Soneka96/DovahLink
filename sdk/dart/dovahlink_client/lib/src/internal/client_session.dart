@@ -58,7 +58,7 @@ class ClientSession
     _teardownCoordinator = ConnectionTeardownCoordinator(
       transport: transport,
       lifecycleQueue: _lifecycleQueue,
-      pendingOperationFailureHandler: _requestManager,
+      pendingOperationFailureHandler: _requestManager.failAll,
       state: this,
     );
   }
@@ -78,7 +78,7 @@ class ClientSession
     _teardownCoordinator = ConnectionTeardownCoordinator(
       transport: transport,
       lifecycleQueue: _lifecycleQueue,
-      pendingOperationFailureHandler: requestManager,
+      pendingOperationFailureHandler: requestManager.failAll,
       state: this,
     );
   }

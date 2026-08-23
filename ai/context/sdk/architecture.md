@@ -116,6 +116,27 @@ learn that two differently-named dependencies are secretly the same object. (Thi
 apply to the pre-existing, orthogonal platform-port category — `DovahLinkTransport`/`ClientStorage`
 — which is unaffected by it; see "Platform ports" above.)
 
+This rule allows no exception during the migration, including the case where a `ServiceImpl` is
+the sole genuine owner of some state a pre-decomposition port also describes — "it's the only real
+owner, no other object could stand in" is not by itself grounds to self-implement that port. Where
+a `ServiceImpl`'s owned collaborator (`MessageRouter`, `PendingOperationTransmitter`,
+`ConnectionTeardownCoordinator`) still depends on an old, narrow port from before the Service
+decomposition, satisfy it with a dedicated adapter instead, chosen by what the port's members
+already are:
+- If every member is already present, under the same name and shape, on some other real object the
+  `ServiceImpl` already holds (a different `Service` it depends on, for example) — hand that object
+  over directly, under its own name. No adapter class needed.
+- Otherwise, extract the owning state and logic into a plain, no-interface supporting object (per
+  "Not everything is a Service" below), then write one small adapter class per old port, each
+  implementing exactly that one port and delegating to the plain object. Never let one adapter
+  implement more than one old port, and never let the `ServiceImpl` implement the port itself and
+  pass `this`. `SessionState`/`SessionLifecycleStateImpl` (satisfying `ConnectionTeardownCoordinator`'s
+  `SessionLifecycleState` dependency) and `PendingOperationBookkeeping`/`ReplyResolverImpl`/
+  `PendingOperationRegistryImpl` (satisfying `MessageRouter`/`PendingOperationTransmitter`'s
+  `ReplyResolver`/`PendingOperationRegistry` dependencies) are the canonical examples of this split.
+  Every such adapter, along with the port it implements, is deleted at the composition-root
+  cutover.
+
 The seven Services:
 
 - `SessionService`/`SessionServiceImpl` — owns transport lifecycle, connection state, and stream
@@ -171,6 +192,16 @@ access inside a Service implementation. A single Service instance may legitimate
 multiple consumers — `RequestService` is injected into `SessionAdmissionServiceImpl`,
 `AuthenticationServiceImpl`, and `PairingServiceImpl` — that is expected and does not duplicate the
 Service or its state.
+
+No exceptions for privately-owned collaborators. A class never constructs its own dependency —
+however small, however single-consumer, however free of its own dependencies (a plain queue, a
+one-line delegating adapter) — inside its own constructor body. Every collaborator a class needs,
+without exception, is a constructor parameter the caller supplies already built. This is what
+"privately owned" means throughout this document: sole-consumer and untyped-by-a-Service-interface,
+never internally self-assembled. The payoff is that exactly one place ever calls a constructor with
+`new`-shaped intent for the whole graph — today `DovahLinkClient`, later a generated or hand-rolled
+injection container — and every test can substitute any single collaborator, at any depth, without
+the class under test needing a special test-only constructor to make that possible.
 
 ### Callbacks
 

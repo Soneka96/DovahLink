@@ -5,6 +5,8 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
+import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
@@ -14,37 +16,125 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// Mock transport used to isolate [SessionServiceImpl]'s lifecycle behavior.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
-/// Runs [SessionServiceImpl] behavior tests. Uses a real [SessionState] directly, per
-/// `ai/context/sdk/testing.md`'s "Service test boundaries" -- only the transport is mocked.
+/// Mock session state used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- its own
+/// state-derivation behavior (for example preserving `reconnecting` through a failed recovery
+/// attempt) is `session_state_test.dart`'s responsibility; this file only proves
+/// [SessionServiceImpl] calls the right transition method with the right arguments.
+class MockSessionState extends Mock implements SessionState {}
+
+/// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed
+/// to delegate to a real, test-local [LifecycleOperationQueue] instance purely so this file's
+/// racing/ordering tests exercise [SessionServiceImpl]'s own queueing usage under genuine
+/// concurrent-call scheduling, without [SessionServiceImpl] itself ever depending on anything but
+/// the mock.
+class MockLifecycleOperationQueue extends Mock
+    implements LifecycleOperationQueue {}
+
+/// Mock teardown coordinator used per `ai/context/sdk/testing.md`'s "Service test boundaries" --
+/// its own generation-check dedup logic is `connection_teardown_coordinator_test.dart`'s
+/// responsibility; this file only proves [SessionServiceImpl] calls it with the right arguments
+/// for each reactive signal.
+class MockConnectionTeardownCoordinator extends Mock
+    implements ConnectionTeardownCoordinator {}
+
+/// Fake stream subscription used to register a mocktail fallback for `any()`.
+class FakeStreamSubscription extends Fake
+    implements StreamSubscription<String> {}
+
+/// Runs [SessionServiceImpl] behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
-  late SessionState state;
+  late MockSessionState state;
+  late MockLifecycleOperationQueue lifecycleQueue;
+  late MockConnectionTeardownCoordinator teardownCoordinator;
   late SessionServiceImpl service;
   late StreamController<String> messages;
   late List<Exception> teardownReasons;
   late List<bool> teardownOrphanFlags;
   late List<Uri> reconnectUris;
   late List<String> incomingMessages;
+  late DovahLinkConnectionState connectionStateValue;
+  late int connectionGenerationValue;
+  late String? sessionIdValue;
+  late DovahLinkTrustState? trustStateValue;
+  late bool isAdministrativelyInvalidatedValue;
+  late Uri? lastConnectedUriValue;
 
   setUpAll(() {
     registerFallbackValue(
       const DovahLinkConnectionException('fallback for any()'),
     );
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
+    registerFallbackValue(FakeStreamSubscription());
+    registerFallbackValue(AdministrativeInvalidationReason.revoked);
   });
 
   setUp(() {
     transport = MockDovahLinkTransport();
-    state = SessionState();
+    state = MockSessionState();
+    final LifecycleOperationQueue realScheduling = LifecycleOperationQueue();
+    lifecycleQueue = MockLifecycleOperationQueue();
+    when(() => lifecycleQueue.run(any())).thenAnswer(
+      (Invocation invocation) => realScheduling.run(
+        invocation.positionalArguments[0] as Future<void> Function(),
+      ),
+    );
+    teardownCoordinator = MockConnectionTeardownCoordinator();
+    when(
+      () => teardownCoordinator.tearDown(
+        any(),
+        orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+      ),
+    ).thenAnswer((_) async {});
+    when(
+      () => teardownCoordinator.closeAfterInvalidation(any()),
+    ).thenAnswer((_) async {});
     messages = StreamController<String>.broadcast();
     teardownReasons = <Exception>[];
     teardownOrphanFlags = <bool>[];
     reconnectUris = <Uri>[];
     incomingMessages = <String>[];
+    connectionStateValue = DovahLinkConnectionState.disconnected;
+    connectionGenerationValue = 0;
+    sessionIdValue = null;
+    trustStateValue = null;
+    isAdministrativelyInvalidatedValue = false;
+    lastConnectedUriValue = null;
     when(() => transport.messages).thenAnswer((_) => messages.stream);
     when(() => transport.connect(any())).thenAnswer((_) async {});
     when(() => transport.close()).thenAnswer((_) async {});
-    service = SessionServiceImpl(transport: transport, state: state);
+    when(() => state.connectionState).thenAnswer((_) => connectionStateValue);
+    when(
+      () => state.connectionGeneration,
+    ).thenAnswer((_) => connectionGenerationValue);
+    when(() => state.sessionId).thenAnswer((_) => sessionIdValue);
+    when(() => state.trustState).thenAnswer((_) => trustStateValue);
+    when(
+      () => state.isAdministrativelyInvalidated,
+    ).thenAnswer((_) => isAdministrativelyInvalidatedValue);
+    when(() => state.lastConnectedUri).thenAnswer((_) => lastConnectedUriValue);
+    when(() => state.beginConnectAttempt(any())).thenAnswer((
+      Invocation invocation,
+    ) {
+      lastConnectedUriValue = invocation.positionalArguments[0] as Uri;
+    });
+    when(() => state.markConnected()).thenAnswer((_) {
+      connectionStateValue = DovahLinkConnectionState.connected;
+    });
+    when(() => state.markConnectFailed()).thenAnswer((_) {
+      connectionStateValue = DovahLinkConnectionState.disconnected;
+    });
+    when(() => state.markReconnecting()).thenAnswer((_) {
+      connectionStateValue = DovahLinkConnectionState.reconnecting;
+    });
+    when(() => state.attachMessageSubscription(any())).thenAnswer((_) {});
+    when(() => state.invalidate(any())).thenAnswer((_) {});
+    service = SessionServiceImpl(
+      transport: transport,
+      state: state,
+      lifecycleQueue: lifecycleQueue,
+      teardownCoordinator: teardownCoordinator,
+    );
     service.onTeardown =
         (Exception reason, {required bool orphanRetrySafeOperations}) {
           teardownReasons.add(reason);
@@ -62,70 +152,46 @@ void main() {
 
   group('Method connect behaves correctly', () {
     test(
-      'Method connect transitions to connected and starts receiving on success',
+      'Method connect calls beginConnectAttempt then markConnected and starts receiving on success',
       () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
 
-        expect(service.connectionState, DovahLinkConnectionState.connected);
-        verify(
-          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-        ).called(1);
+        await service.connect(uri);
+
+        verify(() => state.beginConnectAttempt(uri)).called(1);
+        verify(() => transport.connect(uri)).called(1);
+        verify(() => state.markConnected()).called(1);
         verify(() => transport.messages).called(1);
+        verify(() => state.attachMessageSubscription(any())).called(1);
       },
     );
 
-    test(
-      'Method connect waits for invalidation cleanup before opening a new transport',
-      () async {
-        final Completer<void> closeCompleter = Completer<void>();
-        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
+    test('Method connect serializes against another already-in-flight connect() call through the '
+        'shared lifecycleQueue', () async {
+      final Completer<void> firstConnectCompleter = Completer<void>();
+      when(
+        () => transport.connect(any()),
+      ).thenAnswer((_) => firstConnectCompleter.future);
 
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        final Future<void> reconnect = service.connect(
-          Uri.parse('ws://127.0.0.1:58231/'),
-        );
-        await pumpEventQueue();
+      final Future<void> first = service.connect(
+        Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      final Future<void> second = service.connect(
+        Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      await pumpEventQueue();
 
-        verifyNever(
-          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-        );
-        closeCompleter.complete();
-        await reconnect;
+      // The second call's own transport.connect() has not started yet -- it is still queued
+      // behind the first.
+      verify(() => transport.connect(any())).called(1);
+      firstConnectCompleter.complete();
+      await first;
+      await second;
 
-        verify(
-          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-        ).called(1);
-      },
-    );
-
-    test(
-      'Method connect waits for ordinary disconnect cleanup before opening a new transport',
-      () async {
-        final Completer<void> closeCompleter = Completer<void>();
-        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
-
-        final Future<void> disconnect = service.disconnect();
-        final Future<void> reconnect = service.connect(
-          Uri.parse('ws://127.0.0.1:58231/'),
-        );
-        await pumpEventQueue();
-
-        verifyNever(
-          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-        );
-        closeCompleter.complete();
-        await disconnect;
-        await reconnect;
-
-        verify(
-          () => transport.connect(Uri.parse('ws://127.0.0.1:58231/')),
-        ).called(1);
-      },
-    );
+      // The second call's transport.connect() only ran once the first's queued operation
+      // finished.
+      verify(() => transport.connect(any())).called(1);
+    });
 
     test(
       'Method connect resets to disconnected and throws DovahLinkConnectionException on failure',
@@ -138,7 +204,8 @@ void main() {
           service.connect(Uri.parse('ws://127.0.0.1:58231/')),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
+        verify(() => state.markConnectFailed()).called(1);
+        verifyNever(() => state.markConnected());
       },
     );
 
@@ -169,92 +236,54 @@ void main() {
           service.connect(Uri.parse('ws://127.0.0.1:58231/')),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-      },
-    );
-
-    test(
-      'Method connect clears an old invalidation reason for a fresh session',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.trusted,
-        );
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
-
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
-        expect(service.connectionState, DovahLinkConnectionState.connected);
-        expect(service.invalidationReason, isNull);
-        expect(service.currentSessionId, isNull);
-        expect(service.currentTrustState, isNull);
-      },
-    );
-
-    test(
-      'Method connect preserves reconnecting instead of disconnected when a recovery attempt fails',
-      () async {
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await service.connect(uri);
-        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-        await pumpEventQueue();
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-        when(
-          () => transport.connect(any()),
-        ).thenThrow(const DovahLinkConnectionException('refused'));
-
-        await expectLater(
-          service.connect(uri),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
+        verify(() => state.markConnectFailed()).called(1);
       },
     );
   });
 
   group('Method onUnhealthy behaves correctly', () {
     test(
-      'Method onUnhealthy tears the connection down and notifies onTeardown orphaning by default',
+      'Method onUnhealthy tears the connection down, orphaning by default',
       () async {
-        service.onOrdinaryTransportLoss = null;
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-        verify(() => transport.close()).called(1);
-        expect(teardownOrphanFlags, <bool>[true]);
+        verify(
+          () => teardownCoordinator.tearDown(
+            const DovahLinkConnectionException('timed out'),
+            orphanRetrySafeOperations: true,
+          ),
+        ).called(1);
       },
     );
 
     test(
-      'Method onUnhealthy transitions to reconnecting and notifies onOrdinaryTransportLoss when '
-      'assigned',
+      'Method onUnhealthy transitions to reconnecting and notifies onOrdinaryTransportLoss when the '
+      'coordinator resolves to disconnected with a known endpoint',
       () async {
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await service.connect(uri);
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.disconnected;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-        expect(reconnectUris, <Uri>[uri]);
+        expect(reconnectUris, <Uri>[Uri.parse('ws://127.0.0.1:58231/')]);
+        verify(() => state.markReconnecting()).called(1);
       },
     );
 
     test(
       'Method onUnhealthy does not transition to reconnecting or notify onOrdinaryTransportLoss '
-      'without a prior successful connect',
+      'without a known last-connected endpoint',
       () async {
-        // No last-connected URI exists yet, so recovery has no endpoint to retry.
+        lastConnectedUriValue = null;
+        connectionStateValue = DovahLinkConnectionState.disconnected;
+
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
         expect(reconnectUris, isEmpty);
+        verifyNever(() => state.markReconnecting());
       },
     );
 
@@ -263,129 +292,106 @@ void main() {
       'assigned',
       () async {
         service.onOrdinaryTransportLoss = null;
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await service.connect(uri);
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.disconnected;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
+        verifyNever(() => state.markReconnecting());
       },
     );
 
     test(
-      'Method onUnhealthy does not re-notify onOrdinaryTransportLoss for a second signal while '
-      'already reconnecting',
+      'Method onUnhealthy does not transition to reconnecting when the coordinator resolves to a '
+      'state other than disconnected (a racing administrative invalidation owns its own terminal '
+      'state)',
       () async {
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await service.connect(uri);
-        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-        await pumpEventQueue();
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-
-        service.onUnhealthy(const DovahLinkConnectionException('still down'));
-        await pumpEventQueue();
-
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-        expect(reconnectUris, <Uri>[uri]);
-      },
-    );
-
-    test(
-      'Method onUnhealthy defers to a racing administrative invalidation instead of starting recovery',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.trusted,
-        );
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        final Completer<void> closeCompleter = Completer<void>();
-        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue =
+            DovahLinkConnectionState.administrativelyInvalidated;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        closeCompleter.complete();
-        await pumpEventQueue();
 
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
         expect(reconnectUris, isEmpty);
+        verifyNever(() => state.markReconnecting());
       },
     );
 
     test('Method onUnhealthy serializes its recovery-transition decision against a racing connect() '
         'call instead of racing it outside the queue', () async {
       final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-      await service.connect(uri);
-      final Completer<void> closeCompleter = Completer<void>();
-      when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+      final Completer<void> teardownCompleter = Completer<void>();
+      when(
+        () => teardownCoordinator.tearDown(
+          any(),
+          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+        ),
+      ).thenAnswer((_) => teardownCompleter.future);
+      lastConnectedUriValue = uri;
 
       service.onUnhealthy(const DovahLinkConnectionException('timed out'));
       await pumpEventQueue();
-      // A manual reconnect races in right as teardown is still closing the transport, queued
-      // immediately behind it -- before the recovery-transition decision has run.
+      // A manual reconnect races in right as teardown is still resolving, queued immediately
+      // behind it -- before the recovery-transition decision has run.
+      connectionStateValue = DovahLinkConnectionState.connected;
       final Future<void> manualReconnect = service.connect(uri);
-      closeCompleter.complete();
+      teardownCompleter.complete();
       await manualReconnect;
 
-      // The manual connect() ran to completion as an ordinary (non-recovery) attempt.
-      expect(service.connectionState, DovahLinkConnectionState.connected);
       // Bounded recovery's own transition, queued behind the manual connect(), correctly saw the
-      // connection already recovered and did not start a redundant recovery cycle.
+      // connection already recovered (not disconnected) and did not start a redundant recovery
+      // cycle.
       expect(reconnectUris, isEmpty);
+      verifyNever(() => state.markReconnecting());
     });
   });
 
   group('Method onProtocolViolation behaves correctly', () {
     test(
-      'Method onProtocolViolation tears down and notifies onTeardown without orphaning when requested',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
-        service.onProtocolViolation(
-          const DovahLinkProtocolException(
-            code: ProtocolErrorCode.malformedMessage,
-            message: 'no match',
-            retryable: false,
-          ),
-          orphanRetrySafeOperations: false,
+      'Method onProtocolViolation tears down without orphaning when requested',
+      () {
+        const DovahLinkProtocolException reason = DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'no match',
+          retryable: false,
         );
-        await pumpEventQueue();
 
-        expect(teardownOrphanFlags, <bool>[false]);
+        service.onProtocolViolation(reason, orphanRetrySafeOperations: false);
+
+        verify(
+          () => teardownCoordinator.tearDown(
+            reason,
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
       },
     );
 
-    test(
-      'Method onProtocolViolation tears down and notifies onTeardown orphaning when requested',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
+    test('Method onProtocolViolation tears down orphaning when requested', () {
+      const DovahLinkProtocolException reason = DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'no match',
+        retryable: true,
+      );
 
-        service.onProtocolViolation(
-          const DovahLinkProtocolException(
-            code: ProtocolErrorCode.malformedMessage,
-            message: 'no match',
-            retryable: true,
-          ),
+      service.onProtocolViolation(reason, orphanRetrySafeOperations: true);
+
+      verify(
+        () => teardownCoordinator.tearDown(
+          reason,
           orphanRetrySafeOperations: true,
-        );
-        await pumpEventQueue();
-
-        expect(teardownOrphanFlags, <bool>[true]);
-      },
-    );
+        ),
+      ).called(1);
+    });
   });
 
   group('Method onUnsolicitedError behaves correctly', () {
     test(
-      'Method onUnsolicitedError tears down and notifies onTeardown without orphaning, carrying the '
-      'bridge-reported classification',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
+      'Method onUnsolicitedError tears down without orphaning, carrying the bridge-reported '
+      'classification',
+      () {
         service.onUnsolicitedError(
           const ErrorPayload(
             code: ProtocolErrorCode.rateLimited,
@@ -393,13 +399,16 @@ void main() {
             retryable: true,
           ),
         );
-        await pumpEventQueue();
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-        verify(() => transport.close()).called(1);
-        expect(teardownOrphanFlags, <bool>[false]);
+        final VerificationResult verification = verify(
+          () => teardownCoordinator.tearDown(
+            captureAny(),
+            orphanRetrySafeOperations: false,
+          ),
+        );
+        verification.called(1);
         final DovahLinkProtocolException reason =
-            teardownReasons.single as DovahLinkProtocolException;
+            verification.captured.single as DovahLinkProtocolException;
         expect(reason.code, ProtocolErrorCode.rateLimited);
         expect(reason.message, 'Too many requests.');
         expect(reason.retryable, isTrue);
@@ -408,9 +417,7 @@ void main() {
 
     test(
       'Method onUnsolicitedError preserves a non-retryable classification',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
+      () {
         service.onUnsolicitedError(
           const ErrorPayload(
             code: ProtocolErrorCode.unauthenticated,
@@ -418,10 +425,15 @@ void main() {
             retryable: false,
           ),
         );
-        await pumpEventQueue();
 
+        final VerificationResult verification = verify(
+          () => teardownCoordinator.tearDown(
+            captureAny(),
+            orphanRetrySafeOperations: false,
+          ),
+        );
         final DovahLinkProtocolException reason =
-            teardownReasons.single as DovahLinkProtocolException;
+            verification.captured.single as DovahLinkProtocolException;
         expect(reason.code, ProtocolErrorCode.unauthenticated);
         expect(reason.retryable, isFalse);
       },
@@ -431,304 +443,213 @@ void main() {
   group('Method onSessionInvalidated behaves correctly', () {
     test(
       'Method onSessionInvalidated fails closed with no authenticated session',
-      () async {
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
+      () {
+        sessionIdValue = null;
+        trustStateValue = null;
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-        expect(service.invalidationReason, isNull);
-        expect(teardownOrphanFlags, <bool>[false]);
+        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+        verifyNever(() => state.invalidate(any()));
       },
     );
 
     test(
-      'Method onSessionInvalidated sets invalidationReason/connectionState and notifies onTeardown '
-      'before closing the transport, for an authenticated session',
+      'Method onSessionInvalidated sets invalidationReason and notifies onTeardown before closing '
+      'via closeAfterInvalidation, for an authenticated session',
       () async {
         final List<String> order = <String>[];
         service.onTeardown =
             (Exception reason, {required bool orphanRetrySafeOperations}) {
               order.add('teardown');
             };
-        when(() => transport.close()).thenAnswer((_) async {
+        when(
+          () => teardownCoordinator.closeAfterInvalidation(any()),
+        ).thenAnswer((_) async {
           order.add('close');
         });
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.unpaired;
+        connectionGenerationValue = 3;
 
         service.onSessionInvalidated(AdministrativeInvalidationReason.blocked);
         await pumpEventQueue();
 
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        expect(
-          service.invalidationReason,
-          AdministrativeInvalidationReason.blocked,
-        );
-        expect(service.currentSessionId, isNull);
-        expect(service.currentTrustState, isNull);
+        verify(
+          () => state.invalidate(AdministrativeInvalidationReason.blocked),
+        ).called(1);
+        verify(() => teardownCoordinator.closeAfterInvalidation(3)).called(1);
         expect(order, <String>['teardown', 'close']);
       },
     );
 
     test(
       'Method onSessionInvalidated preserves trustReset as the typed invalidation reason',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.trusted,
-        );
+      () {
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.trusted;
 
         service.onSessionInvalidated(
           AdministrativeInvalidationReason.trustReset,
         );
-        await pumpEventQueue();
 
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        expect(
-          service.invalidationReason,
-          AdministrativeInvalidationReason.trustReset,
-        );
-        verify(() => transport.close()).called(1);
+        verify(
+          () => state.invalidate(AdministrativeInvalidationReason.trustReset),
+        ).called(1);
       },
     );
 
     test(
       'Method onSessionInvalidated preserves factoryReset as the typed invalidation reason',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
+      () {
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.unpaired;
 
         service.onSessionInvalidated(
           AdministrativeInvalidationReason.factoryReset,
         );
-        await pumpEventQueue();
 
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        expect(
-          service.invalidationReason,
-          AdministrativeInvalidationReason.factoryReset,
-        );
-        verify(() => transport.close()).called(1);
+        verify(
+          () => state.invalidate(AdministrativeInvalidationReason.factoryReset),
+        ).called(1);
       },
     );
 
     test(
       'Method onSessionInvalidated is never overwritten by a racing onUnhealthy call',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
+      () {
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.unpaired;
         service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
+        // Once administratively invalidated, isAdministrativelyInvalidated reflects that for every
+        // subsequent read, exactly as the real SessionState.invalidate() would produce.
+        isAdministrativelyInvalidatedValue = true;
 
         service.onUnhealthy(
           const DovahLinkConnectionException('closed by bridge'),
         );
-        await pumpEventQueue();
 
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        expect(
-          service.invalidationReason,
-          AdministrativeInvalidationReason.revoked,
-        );
-        // Only the one teardown notification from onSessionInvalidated -- the later onUnhealthy is a
-        // no-op.
+        verify(() => state.invalidate(any())).called(1);
+        // The later onUnhealthy still calls tearDown -- SessionServiceImpl itself does not special-
+        // case an already-invalidated session for onUnhealthy; ConnectionTeardownCoordinator's own
+        // isAdministrativelyInvalidated no-op (proven in its own test file) is what makes this safe.
         expect(teardownReasons, hasLength(1));
       },
     );
 
     test(
-      'Method onSessionInvalidated ignores a duplicate event after teardown',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
+      'Method onSessionInvalidated ignores a duplicate event once already invalidated',
+      () {
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.unpaired;
         service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
+        isAdministrativelyInvalidatedValue = true;
 
         service.onSessionInvalidated(AdministrativeInvalidationReason.blocked);
-        await pumpEventQueue();
 
-        expect(
-          service.invalidationReason,
-          AdministrativeInvalidationReason.revoked,
-        );
-        expect(teardownReasons, hasLength(1));
+        verify(() => state.invalidate(any())).called(1);
       },
     );
 
     test(
-      'Method onSessionInvalidated is never overwritten by a racing onProtocolViolation call',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
+      'Method onSessionInvalidated terminates an in-progress reconnecting cycle instead of '
+      'preserving it',
+      () {
+        // No session is admitted while reconnecting (recovery has not re-authenticated yet), so this
+        // hits the "no authenticated session" fail-closed branch.
+        sessionIdValue = null;
+        trustStateValue = null;
+        connectionStateValue = DovahLinkConnectionState.reconnecting;
 
-        service.onProtocolViolation(
-          const DovahLinkProtocolException(
-            code: ProtocolErrorCode.malformedMessage,
-            message: 'no match',
-            retryable: false,
+        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            orphanRetrySafeOperations: false,
           ),
-          orphanRetrySafeOperations: false,
-        );
-        await pumpEventQueue();
-
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        // Only the one teardown notification from onSessionInvalidated -- the later
-        // onProtocolViolation is a no-op.
-        expect(teardownReasons, hasLength(1));
+        ).called(1);
+        verifyNever(() => state.invalidate(any()));
       },
     );
-
-    test(
-      'Method onSessionInvalidated is never overwritten by a racing disconnect call',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
-
-        await service.disconnect();
-
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-        // Only the one teardown notification from onSessionInvalidated -- disconnect()'s own teardown
-        // is a no-op once already administratively invalidated.
-        expect(teardownReasons, hasLength(1));
-      },
-    );
-
-    test(
-      'Method onSessionInvalidated still reaches administrativelyInvalidated even when the transport '
-      'close fails',
-      () async {
-        when(() => transport.close()).thenThrow(StateError('close failed'));
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
-        );
-
-        service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
-
-        expect(
-          service.connectionState,
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
-      },
-    );
-
-    test('Method onSessionInvalidated terminates an in-progress reconnecting cycle instead of '
-        'preserving it', () async {
-      // No session is admitted while reconnecting (recovery has not re-authenticated yet), so
-      // this hits the "no authenticated session" fail-closed branch -- tearing down to
-      // disconnected, never leaving the session stuck at reconnecting.
-      await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-      await pumpEventQueue();
-      expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-
-      service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-      await pumpEventQueue();
-
-      expect(service.connectionState, DovahLinkConnectionState.disconnected);
-    });
   });
 
   group('Method disconnect behaves correctly', () {
-    test(
-      'Method disconnect tears down without orphaning, notifies onTeardown, and resets connectionState',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
+    test('Method disconnect tears down without orphaning by default', () async {
+      await service.disconnect();
 
+      verify(
+        () => teardownCoordinator.tearDown(
+          any(),
+          orphanRetrySafeOperations: false,
+        ),
+      ).called(1);
+    });
+
+    test(
+      'Method disconnect uses the default DovahLinkConnectionException reason when none is supplied',
+      () async {
         await service.disconnect();
 
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-        verify(() => transport.close()).called(1);
-        expect(teardownOrphanFlags, <bool>[false]);
+        final VerificationResult verification = verify(
+          () => teardownCoordinator.tearDown(
+            captureAny(),
+            orphanRetrySafeOperations: false,
+          ),
+        );
+        expect(
+          verification.captured.single,
+          isA<DovahLinkConnectionException>(),
+        );
+      },
+    );
+
+    test(
+      'Method disconnect passes the supplied reason and orphanRetrySafeOperations through unchanged',
+      () async {
+        const DovahLinkConnectionException reason =
+            DovahLinkConnectionException(
+              'Reconnect attempt failed; more attempts remain.',
+            );
+
+        await service.disconnect(
+          orphanRetrySafeOperations: true,
+          reason: reason,
+        );
+
+        verify(
+          () => teardownCoordinator.tearDown(
+            reason,
+            orphanRetrySafeOperations: true,
+          ),
+        ).called(1);
       },
     );
 
     test(
       'Method disconnect is idempotent and does not throw when called twice',
       () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
         await service.disconnect();
 
         await expectLater(service.disconnect(), completes);
-      },
-    );
-
-    test('Method disconnect preserves orphaned operations and uses the supplied reason when '
-        'orphanRetrySafeOperations is true', () async {
-      await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      const DovahLinkConnectionException reason = DovahLinkConnectionException(
-        'Reconnect attempt failed; more attempts remain.',
-      );
-
-      await service.disconnect(orphanRetrySafeOperations: true, reason: reason);
-
-      expect(teardownReasons, <Exception>[reason]);
-      expect(teardownOrphanFlags, <bool>[true]);
-      // preserveReconnecting is meaningful only for an already-`reconnecting` session; a plain
-      // `connected` session passing orphanRetrySafeOperations: true must still resolve to
-      // disconnected, not incorrectly stay at some other state.
-      expect(service.connectionState, DovahLinkConnectionState.disconnected);
-    });
-
-    test(
-      'Method disconnect cancels an in-flight reconnecting cycle back to disconnected',
-      () async {
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await service.connect(uri);
-        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-        await pumpEventQueue();
-        expect(service.connectionState, DovahLinkConnectionState.reconnecting);
-
-        await service.disconnect();
-
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
       },
     );
   });
 
   group('Behavior stale generation isolation behaves correctly', () {
     test(
-      'Behavior stale generation isolation ignores a message delivered after teardown',
+      'Behavior stale generation isolation ignores a message delivered after the generation moves on',
       () async {
         await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        // Simulates whatever real teardown eventually bumps the generation for -- proven as its own
+        // behavior in connection_teardown_coordinator_test.dart -- as a given precondition here.
+        connectionGenerationValue = 1;
 
-        await service.disconnect();
         messages.add('late-message');
         await pumpEventQueue();
 
@@ -737,31 +658,10 @@ void main() {
     );
   });
 
-  group('Behavior onTeardown notification behaves correctly', () {
-    test(
-      'Behavior onTeardown notification fires exactly once for a duplicate onError+onDone signal '
-      'pair belonging to the same dead connection',
-      () async {
-        service.onOrdinaryTransportLoss = null;
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
-        messages.addError(StateError('socket error'));
-        await messages.close();
-        await pumpEventQueue();
-
-        expect(teardownReasons, hasLength(1));
-        expect(service.connectionState, DovahLinkConnectionState.disconnected);
-        verify(() => transport.close()).called(1);
-      },
-    );
-  });
-
   group('Behavior onOrdinaryTransportLoss notification behaves correctly', () {
     test(
       'Behavior onOrdinaryTransportLoss notification never fires for onProtocolViolation',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
+      () {
         service.onProtocolViolation(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.malformedMessage,
@@ -770,7 +670,6 @@ void main() {
           ),
           orphanRetrySafeOperations: false,
         );
-        await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
       },
@@ -778,9 +677,7 @@ void main() {
 
     test(
       'Behavior onOrdinaryTransportLoss notification never fires for onUnsolicitedError',
-      () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
+      () {
         service.onUnsolicitedError(
           const ErrorPayload(
             code: ProtocolErrorCode.rateLimited,
@@ -788,7 +685,6 @@ void main() {
             retryable: true,
           ),
         );
-        await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
       },
@@ -796,15 +692,11 @@ void main() {
 
     test(
       'Behavior onOrdinaryTransportLoss notification never fires for onSessionInvalidated',
-      () async {
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.trusted,
-        );
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      () {
+        sessionIdValue = 'session-1';
+        trustStateValue = DovahLinkTrustState.trusted;
 
         service.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
-        await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
       },
@@ -813,8 +705,6 @@ void main() {
     test(
       'Behavior onOrdinaryTransportLoss notification never fires for a deliberate disconnect',
       () async {
-        await service.connect(Uri.parse('ws://127.0.0.1:58231/'));
-
         await service.disconnect();
 
         expect(reconnectUris, isEmpty);

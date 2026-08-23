@@ -11,9 +11,9 @@ import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry.dar
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import '../fixtures/internal/pending_operation.fixture.dart';
 
 /// Mock transport used to isolate transmission tests from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
@@ -35,20 +35,6 @@ const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
   TimeoutClass.normal: Duration(milliseconds: 20),
   TimeoutClass.heavy: Duration(milliseconds: 20),
 };
-
-/// Builds a representative retry-safe pending operation.
-PendingOperation buildPendingOperation({RequestPolicy? policy}) =>
-    PendingOperation(
-      messageType: ProtocolMessageType.pairingRequest,
-      payload: const <String, dynamic>{},
-      policy:
-          policy ??
-          const RequestPolicy(
-            retrySafe: true,
-            requiredTrustState: DovahLinkTrustState.unpaired,
-            timeoutClass: TimeoutClass.normal,
-          ),
-    );
 
 /// Builds a transmitter from the supplied test doubles and timeout policy.
 PendingOperationTransmitter buildTransmitter({

@@ -17,6 +17,18 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
   the SDK package root. This is an in-memory unit-test fixture, not a canonical cross-side JSON
   fixture. Use descriptive `.fixture.dart` files; do not create one global fixture or constants
   file, and apply the shared Dart fixture-builder rules.
+- No exceptions: a DTO/value type is constructed in `test/` code in exactly one place, its own
+  `build<Type>()` fixture. Every other test file calls the builder; none hand-rolls its own private
+  construction helper or inline literal for a type another file already builds. When one fixture's
+  own default value needs another type's fixture (`PendingOperation`'s default `policy` needs
+  `RequestPolicy`'s representative shape), compose the other builder rather than re-deriving that
+  shape locally — since a fixture-builder call is never `const`-eligible, do this via a nullable
+  parameter and `??`, not a `const` default.
+- A DTO/value type used through a fixture builder needs real `==`/`hashCode` (see the hand-written
+  pattern on `PersistedClientState`) if any test ever compares two instances for equality —
+  `const` literals canonicalize to the same instance and can silently stand in for a missing
+  equality override; a fixture builder's non-`const` calls cannot, and will surface the gap as a
+  failing `verify()`/`expect()` the moment inline literals are replaced with fixture calls.
 
 ## Ownership after SDK migration
 
@@ -56,24 +68,41 @@ an assumption accidentally shared only by the official Dart implementation.
 
 ## Service test boundaries
 
-Each major Service (`ai/context/sdk/architecture.md`'s "Internal composition") is exhaustively unit
-tested with its Service-typed dependencies mocked (`mocktail`'s `class MockX extends Mock implements
-X {}`) and real, simple state/value objects used directly where appropriate rather than mocked (for
-example `SessionState` in a `SessionServiceImpl` test, or a real `RequestPolicy`). A consumer's test
-suite proves its own reaction to a dependency's contract — success, each documented failure mode,
-each retry/terminal classification the dependency's typed result or exception exposes — and must not
-become a second test suite for that dependency's own internal branches, which stay owned by the
+Every constructor dependency of the class under test is mocked (`mocktail`'s `class MockX extends
+Mock implements X {}`), with no exceptions for plain, no-interface, or zero-dependency
+collaborators. This applies uniformly to every class this package tests, not only the seven
+Services: `SessionServiceImpl`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
+`ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
+`PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks
+`LifecycleOperationQueue`, in turn. A class's own test file is the only place that class's real
+behavior runs; every consumer treats it as a black box and verifies via `verify()`/`captureAny()`
+that the right call happened with the right arguments — never by composing the real object and
+observing the outcome it produces. This holds even where the dependency is a small, mechanical,
+zero-constructor-dependency object like `LifecycleOperationQueue` (just a real FIFO sequencer): its
+own behavior is already proven once, in its own test file, and re-proving that same behavior through
+every consumer's test is exactly the duplication this rule exists to eliminate. The one place real,
+composed objects are deliberately used together is `DovahLinkClient`'s composition-root assembly
+integration test (`PLAN.md`'s Step 9; see `ai/context/sdk/architecture.md`'s composition root) —
+that is where genuine end-to-end
+call-sequencing guarantees (for example `ConnectionTeardownCoordinator`'s queued-call deduplication,
+composed with a real `LifecycleOperationQueue`) get their one, deliberate, real-object proof; no
+individual Service or collaborator's own unit test re-derives it.
+
+A consumer's test suite proves its own reaction to a dependency's contract — success, each documented
+failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
+and (for a mocked collaborator) that the right method was called with the right arguments — and must
+not become a second test suite for that dependency's own internal branches, which stay owned by the
 dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `SessionService` and
 `AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
 bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
 `AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
-and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests use a real
-`SessionState` and mock only the Service dependencies each one actually declares. Do not introduce a
-Service interface solely because mocking a dependency is convenient — `mocktail`'s pattern already
-makes mocking a concrete class' single interface a one-line cost regardless of that interface's size,
-so mock-boilerplate reduction is never, by itself, sufficient justification for a new interface in
-this codebase; every Service interface exists because of a genuine architectural reason documented in
+and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
+`SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
+interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
+mocking a concrete class' single interface a one-line cost regardless of that interface's size, so
+mock-boilerplate reduction is never, by itself, sufficient justification for a new interface in this
+codebase; every Service interface exists because of a genuine architectural reason documented in
 `ai/context/sdk/architecture.md`.
 
 ## Session/request refactor regression requirements
@@ -83,8 +112,14 @@ need their own explicit tests, not an assumption that migrating existing coverag
 
 - `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
   and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
-  transport's `onError` and `onDone` both firing for one dead connection) — proven directly, not only
-  inferred from `ConnectionTeardownCoordinator`'s own no-op behavior still holding internally.
+  transport's `onError` and `onDone` both firing for one dead connection). Under "Service test
+  boundaries"' full mock isolation, `SessionServiceImpl`'s own test proves only that it calls
+  `ConnectionTeardownCoordinator.tearDown` with the right arguments for each reactive signal;
+  `ConnectionTeardownCoordinator`'s own generation-check dedup logic is proven in its own test file;
+  the full, real, composed guarantee (a real coordinator over a real queue actually deduplicating a
+  queued-behind call) is proven once, deliberately, at `DovahLinkClient`'s composition-root assembly
+  integration test (`PLAN.md`'s Step 9) — never re-derived at any individual Service's own
+  mocked-everything unit-test level.
 - `RequestServiceImpl.sendAndAwait`'s `connectionState` guard, which replaced the old
   `ensureReceiving`-based defensive check, must be proven to fail a request issued before any
   `connect()` call immediately and synchronously with the same typed exception shape the prior

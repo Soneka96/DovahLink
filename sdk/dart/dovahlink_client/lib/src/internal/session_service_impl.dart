@@ -4,8 +4,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/pending_operation_failure_handler.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
@@ -15,43 +14,42 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// Implements [SessionService], per `ai/context/sdk/architecture.md`'s "Internal composition" and
 /// "Session-state ownership". Backed by [SessionState], the single authoritative owner of every
 /// session-scoped mutable fact this engine has; this class never duplicates that state, only
-/// drives its transitions and owns the plain, privately-held collaborators
-/// ([ConnectionTeardownCoordinator], [LifecycleOperationQueue]) that sequence its teardown.
-/// Also implements [SessionLifecycleState] and [PendingOperationFailureHandler] -- the two
-/// pre-decomposition ports [ConnectionTeardownCoordinator] itself is unchanged internally and
-/// still depends on -- purely to hand itself to that coordinator the same way `ClientSession`
-/// does today; both ports are deleted along with `ClientSession` at the composition-root cutover.
-class SessionServiceImpl
-    implements
-        SessionService,
-        SessionLifecycleState,
-        PendingOperationFailureHandler {
+/// drives its transitions. Every collaborator ([LifecycleOperationQueue],
+/// [ConnectionTeardownCoordinator]) is supplied by the caller per
+/// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
+/// its own dependencies. `ConnectionTeardownCoordinator` is itself unchanged internally and still
+/// depends on the pre-decomposition `SessionLifecycleState` port -- satisfied by the caller
+/// supplying a [SessionLifecycleStateImpl] view over the same [SessionState], not by this class
+/// implementing that port itself; a concrete Service implementation carries exactly one
+/// architectural identity, per `ai/context/sdk/architecture.md`'s "Internal composition".
+class SessionServiceImpl implements SessionService {
   /// The transport this service connects, sends over, and closes.
   final DovahLinkTransport _transport;
 
   /// The single authoritative owner of this session's mutable facts.
   final SessionState _state;
 
-  /// Creates a session service over [transport], backed by [state].
+  /// Serializes connect, close, and invalidation cleanup so an old transport close can never run
+  /// after a newer connection has been established.
+  final LifecycleOperationQueue _lifecycleQueue;
+
+  /// Coordinates resource cleanup without owning this session's socket-scoped state. Built by the
+  /// caller with a `pendingOperationFailureHandler` that forwards into this instance's own
+  /// [onTeardown] -- necessarily supplied after construction, since the coordinator must exist
+  /// before this constructor runs; see the caller's own composition code.
+  final ConnectionTeardownCoordinator _teardownCoordinator;
+
+  /// Creates a session service over [transport] and [state], coordinating teardown through
+  /// [teardownCoordinator] and serializing lifecycle operations through [lifecycleQueue].
   SessionServiceImpl({
     required DovahLinkTransport transport,
     required SessionState state,
+    required LifecycleOperationQueue lifecycleQueue,
+    required ConnectionTeardownCoordinator teardownCoordinator,
   }) : _transport = transport,
-       _state = state {
-    _teardownCoordinator = ConnectionTeardownCoordinator(
-      transport: transport,
-      lifecycleQueue: _lifecycleQueue,
-      pendingOperationFailureHandler: this,
-      state: this,
-    );
-  }
-
-  /// Serializes connect, close, and invalidation cleanup so an old transport close can never run
-  /// after a newer connection has been established.
-  final LifecycleOperationQueue _lifecycleQueue = LifecycleOperationQueue();
-
-  /// Coordinates resource cleanup without owning this session's socket-scoped state.
-  late final ConnectionTeardownCoordinator _teardownCoordinator;
+       _state = state,
+       _lifecycleQueue = lifecycleQueue,
+       _teardownCoordinator = teardownCoordinator;
 
   /// Notified after a real (non-duplicate) teardown, so pending operations can be failed or
   /// orphaned. `null` until [DovahLinkClient] assigns a [RequestService.failAll] tear-off after
@@ -89,15 +87,6 @@ class SessionServiceImpl
   @override
   AdministrativeInvalidationReason? get invalidationReason =>
       _state.invalidationReason;
-
-  /// Implements [SessionLifecycleState.isAdministrativelyInvalidated].
-  @override
-  bool get isAdministrativelyInvalidated =>
-      _state.isAdministrativelyInvalidated;
-
-  /// Implements [SessionLifecycleState.connectionGeneration].
-  @override
-  int get connectionGeneration => _state.connectionGeneration;
 
   /// Implements [SessionService.connect]. One attempt within a bounded-reconnect cycle (entered
   /// while [connectionState] is already `reconnecting`) keeps [connectionState] at `reconnecting`
@@ -211,31 +200,6 @@ class SessionServiceImpl
       ),
     );
   }
-
-  /// Implements [SessionLifecycleState.bumpConnectionGeneration].
-  @override
-  void bumpConnectionGeneration() => _state.bumpGeneration();
-
-  /// Implements [SessionLifecycleState.detachMessageSubscription].
-  @override
-  StreamSubscription<String>? detachMessageSubscription() =>
-      _state.detachMessageSubscription();
-
-  /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
-  @override
-  void resetAfterConnectionTeardown({required bool preserveReconnecting}) =>
-      _state.resetAfterTeardown(preserveReconnecting: preserveReconnecting);
-
-  /// Implements [PendingOperationFailureHandler.failAll]. Invoked by
-  /// [ConnectionTeardownCoordinator.tearDown] exactly once per real, non-duplicate teardown --
-  /// inheriting that exactly-once guarantee from the coordinator's own unchanged generation-check
-  /// logic -- and forwards it as this service's own [onTeardown] notification.
-  @override
-  void failAll(Exception reason, {required bool orphanRetrySafeOperations}) =>
-      onTeardown?.call(
-        reason,
-        orphanRetrySafeOperations: orphanRetrySafeOperations,
-      );
 
   /// Ensures exactly one subscription is reading the transport's inbound message stream for the
   /// connection [connect] just established. Called only from [connect]'s own success path -- the

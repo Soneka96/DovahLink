@@ -14,6 +14,7 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import '../fixtures/request_policy.fixture.dart';
 
 /// Mock transport used to isolate request-manager tests from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
@@ -42,14 +43,10 @@ const Map<TimeoutClass, Duration> _longTimeouts = <TimeoutClass, Duration>{
 };
 
 /// Retry-safe policy for operations that require an admitted unpaired session.
-const RequestPolicy _retrySafeUnpairedPolicy = RequestPolicy(
-  retrySafe: true,
-  requiredTrustState: DovahLinkTrustState.unpaired,
-  timeoutClass: TimeoutClass.short,
-);
+final RequestPolicy _retrySafeUnpairedPolicy = buildRequestPolicy();
 
 /// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
-const RequestPolicy _nonRetrySafePolicy = RequestPolicy(
+final RequestPolicy _nonRetrySafePolicy = buildRequestPolicy(
   retrySafe: false,
   requiredTrustState: null,
   timeoutClass: TimeoutClass.normal,

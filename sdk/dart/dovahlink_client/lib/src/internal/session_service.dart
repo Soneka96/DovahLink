@@ -36,7 +36,10 @@ abstract interface class SessionService {
   /// caller that expects more recovery attempts to follow passes `true` to preserve them, with
   /// [reason] describing why this specific call closed the connection, when it differs from a
   /// caller's own default.
-  Future<void> disconnect({bool orphanRetrySafeOperations = false, Exception? reason});
+  Future<void> disconnect({
+    bool orphanRetrySafeOperations = false,
+    Exception? reason,
+  });
 
   /// Reports that the connection is no longer healthy (a send failure, a timeout, or a transport
   /// error/close) and must be torn down.
@@ -48,7 +51,10 @@ abstract interface class SessionService {
   /// `retrySafe` pending operation is parked for a later retry instead of failed immediately, per
   /// `ai/context/sdk/api-design.md`'s "Request retry safety, session requirement, and timeout
   /// class".
-  void onProtocolViolation(Exception reason, {required bool orphanRetrySafeOperations});
+  void onProtocolViolation(
+    Exception reason, {
+    required bool orphanRetrySafeOperations,
+  });
 
   /// Reports an authoritative `session_invalidated` push, decoded and validated by the caller.
   void onSessionInvalidated(AdministrativeInvalidationReason reason);

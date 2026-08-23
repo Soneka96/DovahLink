@@ -12,9 +12,9 @@ import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.da
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
+import '../fixtures/request_policy.fixture.dart';
 
 /// Mock request manager used to isolate authentication service tests.
 class MockRequestSender extends Mock implements RequestSender {}
@@ -66,7 +66,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.hello);
     registerFallbackValue(
-      const RequestPolicy(
+      buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,

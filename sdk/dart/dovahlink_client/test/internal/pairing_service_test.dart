@@ -16,9 +16,9 @@ import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.da
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
+import '../fixtures/request_policy.fixture.dart';
 
 /// Mock request manager used to isolate pairing service tests.
 class MockRequestSender extends Mock implements RequestSender {}
@@ -109,7 +109,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.pairingRequest);
     registerFallbackValue(
-      const RequestPolicy(
+      buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,
@@ -162,11 +162,7 @@ void main() {
             messageType: ProtocolMessageType.pairingRequest,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingStatus,
-            policy: const RequestPolicy(
-              retrySafe: true,
-              requiredTrustState: DovahLinkTrustState.unpaired,
-              timeoutClass: TimeoutClass.short,
-            ),
+            policy: buildRequestPolicy(),
           ),
         ]);
         expect(status.availability, PairingAvailability.available);
@@ -395,11 +391,7 @@ void main() {
             messageType: ProtocolMessageType.pairingRenotify,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: const RequestPolicy(
-              retrySafe: true,
-              requiredTrustState: DovahLinkTrustState.unpaired,
-              timeoutClass: TimeoutClass.short,
-            ),
+            policy: buildRequestPolicy(),
           ),
         ).called(1);
         expect(result.status, PairingRenotifyStatus.renotified);
@@ -556,11 +548,7 @@ void main() {
           messageType: ProtocolMessageType.pairingCancel,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingOutcome,
-          policy: const RequestPolicy(
-            retrySafe: true,
-            requiredTrustState: DovahLinkTrustState.unpaired,
-            timeoutClass: TimeoutClass.short,
-          ),
+          policy: buildRequestPolicy(),
         ),
       ).called(1);
       expect(result.status, PairingCancelStatus.cancelled);
@@ -783,9 +771,8 @@ void main() {
                     messageType: ProtocolMessageType.pairingConfirm,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.pairingOutcome,
-                    policy: const RequestPolicy(
+                    policy: buildRequestPolicy(
                       retrySafe: false,
-                      requiredTrustState: DovahLinkTrustState.unpaired,
                       timeoutClass: TimeoutClass.normal,
                     ),
                   ),
@@ -920,11 +907,7 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: const RequestPolicy(
-              retrySafe: true,
-              requiredTrustState: DovahLinkTrustState.unpaired,
-              timeoutClass: TimeoutClass.short,
-            ),
+            policy: buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustWriter.markTrusted()).called(1);
@@ -1148,11 +1131,7 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'stored-cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: const RequestPolicy(
-              retrySafe: true,
-              requiredTrustState: DovahLinkTrustState.unpaired,
-              timeoutClass: TimeoutClass.short,
-            ),
+            policy: buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustWriter.markTrusted()).called(1);

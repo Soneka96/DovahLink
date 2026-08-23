@@ -6,73 +6,39 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/pending_operation_failure_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
 /// Mock transport used to isolate teardown coordination from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
 
-/// Mock pending-operation failure handler used to capture teardown failure policy.
-class MockPendingOperationFailureHandler extends Mock
-    implements PendingOperationFailureHandler {}
+/// Mock session-owned state port used to verify coordinator transitions, per
+/// `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed with closures over this test
+/// file's own local variables to simulate the same statefulness a real implementation would have.
+class MockSessionLifecycleState extends Mock implements SessionLifecycleState {}
 
-/// Minimal session-owned state port used to verify coordinator transitions.
-class FakeSessionLifecycleState implements SessionLifecycleState {
-  /// Whether teardown should treat the session as administratively invalidated.
-  bool administrativelyInvalidated = false;
-
-  /// The current connection generation.
-  int generation = 0;
-
-  /// The subscription currently owned by the fake session.
-  StreamSubscription<String>? subscription;
-
-  /// Whether the coordinator requested the disconnected-state reset.
-  bool resetCalled = false;
-
-  /// The `preserveReconnecting` value the coordinator most recently passed to
-  /// [resetAfterConnectionTeardown], or `null` before it is ever called.
-  bool? lastPreserveReconnecting;
-
-  /// Implements [SessionLifecycleState.isAdministrativelyInvalidated].
-  @override
-  bool get isAdministrativelyInvalidated => administrativelyInvalidated;
-
-  /// Implements [SessionLifecycleState.connectionGeneration].
-  @override
-  int get connectionGeneration => generation;
-
-  /// Implements [SessionLifecycleState.bumpConnectionGeneration].
-  @override
-  void bumpConnectionGeneration() {
-    generation++;
-  }
-
-  /// Implements [SessionLifecycleState.detachMessageSubscription].
-  @override
-  StreamSubscription<String>? detachMessageSubscription() {
-    final StreamSubscription<String>? detached = subscription;
-    subscription = null;
-    return detached;
-  }
-
-  /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
-  @override
-  void resetAfterConnectionTeardown({required bool preserveReconnecting}) {
-    resetCalled = true;
-    lastPreserveReconnecting = preserveReconnecting;
-  }
-}
+/// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- the
+/// queue's own scheduling behavior stays owned by `lifecycle_operation_queue_test.dart`. Stubbed to
+/// delegate to a real, test-local [LifecycleOperationQueue] instance purely so this file's
+/// queued-call tests exercise [ConnectionTeardownCoordinator]'s own generation-check logic under
+/// genuine concurrent-call scheduling, without the coordinator itself ever depending on anything
+/// but the mock.
+class MockLifecycleOperationQueue extends Mock
+    implements LifecycleOperationQueue {}
 
 /// Builds a coordinator from the supplied test doubles and state port.
 ConnectionTeardownCoordinator buildCoordinator({
   required DovahLinkTransport transport,
-  required PendingOperationFailureHandler pendingOperationFailureHandler,
+  required LifecycleOperationQueue lifecycleQueue,
+  required void Function(
+    Exception reason, {
+    required bool orphanRetrySafeOperations,
+  })
+  pendingOperationFailureHandler,
   required SessionLifecycleState state,
 }) => ConnectionTeardownCoordinator(
   transport: transport,
-  lifecycleQueue: LifecycleOperationQueue(),
+  lifecycleQueue: lifecycleQueue,
   pendingOperationFailureHandler: pendingOperationFailureHandler,
   state: state,
 );
@@ -80,17 +46,64 @@ ConnectionTeardownCoordinator buildCoordinator({
 /// Runs connection-teardown coordinator behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
-  late MockPendingOperationFailureHandler pendingOperationFailureHandler;
-  late FakeSessionLifecycleState state;
-
-  setUpAll(() {
-    registerFallbackValue(Exception('fallback for any()'));
-  });
+  late MockLifecycleOperationQueue lifecycleQueue;
+  late List<Exception> failedReasons;
+  late List<bool> failedOrphanFlags;
+  late void Function(
+    Exception reason, {
+    required bool orphanRetrySafeOperations,
+  })
+  pendingOperationFailureHandler;
+  late MockSessionLifecycleState state;
+  late bool administrativelyInvalidated;
+  late int generation;
+  late StreamSubscription<String>? subscription;
+  late bool resetCalled;
+  late bool? lastPreserveReconnecting;
 
   setUp(() {
     transport = MockDovahLinkTransport();
-    pendingOperationFailureHandler = MockPendingOperationFailureHandler();
-    state = FakeSessionLifecycleState();
+    final LifecycleOperationQueue realScheduling = LifecycleOperationQueue();
+    lifecycleQueue = MockLifecycleOperationQueue();
+    when(() => lifecycleQueue.run(any())).thenAnswer(
+      (Invocation invocation) => realScheduling.run(
+        invocation.positionalArguments[0] as Future<void> Function(),
+      ),
+    );
+    failedReasons = <Exception>[];
+    failedOrphanFlags = <bool>[];
+    pendingOperationFailureHandler =
+        (Exception reason, {required bool orphanRetrySafeOperations}) {
+          failedReasons.add(reason);
+          failedOrphanFlags.add(orphanRetrySafeOperations);
+        };
+    administrativelyInvalidated = false;
+    generation = 0;
+    subscription = null;
+    resetCalled = false;
+    lastPreserveReconnecting = null;
+    state = MockSessionLifecycleState();
+    when(
+      () => state.isAdministrativelyInvalidated,
+    ).thenAnswer((_) => administrativelyInvalidated);
+    when(() => state.connectionGeneration).thenAnswer((_) => generation);
+    when(
+      () => state.bumpConnectionGeneration(),
+    ).thenAnswer((_) => generation++);
+    when(() => state.detachMessageSubscription()).thenAnswer((_) {
+      final StreamSubscription<String>? detached = subscription;
+      subscription = null;
+      return detached;
+    });
+    when(
+      () => state.resetAfterConnectionTeardown(
+        preserveReconnecting: any(named: 'preserveReconnecting'),
+      ),
+    ).thenAnswer((Invocation invocation) {
+      resetCalled = true;
+      lastPreserveReconnecting =
+          invocation.namedArguments[#preserveReconnecting] as bool;
+    });
     when(() => transport.close()).thenAnswer((_) async {});
   });
 
@@ -98,12 +111,24 @@ void main() {
     test(
       'Method tearDown closes resources, resets state, and fails pending operations',
       () async {
+        final List<String> order = <String>[];
+        when(() => transport.close()).thenAnswer((_) async {
+          order.add('close');
+        });
         final StreamController<String> messages = StreamController<String>();
         addTearDown(messages.close);
-        state.subscription = messages.stream.listen((_) {});
+        subscription = messages.stream.listen((_) {});
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
-          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler:
+              (Exception reason, {required bool orphanRetrySafeOperations}) {
+                order.add('failAll');
+                pendingOperationFailureHandler(
+                  reason,
+                  orphanRetrySafeOperations: orphanRetrySafeOperations,
+                );
+              },
           state: state,
         );
 
@@ -111,17 +136,12 @@ void main() {
           const DovahLinkConnectionException('connection lost'),
         );
 
-        expect(state.generation, 1);
-        expect(state.subscription, isNull);
-        expect(state.resetCalled, isTrue);
-        expect(state.lastPreserveReconnecting, isTrue);
-        verifyInOrder([
-          () => transport.close(),
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: true,
-          ),
-        ]);
+        expect(generation, 1);
+        expect(subscription, isNull);
+        expect(resetCalled, isTrue);
+        expect(lastPreserveReconnecting, isTrue);
+        expect(order, <String>['close', 'failAll']);
+        expect(failedOrphanFlags, <bool>[true]);
       },
     );
 
@@ -130,6 +150,7 @@ void main() {
       () async {
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -139,13 +160,8 @@ void main() {
           orphanRetrySafeOperations: false,
         );
 
-        verify(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: false,
-          ),
-        ).called(1);
-        expect(state.lastPreserveReconnecting, isFalse);
+        expect(failedOrphanFlags, <bool>[false]);
+        expect(lastPreserveReconnecting, isFalse);
       },
     );
 
@@ -157,6 +173,7 @@ void main() {
         ).thenAnswer((_) async => throw StateError('close failed'));
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -165,13 +182,8 @@ void main() {
           const DovahLinkConnectionException('connection lost'),
         );
 
-        expect(state.resetCalled, isTrue);
-        verify(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: true,
-          ),
-        ).called(1);
+        expect(resetCalled, isTrue);
+        expect(failedOrphanFlags, <bool>[true]);
       },
     );
 
@@ -182,9 +194,10 @@ void main() {
           onCancel: () => throw StateError('cancel failed'),
         );
         addTearDown(messages.close);
-        state.subscription = messages.stream.listen((_) {});
+        subscription = messages.stream.listen((_) {});
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -193,23 +206,19 @@ void main() {
           const DovahLinkConnectionException('connection lost'),
         );
 
-        expect(state.resetCalled, isTrue);
+        expect(resetCalled, isTrue);
         verify(() => transport.close()).called(1);
-        verify(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: true,
-          ),
-        ).called(1);
+        expect(failedOrphanFlags, <bool>[true]);
       },
     );
 
     test(
       'Method tearDown does nothing after administrative invalidation',
       () async {
-        state.administrativelyInvalidated = true;
+        administrativelyInvalidated = true;
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -218,15 +227,10 @@ void main() {
           const DovahLinkConnectionException('late transport close'),
         );
 
-        expect(state.generation, 0);
-        expect(state.resetCalled, isFalse);
+        expect(generation, 0);
+        expect(resetCalled, isFalse);
         verifyNever(() => transport.close());
-        verifyNever(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
+        expect(failedReasons, isEmpty);
       },
     );
 
@@ -236,6 +240,7 @@ void main() {
       // are issued before either has run, so the second must not double-run cleanup or failAll.
       final ConnectionTeardownCoordinator coordinator = buildCoordinator(
         transport: transport,
+        lifecycleQueue: lifecycleQueue,
         pendingOperationFailureHandler: pendingOperationFailureHandler,
         state: state,
       );
@@ -249,17 +254,11 @@ void main() {
       await first;
       await second;
 
-      expect(state.generation, 1);
+      expect(generation, 1);
       verify(() => transport.close()).called(1);
-      final VerificationResult verification = verify(
-        () => pendingOperationFailureHandler.failAll(
-          captureAny(),
-          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-        ),
-      );
-      verification.called(1);
+      expect(failedReasons, hasLength(1));
       expect(
-        (verification.captured.single as DovahLinkConnectionException).message,
+        (failedReasons.single as DovahLinkConnectionException).message,
         'onError',
       );
     });
@@ -269,6 +268,7 @@ void main() {
       () async {
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -286,14 +286,9 @@ void main() {
         await second;
         await third;
 
-        expect(state.generation, 1);
+        expect(generation, 1);
         verify(() => transport.close()).called(1);
-        verify(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        ).called(1);
+        expect(failedReasons, hasLength(1));
       },
     );
 
@@ -302,6 +297,7 @@ void main() {
       () async {
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
@@ -314,18 +310,13 @@ void main() {
         );
         // Mirrors onSessionInvalidated setting this flag directly (bypassing tearDown) while both
         // calls above are still queued, before either's body has run.
-        state.administrativelyInvalidated = true;
+        administrativelyInvalidated = true;
         await first;
         await second;
 
-        expect(state.generation, 0);
+        expect(generation, 0);
         verifyNever(() => transport.close());
-        verifyNever(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
+        expect(failedReasons, isEmpty);
       },
     );
 
@@ -336,6 +327,7 @@ void main() {
       // be mistaken for the queued-behind-an-earlier-call race the previous test guards against.
       final ConnectionTeardownCoordinator coordinator = buildCoordinator(
         transport: transport,
+        lifecycleQueue: lifecycleQueue,
         pendingOperationFailureHandler: pendingOperationFailureHandler,
         state: state,
       );
@@ -349,28 +341,18 @@ void main() {
         orphanRetrySafeOperations: false,
       );
 
-      expect(state.generation, 2);
+      expect(generation, 2);
       verify(() => transport.close()).called(2);
-      verify(
-        () => pendingOperationFailureHandler.failAll(
-          any(),
-          orphanRetrySafeOperations: true,
-        ),
-      ).called(1);
-      verify(
-        () => pendingOperationFailureHandler.failAll(
-          any(),
-          orphanRetrySafeOperations: false,
-        ),
-      ).called(1);
+      expect(failedOrphanFlags, <bool>[true, false]);
     });
   });
 
   group('Method closeAfterInvalidation behaves correctly', () {
     test('Method closeAfterInvalidation ignores a stale generation', () async {
-      state.generation = 2;
+      generation = 2;
       final ConnectionTeardownCoordinator coordinator = buildCoordinator(
         transport: transport,
+        lifecycleQueue: lifecycleQueue,
         pendingOperationFailureHandler: pendingOperationFailureHandler,
         state: state,
       );
@@ -378,7 +360,7 @@ void main() {
       await coordinator.closeAfterInvalidation(1);
 
       verifyNever(() => transport.close());
-      expect(state.resetCalled, isFalse);
+      expect(resetCalled, isFalse);
     });
 
     test(
@@ -389,17 +371,18 @@ void main() {
           onCancel: () => cancellation.future,
         );
         addTearDown(messages.close);
-        state.generation = 1;
-        state.subscription = messages.stream.listen((_) {});
+        generation = 1;
+        subscription = messages.stream.listen((_) {});
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
 
         final Future<void> closeFuture = coordinator.closeAfterInvalidation(1);
         await pumpEventQueue();
-        state.generation = 2;
+        generation = 2;
         cancellation.complete();
         await closeFuture;
 
@@ -412,25 +395,21 @@ void main() {
       () async {
         final StreamController<String> messages = StreamController<String>();
         addTearDown(messages.close);
-        state.generation = 1;
-        state.subscription = messages.stream.listen((_) {});
+        generation = 1;
+        subscription = messages.stream.listen((_) {});
         final ConnectionTeardownCoordinator coordinator = buildCoordinator(
           transport: transport,
+          lifecycleQueue: lifecycleQueue,
           pendingOperationFailureHandler: pendingOperationFailureHandler,
           state: state,
         );
 
         await coordinator.closeAfterInvalidation(1);
 
-        expect(state.subscription, isNull);
-        expect(state.resetCalled, isFalse);
+        expect(subscription, isNull);
+        expect(resetCalled, isFalse);
         verify(() => transport.close()).called(1);
-        verifyNever(
-          () => pendingOperationFailureHandler.failAll(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
+        expect(failedReasons, isEmpty);
       },
     );
   });

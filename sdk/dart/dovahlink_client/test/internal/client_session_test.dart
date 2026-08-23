@@ -13,9 +13,9 @@ import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import '../fixtures/request_policy.fixture.dart';
 
 /// Mock transport used to isolate client-session lifecycle behavior.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
@@ -894,7 +894,7 @@ void main() {
               messageType: ProtocolMessageType.hello,
               payload: const <String, dynamic>{},
               expectedType: ProtocolMessageType.helloAck,
-              policy: const RequestPolicy(
+              policy: buildRequestPolicy(
                 retrySafe: false,
                 requiredTrustState: null,
                 timeoutClass: TimeoutClass.short,

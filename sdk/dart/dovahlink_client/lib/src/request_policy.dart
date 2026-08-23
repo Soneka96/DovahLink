@@ -32,4 +32,16 @@ class RequestPolicy {
   /// The centralized bounded timeout category this request is classified against; see
   /// `shared/constants.dart`'s `kTimeoutClassDurations` for the actual duration.
   final TimeoutClass timeoutClass;
+
+  /// Compares retry safety, required trust state, and timeout class values.
+  @override
+  bool operator ==(Object other) =>
+      other is RequestPolicy &&
+      other.retrySafe == retrySafe &&
+      other.requiredTrustState == requiredTrustState &&
+      other.timeoutClass == timeoutClass;
+
+  /// Combines retry safety, required trust state, and timeout class values.
+  @override
+  int get hashCode => Object.hash(retrySafe, requiredTrustState, timeoutClass);
 }

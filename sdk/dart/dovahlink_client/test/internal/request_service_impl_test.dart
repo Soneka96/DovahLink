@@ -1,161 +1,129 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
-import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
-import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import '../fixtures/internal/pending_operation.fixture.dart';
+import '../fixtures/protocol/envelope.fixture.dart';
+import '../fixtures/request_policy.fixture.dart';
 
-/// Mock transport used to isolate request-service tests from socket I/O.
-class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
-
-/// Mock session service used to control connection state, identity, and trust state, and to
-/// capture reactive report forwarding, per `ai/context/sdk/testing.md`'s "Service test
-/// boundaries".
+/// Mock session service used to control connection state and trust state, per
+/// `ai/context/sdk/testing.md`'s "Service test boundaries".
 class MockSessionService extends Mock implements SessionService {}
 
-/// Short, real (non-faked) timeout durations for tests that exercise the timer path -- matches
-/// this test suite's existing convention (`dovahlink_client_test.dart`'s "request policy: timeout"
-/// group) of real millisecond timers rather than a fake clock.
-const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
-  TimeoutClass.short: Duration(milliseconds: 20),
-  TimeoutClass.normal: Duration(milliseconds: 20),
-  TimeoutClass.heavy: Duration(milliseconds: 20),
-};
+/// Mock pending-operation bookkeeping -- its own fail/orphan logic is
+/// `pending_operation_bookkeeping_test.dart`'s responsibility; this file only proves
+/// [RequestServiceImpl] calls it with the right arguments.
+class MockPendingOperationBookkeeping extends Mock
+    implements PendingOperationBookkeeping {}
 
-/// A generous, real timeout unlikely to fire during a fast-resolving test.
-const Map<TimeoutClass, Duration> _longTimeouts = <TimeoutClass, Duration>{
-  TimeoutClass.short: Duration(seconds: 30),
-  TimeoutClass.normal: Duration(seconds: 30),
-  TimeoutClass.heavy: Duration(seconds: 30),
-};
+/// Mock pending-operation transmitter -- its own wire mechanics (message-ID generation, envelope
+/// encoding, timeout arming, transport send) are `pending_operation_transmitter_test.dart`'s
+/// responsibility; this file only proves [RequestServiceImpl] hands it the right operation.
+class MockPendingOperationTransmitter extends Mock
+    implements PendingOperationTransmitter {}
+
+/// Mock message router -- its own decoding/correlation/routing logic is
+/// `message_router_test.dart`'s responsibility; this file only proves [RequestServiceImpl] forwards
+/// to it.
+class MockMessageRouter extends Mock implements MessageRouter {}
 
 /// Retry-safe policy for operations that require an admitted unpaired session.
-const RequestPolicy _retrySafeUnpairedPolicy = RequestPolicy(
-  retrySafe: true,
-  requiredTrustState: DovahLinkTrustState.unpaired,
-  timeoutClass: TimeoutClass.short,
-);
+final RequestPolicy _retrySafeUnpairedPolicy = buildRequestPolicy();
 
 /// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
-const RequestPolicy _nonRetrySafePolicy = RequestPolicy(
+final RequestPolicy _nonRetrySafePolicy = buildRequestPolicy(
   retrySafe: false,
   requiredTrustState: null,
   timeoutClass: TimeoutClass.normal,
 );
 
 /// Retry-safe policy for operations with no trust-state requirement to revalidate on retry.
-const RequestPolicy _retrySafeAnyTrustPolicy = RequestPolicy(
-  retrySafe: true,
+final RequestPolicy _retrySafeAnyTrustPolicy = buildRequestPolicy(
   requiredTrustState: null,
-  timeoutClass: TimeoutClass.short,
 );
-
-/// Builds one raw wire envelope as sent by the bridge.
-String rawEnvelope({
-  required String messageType,
-  required JsonMap payload,
-  String? correlationId,
-}) => jsonEncode(<String, dynamic>{
-  'messageType': messageType,
-  'messageId': 'message-1',
-  'sessionId': 'session-1',
-  'correlationId': correlationId,
-  'payload': payload,
-  'bridgeInstanceId': 'bridge-1',
-  'playContextId': null,
-  'clientId': null,
-});
 
 /// Runs request-service behavior tests.
 void main() {
-  late MockDovahLinkTransport transport;
   late MockSessionService sessionService;
+  late MockPendingOperationBookkeeping bookkeeping;
+  late MockPendingOperationTransmitter transmitter;
+  late MockMessageRouter messageRouter;
+  late RequestServiceImpl service;
 
   setUpAll(() {
+    registerFallbackValue(buildPendingOperation());
     registerFallbackValue(
       const DovahLinkConnectionException('fallback for any()'),
-    );
-    registerFallbackValue(
-      const ErrorPayload(
-        code: ProtocolErrorCode.malformedMessage,
-        message: 'fallback for any()',
-        retryable: false,
-      ),
     );
   });
 
   setUp(() {
-    transport = MockDovahLinkTransport();
     sessionService = MockSessionService();
-    when(() => sessionService.currentSessionId).thenReturn('session-1');
+    bookkeeping = MockPendingOperationBookkeeping();
+    transmitter = MockPendingOperationTransmitter();
+    messageRouter = MockMessageRouter();
     when(
       () => sessionService.currentTrustState,
     ).thenReturn(DovahLinkTrustState.unpaired);
     when(
       () => sessionService.connectionState,
     ).thenReturn(DovahLinkConnectionState.connected);
-    when(() => transport.send(any())).thenAnswer((_) async {});
+    when(() => transmitter.transmit(any())).thenAnswer((_) {});
+    when(
+      () => bookkeeping.failAll(
+        any(),
+        orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+      ),
+    ).thenAnswer((_) {});
+    service = RequestServiceImpl(
+      sessionService: sessionService,
+      bookkeeping: bookkeeping,
+      transmitter: transmitter,
+      messageRouter: messageRouter,
+    );
   });
-
-  /// Builds a request service using the current test doubles and timeout policy.
-  RequestServiceImpl buildService({
-    Map<TimeoutClass, Duration> timeoutDurations = _longTimeouts,
-  }) => RequestServiceImpl(
-    transport: transport,
-    timeoutDurations: timeoutDurations,
-    sessionService: sessionService,
-  );
-
-  /// Extracts the `messageId` of the single envelope sent so far.
-  String sentMessageId() {
-    final JsonMap sent =
-        jsonDecode(verify(() => transport.send(captureAny())).captured.single)
-            as JsonMap;
-    return sent['messageId'] as String;
-  }
 
   group('Method sendAndAwait behaves correctly', () {
     test(
-      'Method sendAndAwait stamps the outgoing envelope with the current sessionId',
+      'Method sendAndAwait constructs a PendingOperation and hands it to the transmitter',
       () async {
-        final RequestServiceImpl service = buildService();
-
         unawaited(
           service.sendAndAwait(
             messageType: ProtocolMessageType.pairingRequest,
-            payload: const <String, dynamic>{},
+            payload: const <String, dynamic>{'key': 'value'},
             expectedType: ProtocolMessageType.pairingStatus,
             policy: _retrySafeUnpairedPolicy,
           ),
         );
         await pumpEventQueue();
 
-        final JsonMap sent =
-            jsonDecode(
-                  verify(() => transport.send(captureAny())).captured.single,
-                )
-                as JsonMap;
-        expect(sent['messageType'], 'pairing_request');
-        expect(sent['sessionId'], 'session-1');
-        expect(sent['payload'], <String, dynamic>{});
+        final VerificationResult verification = verify(
+          () => transmitter.transmit(captureAny()),
+        );
+        verification.called(1);
+        final PendingOperation operation =
+            verification.captured.single as PendingOperation;
+        expect(operation.messageType, ProtocolMessageType.pairingRequest);
+        expect(operation.payload, <String, dynamic>{'key': 'value'});
+        expect(operation.policy, _retrySafeUnpairedPolicy);
       },
     );
 
     test(
-      'Method sendAndAwait resolves with the correlated reply envelope',
+      'Method sendAndAwait resolves with the validated reply once the transmitted operation completes',
       () async {
-        final RequestServiceImpl service = buildService();
-
         final Future<Envelope> pending = service.sendAndAwait(
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
@@ -163,30 +131,25 @@ void main() {
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
-        final String messageId = sentMessageId();
+        final PendingOperation operation =
+            verify(() => transmitter.transmit(captureAny())).captured.single
+                as PendingOperation;
 
-        final Envelope reply = Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: messageId,
-          payload: const <String, dynamic>{'state': 'unavailable'},
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: 'client-1',
+        operation.completer.complete(
+          buildEnvelope(
+            messageType: ProtocolMessageType.pairingStatus,
+            payload: const <String, dynamic>{'state': 'unavailable'},
+          ),
         );
-        final bool resolved = service.resolveReply(messageId, reply);
 
-        expect(resolved, isTrue);
-        expect(await pending, same(reply));
+        final Envelope result = await pending;
+        expect(result.messageType, ProtocolMessageType.pairingStatus);
       },
     );
 
     test(
       'Method sendAndAwait throws DovahLinkProtocolException for a wire error reply',
       () async {
-        final RequestServiceImpl service = buildService();
-
         final Future<Envelope> pending = service.sendAndAwait(
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
@@ -194,23 +157,18 @@ void main() {
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
-        final String messageId = sentMessageId();
+        final PendingOperation operation =
+            verify(() => transmitter.transmit(captureAny())).captured.single
+                as PendingOperation;
 
-        service.resolveReply(
-          messageId,
-          Envelope(
+        operation.completer.complete(
+          buildEnvelope(
             messageType: ProtocolMessageType.error,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: messageId,
             payload: const <String, dynamic>{
               'code': 'unauthenticated',
               'message': 'nope',
               'retryable': false,
             },
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: 'client-1',
           ),
         );
 
@@ -230,8 +188,6 @@ void main() {
     test(
       'Method sendAndAwait throws DovahLinkProtocolException(unexpected_message_type) for a mismatched reply',
       () async {
-        final RequestServiceImpl service = buildService();
-
         final Future<Envelope> pending = service.sendAndAwait(
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
@@ -239,19 +195,14 @@ void main() {
           policy: _retrySafeUnpairedPolicy,
         );
         await pumpEventQueue();
-        final String messageId = sentMessageId();
+        final PendingOperation operation =
+            verify(() => transmitter.transmit(captureAny())).captured.single
+                as PendingOperation;
 
-        service.resolveReply(
-          messageId,
-          Envelope(
+        operation.completer.complete(
+          buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: messageId,
             payload: const <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: 'client-1',
           ),
         );
 
@@ -267,57 +218,6 @@ void main() {
         );
       },
     );
-
-    test(
-      'Method sendAndAwait reports onUnhealthy and never resolves on timeout',
-      () async {
-        final RequestServiceImpl service = buildService(
-          timeoutDurations: _shortTimeouts,
-        );
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        // Silence the "unhandled" warning for a Future this test deliberately does not await.
-        pending.ignore();
-
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-
-        final List<Exception> reported = verify(
-          () => sessionService.onUnhealthy(captureAny()),
-        ).captured.cast<Exception>();
-        expect(reported, hasLength(1));
-        expect(reported.single, isA<DovahLinkConnectionException>());
-      },
-    );
-
-    test(
-      'Method sendAndAwait reports onUnhealthy when the transport send fails',
-      () async {
-        when(
-          () => transport.send(any()),
-        ).thenAnswer((_) async => throw StateError('socket closed'));
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        pending.ignore();
-        await pumpEventQueue();
-
-        final List<Exception> reported = verify(
-          () => sessionService.onUnhealthy(captureAny()),
-        ).captured.cast<Exception>();
-        expect(reported, hasLength(1));
-        expect(reported.single, isA<DovahLinkConnectionException>());
-      },
-    );
   });
 
   group('Behavior connectionState guard behaves correctly', () {
@@ -328,7 +228,6 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.disconnected);
-        final RequestServiceImpl service = buildService();
 
         await expectLater(
           service.sendAndAwait(
@@ -339,7 +238,7 @@ void main() {
           ),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        verifyNever(() => transport.send(any()));
+        verifyNever(() => transmitter.transmit(any()));
       },
     );
 
@@ -349,7 +248,6 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
-        final RequestServiceImpl service = buildService();
 
         await expectLater(
           service.sendAndAwait(
@@ -360,7 +258,7 @@ void main() {
           ),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        verifyNever(() => transport.send(any()));
+        verifyNever(() => transmitter.transmit(any()));
       },
     );
 
@@ -370,7 +268,6 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.connecting);
-        final RequestServiceImpl service = buildService();
 
         await expectLater(
           service.sendAndAwait(
@@ -381,7 +278,7 @@ void main() {
           ),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        verifyNever(() => transport.send(any()));
+        verifyNever(() => transmitter.transmit(any()));
       },
     );
 
@@ -391,7 +288,6 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.reconnecting);
-        final RequestServiceImpl service = buildService();
 
         unawaited(
           service.sendAndAwait(
@@ -403,474 +299,103 @@ void main() {
         );
         await pumpEventQueue();
 
-        verify(() => transport.send(any())).called(1);
+        verify(() => transmitter.transmit(any())).called(1);
       },
     );
   });
 
   group('Method handleIncoming behaves correctly', () {
-    test(
-      'Method handleIncoming resolves a correlated reply awaited through sendAndAwait',
-      () async {
-        final RequestServiceImpl service = buildService();
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-        final String messageId = sentMessageId();
+    test('Method handleIncoming forwards to MessageRouter.handleIncoming', () {
+      service.handleIncoming('raw-message');
 
-        service.handleIncoming(
-          rawEnvelope(
-            messageType: 'pairing_status',
-            payload: const <String, dynamic>{'state': 'unavailable'},
-            correlationId: messageId,
-          ),
-        );
-
-        final Envelope result = await pending;
-        expect(result.correlationId, messageId);
-        verifyNever(
-          () => sessionService.onProtocolViolation(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method handleIncoming forwards a decode failure to onProtocolViolation',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        service.handleIncoming('not valid json');
-
-        final VerificationResult verification = verify(
-          () => sessionService.onProtocolViolation(
-            captureAny(),
-            orphanRetrySafeOperations: captureAny(
-              named: 'orphanRetrySafeOperations',
-            ),
-          ),
-        );
-        expect(verification.captured[0], isA<DovahLinkProtocolException>());
-        expect(
-          (verification.captured[0] as DovahLinkProtocolException).code,
-          ProtocolErrorCode.malformedMessage,
-        );
-        expect(verification.captured[1], isFalse);
-      },
-    );
-
-    test(
-      'Method handleIncoming forwards an unmatched correlation to onProtocolViolation',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        service.handleIncoming(
-          rawEnvelope(
-            messageType: 'pairing_status',
-            payload: const <String, dynamic>{'state': 'unavailable'},
-            correlationId: 'unknown-id',
-          ),
-        );
-
-        final VerificationResult verification = verify(
-          () => sessionService.onProtocolViolation(
-            captureAny(),
-            orphanRetrySafeOperations: captureAny(
-              named: 'orphanRetrySafeOperations',
-            ),
-          ),
-        );
-        expect(verification.captured[0], isA<DovahLinkProtocolException>());
-        expect(
-          (verification.captured[0] as DovahLinkProtocolException).code,
-          ProtocolErrorCode.malformedMessage,
-        );
-        expect(verification.captured[1], isFalse);
-      },
-    );
-
-    test(
-      'Method handleIncoming routes a well-formed session_invalidated push to onSessionInvalidated',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        service.handleIncoming(
-          rawEnvelope(
-            messageType: 'session_invalidated',
-            payload: const <String, dynamic>{'reason': 'revoked'},
-          ),
-        );
-
-        verify(
-          () => sessionService.onSessionInvalidated(
-            AdministrativeInvalidationReason.revoked,
-          ),
-        ).called(1);
-      },
-    );
-
-    test(
-      'Method handleIncoming routes a well-formed unsolicited error push to onUnsolicitedError',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        service.handleIncoming(
-          rawEnvelope(
-            messageType: 'error',
-            payload: const <String, dynamic>{
-              'code': 'rate_limited',
-              'message': 'slow down',
-              'retryable': true,
-            },
-          ),
-        );
-
-        final VerificationResult verification = verify(
-          () => sessionService.onUnsolicitedError(captureAny()),
-        );
-        verification.called(1);
-        final ErrorPayload error = verification.captured.single as ErrorPayload;
-        expect(error.code, ProtocolErrorCode.rateLimited);
-        expect(error.retryable, isTrue);
-      },
-    );
-  });
-
-  group('Method resolveReply behaves correctly', () {
-    test(
-      'Method resolveReply returns false when no pending operation matches',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        final bool resolved = service.resolveReply(
-          'no-such-id',
-          const Envelope(
-            messageType: ProtocolMessageType.pairingStatus,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'no-such-id',
-            payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: 'client-1',
-          ),
-        );
-
-        expect(resolved, isFalse);
-      },
-    );
+      verify(() => messageRouter.handleIncoming('raw-message')).called(1);
+    });
   });
 
   group('Method failAll behaves correctly', () {
-    test(
-      'Method failAll fails a non-retrySafe operation immediately even when orphaning is requested',
-      () async {
-        final RequestServiceImpl service = buildService();
+    test('Method failAll forwards to PendingOperationBookkeeping.failAll', () {
+      const DovahLinkConnectionException reason = DovahLinkConnectionException(
+        'lost',
+      );
 
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.hello,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.helloAck,
-          policy: _nonRetrySafePolicy,
-        );
-        await pumpEventQueue();
+      service.failAll(reason, orphanRetrySafeOperations: true);
 
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
-        );
-
-        await expectLater(
-          pending,
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-      },
-    );
-
-    test(
-      'Method failAll fails a retrySafe operation immediately when not orphaning',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-
-        service.failAll(
-          const DovahLinkConnectionException('protocol violation'),
-          orphanRetrySafeOperations: false,
-        );
-
-        await expectLater(
-          pending,
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-      },
-    );
-
-    test(
-      'Method failAll orphans a retrySafe operation instead of failing it, and retryOrphanedOperations '
-      'retransmits it',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-        final String initialMessageId = sentMessageId();
-
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
-        );
-        service.retryOrphanedOperations();
-        await pumpEventQueue();
-
-        // Only the retry's send is unverified at this point -- the original send was already
-        // verified above, so this captures exactly the retransmission.
-        final String retryMessageId = sentMessageId();
-        expect(retryMessageId, isNot(initialMessageId));
-
-        final Envelope reply = Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: retryMessageId,
-          payload: const <String, dynamic>{'state': 'unavailable'},
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: 'client-1',
-        );
-        service.resolveReply(retryMessageId, reply);
-
-        expect(await pending, same(reply));
-      },
-    );
-
-    test(
-      'Method failAll fails an already-orphaned operation too when a later call does not orphan',
-      () async {
-        final RequestServiceImpl service = buildService();
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-        service.failAll(
-          const DovahLinkConnectionException('first loss'),
-          orphanRetrySafeOperations: true,
-        );
-
-        service.failAll(
-          const DovahLinkConnectionException('second loss'),
-          orphanRetrySafeOperations: false,
-        );
-
-        await expectLater(
-          pending,
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-        // The already-orphaned operation was failed, not retransmitted.
-        verify(() => transport.send(any())).called(1);
-      },
-    );
-
-    test(
-      'Method failAll retransmits with the live sessionId, not a stale snapshot',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        service
-            .sendAndAwait(
-              messageType: ProtocolMessageType.pairingRequest,
-              payload: const <String, dynamic>{},
-              expectedType: ProtocolMessageType.pairingStatus,
-              policy: _retrySafeUnpairedPolicy,
-            )
-            .ignore();
-        await pumpEventQueue();
-        verify(() => transport.send(any())).called(1);
-
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
-        );
-        // A new session was admitted by the time of retry -- currentSessionId changed.
-        when(() => sessionService.currentSessionId).thenReturn('session-2');
-        service.retryOrphanedOperations();
-        await pumpEventQueue();
-
-        final JsonMap sent =
-            jsonDecode(
-                  verify(() => transport.send(captureAny())).captured.single,
-                )
-                as JsonMap;
-        expect(sent['sessionId'], 'session-2');
-      },
-    );
-
-    test(
-      'Method failAll is a no-op with no pending or orphaned operations',
-      () {
-        final RequestServiceImpl service = buildService();
-
-        expect(
-          () => service.failAll(
-            const DovahLinkConnectionException('nothing to fail'),
-            orphanRetrySafeOperations: true,
-          ),
-          returnsNormally,
-        );
-        verifyNever(() => transport.send(any()));
-      },
-    );
-
-    test(
-      'Method failAll fails every pending operation, not just the first',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> first = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _nonRetrySafePolicy,
-        );
-        final Future<Envelope> second = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingCancel,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingOutcome,
-          policy: _nonRetrySafePolicy,
-        );
-        await pumpEventQueue();
-
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
-        );
-
-        await expectLater(first, throwsA(isA<DovahLinkConnectionException>()));
-        await expectLater(second, throwsA(isA<DovahLinkConnectionException>()));
-      },
-    );
+      verify(
+        () => bookkeeping.failAll(reason, orphanRetrySafeOperations: true),
+      ).called(1);
+    });
   });
 
   group('Method retryOrphanedOperations behaves correctly', () {
     test('Method retryOrphanedOperations is a no-op with nothing orphaned', () {
-      final RequestServiceImpl service = buildService();
+      when(() => bookkeeping.takeOrphaned()).thenReturn(<PendingOperation>[]);
 
       service.retryOrphanedOperations();
 
-      verifyNever(() => transport.send(any()));
+      verifyNever(() => transmitter.transmit(any()));
     });
+
+    test(
+      'Method retryOrphanedOperations retransmits an operation whose policy has no requiredTrustState',
+      () {
+        final PendingOperation operation = buildPendingOperation(
+          policy: _retrySafeAnyTrustPolicy,
+        );
+        when(
+          () => bookkeeping.takeOrphaned(),
+        ).thenReturn(<PendingOperation>[operation]);
+
+        service.retryOrphanedOperations();
+
+        verify(() => transmitter.transmit(operation)).called(1);
+        expect(operation.hasRetried, isTrue);
+      },
+    );
 
     test(
       'Method retryOrphanedOperations fails without retransmission when the new session no longer satisfies '
       'requiredTrustState',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
-        );
+      () {
         when(
           () => sessionService.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
+        final PendingOperation operation = buildPendingOperation(
+          policy: _retrySafeUnpairedPolicy,
+        );
+        when(
+          () => bookkeeping.takeOrphaned(),
+        ).thenReturn(<PendingOperation>[operation]);
+
         service.retryOrphanedOperations();
 
-        await expectLater(
-          pending,
+        verifyNever(() => transmitter.transmit(operation));
+        expect(operation.hasRetried, isFalse);
+        expectLater(
+          operation.completer.future,
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        // Only the original send -- the mismatched retry never retransmits.
-        verify(() => transport.send(any())).called(1);
       },
     );
 
     test(
-      'Method retryOrphanedOperations retransmits regardless of trust-state change when the policy has no '
-      'requiredTrustState',
-      () async {
-        final RequestServiceImpl service = buildService();
-
-        final Future<Envelope> pending = service.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
+      'Method retryOrphanedOperations retries every orphaned operation, not just the first',
+      () {
+        final PendingOperation first = buildPendingOperation(
           policy: _retrySafeAnyTrustPolicy,
         );
-        await pumpEventQueue();
-
-        service.failAll(
-          const DovahLinkConnectionException('lost'),
-          orphanRetrySafeOperations: true,
+        final PendingOperation second = buildPendingOperation(
+          messageType: ProtocolMessageType.pairingCancel,
+          policy: _retrySafeAnyTrustPolicy,
         );
         when(
-          () => sessionService.currentTrustState,
-        ).thenReturn(DovahLinkTrustState.trusted);
-        service.retryOrphanedOperations();
-        await pumpEventQueue();
+          () => bookkeeping.takeOrphaned(),
+        ).thenReturn(<PendingOperation>[first, second]);
 
-        // The original send plus the retransmission.
-        verify(() => transport.send(any())).called(2);
-        pending.ignore();
+        service.retryOrphanedOperations();
+
+        verify(() => transmitter.transmit(first)).called(1);
+        verify(() => transmitter.transmit(second)).called(1);
       },
     );
-
-    test('Method retryOrphanedOperations retries at most once: a second orphaning of an already-retried '
-        'operation fails it immediately instead of retrying again', () async {
-      final RequestServiceImpl service = buildService();
-
-      final Future<Envelope> pending = service.sendAndAwait(
-        messageType: ProtocolMessageType.pairingRequest,
-        payload: const <String, dynamic>{},
-        expectedType: ProtocolMessageType.pairingStatus,
-        policy: _retrySafeUnpairedPolicy,
-      );
-      await pumpEventQueue();
-
-      service.failAll(
-        const DovahLinkConnectionException('first loss'),
-        orphanRetrySafeOperations: true,
-      );
-      service.retryOrphanedOperations();
-      await pumpEventQueue();
-      // Both the original send and the one retry so far -- neither previously verified.
-      verify(() => transport.send(any())).called(2);
-
-      service.failAll(
-        const DovahLinkConnectionException('second loss'),
-        orphanRetrySafeOperations: true,
-      );
-
-      await expectLater(pending, throwsA(isA<DovahLinkConnectionException>()));
-      // No further retransmission was attempted for the already-retried operation.
-      verifyNever(() => transport.send(any()));
-    });
   });
 }
