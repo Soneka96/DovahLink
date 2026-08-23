@@ -149,7 +149,11 @@ class AuthenticationService {
       // unusable either way -- reset so the next connect() attempt does not find a stale socket
       // WebSocketTransport still considers open (its "Already connected" guard in connect()).
       // disconnect() itself never throws, so this cannot mask the error being rethrown below.
-      await _sessionConnector.disconnect();
+      // Preserves any retry-safe operation an earlier ordinary transport loss already orphaned:
+      // this cleanup is one failed attempt within a bounded reconnect cycle that may still retry,
+      // not that cycle's own final give-up -- only the cycle's own last disconnect() call (default
+      // orphanRetrySafeOperations: false) should finalize/fail what this preserved.
+      await _sessionConnector.disconnect(orphanRetrySafeOperations: true);
       rethrow;
     }
   }

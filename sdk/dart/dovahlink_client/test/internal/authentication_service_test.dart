@@ -82,7 +82,11 @@ void main() {
     sessionConnector = MockSessionConnector();
     messageReceiver = MockMessageReceiver();
     when(() => sessionConnector.connect(any())).thenAnswer((_) async {});
-    when(() => sessionConnector.disconnect()).thenAnswer((_) async {});
+    when(
+      () => sessionConnector.disconnect(
+        orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+      ),
+    ).thenAnswer((_) async {});
     when(
       () => sessionConnector.connectionState,
     ).thenReturn(DovahLinkConnectionState.disconnected);
@@ -124,7 +128,11 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           ),
         ]);
-        verifyNever(() => sessionConnector.disconnect());
+        verifyNever(
+          () => sessionConnector.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
         expect(result.bridgeVersion, '1.2.3');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
@@ -151,7 +159,11 @@ void main() {
             trustState: DovahLinkTrustState.unpaired,
           ),
         ).called(1);
-        verifyNever(() => sessionConnector.disconnect());
+        verifyNever(
+          () => sessionConnector.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(service.clientId, isNotNull);
         final PersistedClientState state = await storage.load();
@@ -257,7 +269,11 @@ void main() {
             trustState: DovahLinkTrustState.unpaired,
           ),
         ).called(1);
-        verifyNever(() => sessionConnector.disconnect());
+        verifyNever(
+          () => sessionConnector.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
       },
     );
 
@@ -290,7 +306,9 @@ void main() {
             trustState: any(named: 'trustState'),
           ),
         );
-        verify(() => sessionConnector.disconnect()).called(1);
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
       },
     );
 
@@ -327,7 +345,9 @@ void main() {
             trustState: any(named: 'trustState'),
           ),
         );
-        verify(() => sessionConnector.disconnect()).called(1);
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
       },
     );
 
@@ -361,7 +381,9 @@ void main() {
             trustState: any(named: 'trustState'),
           ),
         );
-        verify(() => sessionConnector.disconnect()).called(1);
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
       },
     );
 
@@ -395,7 +417,9 @@ void main() {
             trustState: any(named: 'trustState'),
           ),
         );
-        verify(() => sessionConnector.disconnect()).called(1);
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
       },
     );
 
@@ -421,7 +445,9 @@ void main() {
             trustState: any(named: 'trustState'),
           ),
         );
-        verify(() => sessionConnector.disconnect()).called(1);
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
       },
     );
   });
@@ -623,6 +649,11 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(2);
+        // Both hello() attempts failed and each preserves any operation a prior ordinary
+        // transport loss orphaned, rather than treating its own failure as final.
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+        ).called(2);
       },
     );
 
@@ -677,6 +708,11 @@ void main() {
             expectedType: any(named: 'expectedType'),
             policy: any(named: 'policy'),
           ),
+        ).called(1);
+        // Only the first hello() attempt ran (and failed); the retry's own connect() threw before
+        // a second hello() could run, so hello()'s disconnect()-on-failure only fires once.
+        verify(
+          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
