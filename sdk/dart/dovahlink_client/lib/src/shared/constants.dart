@@ -13,3 +13,21 @@ const Map<TimeoutClass, Duration> kTimeoutClassDurations =
       TimeoutClass.normal: Duration(seconds: 15),
       TimeoutClass.heavy: Duration(seconds: 30),
     };
+
+// ---- Reconnect policy ----
+
+/// The delay before each bounded-reconnect attempt after ordinary transport loss, in order; the
+/// first attempt fires immediately. Bounded to this many attempts total, and further bounded by
+/// [kReconnectDeadline] overall -- whichever runs out first stops recovery. These are initial
+/// values for this local, same-machine/LAN connection, not yet tuned against real-world data.
+const List<Duration> kReconnectAttemptDelays = <Duration>[
+  Duration.zero,
+  Duration(seconds: 1),
+  Duration(seconds: 2),
+  Duration(seconds: 4),
+];
+
+/// The hard overall deadline for one bounded-reconnect cycle, measured from the first attempt and
+/// including connection and re-authentication time. Recovery stops once this elapses even if
+/// [kReconnectAttemptDelays] has attempts remaining.
+const Duration kReconnectDeadline = Duration(seconds: 10);
