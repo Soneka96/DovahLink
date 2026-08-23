@@ -21,22 +21,6 @@ class EnvelopeValidator {
         'correlationId must be null or non-empty.',
       );
     }
-    if (messageType == ProtocolMessageType.helloAck && correlationId == null) {
-      throw const ProtocolFormatException(
-        'correlationId must be present for hello_ack.',
-      );
-    }
-    if (messageType == ProtocolMessageType.hello && correlationId != null) {
-      throw const ProtocolFormatException(
-        'correlationId must be null for hello.',
-      );
-    }
-    if (messageType == ProtocolMessageType.sessionInvalidated &&
-        correlationId != null) {
-      throw const ProtocolFormatException(
-        'correlationId must be null for session_invalidated.',
-      );
-    }
     final bool correlationIsRequired = switch (messageType) {
       ProtocolMessageType.helloAck ||
       ProtocolMessageType.pairingStatus ||
@@ -110,6 +94,7 @@ class EnvelopeValidator {
       );
     }
     final bool clientIdIsRequired = switch (messageType) {
+      ProtocolMessageType.helloAck ||
       ProtocolMessageType.pairingRequest ||
       ProtocolMessageType.pairingConfirm ||
       ProtocolMessageType.pairingAck ||
@@ -121,12 +106,6 @@ class EnvelopeValidator {
       ProtocolMessageType.ping => true,
       _ => false,
     };
-    if (messageType == ProtocolMessageType.helloAck &&
-        (clientId == null || clientId.isEmpty)) {
-      throw const ProtocolFormatException(
-        'clientId must be non-empty for hello_ack.',
-      );
-    }
     if (clientIdIsRequired && clientId == null) {
       throw ProtocolFormatException(
         'clientId must be non-empty for $messageType.',
@@ -134,7 +113,6 @@ class EnvelopeValidator {
     }
     if (messageType != ProtocolMessageType.capabilities &&
         !clientIdIsRequired &&
-        messageType != ProtocolMessageType.helloAck &&
         clientId != null) {
       throw ProtocolFormatException('clientId must be null for $messageType.');
     }

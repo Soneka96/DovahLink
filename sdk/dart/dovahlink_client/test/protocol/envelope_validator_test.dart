@@ -88,6 +88,14 @@ void main() {
       'Method validate accepts valid correlated replies and client requests',
       () {
         expectValidEnvelope(
+          messageType: ProtocolMessageType.helloAck,
+          sessionId: 'session-1',
+          correlationId: 'message-1',
+          bridgeInstanceId: 'bridge-1',
+          playContextId: null,
+          clientId: 'client-1',
+        );
+        expectValidEnvelope(
           messageType: ProtocolMessageType.pairingStatus,
           sessionId: 'session-1',
           correlationId: 'message-1',
