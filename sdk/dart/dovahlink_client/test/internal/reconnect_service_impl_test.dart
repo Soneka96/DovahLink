@@ -156,6 +156,77 @@ void main() {
     );
 
     test(
+      'Method onOrdinaryTransportLoss stops on a terminal protocol rejection from hello() on a '
+      'later attempt, not just the first, without consuming further budget',
+      () async {
+        int connectCallCount = 0;
+        when(() => sessionService.connect(any())).thenAnswer((_) async {
+          connectCallCount++;
+        });
+        int helloCallCount = 0;
+        when(() => authenticationService.hello()).thenAnswer((_) async {
+          helloCallCount++;
+          if (helloCallCount == 1) {
+            throw const DovahLinkConnectionException('unreachable');
+          }
+          throw const DovahLinkProtocolException(
+            code: ProtocolErrorCode.blocked,
+            message: 'blocked',
+            retryable: false,
+          );
+        });
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(helloCallCount, 2);
+        expect(connectCallCount, 2);
+        verify(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: false,
+            reason: any(named: 'reason'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss consumes an attempt and continues after a retryable '
+      'protocol rejection from hello(), succeeding on a later attempt',
+      () async {
+        int helloCallCount = 0;
+        when(() => authenticationService.hello()).thenAnswer((_) async {
+          helloCallCount++;
+          if (helloCallCount == 1) {
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.rateLimited,
+              message: 'slow down',
+              retryable: true,
+            );
+          }
+          return const HelloResult(
+            bridgeVersion: '1.0',
+            trustState: DovahLinkTrustState.trusted,
+          );
+        });
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(helloCallCount, 2);
+        verify(() => sessionService.connect(_uri)).called(2);
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+            reason: any(named: 'reason'),
+          ),
+        );
+      },
+    );
+
+    test(
       'Method onOrdinaryTransportLoss disconnects once the attempt budget is exhausted, all '
       'attempts having failed',
       () async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect_rejection_classifier.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
@@ -60,14 +61,14 @@ class ReconnectServiceImpl implements ReconnectService {
 
   /// Attempts bounded recovery to [uri]: at most `_attemptDelays.length` attempts, spaced by its
   /// delays, never continuing past `_deadline` from the first attempt. Stops immediately --
-  /// without consuming further attempts -- on a typed authentication or administrative rejection
-  /// ([DovahLinkProtocolException]) from re-authenticating, since retrying the same rejected
-  /// credential cannot succeed; only a generic transport/connectivity failure consumes the attempt
-  /// budget. Also stops, without touching the connection again, if something else (an explicit
-  /// disconnect or an administrative invalidation) already moved the session out of
-  /// `reconnecting`. On exhaustion or rejection, finalizes the cycle with a disconnect that fails
-  /// whatever operations `AuthenticationServiceImpl.hello`'s own mid-cycle cleanup preserved for
-  /// retry.
+  /// without consuming further attempts -- on a terminal protocol rejection from
+  /// re-authenticating, per [ReconnectRejectionClassifier.isTerminal]; a retryable protocol
+  /// rejection instead consumes the attempt and continues, the same as a generic
+  /// transport/connectivity failure. Also stops, without touching the connection again, if
+  /// something else (an explicit disconnect or an administrative invalidation) already moved the
+  /// session out of `reconnecting`. On exhaustion or terminal rejection, finalizes the cycle with
+  /// a disconnect that fails whatever operations `AuthenticationServiceImpl.hello`'s own
+  /// mid-cycle cleanup preserved for retry.
   Future<void> _recover(Uri uri) async {
     final DateTime deadline = _now().add(_deadline);
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
@@ -92,8 +93,11 @@ class ReconnectServiceImpl implements ReconnectService {
         await _sessionService.connect(uri);
         await _authenticationService.hello();
         return;
-      } on DovahLinkProtocolException {
-        break;
+      } on DovahLinkProtocolException catch (error) {
+        if (ReconnectRejectionClassifier.isTerminal(error)) {
+          break;
+        }
+        continue;
       } on Object {
         continue;
       }
