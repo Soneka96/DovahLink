@@ -979,89 +979,77 @@ void main() {
   });
 
   group('Behavior retry-safe operations across reconnect behaves correctly', () {
-    test(
-      'Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller',
-      () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        await client.hello();
+    test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
+        'via automatic reconnect', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
 
-        final Future<PairingChallengeStatus> pending = client.requestPairing();
-        await pumpEventQueue();
-        transport.failMessagesWith(const SocketException('dropped'));
-        await pumpEventQueue();
-        // Ordinary transport loss, not administrative invalidation -- the orphaned operation is
-        // still alive, not failed.
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      final Future<PairingChallengeStatus> pending = client.requestPairing();
+      await pumpEventQueue();
+      // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
+      // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-status-available.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
 
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-status-available.json'),
-        );
-        await client.hello();
+      final PairingChallengeStatus status = await pending;
+      expect(status.availability, PairingAvailability.available);
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      // hello#1, pairing_request#1 (orphaned), hello#2 (automatic), pairing_request#2 (the one
+      // retry).
+      expect(transport.sent, hasLength(4));
+    });
 
-        final PairingChallengeStatus status = await pending;
-        expect(status.availability, PairingAvailability.available);
-        // hello#1, pairing_request#1 (orphaned), hello#2, pairing_request#2 (the one retry).
-        expect(transport.sent, hasLength(4));
-      },
-    );
+    test('Behavior retry-safe reconnect fails without retransmission when trust state changes, via '
+        'automatic reconnect', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
 
-    test(
-      'Behavior retry-safe reconnect fails without retransmission when trust state changes',
-      () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        await client.hello();
+      final Future<PairingChallengeStatus> pending = client.requestPairing();
+      await pumpEventQueue();
+      // The reconnected session comes back already trusted -- pairing_request requires
+      // unpaired, so the orphaned request must fail instead of being retried into a session it
+      // was never classified for. Queued ahead of the drop so automatic reconnect's own
+      // connect()+hello() finds it ready the moment it retries.
+      transport.queueResponse(
+        jsonEncode(<String, dynamic>{
+          'messageType': 'hello_ack',
+          'messageId': 'message-hello-ack-2',
+          'sessionId': 'session-2',
+          'correlationId': 'irrelevant',
+          'payload': <String, dynamic>{
+            'bridgeVersion': '0.2.0',
+            'clientIdentityKind': 'paired',
+          },
+          'bridgeInstanceId': 'bridge-1',
+          'playContextId': null,
+          'clientId': 'client-1',
+        }),
+      );
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
 
-        final Future<PairingChallengeStatus> pending = client.requestPairing();
-        await pumpEventQueue();
-        transport.failMessagesWith(const SocketException('dropped'));
-        await pumpEventQueue();
-
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        // The new session comes back already trusted -- pairing_request requires unpaired, so
-        // the orphaned request must fail instead of being retried into a session it was never
-        // classified for.
-        transport.queueResponse(
-          jsonEncode(<String, dynamic>{
-            'messageType': 'hello_ack',
-            'messageId': 'message-hello-ack-2',
-            'sessionId': 'session-2',
-            'correlationId': 'irrelevant',
-            'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
-              'clientIdentityKind': 'paired',
-            },
-            'bridgeInstanceId': 'bridge-1',
-            'playContextId': null,
-            'clientId': 'client-1',
-          }),
-        );
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        await client.hello();
-
-        await expectLater(
-          pending,
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-        // hello#1, pairing_request#1 (orphaned, already sent before the drop), hello#2 -- no
-        // pairing_request#2: the orphaned request was never retransmitted.
-        expect(transport.sent, hasLength(3));
-      },
-    );
+      await expectLater(pending, throwsA(isA<DovahLinkConnectionException>()));
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      // hello#1, pairing_request#1 (orphaned, already sent before the drop), hello#2
+      // (automatic) -- no pairing_request#2: the orphaned request was never retransmitted.
+      expect(transport.sent, hasLength(3));
+    });
 
     test(
       'Behavior retry-safe reconnect does not orphan a retried operation a second time',
@@ -1082,23 +1070,47 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         await pumpEventQueue();
-        transport.failMessagesWith(const SocketException('dropped'));
-        await pumpEventQueue();
-
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        // Queued ahead of the drop so automatic reconnect's own connect()+hello() finds them
+        // ready, retransmitting the orphaned request as its one retry once the fresh session is
+        // admitted.
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
         );
-        await client.hello();
-        // The retry itself now also drops, with no reply ever queued for it.
-        await pumpEventQueue();
+        transport.failMessagesWith(const SocketException('dropped'));
+        // Waits for the full automatic-reconnect cycle above -- connect, hello, admitSession, and
+        // the resulting retransmit -- to actually finish before dropping the retry itself; a
+        // single pumpEventQueue() does not reliably drain every hop in that chain. Bounded so a
+        // genuine failure to reconnect fails this test instead of hanging it.
+        for (int i = 0; i < 20 && transport.sent.length < 4; i++) {
+          await pumpEventQueue();
+        }
+        expect(transport.sent, hasLength(4));
+        // The retry itself now also drops, with no reply ever queued for it, so the next
+        // automatic reconnect's own hello() succeeds but never resurrects the already-retried
+        // operation.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         transport.failMessagesWith(const SocketException('dropped again'));
 
         await pendingFails;
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        // Waits for automatic reconnect's own second cycle (triggered by the drop above) to
+        // finish connecting and re-authenticating before asserting on its outcome, bounded so a
+        // genuine failure to reconnect fails this test instead of hanging it.
+        for (
+          int i = 0;
+          i < 20 &&
+              client.connectionState != DovahLinkConnectionState.connected;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(client.connectionState, DovahLinkConnectionState.connected);
 
         // A third connect/hello round must not resurrect it for a second retry.
+        await client.disconnect();
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
@@ -1106,9 +1118,9 @@ void main() {
         );
         await client.hello();
 
-        // hello#1, pairing_request#1, hello#2, pairing_request#2(retry), hello#3 -- no third
-        // pairing_request.
-        expect(transport.sent, hasLength(5));
+        // hello#1, pairing_request#1, hello#2(automatic), pairing_request#2(retry),
+        // hello#3(automatic), hello#4(manual) -- no third pairing_request.
+        expect(transport.sent, hasLength(6));
       },
     );
 
@@ -1132,6 +1144,10 @@ void main() {
           pending,
           throwsA(isA<DovahLinkConnectionException>()),
         );
+        // Cancels the automatic reconnect the drop above also started (this test is only about
+        // the non-retry-safe operation's own immediate failure), so it cannot leak into a later
+        // test's transport/client instances.
+        await client.disconnect();
       },
     );
   });
@@ -1164,6 +1180,11 @@ void main() {
             (jsonDecode(transport.sent.last) as JsonMap)['messageId'] as String;
         transport.failMessagesWith(const SocketException('dropped'));
         await firstRequestFails;
+        await pumpEventQueue();
+        // Cancels whatever bounded automatic reconnect the drop above already started, so this
+        // test regains explicit manual control of the next connect/hello cycle -- this test is
+        // about stale-reply isolation across generations, not automatic recovery.
+        await client.disconnect();
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
@@ -1246,46 +1267,42 @@ void main() {
       },
     );
 
-    test(
-      'Behavior request timeout handling retransmits retry-safe acknowledgeTrustedCredential after '
-      'ordinary transport loss',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        await client.hello();
+    test('Behavior request timeout handling retransmits retry-safe acknowledgeTrustedCredential '
+        'after ordinary transport loss, via automatic reconnect', () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'a1b2c3d4e5f6',
+          recoveryState: PairingRecoveryState.confirming,
+        ),
+      );
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
 
-        final Future<void> pending = client.acknowledgeTrustedCredential(
-          'a1b2c3d4e5f6',
-        );
-        final Future<void> pendingCompletes = expectLater(pending, completes);
-        await pumpEventQueue();
-        transport.failMessagesWith(const SocketException('dropped'));
-        await pumpEventQueue();
+      final Future<void> pending = client.acknowledgeTrustedCredential(
+        'a1b2c3d4e5f6',
+      );
+      final Future<void> pendingCompletes = expectLater(pending, completes);
+      await pumpEventQueue();
+      // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
+      // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-trusted.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
 
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-        await client.hello();
-
-        await pendingCompletes;
-        expect(client.trustState, DovahLinkTrustState.trusted);
-      },
-    );
+      await pendingCompletes;
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      expect(client.trustState, DovahLinkTrustState.trusted);
+    });
 
     test(
       'Behavior request timeout handling fails a pending retry-safe operation immediately after a '
@@ -1352,10 +1369,14 @@ void main() {
         await pumpEventQueue();
         transport.failMessagesWith(const SocketException('dropped'));
         await pumpEventQueue();
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        // Bounded automatic reconnect has already reconnected the transport (attempt 0 fires
+        // immediately and this fake transport's connect() always succeeds) and is awaiting its
+        // own re-authentication reply, never queued here -- so the orphaned operation has not
+        // yet been retried; that only happens once a fresh session is actually admitted.
+        expect(client.connectionState, DovahLinkConnectionState.connected);
 
-        // Deliberate disconnect before any reconnect ever gets a chance to retry it -- must not
-        // leave the orphaned operation hanging forever.
+        // Deliberate disconnect while automatic reconnect is still awaiting re-authentication and
+        // has not yet retried the orphaned operation -- must not leave it hanging forever.
         await client.disconnect();
 
         await pendingFails;

@@ -7,6 +7,7 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
@@ -54,6 +55,11 @@ class DovahLinkClient {
       sessionTrustWriter: _session,
       messageReceiver: _session,
     );
+    _reconnectCoordinator = ReconnectCoordinator(
+      sessionConnector: _session,
+      reauthenticate: _authenticationService.hello,
+    );
+    _session.recoveryObserver = _reconnectCoordinator;
   }
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
@@ -87,6 +93,11 @@ class DovahLinkClient {
       sessionTrustWriter: _session,
       messageReceiver: _session,
     );
+    _reconnectCoordinator = ReconnectCoordinator(
+      sessionConnector: _session,
+      reauthenticate: _authenticationService.hello,
+    );
+    _session.recoveryObserver = _reconnectCoordinator;
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
@@ -104,6 +115,9 @@ class DovahLinkClient {
 
   /// Owns pairing operations.
   late final PairingService _pairingService;
+
+  /// Owns bounded automatic recovery from ordinary transport loss.
+  late final ReconnectCoordinator _reconnectCoordinator;
 
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState => _session.connectionState;

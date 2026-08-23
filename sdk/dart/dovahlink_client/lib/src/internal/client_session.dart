@@ -385,8 +385,10 @@ class ClientSession
   }
 
   /// Handles a transport-level failure (`onError`/`onDone`) reported for the connection
-  /// [generation]'s subscription. Ignored if [generation] has already been superseded -- a stale
-  /// receiver's own failure must not tear down a newer, already-healthy connection.
+  /// [generation]'s subscription -- ordinary transport loss, the same as [onUnhealthy], so it may
+  /// begin bounded automatic recovery the same way. Ignored if [generation] has already been
+  /// superseded -- a stale receiver's own failure must not tear down a newer, already-healthy
+  /// connection.
   void _handleReceiveFailure(
     int generation,
     DovahLinkConnectionException reason,
@@ -394,7 +396,7 @@ class ClientSession
     if (generation != _connectionGeneration) {
       return;
     }
-    unawaited(_teardownCoordinator.tearDown(reason));
+    unawaited(_beginRecoveryAfterOrdinaryTransportLoss(reason));
   }
 
   /// Implements [SessionLifecycleState.bumpConnectionGeneration].
