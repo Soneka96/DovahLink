@@ -851,31 +851,26 @@ void main() {
       },
     );
 
-    test(
-      'Method disconnect preserves the persisted credential',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'credential-1',
-          ),
-        );
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
-        );
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        await client.hello();
+    test('Method disconnect preserves the persisted credential', () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+        ),
+      );
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
 
-        await client.disconnect();
+      await client.disconnect();
 
-        final PersistedClientState stored = await storage.load();
-        expect(stored.clientId, 'client-1');
-        expect(stored.credential, 'credential-1');
-      },
-    );
+      final PersistedClientState stored = await storage.load();
+      expect(stored.clientId, 'client-1');
+      expect(stored.credential, 'credential-1');
+    });
   });
 
   group('Method forgetCredential behaves correctly', () {
@@ -1236,6 +1231,79 @@ void main() {
         client.invalidationReason,
         AdministrativeInvalidationReason.blocked,
       );
+    });
+  });
+
+  group('Behavior explicit retry after administrative invalidation behaves '
+      'correctly', () {
+    test('Behavior explicit retry after administrative invalidation never '
+        'starts an automatic reconnect on its own', () async {
+      await _connectAndHello(transport, client);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+
+      expect(
+        client.connectionState,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      );
+      expect(transport.connectCalls, hasLength(1));
+
+      // Nothing further happens on its own: no automatic reconnect fires while this client
+      // just sits invalidated.
+      await pumpEventQueue();
+      expect(
+        client.connectionState,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      );
+      expect(transport.connectCalls, hasLength(1));
+    });
+
+    test('Behavior explicit retry after administrative invalidation succeeds '
+        'and clears the typed reason', () async {
+      await _connectAndHello(transport, client);
+      final String? clientIdBeforeInvalidation = client.clientId;
+      expect(clientIdBeforeInvalidation, isNotNull);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+      expect(
+        client.invalidationReason,
+        AdministrativeInvalidationReason.revoked,
+      );
+
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      final HelloResult result = await client.hello();
+
+      expect(transport.connectCalls, hasLength(2));
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      expect(client.invalidationReason, isNull);
+      // The stable clientId survives explicit recovery -- only the rejected credential was
+      // discarded, per `ai/context/sdk/persistence.md`.
+      expect(client.clientId, clientIdBeforeInvalidation);
+    });
+
+    test('Behavior explicit retry after administrative invalidation leaves '
+        'connectionState disconnected, not reverted to invalidated, when the '
+        'retry attempt itself fails to connect', () async {
+      await _connectAndHello(transport, client);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+
+      transport.failConnectWith = const SocketException('still unreachable');
+      await expectLater(
+        client.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      expect(client.invalidationReason, isNull);
     });
   });
 
