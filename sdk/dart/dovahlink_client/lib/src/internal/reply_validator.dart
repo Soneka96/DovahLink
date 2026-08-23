@@ -1,7 +1,7 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Classifies one decoded reply against the operation's expected message type.
@@ -12,20 +12,15 @@ class ReplyValidator {
     required Envelope envelope,
   }) {
     if (envelope.messageType == ProtocolMessageType.error) {
-      try {
-        final ErrorPayload error = ErrorPayload.fromJson(envelope.payload);
-        throw DovahLinkProtocolException(
-          code: error.code,
-          message: error.message,
-          retryable: error.retryable,
-        );
-      } on ProtocolFormatException catch (error) {
-        throw DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: error.message,
-          retryable: false,
-        );
-      }
+      final ErrorPayload error = ProtocolPayloadDecoder.decode(
+        ErrorPayload.fromJson,
+        envelope.payload,
+      );
+      throw DovahLinkProtocolException(
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable,
+      );
     }
     if (envelope.messageType != expectedType) {
       throw DovahLinkProtocolException(

@@ -3,6 +3,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
+import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
@@ -12,7 +13,6 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_ack_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -111,7 +111,10 @@ class AuthenticationService {
           timeoutClass: TimeoutClass.normal,
         ),
       );
-      final HelloAckPayload ack = HelloAckPayload.fromJson(response.payload);
+      final HelloAckPayload ack = ProtocolPayloadDecoder.decode(
+        HelloAckPayload.fromJson,
+        response.payload,
+      );
       final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
         ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
         ClientIdentityKind.paired => DovahLinkTrustState.trusted,
@@ -145,17 +148,6 @@ class AuthenticationService {
       return HelloResult(
         bridgeVersion: ack.bridgeVersion,
         trustState: trustState,
-      );
-    } on ProtocolFormatException catch (error) {
-      // A DTO decode boundary failure (for example an unrecognized clientIdentityKind) is a
-      // protocol-level anomaly, not ordinary connectivity loss -- translated to the typed
-      // exception this client's callers already handle, per `ai/context/sdk/api-design.md`'s
-      // "Protocol DTO decoding" boundary translation, rather than leaking the DTO-layer type.
-      await _sessionConnector.disconnect();
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
       );
     } on Object {
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()

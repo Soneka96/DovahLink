@@ -1,6 +1,7 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
+import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
@@ -13,7 +14,6 @@ import 'package:dovahlink_client_sdk/src/protocol/pairing_ack_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_confirm_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_outcome_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -62,16 +62,10 @@ class PairingService {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingStatusPayload status;
-    try {
-      status = PairingStatusPayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-    }
+    final PairingStatusPayload status = ProtocolPayloadDecoder.decode(
+      PairingStatusPayload.fromJson,
+      response.payload,
+    );
     return PairingChallengeStatus(
       availability: status.state,
       expiresInSeconds: status.expiresInSeconds,
@@ -93,16 +87,10 @@ class PairingService {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-    }
+    final PairingOutcomePayload outcome = ProtocolPayloadDecoder.decode(
+      PairingOutcomePayload.fromJson,
+      response.payload,
+    );
     final PairingRenotifyStatus? status = PairingRenotifyStatus.fromOutcome(
       outcome.outcome,
     );
@@ -134,16 +122,10 @@ class PairingService {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-    }
+    final PairingOutcomePayload outcome = ProtocolPayloadDecoder.decode(
+      PairingOutcomePayload.fromJson,
+      response.payload,
+    );
     final PairingCancelStatus? status = PairingCancelStatus.fromOutcome(
       outcome.outcome,
     );
@@ -183,16 +165,10 @@ class PairingService {
         timeoutClass: TimeoutClass.normal,
       ),
     );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-    }
+    final PairingOutcomePayload outcome = ProtocolPayloadDecoder.decode(
+      PairingOutcomePayload.fromJson,
+      response.payload,
+    );
     final bool isConfirmOutcome = switch (outcome.outcome) {
       PairingOutcome.credentialIssued ||
       PairingOutcome.expired ||
@@ -251,16 +227,10 @@ class PairingService {
         timeoutClass: TimeoutClass.short,
       ),
     );
-    final PairingOutcomePayload outcome;
-    try {
-      outcome = PairingOutcomePayload.fromJson(response.payload);
-    } on ProtocolFormatException catch (error) {
-      throw DovahLinkProtocolException(
-        code: ProtocolErrorCode.malformedMessage,
-        message: error.message,
-        retryable: false,
-      );
-    }
+    final PairingOutcomePayload outcome = ProtocolPayloadDecoder.decode(
+      PairingOutcomePayload.fromJson,
+      response.payload,
+    );
     final bool isAckOutcome = switch (outcome.outcome) {
       PairingOutcome.trusted ||
       PairingOutcome.alreadyTrusted ||
