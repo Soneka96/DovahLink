@@ -46,21 +46,21 @@ class PendingOperationTransmitter {
   final MessageIdGenerator _messageIdGenerator = MessageIdGenerator();
 
   /// Generates a message ID, registers [operation], arms its timeout, and sends its envelope.
-  /// Send and timeout failures are reported through [ConnectionLifecycleReporter] because the
-  /// logical operation's shared completer remains owned by [RequestManager].
+  /// Send and timeout failures are reported through [ConnectionLifecycleReporter] rather than
+  /// failed directly here, so a timed-out operation is failed or orphaned for retry through the
+  /// same connection-teardown path as every other pending operation on the connection, per
+  /// [RequestPolicy.retrySafe] -- not force-failed ahead of its siblings merely because its own
+  /// timer happened to be the one that fired.
   void transmit(PendingOperation operation) {
     final String messageId = _messageIdGenerator.generate();
     _registry.register(messageId, operation);
     operation.timer = Timer(
       _timeoutDurations[operation.policy.timeoutClass]!,
-      () {
-        final DovahLinkConnectionException reason =
-            DovahLinkConnectionException(
-              'Timed out awaiting a reply to ${operation.messageType}.',
-            );
-        _registry.fail(messageId, operation, reason);
-        _reporter.onUnhealthy(reason);
-      },
+      () => _reporter.onUnhealthy(
+        DovahLinkConnectionException(
+          'Timed out awaiting a reply to ${operation.messageType}.',
+        ),
+      ),
     );
 
     final Envelope outgoing = Envelope(

@@ -137,7 +137,6 @@ void main() {
         final List<Object?> reported = verify(
           () => reporter.onUnhealthy(captureAny()),
         ).captured;
-        verify(() => registry.fail(any(), operation, any())).called(1);
         expect(reported.single, isA<DovahLinkConnectionException>());
         expect(
           (reported.single! as DovahLinkConnectionException).message,

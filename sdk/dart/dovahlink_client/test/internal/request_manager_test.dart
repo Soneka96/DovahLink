@@ -362,45 +362,44 @@ void main() {
       },
     );
 
-    test(
-      'Method sendAndAwait rejects a reply that arrives after the timeout has failed the operation',
-      () async {
-        final RequestManager manager = buildManager(
-          timeoutDurations: _shortTimeouts,
-        );
+    test('Method sendAndAwait still resolves a reply that arrives after its own timeout fires, before '
+        'any connection-level failAll', () async {
+      // A timeout alone no longer force-fails the operation -- only reports onUnhealthy and lets
+      // whatever drives connection teardown (ConnectionTeardownCoordinator, in production) decide
+      // whether to fail or orphan it via failAll, the same as every other pending operation. Until
+      // that happens, the operation stays resolvable.
+      final RequestManager manager = buildManager(
+        timeoutDurations: _shortTimeouts,
+      );
 
-        final Future<Envelope> pending = manager.sendAndAwait(
-          messageType: ProtocolMessageType.pairingRequest,
-          payload: const <String, dynamic>{},
-          expectedType: ProtocolMessageType.pairingStatus,
-          policy: _retrySafeUnpairedPolicy,
-        );
-        await pumpEventQueue();
-        final String messageId = sentMessageId();
-        final Future<void> failed = expectLater(
-          pending,
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
+      final Future<Envelope> pending = manager.sendAndAwait(
+        messageType: ProtocolMessageType.pairingRequest,
+        payload: const <String, dynamic>{},
+        expectedType: ProtocolMessageType.pairingStatus,
+        policy: _retrySafeUnpairedPolicy,
+      );
+      await pumpEventQueue();
+      final String messageId = sentMessageId();
 
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        verify(() => reporter.onUnhealthy(any())).called(1);
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      verify(() => reporter.onUnhealthy(any())).called(1);
 
-        final Envelope reply = Envelope(
-          messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: messageId,
-          payload: const <String, dynamic>{'state': 'unavailable'},
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: 'client-1',
-        );
-        final bool resolved = manager.resolveReply(messageId, reply);
+      final Envelope reply = Envelope(
+        messageType: ProtocolMessageType.pairingStatus,
+        messageId: 'reply-1',
+        sessionId: 'session-1',
+        correlationId: messageId,
+        payload: const <String, dynamic>{'state': 'unavailable'},
+        bridgeInstanceId: 'bridge-1',
+        playContextId: null,
+        clientId: 'client-1',
+      );
+      final bool resolved = manager.resolveReply(messageId, reply);
 
-        expect(resolved, isFalse);
-        await failed;
-      },
-    );
+      expect(resolved, isTrue);
+      final Envelope result = await pending;
+      expect(result.correlationId, messageId);
+    });
 
     test(
       'Method sendAndAwait reports onUnhealthy when the transport send fails',
@@ -546,6 +545,61 @@ void main() {
         expect(await pending, same(reply));
       },
     );
+
+    test('Method failAll orphans a retrySafe operation that already timed out, unlike its non-retrySafe '
+        'sibling, when the resulting teardown runs', () async {
+      // The operation whose own timer fired must not be treated any differently from every other
+      // pending operation on the same connection when the connection actually tears down.
+      final RequestManager manager = buildManager(
+        timeoutDurations: _shortTimeouts,
+      );
+
+      final Future<Envelope> timedOutRetrySafe = manager.sendAndAwait(
+        messageType: ProtocolMessageType.pairingRequest,
+        payload: const <String, dynamic>{},
+        expectedType: ProtocolMessageType.pairingStatus,
+        policy: _retrySafeUnpairedPolicy,
+      );
+      await pumpEventQueue();
+      sentMessageId(); // Consumes the initial pairingRequest send.
+      final Future<Envelope> nonRetrySafe = manager.sendAndAwait(
+        messageType: ProtocolMessageType.hello,
+        payload: const <String, dynamic>{},
+        expectedType: ProtocolMessageType.helloAck,
+        policy: _nonRetrySafePolicy,
+      );
+      await pumpEventQueue();
+      sentMessageId(); // Consumes the initial hello send.
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      verify(() => reporter.onUnhealthy(any())).called(2);
+
+      manager.failAll(
+        const DovahLinkConnectionException('lost'),
+        orphanRetrySafeOperations: true,
+      );
+
+      await expectLater(
+        nonRetrySafe,
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      manager.retryOrphanedOperations();
+      await pumpEventQueue();
+      final String retryMessageId = sentMessageId();
+      final Envelope reply = Envelope(
+        messageType: ProtocolMessageType.pairingStatus,
+        messageId: 'reply-1',
+        sessionId: 'session-1',
+        correlationId: retryMessageId,
+        payload: const <String, dynamic>{'state': 'unavailable'},
+        bridgeInstanceId: 'bridge-1',
+        playContextId: null,
+        clientId: 'client-1',
+      );
+      manager.resolveReply(retryMessageId, reply);
+
+      expect(await timedOutRetrySafe, same(reply));
+    });
 
     test(
       'Method failAll retransmits with the live sessionId, not a stale snapshot',

@@ -65,19 +65,6 @@ class RequestManager
     _pendingOperations[messageId] = operation;
   }
 
-  /// Implements [PendingOperationRegistry.fail].
-  @override
-  void fail(String messageId, PendingOperation operation, Exception reason) {
-    final PendingOperation? registered = _pendingOperations[messageId];
-    if (!identical(registered, operation)) {
-      return;
-    }
-    _pendingOperations.remove(messageId);
-    if (!operation.completer.isCompleted) {
-      operation.completer.completeError(reason);
-    }
-  }
-
   /// Sends one envelope carrying [messageType]/[payload], classified against [policy], and
   /// returns its correlated reply. The reply may arrive on a later wire attempt than the one this
   /// call makes: if the connection is lost before a reply arrives and [policy] is `retrySafe`,
