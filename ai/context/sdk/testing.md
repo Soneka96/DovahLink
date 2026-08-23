@@ -30,7 +30,7 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
   equality override; a fixture builder's non-`const` calls cannot, and will surface the gap as a
   failing `verify()`/`expect()` the moment inline literals are replaced with fixture calls.
 
-## Ownership after SDK migration
+## Test ownership boundaries
 
 SDK tests own: canonical contract encoding/decoding, semantic validation, Bridge compatibility
 checks, session identity, Bridge identity, play-context identity, revision handling, stale
@@ -82,11 +82,10 @@ zero-constructor-dependency object like `LifecycleOperationQueue` (just a real F
 own behavior is already proven once, in its own test file, and re-proving that same behavior through
 every consumer's test is exactly the duplication this rule exists to eliminate. The one place real,
 composed objects are deliberately used together is `DovahLinkClient`'s composition-root assembly
-integration test (`PLAN.md`'s Step 9; see `ai/context/sdk/architecture.md`'s composition root) —
-that is where genuine end-to-end
-call-sequencing guarantees (for example `ConnectionTeardownCoordinator`'s queued-call deduplication,
-composed with a real `LifecycleOperationQueue`) get their one, deliberate, real-object proof; no
-individual Service or collaborator's own unit test re-derives it.
+integration test (see `ai/context/sdk/architecture.md`'s composition root) — that is where genuine
+end-to-end call-sequencing guarantees (for example `ConnectionTeardownCoordinator`'s queued-call
+deduplication, composed with a real `LifecycleOperationQueue`) get their one, deliberate, real-object
+proof; no individual Service or collaborator's own unit test re-derives it.
 
 A consumer's test suite proves its own reaction to a dependency's contract — success, each documented
 failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
@@ -105,10 +104,9 @@ mock-boilerplate reduction is never, by itself, sufficient justification for a n
 codebase; every Service interface exists because of a genuine architectural reason documented in
 `ai/context/sdk/architecture.md`.
 
-## Session/request refactor regression requirements
+## Teardown deduplication and connection-guard coverage
 
-Two behaviors introduced by the Service decomposition of the former `ClientSession`/`RequestManager`
-need their own explicit tests, not an assumption that migrating existing coverage is sufficient:
+Two behaviors need their own explicit tests, not just whatever coverage happens to exist elsewhere:
 
 - `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
   and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
@@ -118,10 +116,9 @@ need their own explicit tests, not an assumption that migrating existing coverag
   `ConnectionTeardownCoordinator`'s own generation-check dedup logic is proven in its own test file;
   the full, real, composed guarantee (a real coordinator over a real queue actually deduplicating a
   queued-behind call) is proven once, deliberately, at `DovahLinkClient`'s composition-root assembly
-  integration test (`PLAN.md`'s Step 9) — never re-derived at any individual Service's own
-  mocked-everything unit-test level.
-- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard, which replaced the old
-  `ensureReceiving`-based defensive check, must be proven to fail a request issued before any
-  `connect()` call immediately and synchronously with the same typed exception shape the prior
-  mechanism produced — a regression test proving behavioral equivalence of the new mechanism, not
-  merely that a test with the same name still passes.
+  integration test (`test/dovahlink_client_test.dart`'s "Behavior composition-root teardown
+  deduplication" group) — never re-derived at any individual Service's own mocked-everything
+  unit-test level.
+- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard must fail a request issued before any
+  `connect()` call immediately and synchronously with a typed `DovahLinkConnectionException`,
+  without registering or transmitting anything.

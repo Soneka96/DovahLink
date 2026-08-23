@@ -116,26 +116,20 @@ learn that two differently-named dependencies are secretly the same object. (Thi
 apply to the pre-existing, orthogonal platform-port category — `DovahLinkTransport`/`ClientStorage`
 — which is unaffected by it; see "Platform ports" above.)
 
-This rule allows no exception during the migration, including the case where a `ServiceImpl` is
-the sole genuine owner of some state a pre-decomposition port also describes — "it's the only real
-owner, no other object could stand in" is not by itself grounds to self-implement that port. Where
-a `ServiceImpl`'s owned collaborator (`MessageRouter`, `PendingOperationTransmitter`,
-`ConnectionTeardownCoordinator`) still depends on an old, narrow port from before the Service
-decomposition, satisfy it with a dedicated adapter instead, chosen by what the port's members
-already are:
-- If every member is already present, under the same name and shape, on some other real object the
-  `ServiceImpl` already holds (a different `Service` it depends on, for example) — hand that object
-  over directly, under its own name. No adapter class needed.
-- Otherwise, extract the owning state and logic into a plain, no-interface supporting object (per
-  "Not everything is a Service" below), then write one small adapter class per old port, each
-  implementing exactly that one port and delegating to the plain object. Never let one adapter
-  implement more than one old port, and never let the `ServiceImpl` implement the port itself and
-  pass `this`. `SessionState`/`SessionLifecycleStateImpl` (satisfying `ConnectionTeardownCoordinator`'s
-  `SessionLifecycleState` dependency) and `PendingOperationBookkeeping`/`ReplyResolverImpl`/
-  `PendingOperationRegistryImpl` (satisfying `MessageRouter`/`PendingOperationTransmitter`'s
-  `ReplyResolver`/`PendingOperationRegistry` dependencies) are the canonical examples of this split.
-  Every such adapter, along with the port it implements, is deleted at the composition-root
-  cutover.
+This rule allows no exception, including the case where a `ServiceImpl` is the sole genuine owner
+of some state a collaborator needs — "it's the only real owner, no other object could stand in" is
+not by itself grounds for the `ServiceImpl` to implement that collaborator's dependency port itself
+and pass `this`. `ConnectionTeardownCoordinator`, `MessageRouter`, and `PendingOperationTransmitter`
+— plain, privately-owned collaborators, per "Not everything is a Service" below — depend directly on
+the concrete plain/Service types that actually own what they need: `ConnectionTeardownCoordinator`
+on `SessionState`; `MessageRouter` and `PendingOperationTransmitter` on `SessionService` and
+`PendingOperationBookkeeping`. None of the three implements a `ServiceImpl`'s own interface, and no
+`ServiceImpl` implements one of their dependency shapes on itself.
+
+When a privately-owned collaborator's dependency shape does not already match a real object a
+`ServiceImpl` holds, extract the owning state and logic into a plain, no-interface supporting object
+(per "Not everything is a Service" below) and depend on that object directly. Never let a
+`ServiceImpl` implement the collaborator's own dependency port and pass `this`.
 
 The seven Services:
 
@@ -186,7 +180,7 @@ different shape from a Service's request/response or command/report shape.
 
 ### Dependency injection
 
-Constructor injection is the default and, aside from the two named callbacks below, the only
+Constructor injection is the default and, aside from the three named callbacks below, the only
 wiring mechanism. No service locator, no static/global dependency lookup, no hidden singleton
 access inside a Service implementation. A single Service instance may legitimately be injected into
 multiple consumers — `RequestService` is injected into `SessionAdmissionServiceImpl`,
@@ -205,8 +199,9 @@ the class under test needing a special test-only constructor to make that possib
 
 ### Callbacks
 
-Exactly two late-bound, function-typed, nullable fields exist on `SessionServiceImpl`, each because
-a named constructor dependency in that direction would create a genuine construction-order cycle:
+Exactly three late-bound, function-typed, nullable fields exist on `SessionServiceImpl`, each
+because a named constructor dependency in that direction would create a genuine construction-order
+cycle:
 
 1. **Teardown notification** → `RequestService.failAll`. `SessionServiceImpl` can detect a
    connection failure entirely internally (its own transport subscription's `onError`/`onDone`) and
@@ -222,9 +217,19 @@ a named constructor dependency in that direction would create a genuine construc
    reasoning: `ReconnectServiceImpl` needs `SessionService` and `AuthenticationService` as
    constructor dependencies, so `SessionServiceImpl` cannot hold a matching `ReconnectService`
    reference without a cycle.
+3. **Incoming-message forwarding** → `RequestService.handleIncoming`. `SessionServiceImpl` owns
+   starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
+   session boundary" below) and is the only class that ever sees a raw inbound message land, but
+   decoding, correlation, and unsolicited routing belong to `RequestService`, and the same
+   construction-order cycle applies: `RequestServiceImpl` depends on `SessionService`, so
+   `SessionServiceImpl` cannot hold a `RequestService` reference. Assigned by the composition root
+   alongside `onTeardown` (`sessionServiceImpl.onIncomingMessage = requestServiceImpl.handleIncoming`).
+   `SessionServiceImpl`'s own subscription handler discards a message from an already-superseded
+   connection generation before this callback ever runs, so a stale message never reaches
+   `RequestService`.
 
 Callbacks are reserved only for lifecycle/event inversion required to break a genuine construction
-cycle — never a general substitute for constructor injection. If a third callback appears to be
+cycle — never a general substitute for constructor injection. If a fourth callback appears to be
 needed, that is a signal to stop and re-derive the dependency graph, not to add it.
 
 ### Request/session boundary
@@ -232,13 +237,12 @@ needed, that is a signal to stop and re-derive the dependency graph, not to add 
 `RequestService` depends on `SessionService` (a normal constructor dependency, not a callback —
 there is no construction cycle in this direction) for two reasons. First, reads: `sendAndAwait`
 checks `SessionService.connectionState` before transmitting and fails immediately with a typed
-`DovahLinkConnectionException` unless it is `connected` or `reconnecting` — this replaces the old
-`ensureReceiving` mechanism entirely. Starting the transport's inbound subscription is fully private
-to `SessionServiceImpl.connect()`'s own implementation and is never exposed on `SessionService`'s
-interface: a successful `connect()` already guarantees receiving is active for the connection's
-whole lifetime, so `ensureReceiving`'s only real job — guarding a caller that sends before `connect`
-was ever called — is exactly what the `connectionState` check already proves, without leaking
-receiver/subscription plumbing into a public contract. Second, reports: the four reactive signals
+`DovahLinkConnectionException` unless it is `connected` or `reconnecting`. Starting the transport's
+inbound subscription is fully private to `SessionServiceImpl.connect()`'s own implementation and is
+never exposed on `SessionService`'s interface: a successful `connect()` already guarantees receiving
+is active for the connection's whole lifetime, so the `connectionState` check alone is enough to
+guard a caller that sends before `connect` was ever called, without leaking receiver/subscription
+plumbing into a public contract. Second, reports: the four reactive signals
 (`onUnhealthy`, `onProtocolViolation`, `onSessionInvalidated`, `onUnsolicitedError`) are genuine
 members of `SessionService`'s one interface, not internal plumbing that happens to need a home —
 they are the reactive half of the same domain concept `connect`/`disconnect` are the commanded half
@@ -262,11 +266,14 @@ single authoritative owner of every session-scoped mutable fact this engine has:
 `sessionId`, trust state, the administrative invalidation reason, the connection generation, the
 last-connected URI, and the transport's message subscription. Direct `SessionState` access is
 limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionServiceImpl`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`.
-Every other consumer — `RequestService`, `AuthenticationService`, `PairingService`,
-`ReconnectService`, and `DovahLinkClient` itself — depends on the appropriate Service contract,
-never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in another
-service merely because it's needed there; the one documented, accepted exception is
+maintaining it: `SessionServiceImpl`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`, and
+`ConnectionTeardownCoordinator` (`SessionServiceImpl`'s own privately-owned collaborator, per
+"Internal composition", depending on `SessionState` directly). The composition root itself also
+holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
+keeps it as a field. Every other consumer — `RequestService`,
+`AuthenticationService`, `PairingService`, `ReconnectService` — depends on the appropriate Service
+contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
+another service merely because it's needed there; the one documented, accepted exception is
 `AuthenticationServiceImpl`'s own cached `clientId`/`bridgeVersion`, which are read-caches of values
 whose durable source of truth is `ClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.
