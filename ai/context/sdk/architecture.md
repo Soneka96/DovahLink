@@ -237,7 +237,14 @@ needed, that is a signal to stop and re-derive the dependency graph, not to add 
 `RequestService` depends on `SessionService` (a normal constructor dependency, not a callback —
 there is no construction cycle in this direction) for two reasons. First, reads: `sendAndAwait`
 checks `SessionService.connectionState` before transmitting and fails immediately with a typed
-`DovahLinkConnectionException` unless it is `connected` or `reconnecting`. Starting the transport's
+`DovahLinkConnectionException` unless it is `connected`. `reconnecting` also fails a newly initiated
+request: it spans a whole bounded-recovery cycle (backoff delay, then an in-flight `connect()`
+attempt) during which no transport is guaranteed usable, and `connectionState` only reaches
+`connected` once a recovery attempt's `connect()` actually succeeds. An already-pending `retrySafe`
+operation an earlier ordinary transport loss orphaned is a separate mechanism, unaffected by this
+guard: `RequestServiceImpl.retryOrphanedOperations` retransmits it directly, bypassing
+`sendAndAwait` entirely, only after `SessionAdmissionServiceImpl` admits a fresh session
+post-reconnect (see "Internal composition" above). Starting the transport's
 inbound subscription is fully private to `SessionServiceImpl.connect()`'s own implementation and is
 never exposed on `SessionService`'s interface: a successful `connect()` already guarantees receiving
 is active for the connection's whole lifetime, so the `connectionState` check alone is enough to

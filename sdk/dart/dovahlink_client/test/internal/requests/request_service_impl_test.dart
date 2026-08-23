@@ -283,11 +283,32 @@ void main() {
     );
 
     test(
-      'Behavior connectionState guard allows a request while reconnecting',
+      'Behavior connectionState guard fails a request immediately with DovahLinkConnectionException '
+      'while reconnecting, without transmitting anything',
       () async {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.reconnecting);
+
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.helloAck,
+            policy: _nonRetrySafePolicy,
+          ),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
+
+    test(
+      'Behavior connectionState guard allows a request while connected',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.connected);
 
         unawaited(
           service.sendAndAwait(
@@ -374,6 +395,27 @@ void main() {
           operation.completer.future,
           throwsA(isA<DovahLinkConnectionException>()),
         );
+      },
+    );
+
+    test(
+      'Method retryOrphanedOperations retransmits an orphaned operation while reconnecting, '
+      'bypassing the sendAndAwait connectionState guard',
+      () {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.reconnecting);
+        final PendingOperation operation = buildPendingOperation(
+          policy: _retrySafeAnyTrustPolicy,
+        );
+        when(
+          () => bookkeeping.takeOrphaned(),
+        ).thenReturn(<PendingOperation>[operation]);
+
+        service.retryOrphanedOperations();
+
+        verify(() => transmitter.transmit(operation)).called(1);
+        expect(operation.hasRetried, isTrue);
       },
     );
 

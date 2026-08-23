@@ -44,9 +44,14 @@ class RequestServiceImpl implements RequestService {
        _messageRouter = messageRouter;
 
   /// Implements [RequestService.sendAndAwait]. Fails immediately, before registering or
-  /// transmitting anything, unless [SessionService.connectionState] is currently `connected` or
-  /// `reconnecting` -- replacing the eliminated `ensureReceiving` mechanism per
-  /// `ai/context/sdk/architecture.md`'s "Request/session boundary".
+  /// transmitting anything, unless [SessionService.connectionState] is currently `connected` --
+  /// replacing the eliminated `ensureReceiving` mechanism per
+  /// `ai/context/sdk/architecture.md`'s "Request/session boundary". `reconnecting` also fails: it
+  /// spans a whole bounded-recovery cycle (backoff delay, then an in-flight `connect()` attempt)
+  /// during which no transport is guaranteed usable, so a newly initiated request has nothing safe
+  /// to transmit to until recovery actually reaches `connected`. An already-pending `retrySafe`
+  /// operation orphaned by the transport loss that triggered recovery is unaffected by this guard;
+  /// see [retryOrphanedOperations].
   @override
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
@@ -56,8 +61,7 @@ class RequestServiceImpl implements RequestService {
   }) async {
     final DovahLinkConnectionState connectionState =
         _sessionService.connectionState;
-    if (connectionState != DovahLinkConnectionState.connected &&
-        connectionState != DovahLinkConnectionState.reconnecting) {
+    if (connectionState != DovahLinkConnectionState.connected) {
       throw DovahLinkConnectionException(
         'Cannot send $messageType: no active connection.',
       );

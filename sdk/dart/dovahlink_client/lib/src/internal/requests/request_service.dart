@@ -13,7 +13,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 abstract interface class RequestService {
   /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. Fails
   /// immediately with a [DovahLinkConnectionException] -- without registering or transmitting
-  /// anything -- unless the connection is currently `connected` or `reconnecting`.
+  /// anything -- unless the connection is currently `connected`.
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
     required JsonMap payload,
