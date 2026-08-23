@@ -83,6 +83,10 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Whether [close] was called.
   bool closeCalled = false;
 
+  /// The number of times [close] was called -- unlike [closeCalled], distinguishes one real
+  /// teardown from a duplicate one that should have been deduplicated.
+  int closeCallCount = 0;
+
   /// Makes the next [connect] call throw [error] instead of succeeding.
   Object? failConnectWith;
 
@@ -115,6 +119,15 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Delivers [error] on the current connection's inbound stream, simulating a transport-level
   /// failure (e.g. a dropped socket) while a request may be pending.
   void failMessagesWith(Object error) => _requireIncoming().addError(error);
+
+  /// Delivers [error] then immediately closes the current connection's inbound stream,
+  /// simulating a real socket's `onError` and `onDone` both firing for one dead connection --
+  /// for a test proving duplicate teardown signals are deduplicated rather than double-run.
+  void failMessagesWithBoth(Object error) {
+    final StreamController<String> incoming = _requireIncoming();
+    incoming.addError(error);
+    unawaited(incoming.close());
+  }
 
   /// See [DovahLinkTransport.connect].
   @override
@@ -152,6 +165,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   @override
   Future<void> close() async {
     closeCalled = true;
+    closeCallCount++;
     _incoming = null;
     final Object? failure = failCloseWith;
     if (failure != null) {
@@ -329,6 +343,7 @@ void main() {
     test(
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
@@ -353,6 +368,7 @@ void main() {
     test(
       'Method hello a rejected hello throws DovahLinkProtocolException and leaves state unset',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -391,6 +407,7 @@ void main() {
     test(
       'Method hello the original rejection still surfaces even when cleanup itself fails',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -460,6 +477,7 @@ void main() {
     test(
       'Method hello a malformed JSON response throws malformed_message',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse('not valid json');
 
         await expectLater(
@@ -552,6 +570,7 @@ void main() {
     test(
       'Method requestPairing reports available with expiresInSeconds from the real fixture',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
         );
@@ -568,6 +587,7 @@ void main() {
       // pairing_confirm is not retrySafe (unlike pairing_request): a send failure must fail it
       // immediately rather than parking it to retry after a reconnect -- see the "retry-safe
       // operations across reconnect" group below for the retrySafe counterpart of this case.
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.failSendWith = const SocketException('reset');
 
       await expectLater(
@@ -575,8 +595,17 @@ void main() {
         throwsA(isA<DovahLinkConnectionException>()),
       );
 
-      expect(client.connectionState, DovahLinkConnectionState.disconnected);
       expect(transport.closeCalled, isTrue);
+      // The send failure is ordinary transport loss, so SessionServiceImpl hands off to bounded
+      // automatic reconnect once teardown resolves to disconnected. Clear the injected send
+      // failure first so the recovery attempt's own re-authentication does not fail the same way
+      // and repeat the same hand-off, then deliberately disconnect before its delayed next
+      // attempt runs, the same as the "already-orphaned operation" case below, so this test does
+      // not leave a live background reconnect cycle behind it.
+      transport.failSendWith = null;
+      await pumpEventQueue();
+      await client.disconnect();
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
     });
   });
 
@@ -584,6 +613,7 @@ void main() {
     test(
       'Method requestPairingRenotify reports renotified from the real fixture',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-renotified.json'),
         );
@@ -601,6 +631,7 @@ void main() {
     test(
       'Method cancelPairing reports cancelled from the real fixture',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-cancelled.json'),
         );
@@ -616,6 +647,7 @@ void main() {
     test(
       'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(const PersistedClientState(clientId: 'client-1'));
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
@@ -637,6 +669,7 @@ void main() {
     test(
       'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -664,6 +697,7 @@ void main() {
     test(
       'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -687,6 +721,7 @@ void main() {
     test(
       'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             credential: 'stored-credential',
@@ -712,6 +747,7 @@ void main() {
     test(
       'Method recoverPendingPairing leaves CONFIRMING untouched when the retry fails for another reason',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -743,6 +779,7 @@ void main() {
     test(
       'Method disconnect closes the transport and resets session state',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
@@ -770,6 +807,7 @@ void main() {
           ),
         );
         await client.forgetCredential();
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
@@ -789,6 +827,7 @@ void main() {
     test(
       'Behavior inbound message routing gives sequential requests their own correlated replies',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
@@ -808,6 +847,7 @@ void main() {
 
     test('Behavior inbound message routing does not consume an unsolicited message as a pending '
         'request reply', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       // capabilities is queued before hello-ack here, unlike every other test above, to prove
       // the router does not treat "whatever arrives first" as the pending operation's reply.
       transport.queueResponse(
@@ -823,6 +863,7 @@ void main() {
     test(
       'Behavior inbound message routing fails closed for an unmatched correlationId',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         final Future<HelloResult> helloFuture = client.hello();
         await pumpEventQueue();
 
@@ -1382,5 +1423,32 @@ void main() {
         await pendingFails;
       },
     );
+  });
+
+  group('Behavior composition-root teardown deduplication behaves correctly', () {
+    test('Behavior composition-root teardown deduplication closes the transport exactly once for a '
+        'duplicate onError/onDone signal on one dead connection', () async {
+      // Proves, through a real DovahLinkClient composed of real ConnectionTeardownCoordinator
+      // and LifecycleOperationQueue instances (not mocked away, unlike every Service's own
+      // unit test), that a stream's onError and onDone both firing for one dead connection --
+      // exactly what a real dropped socket delivers -- runs real teardown/close exactly once,
+      // per `ai/context/sdk/testing.md`'s "Session/request refactor regression requirements".
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      transport.failMessagesWithBoth(const SocketException('dropped'));
+      await pumpEventQueue();
+
+      expect(transport.closeCallCount, 1);
+      // Ordinary transport loss with a known endpoint hands off to bounded automatic
+      // reconnect; disconnect before its own delayed next attempt runs so this test does not
+      // leave a live background reconnect cycle behind it, mirroring the established pattern
+      // above.
+      await client.disconnect();
+    });
   });
 }

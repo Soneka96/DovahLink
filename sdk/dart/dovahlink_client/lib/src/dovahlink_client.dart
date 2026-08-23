@@ -1,14 +1,32 @@
 import 'package:meta/meta.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
-import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
+import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
+import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/reconnect_coordinator.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
+import 'package:dovahlink_client_sdk/src/internal/pairing_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_bookkeeping.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/pending_operation_transmitter.dart';
+import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/reply_resolver_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_admission_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_context_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_state.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_trust_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
@@ -37,30 +55,11 @@ class DovahLinkClient {
   DovahLinkClient({
     DovahLinkTransport? transport,
     required ClientStorage storage,
-  }) : _storage = storage {
-    _session = ClientSession(
-      transport: transport ?? WebSocketTransport(),
-      timeoutDurations: kTimeoutClassDurations,
-    );
-    _requestManager = _session.requestManager;
-    _authenticationService = AuthenticationService(
-      requestSender: _requestManager,
-      storage: _storage,
-      sessionConnector: _session,
-      messageReceiver: _session,
-    );
-    _pairingService = PairingService(
-      requestSender: _requestManager,
-      storage: _storage,
-      sessionTrustWriter: _session,
-      messageReceiver: _session,
-    );
-    _reconnectCoordinator = ReconnectCoordinator(
-      sessionConnector: _session,
-      reauthenticate: _authenticationService.hello,
-    );
-    _session.recoveryObserver = _reconnectCoordinator;
-  }
+  }) : this._build(
+         transport: transport ?? WebSocketTransport(),
+         storage: storage,
+         timeoutDurations: kTimeoutClassDurations,
+       );
 
   /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
   /// [DpapiClientStorage] persisting to this Windows user's default per-user location.
@@ -75,40 +74,115 @@ class DovahLinkClient {
     required DovahLinkTransport transport,
     required ClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
+  }) : this._build(
+         transport: transport,
+         storage: storage,
+         timeoutDurations: timeoutDurations,
+       );
+
+  /// Assembles the full seven-service object graph over [transport], timed per
+  /// [timeoutDurations], per `ai/context/sdk/architecture.md`'s "Internal composition" -- the one
+  /// wiring path both public constructors share, differing only in [transport] source and
+  /// [timeoutDurations]. Every collaborator is constructed here, exactly once, and handed to its
+  /// consumer as an already-built constructor parameter; no class below this composition root ever
+  /// constructs one of its own dependencies.
+  DovahLinkClient._build({
+    required DovahLinkTransport transport,
+    required ClientStorage storage,
+    required Map<TimeoutClass, Duration> timeoutDurations,
   }) : _storage = storage {
-    _session = ClientSession(
+    final SessionState state = SessionState();
+    final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
+    // Forwards to `_sessionService.onTeardown`, referenced here before `_sessionService` is
+    // assigned below -- resolved only when a real teardown later invokes it, by which point
+    // construction has completed. `ConnectionTeardownCoordinator` must exist before
+    // `SessionServiceImpl` (which owns it), but the failure handler it needs can only be supplied
+    // by `RequestServiceImpl`, which itself depends on `SessionService` and so must be built after
+    // it -- see `ai/context/sdk/architecture.md`'s "Callbacks".
+    final ConnectionTeardownCoordinator teardownCoordinator =
+        ConnectionTeardownCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler:
+              (Exception reason, {required bool orphanRetrySafeOperations}) =>
+                  _sessionService.onTeardown?.call(
+                    reason,
+                    orphanRetrySafeOperations: orphanRetrySafeOperations,
+                  ),
+          state: SessionLifecycleStateImpl(state),
+        );
+    _sessionService = SessionServiceImpl(
+      transport: transport,
+      state: state,
+      lifecycleQueue: lifecycleQueue,
+      teardownCoordinator: teardownCoordinator,
+    );
+
+    final PendingOperationBookkeeping bookkeeping =
+        PendingOperationBookkeeping();
+    final ConnectionLifecycleReporterImpl lifecycleReporter =
+        ConnectionLifecycleReporterImpl(_sessionService);
+    final PendingOperationTransmitter transmitter = PendingOperationTransmitter(
       transport: transport,
       timeoutDurations: timeoutDurations,
+      sessionContext: SessionContextImpl(_sessionService),
+      reporter: lifecycleReporter,
+      registry: PendingOperationRegistryImpl(bookkeeping),
     );
-    _requestManager = _session.requestManager;
-    _authenticationService = AuthenticationService(
-      requestSender: _requestManager,
+    final MessageRouter messageRouter = MessageRouter(
+      replyResolver: ReplyResolverImpl(bookkeeping),
+      reporter: lifecycleReporter,
+    );
+    _requestService = RequestServiceImpl(
+      sessionService: _sessionService,
+      bookkeeping: bookkeeping,
+      transmitter: transmitter,
+      messageRouter: messageRouter,
+    );
+    _sessionService.onTeardown = _requestService.failAll;
+    _sessionService.onIncomingMessage = _requestService.handleIncoming;
+
+    final SessionAdmissionServiceImpl sessionAdmissionService =
+        SessionAdmissionServiceImpl(
+          state: state,
+          requestService: _requestService,
+        );
+    final SessionTrustServiceImpl sessionTrustService = SessionTrustServiceImpl(
+      state: state,
+    );
+    final ClientIdResolver clientIdResolver = ClientIdResolver(
       storage: _storage,
-      sessionConnector: _session,
-      messageReceiver: _session,
+      randomIdGenerator: RandomIdGenerator(),
     );
-    _pairingService = PairingService(
-      requestSender: _requestManager,
+    _authenticationService = AuthenticationServiceImpl(
+      sessionService: _sessionService,
+      sessionAdmissionService: sessionAdmissionService,
+      requestService: _requestService,
       storage: _storage,
-      sessionTrustWriter: _session,
-      messageReceiver: _session,
+      clientIdResolver: clientIdResolver,
     );
-    _reconnectCoordinator = ReconnectCoordinator(
-      sessionConnector: _session,
-      reauthenticate: _authenticationService.hello,
+    _pairingService = PairingServiceImpl(
+      sessionTrustService: sessionTrustService,
+      requestService: _requestService,
+      storage: _storage,
     );
-    _session.recoveryObserver = _reconnectCoordinator;
+    _reconnectService = ReconnectServiceImpl(
+      sessionService: _sessionService,
+      authenticationService: _authenticationService,
+    );
+    _sessionService.onOrdinaryTransportLoss =
+        _reconnectService.onOrdinaryTransportLoss;
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
   /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state
   /// ownership". This façade never assigns session state directly; session transitions remain
-  /// owned by [ClientSession].
-  late final ClientSession _session;
+  /// owned by [SessionServiceImpl]. Typed as the implementation, not [SessionService], because only
+  /// [DovahLinkClient] itself assigns its late-bound callback fields.
+  late final SessionServiceImpl _sessionService;
 
-  /// The request manager associated with this client's session. Pending requests, timeouts, and
-  /// retry behavior remain owned by [ClientSession].
-  late final RequestManager _requestManager;
+  /// Owns pending requests, timeouts, and retry behavior for this client's session.
+  late final RequestService _requestService;
 
   /// Owns `hello`/authentication and credential-rejection recovery.
   late final AuthenticationService _authenticationService;
@@ -117,7 +191,7 @@ class DovahLinkClient {
   late final PairingService _pairingService;
 
   /// Owns bounded automatic recovery from ordinary transport loss.
-  late final ReconnectCoordinator _reconnectCoordinator;
+  late final ReconnectService _reconnectService;
 
   /// The current connection lifecycle phase. Reaches
   /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never
@@ -125,13 +199,14 @@ class DovahLinkClient {
   /// [DovahLinkConnectionState.connected] on successful bounded automatic recovery or to
   /// [DovahLinkConnectionState.disconnected] once that recovery is exhausted; no action from this
   /// client is required to observe or drive that recovery.
-  DovahLinkConnectionState get connectionState => _session.connectionState;
+  DovahLinkConnectionState get connectionState =>
+      _sessionService.connectionState;
 
   /// The current trust standing, or `null` before [hello] succeeds.
-  DovahLinkTrustState? get trustState => _session.currentTrustState;
+  DovahLinkTrustState? get trustState => _sessionService.currentTrustState;
 
   /// The server-issued session identifier, or `null` before [hello] succeeds.
-  String? get sessionId => _session.currentSessionId;
+  String? get sessionId => _sessionService.currentSessionId;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
   String? get clientId => _authenticationService.clientId;
@@ -139,11 +214,11 @@ class DovahLinkClient {
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason =>
-      _session.invalidationReason;
+      _sessionService.invalidationReason;
 
   /// Establishes the transport connection to [uri]. Must be called before [hello].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established.
-  Future<void> connect(Uri uri) => _session.connect(uri);
+  Future<void> connect(Uri uri) => _sessionService.connect(uri);
 
   /// Sends `hello` and negotiates the session. Resolves and persists this installation's
   /// `clientId` on first use, and automatically presents a stored trusted credential as
@@ -152,22 +227,11 @@ class DovahLinkClient {
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
-  /// trust state; see [RequestPolicy.requiredTrustState] and [ClientSession.admitSession].
+  /// trust state; see [RequestPolicy.requiredTrustState] and [AuthenticationService.hello].
   /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
-  /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
-  /// hello (`revoked` or an unrecognized credential) by discarding it and retrying once as
-  /// `unpaired` -- the bridge always accepts that, so a recoverable rejection never surfaces as a
-  /// thrown exception here. [HelloResult.recoveredFromRejectedCredential] reports whether that
-  /// happened and why, so a caller can still explain it to the user. A transport failure, a
-  /// non-recoverable protocol rejection, or the retry attempt's own failure still throws normally.
-  ///
-  /// A no-op that returns the cached result of the last [hello] when this client is already
-  /// [DovahLinkConnectionState.connected] and [DovahLinkTrustState.trusted] -- the bridge's
-  /// one-session-per-connection limit (`handshake_handler.cpp`'s `TryCreateSession`) rejects a
-  /// second `hello` on a socket that already holds a session, so re-authenticating an
-  /// already-trusted, still-open connection must not re-send one.
+  /// See [AuthenticationService.authenticate].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
@@ -237,7 +301,7 @@ class DovahLinkClient {
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect.
-  Future<void> disconnect() => _session.disconnect();
+  Future<void> disconnect() => _sessionService.disconnect();
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
   /// the next [hello] presents [AuthMethod.unpaired] instead of a credential the bridge has

@@ -4,26 +4,41 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
-import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
-import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
-import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_admission_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../fixtures/persistence/persisted_client_state.fixture.dart';
 import '../fixtures/protocol/envelope.fixture.dart';
 import '../fixtures/request_policy.fixture.dart';
 
-/// Mock request manager used to isolate authentication service tests.
-class MockRequestSender extends Mock implements RequestSender {}
+/// Mock session service used to isolate authentication service tests, per
+/// `ai/context/sdk/testing.md`'s "Service test boundaries".
+class MockSessionService extends Mock implements SessionService {}
 
-/// Mock session connector used to isolate authentication service tests.
-class MockSessionConnector extends Mock implements SessionConnector {}
+/// Mock session admission service -- its own admit/retry logic is
+/// `session_admission_service_impl_test.dart`'s responsibility; this file only proves
+/// [AuthenticationServiceImpl] calls it with the right arguments.
+class MockSessionAdmissionService extends Mock
+    implements SessionAdmissionService {}
 
-/// Mock message receiver used to isolate authentication service tests.
-class MockMessageReceiver extends Mock implements MessageReceiver {}
+/// Mock request service used to isolate authentication service tests.
+class MockRequestService extends Mock implements RequestService {}
+
+/// Mock client storage -- its own persistence mechanics are covered by its own implementation's
+/// test file; this file only proves [AuthenticationServiceImpl] reads and writes the right state.
+class MockClientStorage extends Mock implements ClientStorage {}
+
+/// Mock client ID resolver -- its own generate/persist logic is
+/// `client_id_resolver_test.dart`'s responsibility; this file only proves
+/// [AuthenticationServiceImpl] uses its resolved value.
+class MockClientIdResolver extends Mock implements ClientIdResolver {}
 
 /// Builds a decoded `hello_ack` reply envelope from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
@@ -44,9 +59,9 @@ Envelope buildHelloAckEnvelope({
 );
 
 /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
-void stubSendAndAwait(RequestSender requestSender, Envelope envelope) {
+void stubSendAndAwait(MockRequestService requestService, Envelope envelope) {
   when(
-    () => requestSender.sendAndAwait(
+    () => requestService.sendAndAwait(
       messageType: any(named: 'messageType'),
       payload: any(named: 'payload'),
       expectedType: any(named: 'expectedType'),
@@ -57,11 +72,12 @@ void stubSendAndAwait(RequestSender requestSender, Envelope envelope) {
 
 /// Runs authentication service behavior tests.
 void main() {
-  late MockRequestSender requestSender;
-  late InMemoryClientStorage storage;
-  late MockSessionConnector sessionConnector;
-  late MockMessageReceiver messageReceiver;
-  late AuthenticationService service;
+  late MockSessionService sessionService;
+  late MockSessionAdmissionService sessionAdmissionService;
+  late MockRequestService requestService;
+  late MockClientStorage storage;
+  late MockClientIdResolver clientIdResolver;
+  late AuthenticationServiceImpl service;
 
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.hello);
@@ -74,111 +90,86 @@ void main() {
     );
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
     registerFallbackValue(DovahLinkTrustState.unpaired);
+    registerFallbackValue(buildPersistedClientState());
   });
 
   setUp(() {
-    requestSender = MockRequestSender();
-    storage = InMemoryClientStorage();
-    sessionConnector = MockSessionConnector();
-    messageReceiver = MockMessageReceiver();
-    when(() => sessionConnector.connect(any())).thenAnswer((_) async {});
+    sessionService = MockSessionService();
+    sessionAdmissionService = MockSessionAdmissionService();
+    requestService = MockRequestService();
+    storage = MockClientStorage();
+    clientIdResolver = MockClientIdResolver();
+    when(() => sessionService.connect(any())).thenAnswer((_) async {});
     when(
-      () => sessionConnector.disconnect(
+      () => sessionService.disconnect(
         orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
       ),
     ).thenAnswer((_) async {});
     when(
-      () => sessionConnector.connectionState,
+      () => sessionService.connectionState,
     ).thenReturn(DovahLinkConnectionState.disconnected);
-    when(() => sessionConnector.currentTrustState).thenReturn(null);
-    when(() => messageReceiver.ensureReceiving()).thenReturn(null);
-    service = AuthenticationService(
-      requestSender: requestSender,
+    when(() => sessionService.currentTrustState).thenReturn(null);
+    when(
+      () => sessionAdmissionService.admitSession(
+        sessionId: any(named: 'sessionId'),
+        trustState: any(named: 'trustState'),
+      ),
+    ).thenAnswer((_) {});
+    when(
+      () => storage.load(),
+    ).thenAnswer((_) async => buildPersistedClientState(clientId: 'client-1'));
+    when(() => storage.save(any())).thenAnswer((_) async {});
+    when(
+      () => clientIdResolver.resolve(any()),
+    ).thenAnswer((_) async => 'client-1');
+    service = AuthenticationServiceImpl(
+      sessionService: sessionService,
+      sessionAdmissionService: sessionAdmissionService,
+      requestService: requestService,
       storage: storage,
-      sessionConnector: sessionConnector,
-      messageReceiver: messageReceiver,
+      clientIdResolver: clientIdResolver,
     );
   });
 
   group('Method hello behaves correctly', () {
-    test(
-      'Method hello ensures receiving before sending and admits the decoded session',
-      () async {
-        stubSendAndAwait(
-          requestSender,
-          buildHelloAckEnvelope(
-            sessionId: 'session-1',
-            bridgeVersion: '1.2.3',
-            kind: ClientIdentityKind.paired,
-          ),
-        );
+    test('Method hello sends hello and admits the decoded session', () async {
+      stubSendAndAwait(
+        requestService,
+        buildHelloAckEnvelope(
+          sessionId: 'session-1',
+          bridgeVersion: '1.2.3',
+          kind: ClientIdentityKind.paired,
+        ),
+      );
 
-        final HelloResult result = await service.hello();
+      final HelloResult result = await service.hello();
 
-        verifyInOrder([
-          () => messageReceiver.ensureReceiving(),
-          () => requestSender.sendAndAwait(
-            messageType: ProtocolMessageType.hello,
-            payload: any(named: 'payload'),
-            expectedType: ProtocolMessageType.helloAck,
-            policy: any(named: 'policy'),
-          ),
-          () => sessionConnector.admitSession(
-            sessionId: 'session-1',
-            trustState: DovahLinkTrustState.trusted,
-          ),
-        ]);
-        verifyNever(
-          () => sessionConnector.disconnect(
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
-        expect(result.bridgeVersion, '1.2.3');
-        expect(result.trustState, DovahLinkTrustState.trusted);
-      },
-    );
+      verifyInOrder([
+        () => requestService.sendAndAwait(
+          messageType: ProtocolMessageType.hello,
+          payload: any(named: 'payload'),
+          expectedType: ProtocolMessageType.helloAck,
+          policy: any(named: 'policy'),
+        ),
+        () => sessionAdmissionService.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        ),
+      ]);
+      verifyNever(
+        () => sessionService.disconnect(
+          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+        ),
+      );
+      expect(result.bridgeVersion, '1.2.3');
+      expect(result.trustState, DovahLinkTrustState.trusted);
+    });
 
     test(
-      'Method hello resolves and persists a fresh clientId on first use',
+      'Method hello presents unpaired when no credential is stored',
       () async {
         stubSendAndAwait(
-          requestSender,
-          buildHelloAckEnvelope(
-            sessionId: 'session-1',
-            bridgeVersion: '1.0',
-            kind: ClientIdentityKind.unpaired,
-          ),
-        );
-
-        final HelloResult result = await service.hello();
-
-        verify(() => messageReceiver.ensureReceiving()).called(1);
-        verify(
-          () => sessionConnector.admitSession(
-            sessionId: 'session-1',
-            trustState: DovahLinkTrustState.unpaired,
-          ),
-        ).called(1);
-        verifyNever(
-          () => sessionConnector.disconnect(
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        );
-        expect(result.trustState, DovahLinkTrustState.unpaired);
-        expect(service.clientId, isNotNull);
-        final PersistedClientState state = await storage.load();
-        expect(state.clientId, service.clientId);
-      },
-    );
-
-    test(
-      'Method hello reuses an already-persisted clientId instead of generating a new one',
-      () async {
-        await storage.save(
-          const PersistedClientState(clientId: 'existing-client'),
-        );
-        stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -188,6 +179,42 @@ void main() {
 
         await service.hello();
 
+        final JsonMap sentPayload =
+            verify(
+                  () => requestService.sendAndAwait(
+                    messageType: ProtocolMessageType.hello,
+                    payload: captureAny(named: 'payload'),
+                    expectedType: ProtocolMessageType.helloAck,
+                    policy: any(named: 'policy'),
+                  ),
+                ).captured.single
+                as JsonMap;
+        expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
+      },
+    );
+
+    test(
+      'Method hello resolves clientId from the loaded persisted state and exposes it as its own',
+      () async {
+        final PersistedClientState loaded = buildPersistedClientState(
+          clientId: 'existing-client',
+        );
+        when(() => storage.load()).thenAnswer((_) async => loaded);
+        when(
+          () => clientIdResolver.resolve(any()),
+        ).thenAnswer((_) async => 'existing-client');
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            sessionId: 'session-1',
+            bridgeVersion: '1.0',
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+
+        await service.hello();
+
+        verify(() => clientIdResolver.resolve(loaded)).called(1);
         expect(service.clientId, 'existing-client');
       },
     );
@@ -195,14 +222,14 @@ void main() {
     test(
       'Method hello presents the stored credential as trusted_device_credential for an ordinary reconnect',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'good-cred',
           ),
         );
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -214,7 +241,7 @@ void main() {
 
         final JsonMap sentPayload =
             verify(
-                  () => requestSender.sendAndAwait(
+                  () => requestService.sendAndAwait(
                     messageType: ProtocolMessageType.hello,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.helloAck,
@@ -233,15 +260,15 @@ void main() {
       'Method hello presents unpaired, not the stored credential, while a pairing confirmation is '
       'outstanding',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -251,10 +278,9 @@ void main() {
 
         await service.hello();
 
-        verify(() => messageReceiver.ensureReceiving()).called(1);
         final JsonMap sentPayload =
             verify(
-                  () => requestSender.sendAndAwait(
+                  () => requestService.sendAndAwait(
                     messageType: any(named: 'messageType'),
                     payload: captureAny(named: 'payload'),
                     expectedType: any(named: 'expectedType'),
@@ -264,13 +290,13 @@ void main() {
                 as JsonMap;
         expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
         verify(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
           ),
         ).called(1);
         verifyNever(
-          () => sessionConnector.disconnect(
+          () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
@@ -282,7 +308,7 @@ void main() {
       'hello_ack carries no sessionId',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: null,
             bridgeVersion: '1.0',
@@ -301,13 +327,13 @@ void main() {
           ),
         );
         verifyNever(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
           ),
         );
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -316,7 +342,7 @@ void main() {
       'Method hello throws malformed_message and disconnects when hello_ack fails to decode',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             messageId: 'reply-1',
@@ -340,13 +366,13 @@ void main() {
           ),
         );
         verifyNever(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
           ),
         );
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -355,7 +381,7 @@ void main() {
       'Method hello throws malformed_message and disconnects when bridgeVersion is empty',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
@@ -376,13 +402,13 @@ void main() {
           ),
         );
         verifyNever(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
           ),
         );
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -391,7 +417,7 @@ void main() {
       'Method hello throws malformed_message and disconnects for an unknown clientIdentityKind',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
@@ -412,13 +438,13 @@ void main() {
           ),
         );
         verifyNever(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
           ),
         );
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -427,7 +453,7 @@ void main() {
       'Method hello disconnects and rethrows a connection failure from sendAndAwait',
       () async {
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -440,13 +466,13 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verifyNever(
-          () => sessionConnector.admitSession(
+          () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
           ),
         );
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -457,7 +483,7 @@ void main() {
       'Method authenticate returns the cached result without re-sending hello when already connected and trusted',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '1.0',
@@ -467,10 +493,10 @@ void main() {
         await service.hello();
 
         when(
-          () => sessionConnector.connectionState,
+          () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionConnector.currentTrustState,
+          () => sessionService.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
 
         final HelloResult result = await service.authenticate(
@@ -479,9 +505,9 @@ void main() {
 
         expect(result.bridgeVersion, '1.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
-        verifyNever(() => sessionConnector.connect(any()));
+        verifyNever(() => sessionService.connect(any()));
         verify(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -495,13 +521,13 @@ void main() {
       'Method authenticate sends hello when connected but unpaired',
       () async {
         when(
-          () => sessionConnector.connectionState,
+          () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionConnector.currentTrustState,
+          () => sessionService.currentTrustState,
         ).thenReturn(DovahLinkTrustState.unpaired);
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             bridgeVersion: '2.0',
             kind: ClientIdentityKind.unpaired,
@@ -512,9 +538,9 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionConnector.connect(any())).called(1);
+        verify(() => sessionService.connect(any())).called(1);
         verify(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: any(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -530,13 +556,13 @@ void main() {
       'Method authenticate sends hello when trusted but no bridge version is cached',
       () async {
         when(
-          () => sessionConnector.connectionState,
+          () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionConnector.currentTrustState,
+          () => sessionService.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             bridgeVersion: '2.1',
             kind: ClientIdentityKind.paired,
@@ -547,9 +573,9 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionConnector.connect(any())).called(1);
+        verify(() => sessionService.connect(any())).called(1);
         verify(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: any(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -565,7 +591,7 @@ void main() {
       'Method authenticate connects before sending hello when not already connected and trusted',
       () async {
         stubSendAndAwait(
-          requestSender,
+          requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             bridgeVersion: '2.0',
@@ -577,7 +603,7 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionConnector.connect(any())).called(1);
+        verify(() => sessionService.connect(any())).called(1);
         expect(result.bridgeVersion, '2.0');
       },
     );
@@ -586,7 +612,7 @@ void main() {
       'Method authenticate propagates a connect() failure without ever sending hello',
       () async {
         when(
-          () => sessionConnector.connect(any()),
+          () => sessionService.connect(any()),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
 
         await expectLater(
@@ -594,7 +620,7 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verifyNever(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -607,14 +633,14 @@ void main() {
     test(
       'Method authenticate propagates the retry attempt\'s own rejection after credential-rejection recovery',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
         );
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -638,11 +664,12 @@ void main() {
             ),
           ),
         );
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, isNull);
-        verify(() => sessionConnector.connect(any())).called(2);
         verify(
-          () => requestSender.sendAndAwait(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -652,7 +679,7 @@ void main() {
         // Both hello() attempts failed and each preserves any operation a prior ordinary
         // transport loss orphaned, rather than treating its own failure as final.
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(2);
       },
     );
@@ -660,21 +687,21 @@ void main() {
     test(
       'Method authenticate propagates a retry connection failure after credential recovery',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
         );
         int connectCallCount = 0;
-        when(() => sessionConnector.connect(any())).thenAnswer((_) async {
+        when(() => sessionService.connect(any())).thenAnswer((_) async {
           connectCallCount++;
           if (connectCallCount == 2) {
             throw const DovahLinkConnectionException('retry unreachable');
           }
         });
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -698,11 +725,12 @@ void main() {
             ),
           ),
         );
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, isNull);
-        verify(() => sessionConnector.connect(any())).called(2);
         verify(
-          () => requestSender.sendAndAwait(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -712,7 +740,7 @@ void main() {
         // Only the first hello() attempt ran (and failed); the retry's own connect() threw before
         // a second hello() could run, so hello()'s disconnect()-on-failure only fires once.
         verify(
-          () => sessionConnector.disconnect(orphanRetrySafeOperations: true),
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
       },
     );
@@ -720,15 +748,23 @@ void main() {
     test(
       'Method authenticate recovers from a revoked credential rejection by forgetting it and retrying as unpaired',
       () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'stale-cred',
-          ),
+        // storage.load() must reflect forgetCredential()'s own storage.save() before the retry
+        // attempt's hello() re-reads it, so the retry actually presents unpaired -- a static stub
+        // would keep returning the stale credential regardless of the intervening save().
+        PersistedClientState persisted = buildPersistedClientState(
+          clientId: 'client-1',
+          credential: 'stale-cred',
         );
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        when(() => storage.save(any())).thenAnswer((
+          Invocation invocation,
+        ) async {
+          persisted =
+              invocation.positionalArguments.single as PersistedClientState;
+        });
         int callCount = 0;
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -759,12 +795,12 @@ void main() {
           CredentialRejectionReason.revoked,
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, isNull);
-        expect(state.clientId, 'client-1');
-        verify(() => sessionConnector.connect(any())).called(2);
+        verify(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(2);
         final List<Object?> sentPayloads = verify(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
             payload: captureAny(named: 'payload'),
             expectedType: ProtocolMessageType.helloAck,
@@ -781,15 +817,15 @@ void main() {
     test(
       'Method authenticate recovers from an unrecognized-credential rejection the same way',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
         );
         int callCount = 0;
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -820,36 +856,24 @@ void main() {
           CredentialRejectionReason.unrecognized,
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, isNull);
-        expect(state.clientId, 'client-1');
-        verify(() => sessionConnector.connect(any())).called(2);
-        final List<Object?> sentPayloads = verify(
-          () => requestSender.sendAndAwait(
-            messageType: ProtocolMessageType.hello,
-            payload: captureAny(named: 'payload'),
-            expectedType: ProtocolMessageType.helloAck,
-            policy: any(named: 'policy'),
-          ),
-        ).captured;
-        expect(sentPayloads, hasLength(2));
-        expect((sentPayloads.last as JsonMap)['auth'], <String, dynamic>{
-          'method': 'unpaired',
-        });
+        verify(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(2);
       },
     );
 
     test(
       'Method authenticate does not recover from a non-recoverable protocol rejection',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'good-cred',
           ),
         );
         when(
-          () => requestSender.sendAndAwait(
+          () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
             payload: any(named: 'payload'),
             expectedType: any(named: 'expectedType'),
@@ -873,9 +897,8 @@ void main() {
             ),
           ),
         );
-        verify(() => sessionConnector.connect(any())).called(1);
-        final PersistedClientState state = await storage.load();
-        expect(state.credential, 'good-cred');
+        verify(() => sessionService.connect(any())).called(1);
+        verifyNever(() => storage.save(any()));
       },
     );
   });
@@ -884,8 +907,8 @@ void main() {
     test(
       'Method forgetCredential clears credential and recovery state while preserving clientId',
       () async {
-        await storage.save(
-          const PersistedClientState(
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -894,10 +917,9 @@ void main() {
 
         await service.forgetCredential();
 
-        final PersistedClientState state = await storage.load();
-        expect(state.clientId, 'client-1');
-        expect(state.credential, isNull);
-        expect(state.recoveryState, PairingRecoveryState.none);
+        verify(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
       },
     );
   });

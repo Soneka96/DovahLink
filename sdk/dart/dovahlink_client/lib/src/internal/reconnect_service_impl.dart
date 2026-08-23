@@ -2,25 +2,27 @@ import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/hello_result.dart';
-import 'package:dovahlink_client_sdk/src/internal/connection_recovery_observer.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Owns bounded automatic recovery from ordinary transport loss, per
-/// `ai/context/sdk/architecture.md`'s "Internal composition". Reconnects to the endpoint the
-/// session last connected to and re-authenticates, up to a bounded attempt budget and a hard
-/// overall deadline (each defaulting to the centrally tuned [kReconnectAttemptDelays]/
-/// [kReconnectDeadline]) -- whichever is exhausted first. `ClientSession` continues to own
-/// transport/session state and teardown, and `AuthenticationService` continues to own
-/// authentication; this class only orchestrates when and how often to retry both.
-class ReconnectCoordinator implements ConnectionRecoveryObserver {
+/// Implements [ReconnectService], per `ai/context/sdk/architecture.md`'s "Internal composition".
+/// Reconnects to the endpoint the session last connected to and re-authenticates, up to a bounded
+/// attempt budget and a hard overall deadline (each defaulting to the centrally tuned
+/// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
+/// `SessionServiceImpl` continues to own transport/session state and teardown, and
+/// `AuthenticationServiceImpl` continues to own authentication; this class only orchestrates when
+/// and how often to retry both. [sessionService] and [authenticationService] are supplied by the
+/// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
+/// constructs one of its own dependencies.
+class ReconnectServiceImpl implements ReconnectService {
   /// Reconnects to and disconnects from the bridge, and reports live connection state.
-  final SessionConnector _sessionConnector;
+  final SessionService _sessionService;
 
   /// Re-authenticates the reconnected transport, admitting a fresh session on success.
-  final Future<HelloResult> Function() _reauthenticate;
+  final AuthenticationService _authenticationService;
 
   /// The delay before each attempt after the first, and the attempt budget. Defaults to the
   /// centrally tuned [kReconnectAttemptDelays]; overridable so a test can exercise the retry loop
@@ -36,21 +38,21 @@ class ReconnectCoordinator implements ConnectionRecoveryObserver {
   /// heavily loaded test run could otherwise make flaky.
   final DateTime Function() _now;
 
-  /// Creates a coordinator recovering through [sessionConnector], re-authenticating through
-  /// [reauthenticate].
-  ReconnectCoordinator({
-    required SessionConnector sessionConnector,
-    required Future<HelloResult> Function() reauthenticate,
+  /// Creates a reconnect service recovering through [sessionService], re-authenticating through
+  /// [authenticationService].
+  ReconnectServiceImpl({
+    required SessionService sessionService,
+    required AuthenticationService authenticationService,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration deadline = kReconnectDeadline,
     DateTime Function() now = DateTime.now,
-  }) : _sessionConnector = sessionConnector,
-       _reauthenticate = reauthenticate,
+  }) : _sessionService = sessionService,
+       _authenticationService = authenticationService,
        _attemptDelays = attemptDelays,
        _deadline = deadline,
        _now = now;
 
-  /// Implements [ConnectionRecoveryObserver.onOrdinaryTransportLoss].
+  /// Implements [ReconnectService.onOrdinaryTransportLoss].
   @override
   void onOrdinaryTransportLoss(Uri uri) {
     unawaited(_recover(uri));
@@ -63,9 +65,9 @@ class ReconnectCoordinator implements ConnectionRecoveryObserver {
   /// credential cannot succeed; only a generic transport/connectivity failure consumes the attempt
   /// budget. Also stops, without touching the connection again, if something else (an explicit
   /// disconnect or an administrative invalidation) already moved the session out of
-  /// [DovahLinkConnectionState.reconnecting]. On exhaustion or rejection, finalizes the cycle with
-  /// a disconnect that fails whatever operations `AuthenticationService.hello`'s own mid-cycle
-  /// cleanup preserved for retry.
+  /// `reconnecting`. On exhaustion or rejection, finalizes the cycle with a disconnect that fails
+  /// whatever operations `AuthenticationServiceImpl.hello`'s own mid-cycle cleanup preserved for
+  /// retry.
   Future<void> _recover(Uri uri) async {
     final DateTime deadline = _now().add(_deadline);
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
@@ -79,7 +81,7 @@ class ReconnectCoordinator implements ConnectionRecoveryObserver {
             : untilDeadline;
         await Future<void>.delayed(delay);
       }
-      if (_sessionConnector.connectionState !=
+      if (_sessionService.connectionState !=
           DovahLinkConnectionState.reconnecting) {
         return;
       }
@@ -87,8 +89,8 @@ class ReconnectCoordinator implements ConnectionRecoveryObserver {
         break;
       }
       try {
-        await _sessionConnector.connect(uri);
-        await _reauthenticate();
+        await _sessionService.connect(uri);
+        await _authenticationService.hello();
         return;
       } on DovahLinkProtocolException {
         break;
@@ -96,7 +98,7 @@ class ReconnectCoordinator implements ConnectionRecoveryObserver {
         continue;
       }
     }
-    await _sessionConnector.disconnect(
+    await _sessionService.disconnect(
       reason: const DovahLinkConnectionException(
         'Reconnect could not restore the connection.',
       ),
