@@ -10,13 +10,6 @@ abstract interface class ConnectionLifecycleReporter {
   /// error/close) and must be torn down.
   void onUnhealthy(Exception reason);
 
-  /// Reports a decoded unsolicited `error` push (`correlationId: null`), sent for a violation the
-  /// bridge detects before it can correlate a reply -- for example before decoding completes, or
-  /// before a session exists. Not ordinary connectivity loss: the connection is torn down without
-  /// automatic reconnect, carrying [error]'s own code/message/retryable classification rather than
-  /// a generic malformed-message reason.
-  void onUnsolicitedError(ErrorPayload error);
-
   /// Reports a protocol-level anomaly on an otherwise-live connection (malformed JSON, an
   /// unmatched correlation ID, or an unrecognized DTO-boundary value) that must be torn down
   /// without treating it as safe to retry. [orphanRetrySafeOperations] controls whether a
@@ -30,4 +23,11 @@ abstract interface class ConnectionLifecycleReporter {
 
   /// Reports an authoritative `session_invalidated` push, decoded and validated by the caller.
   void onSessionInvalidated(AdministrativeInvalidationReason reason);
+
+  /// Reports a decoded unsolicited `error` push (`correlationId: null`), sent for a violation the
+  /// bridge detects before it can correlate a reply -- for example before decoding completes, or
+  /// before a session exists. Not ordinary connectivity loss: the connection is torn down without
+  /// automatic reconnect, carrying [error]'s own code/message/retryable classification rather than
+  /// a generic malformed-message reason.
+  void onUnsolicitedError(ErrorPayload error);
 }

@@ -119,7 +119,12 @@ class DovahLinkClient {
   /// Owns bounded automatic recovery from ordinary transport loss.
   late final ReconnectCoordinator _reconnectCoordinator;
 
-  /// The current connection lifecycle phase.
+  /// The current connection lifecycle phase. Reaches
+  /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never
+  /// after [disconnect] or an administrative invalidation), resolving on its own back to
+  /// [DovahLinkConnectionState.connected] on successful bounded automatic recovery or to
+  /// [DovahLinkConnectionState.disconnected] once that recovery is exhausted; no action from this
+  /// client is required to observe or drive that recovery.
   DovahLinkConnectionState get connectionState => _session.connectionState;
 
   /// The current trust standing, or `null` before [hello] succeeds.
@@ -226,9 +231,12 @@ class DovahLinkClient {
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are
   /// untouched -- trust survives a disconnect. Fails any operation still awaiting a reply, and any
   /// operation an earlier transport loss orphaned for retry, instead of leaving it to hang
-  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Repeated
-  /// calls remain safe because transport close and pending-operation failure are idempotent; an
-  /// administrative invalidation's typed reason is preserved, not reset to generic disconnect.
+  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Also
+  /// cancels bounded automatic recovery already in progress from an earlier transport loss --
+  /// [connectionState] moves directly to [DovahLinkConnectionState.disconnected] rather than
+  /// letting that recovery keep running. Repeated calls remain safe because transport close and
+  /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
+  /// preserved, not reset to generic disconnect.
   Future<void> disconnect() => _session.disconnect();
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so

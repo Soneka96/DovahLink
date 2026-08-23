@@ -351,6 +351,33 @@ class ClientSession
     );
   }
 
+  /// Implements [SessionLifecycleState.bumpConnectionGeneration].
+  @override
+  void bumpConnectionGeneration() {
+    _connectionGeneration++;
+  }
+
+  /// Implements [SessionLifecycleState.detachMessageSubscription].
+  @override
+  StreamSubscription<String>? detachMessageSubscription() {
+    final StreamSubscription<String>? subscription = _messageSubscription;
+    _messageSubscription = null;
+    return subscription;
+  }
+
+  /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
+  @override
+  void resetAfterConnectionTeardown({required bool preserveReconnecting}) {
+    final bool staysReconnecting =
+        preserveReconnecting &&
+        _connectionState == DovahLinkConnectionState.reconnecting;
+    _connectionState = staysReconnecting
+        ? DovahLinkConnectionState.reconnecting
+        : DovahLinkConnectionState.disconnected;
+    _trustState = null;
+    _sessionId = null;
+  }
+
   /// Runs the teardown [onUnhealthy] reports, then starts bounded recovery if the connection is
   /// still eligible for it once that teardown completes. The eligibility check and the
   /// `reconnecting` transition run as their own queued step, after teardown's, so a `connect()` or
@@ -397,32 +424,5 @@ class ClientSession
       return;
     }
     unawaited(_beginRecoveryAfterOrdinaryTransportLoss(reason));
-  }
-
-  /// Implements [SessionLifecycleState.bumpConnectionGeneration].
-  @override
-  void bumpConnectionGeneration() {
-    _connectionGeneration++;
-  }
-
-  /// Implements [SessionLifecycleState.detachMessageSubscription].
-  @override
-  StreamSubscription<String>? detachMessageSubscription() {
-    final StreamSubscription<String>? subscription = _messageSubscription;
-    _messageSubscription = null;
-    return subscription;
-  }
-
-  /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
-  @override
-  void resetAfterConnectionTeardown({required bool preserveReconnecting}) {
-    final bool staysReconnecting =
-        preserveReconnecting &&
-        _connectionState == DovahLinkConnectionState.reconnecting;
-    _connectionState = staysReconnecting
-        ? DovahLinkConnectionState.reconnecting
-        : DovahLinkConnectionState.disconnected;
-    _trustState = null;
-    _sessionId = null;
   }
 }

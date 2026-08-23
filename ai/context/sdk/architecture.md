@@ -115,7 +115,10 @@ retry behavior; `PendingOperationTransmitter` owns each operation's message-ID g
 registration, timeout arming, envelope construction, and transport error reporting;
 `AuthenticationService` owns `hello`/authentication and credential recovery; `PairingService` owns
 pairing operations; `ConnectionTeardownCoordinator` owns ordered transport-resource cleanup;
-`PendingOperation` is the internal record of one request awaiting its reply. Each is a named class
+`ReconnectCoordinator` owns bounded automatic recovery from ordinary transport loss, reconnecting
+and re-authenticating up to an attempt budget and a hard deadline without taking over transport or
+authentication state from `ClientSession`/`AuthenticationService`; `PendingOperation` is the
+internal record of one request awaiting its reply. Each is a named class
 in its own file under `src/`, absent from the public
 barrel per `ai/context/sdk/api-design.md`'s "curated public exports" — a façade/coordinator class
 delegates to these instead of implementing their mechanics itself, per
@@ -147,8 +150,12 @@ closures or a concrete back-reference to a specific class:
   session class remains the sole owner of connection state, generation, and stream fields.
 - `PendingOperationFailureHandler` — fails or orphans pending operations during connection teardown
   without exposing the request manager's pending-operation storage.
+- `ConnectionRecoveryObserver` — notified when ordinary transport loss finishes tearing down the
+  connection, so bounded automatic reconnect may begin; never notified for a deliberate disconnect
+  or an administrative invalidation, both of which require explicit, user-initiated recovery
+  instead.
 
-These ten ports are independent, not one merged interface, and not related by inheritance by
+These eleven ports are independent, not one merged interface, and not related by inheritance by
 default: a collaborator composes only the ports its own responsibility actually needs (for example
 `PairingService` takes `RequestSender`, `SessionTrustWriter`, and `MessageReceiver`, and
 `MessageRouter` takes `ReplyResolver` and `ConnectionLifecycleReporter`, while
@@ -178,3 +185,12 @@ successful pairing acknowledgement). `admitSession` itself triggers `RequestMana
 retry-orphaned-operations transition as part of admitting the session, keeping reconnect/session
 recovery cohesive in one place rather than split across the class that authenticates and the class
 that owns the session.
+
+`ReconnectCoordinator` never assigns connection state directly either: it only drives the same
+`connect`/`disconnect` commands (via `SessionConnector`) and the same `hello` call (via
+`AuthenticationService`) any other caller uses. `ClientSession` still decides the resulting state
+transitions itself -- entering `reconnecting` only after ordinary transport loss tears down cleanly
+with a known endpoint and an assigned `ConnectionRecoveryObserver`, and resolving out of it to
+`connected` (a successful `connect`) or `disconnected` (a deliberate disconnect, an administrative
+invalidation, or the coordinator's own final give-up) -- so `ReconnectCoordinator` orchestrates
+*when* to retry while `ClientSession` remains the sole owner of *what state that produces*.
