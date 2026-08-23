@@ -8,7 +8,6 @@ import 'package:dovahlink_client_sdk/src/internal/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -22,9 +21,6 @@ class MockRequestSender extends Mock implements RequestSender {}
 
 /// Mock session connector used to isolate authentication service tests.
 class MockSessionConnector extends Mock implements SessionConnector {}
-
-/// Mock session context used to isolate authentication service tests.
-class MockSessionContext extends Mock implements SessionContext {}
 
 /// Mock message receiver used to isolate authentication service tests.
 class MockMessageReceiver extends Mock implements MessageReceiver {}
@@ -64,7 +60,6 @@ void main() {
   late MockRequestSender requestSender;
   late InMemoryClientStorage storage;
   late MockSessionConnector sessionConnector;
-  late MockSessionContext sessionContext;
   late MockMessageReceiver messageReceiver;
   late AuthenticationService service;
 
@@ -85,20 +80,18 @@ void main() {
     requestSender = MockRequestSender();
     storage = InMemoryClientStorage();
     sessionConnector = MockSessionConnector();
-    sessionContext = MockSessionContext();
     messageReceiver = MockMessageReceiver();
     when(() => sessionConnector.connect(any())).thenAnswer((_) async {});
     when(() => sessionConnector.disconnect()).thenAnswer((_) async {});
     when(
       () => sessionConnector.connectionState,
     ).thenReturn(DovahLinkConnectionState.disconnected);
-    when(() => sessionContext.currentTrustState).thenReturn(null);
+    when(() => sessionConnector.currentTrustState).thenReturn(null);
     when(() => messageReceiver.ensureReceiving()).thenReturn(null);
     service = AuthenticationService(
       requestSender: requestSender,
       storage: storage,
       sessionConnector: sessionConnector,
-      sessionContext: sessionContext,
       messageReceiver: messageReceiver,
     );
   });
@@ -451,7 +444,7 @@ void main() {
           () => sessionConnector.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionContext.currentTrustState,
+          () => sessionConnector.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
 
         final HelloResult result = await service.authenticate(
@@ -479,7 +472,7 @@ void main() {
           () => sessionConnector.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionContext.currentTrustState,
+          () => sessionConnector.currentTrustState,
         ).thenReturn(DovahLinkTrustState.unpaired);
         stubSendAndAwait(
           requestSender,
@@ -514,7 +507,7 @@ void main() {
           () => sessionConnector.connectionState,
         ).thenReturn(DovahLinkConnectionState.connected);
         when(
-          () => sessionContext.currentTrustState,
+          () => sessionConnector.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
         stubSendAndAwait(
           requestSender,

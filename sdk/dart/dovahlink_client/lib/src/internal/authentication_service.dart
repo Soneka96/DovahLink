@@ -7,7 +7,6 @@ import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart'
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
-import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -31,25 +30,21 @@ class AuthenticationService {
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
 
-  /// Connects, disconnects, reads connection state, and admits a newly authenticated session.
+  /// Connects, disconnects, reads live session identity/trust state, and admits a newly
+  /// authenticated session.
   final SessionConnector _sessionConnector;
-
-  /// Read-only access to the current session's trust standing, for [authenticate]'s
-  /// already-trusted fast path.
-  final SessionContext _sessionContext;
 
   /// Ensures the transport's inbound message stream is being read before [hello] sends.
   final MessageReceiver _messageReceiver;
 
   /// Creates an authentication service sending through [requestSender], persisting identity and
-  /// credential state through [storage], connecting/admitting sessions through [sessionConnector],
-  /// reading live trust state through [sessionContext], and ensuring the connection is receiving
-  /// through [messageReceiver].
+  /// credential state through [storage], connecting/admitting sessions and reading live trust
+  /// state through [sessionConnector], and ensuring the connection is receiving through
+  /// [messageReceiver].
   AuthenticationService({
     required RequestSender requestSender,
     required ClientStorage storage,
     required SessionConnector sessionConnector,
-    required SessionContext sessionContext,
     required MessageReceiver messageReceiver,
     ClientIdResolver? clientIdResolver,
   }) : _requestSender = requestSender,
@@ -61,7 +56,6 @@ class AuthenticationService {
              randomIdGenerator: RandomIdGenerator(),
            ),
        _sessionConnector = sessionConnector,
-       _sessionContext = sessionContext,
        _messageReceiver = messageReceiver;
 
   /// This installation's stable client ID, or `null` before [hello] has resolved it.
@@ -179,7 +173,7 @@ class AuthenticationService {
     final String? cachedBridgeVersion = _bridgeVersion;
     if (_sessionConnector.connectionState ==
             DovahLinkConnectionState.connected &&
-        _sessionContext.currentTrustState == DovahLinkTrustState.trusted &&
+        _sessionConnector.currentTrustState == DovahLinkTrustState.trusted &&
         cachedBridgeVersion != null) {
       return HelloResult(
         bridgeVersion: cachedBridgeVersion,

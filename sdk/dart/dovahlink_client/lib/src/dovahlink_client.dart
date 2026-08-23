@@ -46,7 +46,6 @@ class DovahLinkClient {
       requestSender: _requestManager,
       storage: _storage,
       sessionConnector: _session,
-      sessionContext: _session,
       messageReceiver: _session,
     );
     _pairingService = PairingService(
@@ -80,7 +79,6 @@ class DovahLinkClient {
       requestSender: _requestManager,
       storage: _storage,
       sessionConnector: _session,
-      sessionContext: _session,
       messageReceiver: _session,
     );
     _pairingService = PairingService(
