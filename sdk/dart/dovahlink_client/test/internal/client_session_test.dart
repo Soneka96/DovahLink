@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -367,6 +368,68 @@ void main() {
         verify(
           () => requestManager.failAll(any(), orphanRetrySafeOperations: false),
         ).called(1);
+      },
+    );
+  });
+
+  group('Method onUnsolicitedError behaves correctly', () {
+    test(
+      'Method onUnsolicitedError tears down without orphaning, carrying the bridge-reported '
+      'classification',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+
+        session.onUnsolicitedError(
+          const ErrorPayload(
+            code: ProtocolErrorCode.rateLimited,
+            message: 'Too many requests.',
+            retryable: true,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(session.connectionState, DovahLinkConnectionState.disconnected);
+        verify(() => transport.close()).called(1);
+        final VerificationResult verification = verify(
+          () => requestManager.failAll(
+            captureAny(),
+            orphanRetrySafeOperations: false,
+          ),
+        );
+        verification.called(1);
+        final DovahLinkProtocolException reason =
+            verification.captured.single as DovahLinkProtocolException;
+        expect(reason.code, ProtocolErrorCode.rateLimited);
+        expect(reason.message, 'Too many requests.');
+        expect(reason.retryable, isTrue);
+      },
+    );
+
+    test(
+      'Method onUnsolicitedError preserves a non-retryable classification',
+      () async {
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+
+        session.onUnsolicitedError(
+          const ErrorPayload(
+            code: ProtocolErrorCode.unauthenticated,
+            message: 'Rejected.',
+            retryable: false,
+          ),
+        );
+        await pumpEventQueue();
+
+        final VerificationResult verification = verify(
+          () => requestManager.failAll(
+            captureAny(),
+            orphanRetrySafeOperations: false,
+          ),
+        );
+        verification.called(1);
+        final DovahLinkProtocolException reason =
+            verification.captured.single as DovahLinkProtocolException;
+        expect(reason.code, ProtocolErrorCode.unauthenticated);
+        expect(reason.retryable, isFalse);
       },
     );
   });

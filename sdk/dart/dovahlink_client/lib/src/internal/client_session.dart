@@ -15,6 +15,7 @@ import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_lifecycle_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_trust_writer.dart';
+import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 
@@ -262,6 +263,23 @@ class ClientSession
 
     unawaited(
       _teardownCoordinator.closeAfterInvalidation(_connectionGeneration),
+    );
+  }
+
+  /// Implements [ConnectionLifecycleReporter.onUnsolicitedError]. Not ordinary connectivity loss
+  /// -- torn down without orphaning any retry-safe operation for automatic reconnect, carrying
+  /// [error]'s own bridge-reported classification rather than a generic malformed-message reason.
+  @override
+  void onUnsolicitedError(ErrorPayload error) {
+    unawaited(
+      _teardownCoordinator.tearDown(
+        DovahLinkProtocolException(
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+        ),
+        orphanRetrySafeOperations: false,
+      ),
     );
   }
 
