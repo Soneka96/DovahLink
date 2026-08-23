@@ -4,10 +4,10 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
+import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_sender.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_connector.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
-import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -58,7 +58,7 @@ class AuthenticationService {
            clientIdResolver ??
            ClientIdResolver(
              storage: storage,
-             uuidV4Generator: UuidV4Generator(),
+             randomIdGenerator: RandomIdGenerator(),
            ),
        _sessionConnector = sessionConnector,
        _sessionContext = sessionContext,

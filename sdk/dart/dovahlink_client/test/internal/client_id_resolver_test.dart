@@ -1,7 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/client_id_resolver.dart';
-import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
+import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -21,7 +21,7 @@ void main() {
         await storage.save(state);
         final ClientIdResolver resolver = ClientIdResolver(
           storage: storage,
-          uuidV4Generator: UuidV4Generator(),
+          randomIdGenerator: RandomIdGenerator(),
         );
 
         final String clientId = await resolver.resolve(await storage.load());
@@ -42,7 +42,7 @@ void main() {
         await storage.save(state);
         final ClientIdResolver resolver = ClientIdResolver(
           storage: storage,
-          uuidV4Generator: UuidV4Generator(),
+          randomIdGenerator: RandomIdGenerator(),
         );
 
         final String clientId = await resolver.resolve(await storage.load());
@@ -73,7 +73,7 @@ void main() {
       );
       final ClientIdResolver resolver = ClientIdResolver(
         storage: storage,
-        uuidV4Generator: UuidV4Generator(),
+        randomIdGenerator: RandomIdGenerator(),
       );
 
       final String clientId = await resolver.resolve(await storage.load());

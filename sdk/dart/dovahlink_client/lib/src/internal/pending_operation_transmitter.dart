@@ -3,9 +3,9 @@ import 'dart:convert';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
-import 'package:dovahlink_client_sdk/src/internal/message_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/pending_operation_registry.dart';
+import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -43,7 +43,7 @@ class PendingOperationTransmitter {
        _registry = registry;
 
   /// Generates message IDs for wire attempts.
-  final MessageIdGenerator _messageIdGenerator = MessageIdGenerator();
+  final RandomIdGenerator _randomIdGenerator = RandomIdGenerator();
 
   /// Generates a message ID, registers [operation], arms its timeout, and sends its envelope.
   /// Send and timeout failures are reported through [ConnectionLifecycleReporter] rather than
@@ -52,7 +52,7 @@ class PendingOperationTransmitter {
   /// [RequestPolicy.retrySafe] -- not force-failed ahead of its siblings merely because its own
   /// timer happened to be the one that fired.
   void transmit(PendingOperation operation) {
-    final String messageId = _messageIdGenerator.generate();
+    final String messageId = _randomIdGenerator.generateMessageId();
     _registry.register(messageId, operation);
     operation.timer = Timer(
       _timeoutDurations[operation.policy.timeoutClass]!,

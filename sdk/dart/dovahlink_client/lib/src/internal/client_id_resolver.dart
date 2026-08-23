@@ -1,4 +1,4 @@
-import 'package:dovahlink_client_sdk/src/internal/uuid_v4_generator.dart';
+import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 
@@ -8,14 +8,14 @@ class ClientIdResolver {
   final ClientStorage _storage;
 
   /// The generator used when the persisted state has no usable client ID.
-  final UuidV4Generator _uuidV4Generator;
+  final RandomIdGenerator _randomIdGenerator;
 
-  /// Creates a resolver using [storage] and [uuidV4Generator].
+  /// Creates a resolver using [storage] and [randomIdGenerator].
   ClientIdResolver({
     required ClientStorage storage,
-    required UuidV4Generator uuidV4Generator,
+    required RandomIdGenerator randomIdGenerator,
   }) : _storage = storage,
-       _uuidV4Generator = uuidV4Generator;
+       _randomIdGenerator = randomIdGenerator;
 
   /// Returns [state]'s client ID, generating and persisting one when it is absent or empty.
   Future<String> resolve(PersistedClientState state) async {
@@ -24,7 +24,7 @@ class ClientIdResolver {
       return existing;
     }
 
-    final String generated = _uuidV4Generator.generate();
+    final String generated = _randomIdGenerator.generateUuid();
     await _storage.save(state.copyWith(clientId: generated));
     return generated;
   }
