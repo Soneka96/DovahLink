@@ -53,3 +53,40 @@ The .NET validation client (`integration/DovahLinkValidationClient/`) must remai
 hand-written implementation of the canonical contract. It must not consume, wrap, generate from, or
 otherwise reuse the Dart SDK; its value is precisely that it can catch a Bridge bug, an SDK bug, or
 an assumption accidentally shared only by the official Dart implementation.
+
+## Service test boundaries
+
+Each major Service (`ai/context/sdk/architecture.md`'s "Internal composition") is exhaustively unit
+tested with its Service-typed dependencies mocked (`mocktail`'s `class MockX extends Mock implements
+X {}`) and real, simple state/value objects used directly where appropriate rather than mocked (for
+example `SessionState` in a `SessionServiceImpl` test, or a real `RequestPolicy`). A consumer's test
+suite proves its own reaction to a dependency's contract — success, each documented failure mode,
+each retry/terminal classification the dependency's typed result or exception exposes — and must not
+become a second test suite for that dependency's own internal branches, which stay owned by the
+dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `SessionService` and
+`AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
+bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
+how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
+`AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
+and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests use a real
+`SessionState` and mock only the Service dependencies each one actually declares. Do not introduce a
+Service interface solely because mocking a dependency is convenient — `mocktail`'s pattern already
+makes mocking a concrete class' single interface a one-line cost regardless of that interface's size,
+so mock-boilerplate reduction is never, by itself, sufficient justification for a new interface in
+this codebase; every Service interface exists because of a genuine architectural reason documented in
+`ai/context/sdk/architecture.md`.
+
+## Session/request refactor regression requirements
+
+Two behaviors introduced by the Service decomposition of the former `ClientSession`/`RequestManager`
+need their own explicit tests, not an assumption that migrating existing coverage is sufficient:
+
+- `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
+  and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
+  transport's `onError` and `onDone` both firing for one dead connection) — proven directly, not only
+  inferred from `ConnectionTeardownCoordinator`'s own no-op behavior still holding internally.
+- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard, which replaced the old
+  `ensureReceiving`-based defensive check, must be proven to fail a request issued before any
+  `connect()` call immediately and synchronously with the same typed exception shape the prior
+  mechanism produced — a regression test proving behavioral equivalence of the new mechanism, not
+  merely that a test with the same name still passes.
