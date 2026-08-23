@@ -31,6 +31,10 @@ class FakeSessionLifecycleState implements SessionLifecycleState {
   /// Whether the coordinator requested the disconnected-state reset.
   bool resetCalled = false;
 
+  /// The `preserveReconnecting` value the coordinator most recently passed to
+  /// [resetAfterConnectionTeardown], or `null` before it is ever called.
+  bool? lastPreserveReconnecting;
+
   /// Implements [SessionLifecycleState.isAdministrativelyInvalidated].
   @override
   bool get isAdministrativelyInvalidated => administrativelyInvalidated;
@@ -55,8 +59,9 @@ class FakeSessionLifecycleState implements SessionLifecycleState {
 
   /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
   @override
-  void resetAfterConnectionTeardown() {
+  void resetAfterConnectionTeardown({required bool preserveReconnecting}) {
     resetCalled = true;
+    lastPreserveReconnecting = preserveReconnecting;
   }
 }
 
@@ -109,6 +114,7 @@ void main() {
         expect(state.generation, 1);
         expect(state.subscription, isNull);
         expect(state.resetCalled, isTrue);
+        expect(state.lastPreserveReconnecting, isTrue);
         verifyInOrder([
           () => transport.close(),
           () => pendingOperationFailureHandler.failAll(
@@ -139,6 +145,7 @@ void main() {
             orphanRetrySafeOperations: false,
           ),
         ).called(1);
+        expect(state.lastPreserveReconnecting, isFalse);
       },
     );
 

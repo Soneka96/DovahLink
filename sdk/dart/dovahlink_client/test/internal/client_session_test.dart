@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_recovery_observer.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/request_manager.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -24,6 +25,10 @@ class MockRequestManager extends Mock implements RequestManager {}
 
 /// Mock message router used to capture inbound message dispatch.
 class MockMessageRouter extends Mock implements MessageRouter {}
+
+/// Mock recovery observer used to capture bounded-reconnect handoff.
+class MockConnectionRecoveryObserver extends Mock
+    implements ConnectionRecoveryObserver {}
 
 /// A minimal [DovahLinkTransport] backed by a [StreamController], for the one test that exercises
 /// [ClientSession]'s primary constructor end to end with real (not mocked) collaborators.
@@ -230,6 +235,31 @@ void main() {
         expect(session.currentTrustState, isNull);
       },
     );
+
+    test(
+      'Method connect preserves reconnecting instead of disconnected when a recovery attempt '
+      'fails',
+      () async {
+        final MockConnectionRecoveryObserver observer =
+            MockConnectionRecoveryObserver();
+        session.recoveryObserver = observer;
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        await session.connect(uri);
+        session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+        expect(session.connectionState, DovahLinkConnectionState.reconnecting);
+        when(
+          () => transport.connect(any()),
+        ).thenThrow(const DovahLinkConnectionException('refused'));
+
+        await expectLater(
+          session.connect(uri),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(session.connectionState, DovahLinkConnectionState.reconnecting);
+      },
+    );
   });
 
   group('Method ensureReceiving behaves correctly', () {
@@ -347,6 +377,95 @@ void main() {
         ).called(1);
       },
     );
+
+    test(
+      'Method onUnhealthy transitions to reconnecting and hands off to recoveryObserver when one '
+      'is assigned',
+      () async {
+        final MockConnectionRecoveryObserver observer =
+            MockConnectionRecoveryObserver();
+        session.recoveryObserver = observer;
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        await session.connect(uri);
+
+        session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+
+        expect(session.connectionState, DovahLinkConnectionState.reconnecting);
+        verify(() => observer.onOrdinaryTransportLoss(uri)).called(1);
+      },
+    );
+
+    test(
+      'Method onUnhealthy does not transition to reconnecting or notify recoveryObserver without '
+      'a prior successful connect',
+      () async {
+        // No _lastConnectedUri exists yet, so recovery has no endpoint to retry.
+        final MockConnectionRecoveryObserver observer =
+            MockConnectionRecoveryObserver();
+        session.recoveryObserver = observer;
+
+        session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+
+        expect(session.connectionState, DovahLinkConnectionState.disconnected);
+        verifyNever(() => observer.onOrdinaryTransportLoss(any()));
+      },
+    );
+
+    test(
+      'Method onUnhealthy defers to a racing administrative invalidation instead of starting '
+      'recovery',
+      () async {
+        final MockConnectionRecoveryObserver observer =
+            MockConnectionRecoveryObserver();
+        session.recoveryObserver = observer;
+        session.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+        await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final Completer<void> closeCompleter = Completer<void>();
+        when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+
+        session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+        session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+        closeCompleter.complete();
+        await pumpEventQueue();
+
+        expect(
+          session.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        verifyNever(() => observer.onOrdinaryTransportLoss(any()));
+      },
+    );
+
+    test('Method onUnhealthy serializes its recovery-transition decision against a racing connect() '
+        'call instead of racing it outside the queue', () async {
+      final MockConnectionRecoveryObserver observer =
+          MockConnectionRecoveryObserver();
+      session.recoveryObserver = observer;
+      final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+      await session.connect(uri);
+      final Completer<void> closeCompleter = Completer<void>();
+      when(() => transport.close()).thenAnswer((_) => closeCompleter.future);
+
+      session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+      await pumpEventQueue();
+      // A manual reconnect races in right as teardown is still closing the transport, queued
+      // immediately behind it -- before the recovery-transition decision has run.
+      final Future<void> manualReconnect = session.connect(uri);
+      closeCompleter.complete();
+      await manualReconnect;
+
+      // The manual connect() ran to completion as an ordinary (non-recovery) attempt.
+      expect(session.connectionState, DovahLinkConnectionState.connected);
+      // Bounded recovery's own transition, queued behind the manual connect(), correctly saw the
+      // connection already recovered and did not start a redundant recovery cycle.
+      verifyNever(() => observer.onOrdinaryTransportLoss(any()));
+    });
   });
 
   group('Method onProtocolViolation behaves correctly', () {
@@ -667,6 +786,25 @@ void main() {
         );
       },
     );
+
+    test('Method onSessionInvalidated terminates an in-progress reconnecting cycle instead of '
+        'preserving it', () async {
+      // No session is admitted while reconnecting (recovery has not re-authenticated yet), so
+      // this hits the "no authenticated session" fail-closed branch -- tearing down to
+      // disconnected, never leaving the session stuck at reconnecting.
+      final MockConnectionRecoveryObserver observer =
+          MockConnectionRecoveryObserver();
+      session.recoveryObserver = observer;
+      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      session.onUnhealthy(const DovahLinkConnectionException('timed out'));
+      await pumpEventQueue();
+      expect(session.connectionState, DovahLinkConnectionState.reconnecting);
+
+      session.onSessionInvalidated(AdministrativeInvalidationReason.revoked);
+      await pumpEventQueue();
+
+      expect(session.connectionState, DovahLinkConnectionState.disconnected);
+    });
   });
 
   group('Method disconnect behaves correctly', () {
@@ -695,6 +833,24 @@ void main() {
         await expectLater(session.disconnect(), completes);
       },
     );
+
+    test('Method disconnect preserves orphaned operations and uses the supplied reason when '
+        'orphanRetrySafeOperations is true', () async {
+      await session.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      const DovahLinkConnectionException reason = DovahLinkConnectionException(
+        'Reconnect attempt failed; more attempts remain.',
+      );
+
+      await session.disconnect(orphanRetrySafeOperations: true, reason: reason);
+
+      verify(
+        () => requestManager.failAll(reason, orphanRetrySafeOperations: true),
+      ).called(1);
+      // preserveReconnecting is meaningful only for an already-`reconnecting` session; a plain
+      // `connected` session passing orphanRetrySafeOperations: true must still resolve to
+      // disconnected, not incorrectly stay at some other state.
+      expect(session.connectionState, DovahLinkConnectionState.disconnected);
+    });
   });
 
   group('Behavior stale generation isolation behaves correctly', () {

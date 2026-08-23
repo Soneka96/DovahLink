@@ -17,8 +17,16 @@ abstract interface class SessionConnector implements SessionContext {
   /// @throws [DovahLinkConnectionException] if the socket cannot be established.
   Future<void> connect(Uri uri);
 
-  /// Closes the connection and resets in-memory session state. Idempotent.
-  Future<void> disconnect();
+  /// Closes the connection and resets in-memory session state. Idempotent. A `retrySafe` pending
+  /// or already-orphaned operation is failed rather than preserved unless [orphanRetrySafeOperations]
+  /// is `true` -- callers finalizing bounded recovery (successfully or not) want the default; a
+  /// caller that expects more recovery attempts to follow passes `true` to preserve them, with
+  /// [reason] describing why this specific call closed the connection, when it differs from a
+  /// caller's own default.
+  Future<void> disconnect({
+    bool orphanRetrySafeOperations = false,
+    Exception? reason,
+  });
 
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and triggering
   /// retransmission of any retry-safe operation an earlier ordinary transport loss orphaned, per

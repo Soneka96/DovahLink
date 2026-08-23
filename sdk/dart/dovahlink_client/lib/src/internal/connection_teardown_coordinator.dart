@@ -34,7 +34,10 @@ class ConnectionTeardownCoordinator {
 
   /// Tears down an unhealthy or deliberately disconnected connection. Ordinary transport loss
   /// may orphan one retry-safe operation; deliberate disconnect and protocol failure can disable
-  /// that behavior through [orphanRetrySafeOperations]. A no-op if a call queued ahead of this one
+  /// that behavior through [orphanRetrySafeOperations] -- the same flag also controls whether an
+  /// already-`reconnecting` session stays `reconnecting` (an intermediate teardown mid-recovery)
+  /// or resolves to `disconnected` (a final one), per
+  /// [SessionLifecycleState.resetAfterConnectionTeardown]. A no-op if a call queued ahead of this one
   /// already tore down the same connection generation -- for example a stream's `onError` and
   /// `onDone` both firing for one dead subscription -- so the redundant second call cannot double
   /// -run cleanup or a second `failAll`. Does not skip a call made after the connection actually
@@ -66,7 +69,9 @@ class ConnectionTeardownCoordinator {
           generation != _state.connectionGeneration) {
         return;
       }
-      _state.resetAfterConnectionTeardown();
+      _state.resetAfterConnectionTeardown(
+        preserveReconnecting: orphanRetrySafeOperations,
+      );
       _pendingOperationFailureHandler.failAll(
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,

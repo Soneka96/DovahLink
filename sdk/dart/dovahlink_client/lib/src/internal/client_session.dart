@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_lifecycle_reporter.dart';
+import 'package:dovahlink_client_sdk/src/internal/connection_recovery_observer.dart';
 import 'package:dovahlink_client_sdk/src/internal/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/message_receiver.dart';
@@ -122,6 +123,18 @@ class ClientSession
   /// `null` otherwise.
   AdministrativeInvalidationReason? _invalidationReason;
 
+  /// The URI most recently passed to [connect], used to retry the same endpoint after ordinary
+  /// transport loss. `null` before [connect] is ever called.
+  Uri? _lastConnectedUri;
+
+  /// Notified when ordinary transport loss finishes tearing down the connection, so bounded
+  /// automatic reconnect may begin. `null` (the default) until [DovahLinkClient] assigns the real
+  /// coordinator after constructing it -- building that coordinator requires
+  /// [AuthenticationService], which itself depends on this session, so it cannot be a constructor
+  /// parameter here; see `ai/context/sdk/architecture.md`'s "Internal composition". A session with
+  /// no observer assigned never attempts automatic reconnect.
+  ConnectionRecoveryObserver? recoveryObserver;
+
   /// The [RequestManager] this session owns.
   RequestManager get requestManager => _requestManager;
 
@@ -151,28 +164,43 @@ class ClientSession
   @override
   int get connectionGeneration => _connectionGeneration;
 
-  /// Implements [SessionConnector.connect].
+  /// Implements [SessionConnector.connect]. One attempt within a bounded-reconnect cycle (entered
+  /// while [connectionState] is already `reconnecting`) keeps [connectionState] at `reconnecting`
+  /// for the whole attempt instead of passing through `connecting`/`disconnected`, so recovery
+  /// stays outwardly visible as one continuous `reconnecting` phase rather than flickering between
+  /// attempts; an ordinary, non-recovery call still shows the normal
+  /// `connecting` -> `connected`/`disconnected` transition.
   @override
   Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
+    final bool isRecoveryAttempt =
+        _connectionState == DovahLinkConnectionState.reconnecting;
     _connectionGeneration++;
     _invalidationReason = null;
-    _connectionState = DovahLinkConnectionState.connecting;
+    if (!isRecoveryAttempt) {
+      _connectionState = DovahLinkConnectionState.connecting;
+    }
+    _lastConnectedUri = uri;
     try {
       await _transport.connect(uri);
       _connectionState = DovahLinkConnectionState.connected;
       ensureReceiving();
     } on Object catch (error) {
-      _connectionState = DovahLinkConnectionState.disconnected;
+      if (!isRecoveryAttempt) {
+        _connectionState = DovahLinkConnectionState.disconnected;
+      }
       throw DovahLinkConnectionException('Failed to connect to $uri: $error');
     }
   });
 
   /// Implements [SessionConnector.disconnect].
   @override
-  Future<void> disconnect() async {
+  Future<void> disconnect({
+    bool orphanRetrySafeOperations = false,
+    Exception? reason,
+  }) async {
     await _teardownCoordinator.tearDown(
-      const DovahLinkConnectionException('Disconnected.'),
-      orphanRetrySafeOperations: false,
+      reason ?? const DovahLinkConnectionException('Disconnected.'),
+      orphanRetrySafeOperations: orphanRetrySafeOperations,
     );
   }
 
@@ -193,10 +221,14 @@ class ClientSession
     _trustState = DovahLinkTrustState.trusted;
   }
 
-  /// Implements [ConnectionLifecycleReporter.onUnhealthy].
+  /// Implements [ConnectionLifecycleReporter.onUnhealthy]. Ordinary transport loss: tears down,
+  /// then -- only if that teardown actually reached plain `disconnected` (not raced by a
+  /// concurrent administrative invalidation, which owns its own terminal state) and both a
+  /// last-connected URI and [recoveryObserver] are available -- transitions to `reconnecting` and
+  /// hands off to the observer to attempt bounded automatic recovery.
   @override
   void onUnhealthy(Exception reason) {
-    unawaited(_teardownCoordinator.tearDown(reason));
+    unawaited(_beginRecoveryAfterOrdinaryTransportLoss(reason));
   }
 
   /// Implements [ConnectionLifecycleReporter.onProtocolViolation].
@@ -319,6 +351,29 @@ class ClientSession
     );
   }
 
+  /// Runs the teardown [onUnhealthy] reports, then starts bounded recovery if the connection is
+  /// still eligible for it once that teardown completes. The eligibility check and the
+  /// `reconnecting` transition run as their own queued step, after teardown's, so a `connect()` or
+  /// `disconnect()` call already queued immediately behind the teardown is serialized against this
+  /// decision instead of racing it outside the queue.
+  Future<void> _beginRecoveryAfterOrdinaryTransportLoss(
+    Exception reason,
+  ) async {
+    await _teardownCoordinator.tearDown(reason);
+    await _lifecycleQueue.run(() async {
+      if (_connectionState != DovahLinkConnectionState.disconnected) {
+        return;
+      }
+      final Uri? uri = _lastConnectedUri;
+      final ConnectionRecoveryObserver? observer = recoveryObserver;
+      if (uri == null || observer == null) {
+        return;
+      }
+      _connectionState = DovahLinkConnectionState.reconnecting;
+      observer.onOrdinaryTransportLoss(uri);
+    });
+  }
+
   /// Dispatches one inbound message from the connection [generation] its subscription was
   /// established under. A stale message from an already-superseded generation is ignored, never
   /// mutating current state; otherwise decoding and routing belongs to [_messageRouter].
@@ -358,8 +413,13 @@ class ClientSession
 
   /// Implements [SessionLifecycleState.resetAfterConnectionTeardown].
   @override
-  void resetAfterConnectionTeardown() {
-    _connectionState = DovahLinkConnectionState.disconnected;
+  void resetAfterConnectionTeardown({required bool preserveReconnecting}) {
+    final bool staysReconnecting =
+        preserveReconnecting &&
+        _connectionState == DovahLinkConnectionState.reconnecting;
+    _connectionState = staysReconnecting
+        ? DovahLinkConnectionState.reconnecting
+        : DovahLinkConnectionState.disconnected;
     _trustState = null;
     _sessionId = null;
   }

@@ -15,6 +15,9 @@ abstract interface class SessionLifecycleState {
   /// Detaches and returns the one subscription currently owned by the session, if any.
   StreamSubscription<String>? detachMessageSubscription();
 
-  /// Resets connection-scoped state after transport resources have been closed.
-  void resetAfterConnectionTeardown();
+  /// Resets connection-scoped state after transport resources have been closed. Stays
+  /// `reconnecting` instead of resolving to `disconnected` when [preserveReconnecting] is `true`
+  /// and the session was already `reconnecting` -- an intermediate teardown mid-recovery, not
+  /// recovery's own final give-up.
+  void resetAfterConnectionTeardown({required bool preserveReconnecting});
 }
