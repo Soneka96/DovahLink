@@ -34,34 +34,45 @@ class ConnectionTeardownCoordinator {
 
   /// Tears down an unhealthy or deliberately disconnected connection. Ordinary transport loss
   /// may orphan one retry-safe operation; deliberate disconnect and protocol failure can disable
-  /// that behavior through [orphanRetrySafeOperations].
+  /// that behavior through [orphanRetrySafeOperations]. A no-op if a call queued ahead of this one
+  /// already tore down the same connection generation -- for example a stream's `onError` and
+  /// `onDone` both firing for one dead subscription -- so the redundant second call cannot double
+  /// -run cleanup or a second `failAll`. Does not skip a call made after the connection actually
+  /// moved on (a fresh `connect()` bumps the generation itself), so a deliberate, later teardown
+  /// -- for example finalizing operations an earlier teardown preserved for retry -- still runs.
   Future<void> tearDown(
     Exception reason, {
     bool orphanRetrySafeOperations = true,
-  }) => _lifecycleQueue.run(() async {
-    if (_state.isAdministrativelyInvalidated) {
-      return;
-    }
-    _state.bumpConnectionGeneration();
-    final int generation = _state.connectionGeneration;
-    final StreamSubscription<String>? subscription = _state
-        .detachMessageSubscription();
-    await cancelSubscription(subscription);
-    if (_state.isAdministrativelyInvalidated ||
-        generation != _state.connectionGeneration) {
-      return;
-    }
-    await closeTransport();
-    if (_state.isAdministrativelyInvalidated ||
-        generation != _state.connectionGeneration) {
-      return;
-    }
-    _state.resetAfterConnectionTeardown();
-    _pendingOperationFailureHandler.failAll(
-      reason,
-      orphanRetrySafeOperations: orphanRetrySafeOperations,
-    );
-  });
+  }) {
+    final int callGeneration = _state.connectionGeneration;
+    return _lifecycleQueue.run(() async {
+      if (_state.isAdministrativelyInvalidated) {
+        return;
+      }
+      if (_state.connectionGeneration != callGeneration) {
+        return;
+      }
+      _state.bumpConnectionGeneration();
+      final int generation = _state.connectionGeneration;
+      final StreamSubscription<String>? subscription = _state
+          .detachMessageSubscription();
+      await cancelSubscription(subscription);
+      if (_state.isAdministrativelyInvalidated ||
+          generation != _state.connectionGeneration) {
+        return;
+      }
+      await closeTransport();
+      if (_state.isAdministrativelyInvalidated ||
+          generation != _state.connectionGeneration) {
+        return;
+      }
+      _state.resetAfterConnectionTeardown();
+      _pendingOperationFailureHandler.failAll(
+        reason,
+        orphanRetrySafeOperations: orphanRetrySafeOperations,
+      );
+    });
+  }
 
   /// Closes resources after an administrative invalidation without changing its typed state.
   /// Stale cleanup from an older generation is ignored, and a newer connection cannot be closed

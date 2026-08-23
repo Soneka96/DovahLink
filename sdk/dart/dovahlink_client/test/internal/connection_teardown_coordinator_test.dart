@@ -222,6 +222,141 @@ void main() {
         );
       },
     );
+
+    test('Method tearDown is a no-op when queued behind an earlier call for the same connection '
+        'generation', () async {
+      // Mirrors a stream's onError and onDone both firing for one dead subscription: both calls
+      // are issued before either has run, so the second must not double-run cleanup or failAll.
+      final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+        transport: transport,
+        pendingOperationFailureHandler: pendingOperationFailureHandler,
+        state: state,
+      );
+
+      final Future<void> first = coordinator.tearDown(
+        const DovahLinkConnectionException('onError'),
+      );
+      final Future<void> second = coordinator.tearDown(
+        const DovahLinkConnectionException('onDone'),
+      );
+      await first;
+      await second;
+
+      expect(state.generation, 1);
+      verify(() => transport.close()).called(1);
+      final VerificationResult verification = verify(
+        () => pendingOperationFailureHandler.failAll(
+          captureAny(),
+          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+        ),
+      );
+      verification.called(1);
+      expect(
+        (verification.captured.single as DovahLinkConnectionException).message,
+        'onError',
+      );
+    });
+
+    test(
+      'Method tearDown is a no-op three calls deep when all three are queued behind the first',
+      () async {
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final Future<void> first = coordinator.tearDown(
+          const DovahLinkConnectionException('onError'),
+        );
+        final Future<void> second = coordinator.tearDown(
+          const DovahLinkConnectionException('onDone'),
+        );
+        final Future<void> third = coordinator.tearDown(
+          const DovahLinkConnectionException('late timeout'),
+        );
+        await first;
+        await second;
+        await third;
+
+        expect(state.generation, 1);
+        verify(() => transport.close()).called(1);
+        verify(
+          () => pendingOperationFailureHandler.failAll(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method tearDown still defers to a racing administrative invalidation for every queued call',
+      () async {
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final Future<void> first = coordinator.tearDown(
+          const DovahLinkConnectionException('onError'),
+        );
+        final Future<void> second = coordinator.tearDown(
+          const DovahLinkConnectionException('onDone'),
+        );
+        // Mirrors onSessionInvalidated setting this flag directly (bypassing tearDown) while both
+        // calls above are still queued, before either's body has run.
+        state.administrativelyInvalidated = true;
+        await first;
+        await second;
+
+        expect(state.generation, 0);
+        verifyNever(() => transport.close());
+        verifyNever(
+          () => pendingOperationFailureHandler.failAll(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test('Method tearDown runs again when called after an earlier call for this generation fully '
+        'completed', () async {
+      // Mirrors a deliberate second teardown issued only after the first finished -- for example
+      // finalizing operations an earlier, still-recovering teardown preserved for retry. Must not
+      // be mistaken for the queued-behind-an-earlier-call race the previous test guards against.
+      final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+        transport: transport,
+        pendingOperationFailureHandler: pendingOperationFailureHandler,
+        state: state,
+      );
+
+      await coordinator.tearDown(
+        const DovahLinkConnectionException('first'),
+        orphanRetrySafeOperations: true,
+      );
+      await coordinator.tearDown(
+        const DovahLinkConnectionException('second'),
+        orphanRetrySafeOperations: false,
+      );
+
+      expect(state.generation, 2);
+      verify(() => transport.close()).called(2);
+      verify(
+        () => pendingOperationFailureHandler.failAll(
+          any(),
+          orphanRetrySafeOperations: true,
+        ),
+      ).called(1);
+      verify(
+        () => pendingOperationFailureHandler.failAll(
+          any(),
+          orphanRetrySafeOperations: false,
+        ),
+      ).called(1);
+    });
   });
 
   group('Method closeAfterInvalidation behaves correctly', () {
