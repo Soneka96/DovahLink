@@ -1326,7 +1326,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for required_phrase in (
             "If persisted data is required for correct reusable DovahLink client behavior, the "
             "SDK owns it.",
-            "the app must not persist a competing authoritative copy of SDK-owned protocol\nor "
+            "The app must not persist a competing authoritative copy of SDK-owned protocol or "
             "client state",
             "The SDK is not merely a WebSocket wrapper",
             "The SDK must not assume a cached resource is valid merely because a file exists",
