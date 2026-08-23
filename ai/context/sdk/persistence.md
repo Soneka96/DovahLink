@@ -18,10 +18,10 @@ credential invalidation is received, the SDK removes the obsolete local credenti
 the stable local `clientId`; a Factory Reset ending a developer-token session does not delete the
 configured developer token.
 
-After SDK migration, the app must not persist a competing authoritative copy of SDK-owned protocol
-or client state: not the client credential, not pairing `CONFIRMING` recovery state, not actual
-subscription state, not reconnect state, not authoritative revision/recovery state, not SDK
-cache-validity metadata, and not a duplicated copy of trusted-device authority.
+The app must not persist a competing authoritative copy of SDK-owned protocol or client state: not
+the client credential, not pairing `CONFIRMING` recovery state, not actual subscription state, not
+reconnect state, not authoritative revision/recovery state, not SDK cache-validity metadata, and not
+a duplicated copy of trusted-device authority.
 
 ## Storage abstraction
 

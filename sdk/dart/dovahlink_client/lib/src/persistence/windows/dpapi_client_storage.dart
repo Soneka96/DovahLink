@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import '../../dovahlink_client_exception.dart';
-import '../client_storage.dart';
-import '../persisted_client_state.dart';
-import 'dpapi.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
+import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state_decoder.dart';
+import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 
 /// A [ClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
@@ -15,24 +16,13 @@ import 'dpapi.dart';
 /// decrypted or parsed always throws [DovahLinkStorageException] rather than silently returning an
 /// empty or partial state.
 class DpapiClientStorage implements ClientStorage {
+  /// The absolute path of the encrypted state file.
+  final String _filePath;
+
   /// Creates a Windows DPAPI-backed storage adapter. [filePath] defaults to a fixed location
   /// under the current user's local application-data directory.
   DpapiClientStorage({String? filePath})
     : _filePath = filePath ?? _defaultFilePath();
-
-  /// The absolute path of the encrypted state file.
-  final String _filePath;
-
-  /// Resolves the default per-user state file path under `%LOCALAPPDATA%\DovahLink\`.
-  static String _defaultFilePath() {
-    final String? localAppData = Platform.environment['LOCALAPPDATA'];
-    if (localAppData == null || localAppData.isEmpty) {
-      throw StateError(
-        'LOCALAPPDATA is not set; DpapiClientStorage requires a Windows per-user profile.',
-      );
-    }
-    return '$localAppData\\DovahLink\\sdk_client_state.dat';
-  }
 
   /// See [ClientStorage.load].
   @override
@@ -58,7 +48,7 @@ class DpapiClientStorage implements ClientStorage {
         'Persisted client state is not a JSON object.',
       );
     }
-    return _decode(decoded);
+    return PersistedClientStateDecoder.decode(decoded);
   }
 
   /// See [ClientStorage.save]. Writes to a temporary file and atomically renames it over the
@@ -102,43 +92,14 @@ class DpapiClientStorage implements ClientStorage {
     }
   }
 
-  /// Decodes a JSON object into a [PersistedClientState].
-  /// @throws DovahLinkStorageException if the format version is unsupported, `recoveryState` is
-  ///     unrecognized, or `clientId`/`credential` is present with the wrong type.
-  PersistedClientState _decode(Map<String, dynamic> json) {
-    final Object? formatVersion = json['formatVersion'];
-    if (formatVersion != PersistedClientState.currentFormatVersion) {
-      throw DovahLinkStorageException(
-        'Unsupported persisted client state format version: $formatVersion.',
+  /// Resolves the default per-user state file path under `%LOCALAPPDATA%\DovahLink\`.
+  static String _defaultFilePath() {
+    final String? localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) {
+      throw StateError(
+        'LOCALAPPDATA is not set; DpapiClientStorage requires a Windows per-user profile.',
       );
     }
-
-    final Object? recoveryStateRaw = json['recoveryState'];
-    final PairingRecoveryState recoveryState = switch (recoveryStateRaw) {
-      'none' => PairingRecoveryState.none,
-      'confirming' => PairingRecoveryState.confirming,
-      _ => throw DovahLinkStorageException(
-        'Unrecognized persisted recoveryState: $recoveryStateRaw.',
-      ),
-    };
-
-    final Object? clientId = json['clientId'];
-    if (clientId != null && clientId is! String) {
-      throw const DovahLinkStorageException(
-        'Persisted clientId is not a string.',
-      );
-    }
-    final Object? credential = json['credential'];
-    if (credential != null && credential is! String) {
-      throw const DovahLinkStorageException(
-        'Persisted credential is not a string.',
-      );
-    }
-
-    return PersistedClientState(
-      clientId: clientId as String?,
-      credential: credential as String?,
-      recoveryState: recoveryState,
-    );
+    return '$localAppData\\DovahLink\\sdk_client_state.dat';
   }
 }

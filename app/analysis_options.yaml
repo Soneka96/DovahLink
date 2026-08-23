@@ -20,3 +20,4 @@ linter:
     require_trailing_commas: true
     use_super_parameters: true
     prefer_initializing_formals: false
+    always_use_package_imports: true

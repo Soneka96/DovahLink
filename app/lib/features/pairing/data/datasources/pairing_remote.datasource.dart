@@ -157,7 +157,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       // flow, matching PLAN.md stage I's "keeps a short-of-hard-limit wrong code on
       // awaitingCode... instead of bouncing to failed" versus "maps hard_limit_reached to the
       // existing PairingFailedAction path."
-      if (error.outcome == 'invalid' || error.outcome == 'pacing_limited') {
+      if (error.outcome == PairingOutcome.invalid ||
+          error.outcome == PairingOutcome.pacingLimited) {
         return Left(PairingRetriableFailure(message));
       }
       return Left(PairingFailure(message));
@@ -181,15 +182,15 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// Converts a raw `pairing_confirm`/`pairing_ack` outcome into a
+  /// Converts a `pairing_confirm`/`pairing_ack` outcome into a
   /// user-safe message.
-  String _pairingOutcomeMessage(String outcome) => switch (outcome) {
-    'expired' => 'That pairing code has expired. Request a new one.',
-    'invalid' => "That code isn't correct. Check Skyrim and try again.",
-    'pacing_limited' => 'Slow down a little, then try again.',
-    'hard_limit_reached' =>
+  String _pairingOutcomeMessage(PairingOutcome outcome) => switch (outcome) {
+    PairingOutcome.expired => 'That pairing code has expired. Request a new one.',
+    PairingOutcome.invalid => "That code isn't correct. Check Skyrim and try again.",
+    PairingOutcome.pacingLimited => 'Slow down a little, then try again.',
+    PairingOutcome.hardLimitReached =>
       'Too many wrong attempts. Request a new pairing code.',
-    'pending_not_found' =>
+    PairingOutcome.pendingNotFound =>
       'This pairing attempt is no longer recognized. Request a new code.',
     _ => 'Pairing could not be completed. Please try again.',
   };

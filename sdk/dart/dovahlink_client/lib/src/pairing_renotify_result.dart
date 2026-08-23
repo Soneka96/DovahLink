@@ -1,6 +1,6 @@
-import 'shared/enums.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The bridge's response to `DovahLinkClient.requestPairingRenotify`.
+/// The bridge's response to [DovahLinkClient.requestPairingRenotify].
 class PairingRenotifyResult {
   /// Creates a pairing renotify result.
   const PairingRenotifyResult({required this.status, this.retryAfterSeconds});

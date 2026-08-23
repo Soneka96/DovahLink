@@ -1,6 +1,6 @@
-import 'shared/enums.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The bridge's report of pairing availability, from `DovahLinkClient.requestPairing`.
+/// The bridge's report of pairing availability, from [DovahLinkClient.requestPairing].
 class PairingChallengeStatus {
   /// Creates a pairing challenge status.
   const PairingChallengeStatus({

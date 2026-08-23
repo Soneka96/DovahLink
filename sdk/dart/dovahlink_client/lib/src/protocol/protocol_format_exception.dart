@@ -7,6 +7,7 @@ class ProtocolFormatException implements Exception {
   /// or infrastructure detail; safe to log.
   final String message;
 
+  /// Implements [Object.toString].
   @override
   String toString() => 'ProtocolFormatException: $message';
 }

@@ -1,3 +1,5 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_client.dart';
+
 /// The raw text-message transport a [DovahLinkClient] sends and receives encoded protocol
 /// envelopes over. Deliberately narrow: framing, connection lifecycle, and message delivery only
 /// -- no protocol knowledge. Implementations own how a connection is actually established (a real

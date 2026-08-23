@@ -142,7 +142,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   action carries no fields or the handler does not read `store`, for a uniform, self-documenting
   signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
   injected constructor/parameter dependencies; raw values and `BuildContext` are not handler
-  parameters.
+  parameters. These narrowly prescribed action handlers are the Flutter exception to
+  `ai/context/dart/dart-style.md`'s rule against private methods with independent responsibilities;
+  do not extend that exception to ordinary feature or infrastructure code.
 - Fold a use case's `Either<Failure, T>` result with `.fold((Failure failure) => ..., (T value) =>
   ...)`, dispatching a result or failure action from each branch.
 - To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.
@@ -192,7 +194,7 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Run generation with `dart run build_runner build` from the owning Flutter project.
 - Generated `.g.dart` files belong beside the source model in the owning area and must never be hand-edited.
 - `json_serializable` is a mapping tool, not the protocol contract. The canonical schema remains in `protocol/schema/`, and shared examples remain in `protocol/fixtures/`.
-- Keep semantic validation outside generated code: protocol versions, revisions, message/payload pairing, session identity, finite values, security limits, and recovery rules must be validated by handwritten boundary code.
+- Keep semantic validation outside generated code: protocol versions, revisions, message/payload pairing, session identity, security limits, and recovery rules must be validated by handwritten boundary code. A closed/finite wire value with a fixed enumerable vocabulary (an enum-shaped field) is the one exception: it may decode directly into a typed enum via `json_serializable`'s `@JsonValue` support, with an unrecognized value failing inside `fromJson` as a `ProtocolFormatException`, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" -- this is a closed-set format check, not the business-rule semantic validation (versions, revisions, pairing, identity, limits, recovery) this rule protects.
 - Configure generated models to preserve required-versus-unavailable distinctions; a missing required field must not silently become `null`.
 
 ## Client versioning

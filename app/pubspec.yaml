@@ -30,6 +30,12 @@ dev_dependencies:
   fake_async: ^1.3.3
   mocktail: ^1.0.4
   json_serializable: ^6.9.5
+  tidy_imports: ^1.3.0
+
+tidy_imports:
+  comments: false
+  ignored_files:
+    - \.g\.dart$
 
 flutter:
   uses-material-design: true

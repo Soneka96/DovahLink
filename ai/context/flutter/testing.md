@@ -19,37 +19,37 @@
 ## Test structure
 
 - Mirror the source tree under `test/`.
-- Add a dedicated test file for each source unit with behavior or failure logic; group trivial declarations with their owning behavior test.
-- Keep ordinary client fixtures in `test/features/<feature>/fixtures/`, close to the feature that
-  owns them. Use descriptive `.fixture.dart` names and share builders only within that feature. A
-  fixture is a top-level `build<Type>({...})` function with named parameters, each defaulting to one
-  representative value; a test that wants the default calls it with no arguments
-  (`buildPairingHandshakeEntity()`), and a test that needs one field different overrides only that
-  parameter (`buildPairingHandshakeEntity(trusted: false)`). Do not export a fixture as a bare
-  `const`/`final` value: a constant cannot be varied per test case without either duplicating the
-  whole value under a second name or mutating a shared instance, and the fixture file's own job is to
-  make that variation cheap. Cross-side protocol fixtures are an explicit exception and live in
-  `protocol/fixtures/`; those canonical fixtures take precedence for contract tests.
+- Add a dedicated test file for each source unit with behavior or failure logic; keep trivial
+  declaration assertions in that source unit's test file without creating a class-wide test group.
+- Keep ordinary client fixtures below the feature-owned
+  `app/test/features/<feature>/fixtures/` directory, with subfolders mirroring the production
+  ownership below `lib/features/<feature>/`. For example, an entity fixture belongs below
+  `app/test/features/pairing/fixtures/domain/entities/` in repository-relative form. Use
+  descriptive `.fixture.dart` files, share builders only within that feature, and apply the shared
+  Dart fixture-builder rules. Keep one cohesive fixture family per file rather than creating one
+  giant fixture or constants file. Cross-side protocol fixtures are an explicit exception and live
+  in `protocol/fixtures/`; those canonical fixtures take precedence for contract tests.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
-- Group tests by method or behavior. Do not nest groups, and keep every test inside a group.
 - Define `setUp` per group, or in `main` when setup is shared by the whole file.
-- Test descriptions name the actual method or action. Use literal Dart syntax for equality
-  conditions, including enum values and null checks.
+- Use literal Dart syntax for equality conditions, including enum values and null checks.
 - Primitive properties use two assertions in order: `isA<T>()`, then the exact expected value.
 
 ## Layer-specific tests
 
-- Models have an identity group proving they extend the correct entity and a methods group for
-  `fromJson`/`toJson` or other mapping methods.
-- Use cases have one group named `Usecase [UseCaseName] returns the correct value`. Mock the
-  repository interface and test success and every relevant failure pass-through.
-- Repositories have an identity group and one behavior group per method, including exact datasource
-  calls and symmetric no-call branches.
-- Reducers test handled actions and a separate unhandled-action pass-through case.
-- Middleware tests call `middleware.call(store, action, next)` directly rather than dispatching
-  through a real `Store` -- against a mocktail `MockStore` (`store.state` stubbed per test, no
+- Models group each `fromJson`, `toJson`, or other mapping method separately. Keep an identity
+  assertion in its own behavior group only when model/entity identity is itself the contract.
+- Use cases group their single callable operation by method, normally `Method call behaves
+  correctly`. Mock the repository interface and test success and every relevant failure pass-through.
+- Repositories have one behavior group per method, including exact datasource calls and symmetric
+  no-call branches.
+- Reducers have one group per action passed to the reducer, including a separate group for the
+  unhandled-action pass-through behavior.
+- Middleware has one group per action passed to `middleware.call(store, action, next)`, rather than
+  one group for the middleware class. Middleware tests call
+  `middleware.call(store, action, next)` directly rather than dispatching through a real `Store` --
+  against a mocktail `MockStore` (`store.state` stubbed per test, no
   live reducer behind it), the same "mock every `sl<>()`-resolved dependency, no real store"
   approach widget tests use. `next` and `store.dispatch` both append to one shared action log
   (`void next(dynamic action) => actionLog.add(action);`,
@@ -97,11 +97,9 @@
   DI container and every mock in `tearDown` (`await sl.reset(); reset(mockViewModel); reset(store);`).
 - Wrap the screen in a single reusable `buildWidget({...})` helper (theme/textScaler as
   parameters) instead of repeating `MaterialApp`/`StoreProvider` boilerplate in every test.
-- Group tests by what they prove, not just by feature: a `<Screen> contains widgets` group for
-  structural presence, a `<Screen>'s elements behavior` group for interaction/callback wiring, and
-  (only when the screen has its own `onInit`/`onDispose` dispatch) a dedicated
-  `<Screen>'s StoreConnector dispatches ... on init` group -- these are as distinct as
-  reducer-vs-selector tests are for state.
+- Widget tests group each structural, interaction, callback, accessibility, or StoreConnector
+  behavior separately. Selector tests use one group per selector, not one group for a selectors
+  class or file.
 - For every state exposed by the client-state contract, test the corresponding presentation behavior. If a screen intentionally does not render a state, test that it delegates to the approved fallback and document the decision. Cover loading, success, empty, error, disconnected, stale-data, recovering, and disposed-subscription behavior where exposed.
 
 ## Timers and delays

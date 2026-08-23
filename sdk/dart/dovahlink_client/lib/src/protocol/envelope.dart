@@ -1,7 +1,9 @@
 import 'package:json_annotation/json_annotation.dart';
 
-import 'json_map.dart';
-import 'protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope_validator.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 part 'envelope.g.dart';
 
@@ -26,7 +28,17 @@ class Envelope {
   /// Decodes and validates one protocol envelope.
   factory Envelope.fromJson(JsonMap json) {
     try {
-      return _$EnvelopeFromJson(json);
+      final Envelope envelope = _$EnvelopeFromJson(json);
+      EnvelopeValidator.validate(
+        messageType: envelope.messageType,
+        messageId: envelope.messageId,
+        sessionId: envelope.sessionId,
+        correlationId: envelope.correlationId,
+        bridgeInstanceId: envelope.bridgeInstanceId,
+        playContextId: envelope.playContextId,
+        clientId: envelope.clientId,
+      );
+      return envelope;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid protocol envelope: $error');
     }
@@ -34,13 +46,14 @@ class Envelope {
 
   /// The canonical message type.
   @JsonKey(required: true)
-  final String messageType;
+  final ProtocolMessageType messageType;
 
   /// The unique message identifier for the session.
   @JsonKey(required: true)
   final String messageId;
 
-  /// The server-issued session identifier, when available.
+  /// The server-issued session identifier. It is `null` only for `hello` and pre-session `error`
+  /// messages; every other message requires a non-empty value.
   @JsonKey(required: true)
   final String? sessionId;
 

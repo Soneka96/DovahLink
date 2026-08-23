@@ -4,7 +4,6 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
-
 import 'harness_process.dart';
 
 /// A valid 64-character hex-encoded developer token, matching the fixed value the `.NET`
@@ -66,10 +65,11 @@ Future<DovahLinkClient> _startUnpairedSession(
   return client;
 }
 
+/// Runs real bridge-harness pairing integration tests.
 void main() {
-  group('DovahLinkClient real end-to-end pairing', () {
+  group('Behavior end-to-end pairing behaves correctly', () {
     test(
-      'a full pairing round trip reaches trusted, and the credential survives a reconnect',
+      'Behavior end-to-end pairing reaches trusted and preserves the credential across reconnect',
       () async {
         final HarnessProcess harness = await _startHarness();
         final ClientStorage storage = InMemoryClientStorage();
@@ -106,7 +106,7 @@ void main() {
     );
 
     test(
-      'an incorrect code yields DovahLinkPairingException(invalid), and the session stays unpaired',
+      'Behavior end-to-end pairing rejects an incorrect code and keeps the session unpaired',
       () async {
         final HarnessProcess harness = await _startHarness();
         final DovahLinkClient client = await _startUnpairedSession(
@@ -131,7 +131,7 @@ void main() {
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
               'outcome',
-              'invalid',
+              PairingOutcome.invalid,
             ),
           ),
         );
@@ -140,7 +140,7 @@ void main() {
     );
 
     test(
-      'a client that disconnects after confirmPairingCode recovers to trusted on relaunch',
+      'Behavior end-to-end pairing recovers a client to trusted after relaunching after confirmation',
       () async {
         // This disconnects cleanly rather than simulating an abrupt crash (killing the raw socket
         // below the WebSocket handshake, which this transport does not expose) -- crash-vs-clean-
@@ -189,7 +189,7 @@ void main() {
     );
 
     test(
-      'a client whose confirmation the bridge lost after a restart discards it and returns to unpaired',
+      'Behavior end-to-end pairing discards a bridge-lost confirmation and returns to unpaired',
       () async {
         final HarnessProcess firstHarness = await _startHarness();
         final ClientStorage storage = InMemoryClientStorage();

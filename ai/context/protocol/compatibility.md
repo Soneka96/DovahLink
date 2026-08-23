@@ -29,6 +29,11 @@ transport established
 
 The bootstrap stays intentionally small: its purpose is compatibility detection, not general protocol negotiation. Do not evolve it into its own versioned protocol stack (no `BootstrapProtocolV1`/`V2`); if its representation ever needs a breaking redesign, that is a deliberate compatibility decision made from the requirements that exist at that time, not solved speculatively here.
 
+The bootstrap's own canonical message types and error codes are closed typed vocabulary. Decode a
+valid `hello_ack`, validate its Bridge version immediately, and do not accept capabilities or normal
+traffic until that check succeeds. An unrecognized wire value is malformed protocol input; a known
+Bridge version outside the declared range is an explicit incompatibility failure.
+
 ## Incompatible combinations
 
 An incompatible Bridge/client pairing fails explicitly. It must not partially parse normal traffic, silently continue, guess compatibility, fall back to the closest contract, or present stale or default data as current.

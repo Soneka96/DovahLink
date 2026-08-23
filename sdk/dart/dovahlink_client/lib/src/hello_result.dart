@@ -1,6 +1,6 @@
-import 'shared/enums.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The bootstrap information `DovahLinkClient.hello`/`DovahLinkClient.authenticate` returns on
+/// The bootstrap information [DovahLinkClient.hello]/[DovahLinkClient.authenticate] returns on
 /// success.
 class HelloResult {
   /// Creates a hello result.
@@ -16,7 +16,7 @@ class HelloResult {
   /// The trust tier the session was admitted at.
   final DovahLinkTrustState trustState;
 
-  /// Set when `DovahLinkClient.authenticate` recovered from a rejected `trusted_device_credential`
+  /// Set when [DovahLinkClient.authenticate] recovered from a rejected `trusted_device_credential`
   /// hello by discarding the stale credential and retrying as `unpaired`; `null` on an ordinary
   /// hello with nothing to recover from.
   final CredentialRejectionReason? recoveredFromRejectedCredential;

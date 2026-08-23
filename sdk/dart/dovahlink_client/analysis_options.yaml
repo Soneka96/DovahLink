@@ -16,3 +16,4 @@ linter:
     prefer_single_quotes: true
     require_trailing_commas: true
     prefer_initializing_formals: false
+    always_use_package_imports: true

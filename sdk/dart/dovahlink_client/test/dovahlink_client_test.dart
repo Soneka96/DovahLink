@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -6,18 +7,71 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
+import 'support/pending_reply.dart';
 
-/// A controllable [DovahLinkTransport] double: records every sent message and replays queued raw
-/// JSON responses in order, one per [messages] access, matching this project's per-file
-/// hand-written test-double convention rather than mocking a stream-shaped interface.
+/// Owns ordered release and correlation rewriting for fake-transport replies.
+class PendingReplyQueue {
+  /// Replies waiting for an immediate release or a matching request message ID.
+  final List<PendingReply> _replies = <PendingReply>[];
+
+  /// Adds [reply] and releases any newly leading uncorrelated replies.
+  void enqueue(PendingReply reply, StreamController<String> incoming) {
+    _replies.add(reply);
+    while (_replies.isNotEmpty && !_replies.first.needsCorrelation) {
+      incoming.add(_replies.removeAt(0).resolve());
+    }
+  }
+
+  /// Releases leading uncorrelated replies and at most one correlated reply for [messageId].
+  void releaseFor(String messageId, StreamController<String> incoming) {
+    bool consumedThisSend = false;
+    while (_replies.isNotEmpty) {
+      final PendingReply next = _replies.first;
+      if (!next.needsCorrelation) {
+        _replies.removeAt(0);
+        incoming.add(next.resolve());
+        continue;
+      }
+      if (consumedThisSend) {
+        return;
+      }
+      _replies.removeAt(0);
+      incoming.add(next.resolve(messageId));
+      consumedThisSend = true;
+    }
+  }
+}
+
+/// A controllable [DovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
+/// semantics for the single continuous, single-subscription inbound stream this SDK's receiver
+/// depends on: [connect] establishes a fresh single-subscription stream (mirroring the real
+/// transport's fresh socket per connection, and its "only ever listened to once" constraint), and
+/// [messages] waits for the next message rather than erroring once nothing more is queued yet
+/// (mirroring how a real socket simply has nothing to deliver until something arrives).
+///
+/// [queueResponse] auto-correlates: a queued reply whose own `correlationId` is non-null (every
+/// canonical fixture answering a specific request) has that field rewritten to the `messageId` of
+/// the next not-yet-matched [send] call, in queue order, before delivery -- this lets tests reuse
+/// canonical fixtures (whose hardcoded `correlationId` values do not know this client's real,
+/// randomly generated `messageId`) without hand-matching them, while still exercising this
+/// client's own real correlationId-matching logic on the rewritten value. A queued reply already
+/// carrying `correlationId: null` (an unsolicited push, e.g. `capabilities`/`session_invalidated`,
+/// or malformed text with no `correlationId` to read at all) releases as soon as it reaches the
+/// front of the queue, without waiting for any particular [send] -- but never jumping ahead of an
+/// earlier-queued reply still waiting on its own [send], so relative queue order is always
+/// preserved. [queueRawResponse] is the escape hatch for a test that deliberately wants an
+/// unrewritten -- including deliberately mismatched -- `correlationId`, delivered immediately.
 class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Every raw text message sent, in order.
   final List<String> sent = <String>[];
 
-  /// Responses queued for successive [messages] accesses.
-  final List<String> _queuedResponses = <String>[];
+  /// Queued [queueResponse] replies not yet released, in queue order.
+  final PendingReplyQueue _pendingReplies = PendingReplyQueue();
 
-  int _readIndex = 0;
+  /// The current connection's inbound stream, or `null` before [connect]/after [close].
+  StreamController<String>? _incoming;
 
   /// The URI passed to [connect], or `null` if not yet called.
   Uri? connectedUri;
@@ -29,6 +83,10 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Whether [close] was called.
   bool closeCalled = false;
 
+  /// The number of times [close] was called -- unlike [closeCalled], distinguishes one real
+  /// teardown from a duplicate one that should have been deduplicated.
+  int closeCallCount = 0;
+
   /// Makes the next [connect] call throw [error] instead of succeeding.
   Object? failConnectWith;
 
@@ -38,9 +96,40 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
   /// Makes the next [close] call throw [error] instead of succeeding.
   Object? failCloseWith;
 
-  /// Queues one raw JSON response for the next unconsumed [messages] access.
-  void queueResponse(String rawJson) => _queuedResponses.add(rawJson);
+  /// Queues one raw JSON response; see the class doc for correlation and release-order behavior.
+  void queueResponse(String rawJson) {
+    JsonMap? decoded;
+    try {
+      decoded = jsonDecode(rawJson) as JsonMap;
+    } on Object {
+      decoded = null;
+    }
+    _pendingReplies.enqueue(
+      decoded == null || decoded['correlationId'] == null
+          ? PendingReply.immediate(rawJson)
+          : PendingReply.correlated(decoded),
+      _requireIncoming(),
+    );
+  }
 
+  /// Delivers [rawJson] exactly as given, bypassing auto-correlation and queue ordering -- for a
+  /// test that deliberately wants an unrewritten or mismatched `correlationId`.
+  void queueRawResponse(String rawJson) => _requireIncoming().add(rawJson);
+
+  /// Delivers [error] on the current connection's inbound stream, simulating a transport-level
+  /// failure (e.g. a dropped socket) while a request may be pending.
+  void failMessagesWith(Object error) => _requireIncoming().addError(error);
+
+  /// Delivers [error] then immediately closes the current connection's inbound stream,
+  /// simulating a real socket's `onError` and `onDone` both firing for one dead connection --
+  /// for a test proving duplicate teardown signals are deduplicated rather than double-run.
+  void failMessagesWithBoth(Object error) {
+    final StreamController<String> incoming = _requireIncoming();
+    incoming.addError(error);
+    unawaited(incoming.close());
+  }
+
+  /// See [DovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     final Object? failure = failConnectWith;
@@ -49,8 +138,12 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     }
     connectedUri = uri;
     connectCalls.add(uri);
+    // A fresh single-subscription stream per connection, matching the real transport: an old
+    // connection's stream is simply discarded, never reused by a new one.
+    _incoming = StreamController<String>();
   }
 
+  /// See [DovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     final Object? failure = failSendWith;
@@ -58,24 +151,70 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
       throw failure;
     }
     sent.add(text);
+    _pendingReplies.releaseFor(
+      (jsonDecode(text) as JsonMap)['messageId'] as String,
+      _requireIncoming(),
+    );
   }
 
+  /// See [DovahLinkTransport.messages].
   @override
-  Stream<String> get messages {
-    final int index = _readIndex++;
-    if (index >= _queuedResponses.length) {
-      return Stream<String>.error(StateError('No more queued responses.'));
-    }
-    return Stream<String>.value(_queuedResponses[index]);
-  }
+  Stream<String> get messages => _requireIncoming().stream;
 
+  /// See [DovahLinkTransport.close].
   @override
   Future<void> close() async {
     closeCalled = true;
+    closeCallCount++;
+    _incoming = null;
     final Object? failure = failCloseWith;
     if (failure != null) {
       throw failure;
     }
+  }
+
+  /// Returns the current inbound stream, creating one on first use if [connect] was never
+  /// explicitly called -- many tests below exercise a single request/reply exchange directly
+  /// without a preceding [connect], the same way the fake this replaces always allowed. [connect]
+  /// itself always installs a genuinely fresh one, which is what matters for this fake to
+  /// correctly model one connection's stream being independent of the next.
+  StreamController<String> _requireIncoming() =>
+      _incoming ??= StreamController<String>();
+}
+
+/// Tracks persistence writes for composition-root invalidation tests.
+class TrackingClientStorage implements ClientStorage {
+  /// Creates storage seeded with [state].
+  TrackingClientStorage(this._state);
+
+  /// State returned by [load].
+  PersistedClientState _state;
+
+  /// Optional error thrown by [save].
+  Object? saveError;
+
+  /// Number of attempted [save] calls.
+  int saveCount = 0;
+
+  /// See [ClientStorage.load].
+  @override
+  Future<PersistedClientState> load() async => _state;
+
+  /// See [ClientStorage.save].
+  @override
+  Future<void> save(PersistedClientState state) async {
+    saveCount++;
+    final Object? error = saveError;
+    if (error != null) {
+      throw error;
+    }
+    _state = state;
+  }
+
+  /// See [ClientStorage.clear].
+  @override
+  Future<void> clear() async {
+    _state = const PersistedClientState();
   }
 }
 
@@ -83,20 +222,40 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
-/// Builds a minimal `capabilities` envelope. No canonical fixture exists for this message type yet
-/// (out of the pairing epic this shared fixture set was built for); this client only needs to
-/// consume and discard it, so a hand-built stand-in is sufficient.
-String _rawCapabilities() => jsonEncode(<String, dynamic>{
-  'messageType': 'capabilities',
-  'messageId': 'message-capabilities-1',
+/// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
+/// `'revoked'`).
+String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
+  'messageType': 'session_invalidated',
+  'messageId': 'message-session-invalidated-1',
   'sessionId': 'session-1',
   'correlationId': null,
-  'payload': <String, dynamic>{'capabilities': <dynamic>[]},
+  'payload': <String, dynamic>{'reason': reason},
   'bridgeInstanceId': 'bridge-1',
   'playContextId': null,
   'clientId': null,
 });
 
+/// Maps each typed administrative invalidation reason to its canonical wire value.
+const Map<AdministrativeInvalidationReason, String> _invalidationWireValues =
+    <AdministrativeInvalidationReason, String>{
+      AdministrativeInvalidationReason.revoked: 'revoked',
+      AdministrativeInvalidationReason.blocked: 'blocked',
+      AdministrativeInvalidationReason.trustReset: 'trust_reset',
+      AdministrativeInvalidationReason.factoryReset: 'factory_reset',
+    };
+
+/// Connects [client] to the fake transport and admits an unpaired session for a public-client test.
+Future<void> _connectAndHello(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+) async {
+  await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+  transport.queueResponse(_rawFixture('capabilities/capabilities-bridge.json'));
+  await client.hello();
+}
+
+/// Runs public-client behavior tests.
 void main() {
   late FakeDovahLinkTransport transport;
   late InMemoryClientStorage storage;
@@ -108,9 +267,123 @@ void main() {
     client = DovahLinkClient(transport: transport, storage: storage);
   });
 
-  group('connect', () {
+  group('Method enqueue behaves correctly', () {
+    test('Method enqueue releases an uncorrelated reply immediately', () async {
+      final StreamController<String> incoming = StreamController<String>();
+      addTearDown(incoming.close);
+      final PendingReplyQueue queue = PendingReplyQueue();
+
+      queue.enqueue(PendingReply.immediate('reply'), incoming);
+
+      expect(await incoming.stream.first, 'reply');
+    });
+  });
+
+  group('Method releaseFor behaves correctly', () {
     test(
-      'reaches connected state and forwards the URI to the transport',
+      'Method releaseFor rewrites one correlated reply with the request ID',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{
+            'correlationId': 'placeholder',
+            'payload': <String, dynamic>{},
+          }),
+          incoming,
+        );
+
+        queue.releaseFor('request-1', incoming);
+
+        expect(
+          await incoming.stream.first,
+          jsonEncode(<String, dynamic>{
+            'correlationId': 'request-1',
+            'payload': <String, dynamic>{},
+          }),
+        );
+      },
+    );
+
+    test('Method releaseFor leaves a second correlated reply queued', () async {
+      final StreamController<String> incoming = StreamController<String>();
+      addTearDown(incoming.close);
+      final PendingReplyQueue queue = PendingReplyQueue();
+      final List<String> received = <String>[];
+      incoming.stream.listen(received.add);
+      queue.enqueue(
+        PendingReply.correlated(<String, dynamic>{'correlationId': 'first'}),
+        incoming,
+      );
+      queue.enqueue(
+        PendingReply.correlated(<String, dynamic>{'correlationId': 'second'}),
+        incoming,
+      );
+
+      queue.releaseFor('request-1', incoming);
+      queue.releaseFor('request-2', incoming);
+      await pumpEventQueue();
+
+      expect(received, <String>[
+        jsonEncode(<String, dynamic>{'correlationId': 'request-1'}),
+        jsonEncode(<String, dynamic>{'correlationId': 'request-2'}),
+      ]);
+    });
+
+    test(
+      'Method releaseFor does not let an immediate reply jump a correlated reply',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        final List<String> received = <String>[];
+        incoming.stream.listen(received.add);
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{'correlationId': 'first'}),
+          incoming,
+        );
+        queue.enqueue(PendingReply.immediate('second'), incoming);
+        await pumpEventQueue();
+
+        expect(received, isEmpty);
+        queue.releaseFor('request-1', incoming);
+        await pumpEventQueue();
+
+        expect(received, <String>[
+          jsonEncode(<String, dynamic>{'correlationId': 'request-1'}),
+          'second',
+        ]);
+      },
+    );
+
+    test(
+      'Method releaseFor leaves a later reply available after an unanswered send',
+      () async {
+        final StreamController<String> incoming = StreamController<String>();
+        addTearDown(incoming.close);
+        final PendingReplyQueue queue = PendingReplyQueue();
+        final List<String> received = <String>[];
+        incoming.stream.listen(received.add);
+
+        queue.releaseFor('unanswered-request', incoming);
+        queue.enqueue(
+          PendingReply.correlated(<String, dynamic>{'correlationId': 'later'}),
+          incoming,
+        );
+        queue.releaseFor('next-request', incoming);
+        await pumpEventQueue();
+
+        expect(received, <String>[
+          jsonEncode(<String, dynamic>{'correlationId': 'next-request'}),
+        ]);
+      },
+    );
+  });
+
+  group('Method connect behaves correctly', () {
+    test(
+      'Method connect reaches connected state and forwards the URI to the transport',
       () async {
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
 
@@ -120,65 +393,17 @@ void main() {
         expect(transport.connectedUri, uri);
       },
     );
-
-    test(
-      'wraps a transport failure as DovahLinkConnectionException and stays disconnected',
-      () async {
-        transport.failConnectWith = const SocketException('refused');
-
-        await expectLater(
-          client.connect(Uri.parse('ws://127.0.0.1:58231/')),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
-      },
-    );
-
-    test(
-      'wraps a transport send failure (e.g. sending before connecting) as DovahLinkConnectionException',
-      () async {
-        transport.failSendWith = StateError(
-          'Not connected. Call connect() first.',
-        );
-
-        await expectLater(
-          client.hello(),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-      },
-    );
   });
 
-  group('hello', () {
-    test('generates and persists a clientId on first use', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-
-      await client.hello();
-
-      expect(client.clientId, isNotNull);
-      final PersistedClientState stored = await storage.load();
-      expect(stored.clientId, client.clientId);
-    });
-
-    test('reuses the persisted clientId on a later call', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-
-      await client.hello();
-
-      expect(client.clientId, 'client-1');
-      final JsonMap sentEnvelope = jsonDecode(transport.sent.single) as JsonMap;
-      final JsonMap sentPayload = sentEnvelope['payload'] as JsonMap;
-      expect(sentPayload['clientId'], 'client-1');
-    });
-
+  group('Method hello behaves correctly', () {
     test(
-      'an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
+      'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         final HelloResult result = await client.hello();
 
@@ -197,72 +422,9 @@ void main() {
     );
 
     test(
-      'sends trusted_device_credential when a trusted credential is stored',
+      'Method hello a rejected hello throws DovahLinkProtocolException and leaves state unset',
       () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-          ),
-        );
-        transport.queueResponse(
-          jsonEncode(<String, dynamic>{
-            'messageType': 'hello_ack',
-            'messageId': 'message-hello-ack-1',
-            'sessionId': 'session-1',
-            'correlationId': 'irrelevant',
-            'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
-              'clientIdentityKind': 'paired',
-            },
-            'bridgeInstanceId': 'bridge-1',
-            'playContextId': null,
-            'clientId': 'client-1',
-          }),
-        );
-        transport.queueResponse(_rawCapabilities());
-
-        final HelloResult result = await client.hello();
-
-        expect(result.trustState, DovahLinkTrustState.trusted);
-        expect(client.trustState, DovahLinkTrustState.trusted);
-
-        final JsonMap sentPayload =
-            (jsonDecode(transport.sent.single) as JsonMap)['payload']
-                as JsonMap;
-        expect(sentPayload['auth'], <String, dynamic>{
-          'method': 'trusted_device_credential',
-          'token': 'a1b2c3d4e5f6',
-        });
-      },
-    );
-
-    test(
-      'sends unpaired when a credential is stored but recovery is still CONFIRMING',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
-
-        final HelloResult result = await client.hello();
-
-        expect(result.trustState, DovahLinkTrustState.unpaired);
-        final JsonMap sentPayload =
-            (jsonDecode(transport.sent.single) as JsonMap)['payload']
-                as JsonMap;
-        expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
-      },
-    );
-
-    test(
-      'a rejected hello throws DovahLinkProtocolException and leaves state unset',
-      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -280,7 +442,7 @@ void main() {
                 .having(
                   (DovahLinkProtocolException e) => e.code,
                   'code',
-                  'unauthenticated',
+                  ProtocolErrorCode.unauthenticated,
                 )
                 .having(
                   (DovahLinkProtocolException e) => e.retryable,
@@ -299,8 +461,9 @@ void main() {
     );
 
     test(
-      'the original rejection still surfaces even when cleanup itself fails',
+      'Method hello the original rejection still surfaces even when cleanup itself fails',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
@@ -318,7 +481,7 @@ void main() {
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'unauthenticated',
+              ProtocolErrorCode.unauthenticated,
             ),
           ),
         );
@@ -330,64 +493,30 @@ void main() {
       },
     );
 
-    test(
-      'session state is still reset when cleanup fails after the session was already established',
-      () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        // hello_ack decodes fine and sets sessionId/trustState, but the capabilities read right
-        // after it fails -- proving the reset covers state set moments earlier in this same call,
-        // not just the "never got that far" case above.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse('not valid json');
-        transport.failCloseWith = const SocketException('socket already gone');
+    test('Method hello a malformed message arriving after hello succeeds still resets session state, via the '
+        'background receiver', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      // hello_ack resolves hello() as soon as it is correlated -- hello() does not wait for
+      // capabilities. Queuing a malformed protocol message in its place proves the persistent receiver's own
+      // cleanup covers state set moments earlier in this same call, not just the "never got
+      // that far" case above -- even though it now runs after hello() has already returned.
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse('not valid json');
+      transport.failCloseWith = const SocketException('socket already gone');
 
-        await expectLater(
-          client.hello(),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
+      final HelloResult result = await client.hello();
+      expect(result.trustState, DovahLinkTrustState.unpaired);
 
-        expect(transport.closeCalled, isTrue);
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
-        expect(client.trustState, isNull);
-        expect(client.sessionId, isNull);
-      },
-    );
+      await pumpEventQueue();
 
-    test(
-      'a revoked-credential rejection throws DovahLinkProtocolException with code revoked',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
-
-        await expectLater(
-          client.hello(),
-          throwsA(
-            isA<DovahLinkProtocolException>()
-                .having(
-                  (DovahLinkProtocolException e) => e.code,
-                  'code',
-                  'revoked',
-                )
-                .having(
-                  (DovahLinkProtocolException e) => e.retryable,
-                  'retryable',
-                  isFalse,
-                ),
-          ),
-        );
-        expect(client.trustState, isNull);
-        expect(client.sessionId, isNull);
-        expect(transport.closeCalled, isTrue);
-      },
-    );
+      expect(transport.closeCalled, isTrue);
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      expect(client.trustState, isNull);
+      expect(client.sessionId, isNull);
+    });
 
     test(
-      'a freshly generated clientId is still persisted even when the hello_ack is rejected',
+      'Method hello a freshly generated clientId is still persisted even when the hello_ack is rejected',
       () async {
         transport.queueResponse(
           _rawFixture('errors/error-unauthenticated-invalid-token.json'),
@@ -402,46 +531,20 @@ void main() {
     );
 
     test(
-      'an unrecognized clientIdentityKind throws DovahLinkProtocolException(malformed_message)',
+      'Method hello a malformed JSON response throws malformed_message',
       () async {
-        transport.queueResponse(
-          jsonEncode(<String, dynamic>{
-            'messageType': 'hello_ack',
-            'messageId': 'message-hello-ack-1',
-            'sessionId': 'session-1',
-            'correlationId': null,
-            'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
-              'clientIdentityKind': 'not-a-real-kind',
-            },
-            'bridgeInstanceId': 'bridge-1',
-            'playContextId': null,
-            'clientId': 'client-1',
-          }),
-        );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse('not valid json');
 
         await expectLater(
           client.hello(),
           throwsA(
             isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
+              (DovahLinkProtocolException error) => error.code,
               'code',
-              'malformed_message',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
-        );
-        expect(transport.closeCalled, isTrue);
-      },
-    );
-
-    test(
-      'a malformed JSON response throws DovahLinkConnectionException',
-      () async {
-        transport.queueResponse('not valid json');
-
-        await expectLater(
-          client.hello(),
-          throwsA(isA<DovahLinkConnectionException>()),
         );
         // A transport-level failure leaves the socket just as unusable as a protocol rejection;
         // the reset must cover both, not only DovahLinkProtocolException.
@@ -450,172 +553,27 @@ void main() {
     );
   });
 
-  group('authenticate', () {
-    test('delegates to connect and hello when nothing is rejected', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-
-      final HelloResult result = await client.authenticate(
-        Uri.parse('ws://127.0.0.1:58231/'),
-      );
-
-      expect(result.trustState, DovahLinkTrustState.unpaired);
-      expect(result.recoveredFromRejectedCredential, isNull);
-      expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
-    });
-
+  group('Method authenticate behaves correctly', () {
     test(
-      'recovers from a revoked credential by forgetting it and retrying as unpaired',
+      'Method authenticate delegates to connect and hello when nothing is rejected',
       () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         final HelloResult result = await client.authenticate(
           Uri.parse('ws://127.0.0.1:58231/'),
         );
 
-        expect(
-          result.recoveredFromRejectedCredential,
-          CredentialRejectionReason.revoked,
-        );
-        final PersistedClientState stored = await storage.load();
-        expect(stored.clientId, 'client-1');
-        expect(stored.credential, isNull);
-        expect(transport.connectCalls, [
-          Uri.parse('ws://127.0.0.1:58231/'),
-          Uri.parse('ws://127.0.0.1:58231/'),
-        ]);
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+        expect(result.recoveredFromRejectedCredential, isNull);
+        expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
       },
     );
 
     test(
-      'recovers from an unrecognized credential by forgetting it and retrying as unpaired',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('errors/error-unauthenticated-invalid-token.json'),
-        );
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
-
-        final HelloResult result = await client.authenticate(
-          Uri.parse('ws://127.0.0.1:58231/'),
-        );
-
-        expect(
-          result.recoveredFromRejectedCredential,
-          CredentialRejectionReason.unrecognized,
-        );
-      },
-    );
-
-    test(
-      'rethrows a non-recoverable protocol rejection without forgetting the credential',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('errors/error-malformed-message.json'),
-        );
-
-        await expectLater(
-          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
-          ),
-        );
-        final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'deadbeef');
-      },
-    );
-
-    test("rethrows the retry's own rejection without retrying again", () async {
-      await storage.save(
-        const PersistedClientState(
-          clientId: 'client-1',
-          credential: 'deadbeef',
-        ),
-      );
-      transport.queueResponse(_rawFixture('errors/error-revoked.json'));
-      transport.queueResponse(_rawFixture('errors/error-rate-limited.json'));
-
-      await expectLater(
-        client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
-        throwsA(
-          isA<DovahLinkProtocolException>().having(
-            (DovahLinkProtocolException e) => e.code,
-            'code',
-            'rate_limited',
-          ),
-        ),
-      );
-    });
-
-    test(
-      'does not retry a second time when the retry is rejected with the same recoverable code',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'deadbeef',
-          ),
-        );
-        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
-        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
-
-        await expectLater(
-          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'revoked',
-            ),
-          ),
-        );
-        // Exactly one retry: forgetCredential ran once and connect() was called exactly twice,
-        // not looping on a second revoked rejection.
-        final PersistedClientState stored = await storage.load();
-        expect(stored.credential, isNull);
-        expect(transport.connectCalls, hasLength(2));
-      },
-    );
-
-    test(
-      'propagates a transport failure on the initial connect without calling hello',
-      () async {
-        transport.failConnectWith = const SocketException('refused');
-
-        await expectLater(
-          client.authenticate(Uri.parse('ws://127.0.0.1:58231/')),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-        expect(transport.sent, isEmpty);
-      },
-    );
-
-    test(
-      'returns the cached result without reconnecting when already connected and trusted',
+      'Method authenticate reconnects after disconnect even though the client was last trusted',
       () async {
         transport.queueResponse(
           jsonEncode(<String, dynamic>{
@@ -632,54 +590,9 @@ void main() {
             'clientId': 'client-1',
           }),
         );
-        transport.queueResponse(_rawCapabilities());
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        final HelloResult first = await client.authenticate(uri);
-        expect(first.trustState, DovahLinkTrustState.trusted);
-
-        final HelloResult second = await client.authenticate(uri);
-
-        expect(second.bridgeVersion, first.bridgeVersion);
-        expect(second.trustState, DovahLinkTrustState.trusted);
-        expect(second.recoveredFromRejectedCredential, isNull);
-        expect(transport.connectCalls, hasLength(1));
-        expect(transport.sent, hasLength(1));
-      },
-    );
-
-    test('reconnects when already connected but still unpaired', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-      final HelloResult first = await client.authenticate(uri);
-      expect(first.trustState, DovahLinkTrustState.unpaired);
-
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.authenticate(uri);
-
-      expect(transport.connectCalls, hasLength(2));
-    });
-
-    test(
-      'reconnects after disconnect even though the client was last trusted',
-      () async {
         transport.queueResponse(
-          jsonEncode(<String, dynamic>{
-            'messageType': 'hello_ack',
-            'messageId': 'message-hello-ack-1',
-            'sessionId': 'session-1',
-            'correlationId': 'irrelevant',
-            'payload': <String, dynamic>{
-              'bridgeVersion': '0.2.0',
-              'clientIdentityKind': 'paired',
-            },
-            'bridgeInstanceId': 'bridge-1',
-            'playContextId': null,
-            'clientId': 'client-1',
-          }),
+          _rawFixture('capabilities/capabilities-bridge.json'),
         );
-        transport.queueResponse(_rawCapabilities());
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
         await client.authenticate(uri);
         await client.disconnect();
@@ -699,7 +612,9 @@ void main() {
             'clientId': 'client-1',
           }),
         );
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.authenticate(uri);
 
         expect(transport.connectCalls, hasLength(2));
@@ -707,316 +622,89 @@ void main() {
     );
   });
 
-  group('requestPairing', () {
-    const Map<PairingAvailability, String>
-    stateFixtures = <PairingAvailability, String>{
-      PairingAvailability.unavailable:
-          'pairing/pairing-status-unavailable.json',
-      PairingAvailability.available: 'pairing/pairing-status-available.json',
-      PairingAvailability.inProgress: 'pairing/pairing-status-in-progress.json',
-      PairingAvailability.otherDevicePairing:
-          'pairing/pairing-status-other-device.json',
-    };
-    for (final MapEntry<PairingAvailability, String> entry
-        in stateFixtures.entries) {
-      test('reports ${entry.key} from the real fixture', () async {
-        transport.queueResponse(_rawFixture(entry.value));
-
-        final PairingChallengeStatus status = await client.requestPairing();
-
-        expect(status.availability, entry.key);
-      });
-    }
-
-    test('reports expiresInSeconds for an available fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-status-available.json'),
-      );
-
-      final PairingChallengeStatus status = await client.requestPairing();
-
-      expect(status.expiresInSeconds, 300);
-    });
-
-    test('reports expiresInSeconds for an in_progress fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-status-in-progress.json'),
-      );
-
-      final PairingChallengeStatus status = await client.requestPairing();
-
-      expect(status.expiresInSeconds, 187);
-    });
-
+  group('Method requestPairing behaves correctly', () {
     test(
-      'reports expiresInSeconds as null for an unavailable fixture',
+      'Method requestPairing reports available with expiresInSeconds from the real fixture',
       () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-status-unavailable.json'),
-        );
-
-        final PairingChallengeStatus status = await client.requestPairing();
-
-        expect(status.expiresInSeconds, isNull);
-      },
-    );
-
-    test(
-      'reports expiresInSeconds as null for an other_device_pairing fixture',
-      () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-status-other-device.json'),
-        );
-
-        final PairingChallengeStatus status = await client.requestPairing();
-
-        expect(status.expiresInSeconds, isNull);
-      },
-    );
-
-    test(
-      'an unrecognized state throws DovahLinkProtocolException(malformed_message)',
-      () async {
-        transport.queueResponse(
-          jsonEncode(<String, dynamic>{
-            'messageType': 'pairing_status',
-            'messageId': 'message-1',
-            'sessionId': null,
-            'correlationId': null,
-            'payload': <String, dynamic>{
-              'state': 'not-a-real-state',
-              'expiresInSeconds': null,
-            },
-            'bridgeInstanceId': 'bridge-1',
-            'playContextId': null,
-            'clientId': null,
-          }),
-        );
-
-        await expectLater(
-          client.requestPairing(),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
-          ),
-        );
-      },
-    );
-
-    test('propagates the sessionId a prior hello established', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
-
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-status-available.json'),
-      );
-      await client.requestPairing();
-
-      final JsonMap sentRequest = jsonDecode(transport.sent.last) as JsonMap;
-      expect(sentRequest['sessionId'], 'session-1');
-    });
-
-    test(
-      'sends an empty payload, matching the pairing_request fixture shape',
-      () async {
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
         );
 
-        await client.requestPairing();
+        final PairingChallengeStatus status = await client.requestPairing();
 
-        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
-        expect(sent['messageType'], 'pairing_request');
-        expect(sent['payload'], <String, dynamic>{});
+        expect(status.availability, PairingAvailability.available);
+        expect(status.expiresInSeconds, 300);
       },
     );
 
-    test(
-      'a transport failure mid-request resets connection state, not just hello\'s',
-      () async {
-        transport.failSendWith = const SocketException('reset');
+    test('Method requestPairing a transport failure mid-request resets connection state, not just hello\'s, for a '
+        'non-retry-safe operation', () async {
+      // pairing_confirm is not retrySafe (unlike pairing_request): a send failure must fail it
+      // immediately rather than parking it to retry after a reconnect -- see the "retry-safe
+      // operations across reconnect" group below for the retrySafe counterpart of this case.
+      await _connectAndHello(transport, client);
+      transport.failSendWith = const SocketException('reset');
 
-        await expectLater(
-          client.requestPairing(),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
-        expect(transport.closeCalled, isTrue);
-      },
-    );
-  });
-
-  group('requestPairingRenotify', () {
-    test('reports renotified from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-renotified.json'),
+      await expectLater(
+        client.confirmPairingCode(code: '123456'),
+        throwsA(isA<DovahLinkConnectionException>()),
       );
 
-      final PairingRenotifyResult result = await client
-          .requestPairingRenotify();
-
-      expect(result.status, PairingRenotifyStatus.renotified);
-      expect(result.retryAfterSeconds, isNull);
+      expect(transport.closeCalled, isTrue);
+      // The send failure is ordinary transport loss, so SessionServiceImpl hands off to bounded
+      // automatic reconnect once teardown resolves to disconnected. Clear the injected send
+      // failure first so the recovery attempt's own re-authentication does not fail the same way
+      // and repeat the same hand-off, then deliberately disconnect before its delayed next
+      // attempt runs, the same as the "already-orphaned operation" case below, so this test does
+      // not leave a live background reconnect cycle behind it.
+      transport.failSendWith = null;
+      await pumpEventQueue();
+      await client.disconnect();
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
     });
+  });
 
+  group('Method requestPairingRenotify behaves correctly', () {
     test(
-      'reports cooldown with retryAfterSeconds from the real fixture',
+      'Method requestPairingRenotify reports renotified from the real fixture',
       () async {
+        await _connectAndHello(transport, client);
         transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-renotify-cooldown.json'),
+          _rawFixture('pairing/pairing-outcome-renotified.json'),
         );
 
         final PairingRenotifyResult result = await client
             .requestPairingRenotify();
 
-        expect(result.status, PairingRenotifyStatus.cooldown);
-        expect(result.retryAfterSeconds, 3);
+        expect(result.status, PairingRenotifyStatus.renotified);
+        expect(result.retryAfterSeconds, isNull);
       },
     );
-
-    test('reports alreadyIdle from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-already-idle.json'),
-      );
-
-      final PairingRenotifyResult result = await client
-          .requestPairingRenotify();
-
-      expect(result.status, PairingRenotifyStatus.alreadyIdle);
-      expect(result.retryAfterSeconds, isNull);
-    });
-
-    test(
-      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
-      () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-
-        await expectLater(
-          client.requestPairingRenotify(),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'sends an empty payload, matching the pairing_renotify fixture shape',
-      () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-renotified.json'),
-        );
-
-        await client.requestPairingRenotify();
-
-        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
-        expect(sent['messageType'], 'pairing_renotify');
-        expect(sent['payload'], <String, dynamic>{});
-      },
-    );
-
-    test('propagates the sessionId a prior hello established', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
-
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-renotified.json'),
-      );
-      await client.requestPairingRenotify();
-
-      final JsonMap sentRequest = jsonDecode(transport.sent.last) as JsonMap;
-      expect(sentRequest['sessionId'], 'session-1');
-    });
   });
 
-  group('cancelPairing', () {
-    test('reports cancelled from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-cancelled.json'),
-      );
-
-      final PairingCancelOutcome outcome = await client.cancelPairing();
-
-      expect(outcome.status, PairingCancelStatus.cancelled);
-    });
-
-    test('reports alreadyIdle from the real fixture', () async {
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-already-idle.json'),
-      );
-
-      final PairingCancelOutcome outcome = await client.cancelPairing();
-
-      expect(outcome.status, PairingCancelStatus.alreadyIdle);
-    });
-
+  group('Method cancelPairing behaves correctly', () {
     test(
-      'an unrecognized outcome throws DovahLinkProtocolException(malformed_message)',
+      'Method cancelPairing reports cancelled from the real fixture',
       () async {
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-
-        await expectLater(
-          client.cancelPairing(),
-          throwsA(
-            isA<DovahLinkProtocolException>().having(
-              (DovahLinkProtocolException e) => e.code,
-              'code',
-              'malformed_message',
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'sends an empty payload, matching the pairing_cancel fixture shape',
-      () async {
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-cancelled.json'),
         );
 
-        await client.cancelPairing();
+        final PairingCancelOutcome outcome = await client.cancelPairing();
 
-        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
-        expect(sent['messageType'], 'pairing_cancel');
-        expect(sent['payload'], <String, dynamic>{});
+        expect(outcome.status, PairingCancelStatus.cancelled);
       },
     );
-
-    test('propagates the sessionId a prior hello established', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
-
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-cancelled.json'),
-      );
-      await client.cancelPairing();
-
-      final JsonMap sentRequest = jsonDecode(transport.sent.last) as JsonMap;
-      expect(sentRequest['sessionId'], 'session-1');
-    });
   });
 
-  group('confirmPairingCode', () {
+  group('Method confirmPairingCode behaves correctly', () {
     test(
-      'returns the issued credential and persists it with CONFIRMING recovery',
+      'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
       () async {
         await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
@@ -1035,59 +723,7 @@ void main() {
     );
 
     test(
-      're-pairing overwrites an existing trusted credential and flips recovery back to CONFIRMING',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'old-credential',
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
-        );
-
-        final String credential = await client.confirmPairingCode(
-          code: '123456',
-        );
-
-        expect(credential, 'a1b2c3d4e5f6');
-        final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'a1b2c3d4e5f6');
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
-      },
-    );
-
-    const Map<String, String> failureFixtures = <String, String>{
-      'expired': 'pairing/pairing-outcome-expired.json',
-      'invalid': 'pairing/pairing-outcome-invalid.json',
-      'pacing_limited': 'pairing/pairing-outcome-pacing-limited.json',
-      'hard_limit_reached': 'pairing/pairing-outcome-hard-limit-reached.json',
-    };
-    for (final MapEntry<String, String> entry in failureFixtures.entries) {
-      test(
-        'throws DovahLinkPairingException(${entry.key}) on that outcome without persisting anything',
-        () async {
-          transport.queueResponse(_rawFixture(entry.value));
-
-          await expectLater(
-            client.confirmPairingCode(code: '000000'),
-            throwsA(
-              isA<DovahLinkPairingException>().having(
-                (DovahLinkPairingException e) => e.outcome,
-                'outcome',
-                entry.key,
-              ),
-            ),
-          );
-          final PersistedClientState stored = await storage.load();
-          expect(stored, const PersistedClientState());
-        },
-      );
-    }
-
-    test(
-      'leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
+      'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -1096,6 +732,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-expired.json'),
         );
@@ -1112,9 +749,9 @@ void main() {
     );
   });
 
-  group('acknowledgeTrustedCredential', () {
+  group('Method acknowledgeTrustedCredential behaves correctly', () {
     test(
-      'sets trustState to trusted and clears recovery to none on a trusted outcome',
+      'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -1123,6 +760,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -1136,79 +774,8 @@ void main() {
       },
     );
 
-    test('sets trustState to trusted on an already_trusted outcome', () async {
-      await storage.save(
-        const PersistedClientState(
-          credential: 'a1b2c3d4e5f6',
-          recoveryState: PairingRecoveryState.confirming,
-        ),
-      );
-      transport.queueResponse(
-        _rawFixture('pairing/pairing-outcome-already-trusted.json'),
-      );
-
-      await client.acknowledgeTrustedCredential('a1b2c3d4e5f6');
-
-      expect(client.trustState, DovahLinkTrustState.trusted);
-      final PersistedClientState stored = await storage.load();
-      expect(stored.recoveryState, PairingRecoveryState.none);
-    });
-
     test(
-      'throws DovahLinkPairingException on pending_not_found without changing trustState or storage',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-pending-not-found.json'),
-        );
-
-        await expectLater(
-          client.acknowledgeTrustedCredential('a1b2c3d4e5f6'),
-          throwsA(
-            isA<DovahLinkPairingException>().having(
-              (DovahLinkPairingException e) => e.outcome,
-              'outcome',
-              'pending_not_found',
-            ),
-          ),
-        );
-        expect(client.trustState, isNull);
-        final PersistedClientState stored = await storage.load();
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
-      },
-    );
-
-    test(
-      'throws DovahLinkPairingException on a non-pending_not_found failure outcome, also leaving CONFIRMING untouched',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-expired.json'),
-        );
-
-        await expectLater(
-          client.acknowledgeTrustedCredential('a1b2c3d4e5f6'),
-          throwsA(isA<DovahLinkPairingException>()),
-        );
-
-        expect(client.trustState, isNull);
-        final PersistedClientState stored = await storage.load();
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
-      },
-    );
-
-    test(
-      'persists the previously stored credential, not the method argument, on success',
+      'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -1216,6 +783,7 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
+        await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -1231,34 +799,9 @@ void main() {
     );
   });
 
-  group('recoverPendingPairing', () {
-    test('is a no-op returning unpaired when recovery is none', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
-
-      final DovahLinkTrustState result = await client.recoverPendingPairing();
-
-      expect(result, DovahLinkTrustState.unpaired);
-      expect(transport.sent, isEmpty);
-    });
-
+  group('Method recoverPendingPairing behaves correctly', () {
     test(
-      'is a no-op returning unpaired when CONFIRMING but no credential is stored',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-
-        final DovahLinkTrustState result = await client.recoverPendingPairing();
-
-        expect(result, DovahLinkTrustState.unpaired);
-        expect(transport.sent, isEmpty);
-      },
-    );
-
-    test(
-      'resumes a CONFIRMING credential to trusted on a trusted outcome',
+      'Method recoverPendingPairing leaves CONFIRMING untouched when the retry fails for another reason',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -1267,88 +810,16 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-
-        final DovahLinkTrustState result = await client.recoverPendingPairing();
-
-        expect(result, DovahLinkTrustState.trusted);
-        final JsonMap sent = jsonDecode(transport.sent.single) as JsonMap;
-        expect(sent['messageType'], 'pairing_ack');
-        final PersistedClientState stored = await storage.load();
-        expect(stored.recoveryState, PairingRecoveryState.none);
-      },
-    );
-
-    test(
-      'discards the credential and returns to unpaired on pending_not_found',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-pending-not-found.json'),
-        );
-
-        final DovahLinkTrustState result = await client.recoverPendingPairing();
-
-        expect(result, DovahLinkTrustState.unpaired);
-        final PersistedClientState stored = await storage.load();
-        expect(stored.clientId, 'client-1');
-        expect(stored.credential, isNull);
-        expect(stored.recoveryState, PairingRecoveryState.none);
-      },
-    );
-
-    test(
-      'leaves CONFIRMING untouched when the retry fails for another reason',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
+        await _connectAndHello(transport, client);
         transport.queueResponse('not valid json');
 
         await expectLater(
           client.recoverPendingPairing(),
-          throwsA(isA<DovahLinkConnectionException>()),
-        );
-
-        final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'a1b2c3d4e5f6');
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
-      },
-    );
-
-    test(
-      'rethrows and leaves CONFIRMING untouched on a non-pending_not_found pairing failure',
-      () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-expired.json'),
-        );
-
-        await expectLater(
-          client.recoverPendingPairing(),
           throwsA(
-            isA<DovahLinkPairingException>().having(
-              (DovahLinkPairingException e) => e.outcome,
-              'outcome',
-              'expired',
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
@@ -1360,35 +831,18 @@ void main() {
     );
   });
 
-  group('disconnect', () {
-    test('closes the transport and resets session state', () async {
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(_rawCapabilities());
-      await client.hello();
-
-      await client.disconnect();
-
-      expect(transport.closeCalled, isTrue);
-      expect(client.connectionState, DovahLinkConnectionState.disconnected);
-      expect(client.trustState, isNull);
-      expect(client.sessionId, isNull);
-    });
-
-    test('is idempotent: calling it twice does not throw', () async {
-      await client.disconnect();
-
-      await expectLater(client.disconnect(), completes);
-    });
-
+  group('Method disconnect behaves correctly', () {
     test(
-      'resets in-memory session state and does not throw even when closing the transport fails',
+      'Method disconnect closes the transport and resets session state',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
         await client.hello();
-        transport.failCloseWith = const SocketException('socket already gone');
 
-        await expectLater(client.disconnect(), completes);
+        await client.disconnect();
 
         expect(transport.closeCalled, isTrue);
         expect(client.connectionState, DovahLinkConnectionState.disconnected);
@@ -1397,92 +851,36 @@ void main() {
       },
     );
 
-    test('leaves persisted state untouched', () async {
-      await storage.save(
-        const PersistedClientState(
-          clientId: 'client-1',
-          credential: 'a1b2c3d4e5f6',
-        ),
-      );
-
-      await client.disconnect();
-
-      final PersistedClientState stored = await storage.load();
-      expect(stored.clientId, 'client-1');
-      expect(stored.credential, 'a1b2c3d4e5f6');
-    });
-  });
-
-  group('forgetCredential', () {
     test(
-      'preserves clientId while clearing the credential and recovery state',
+      'Method disconnect preserves the persisted credential',
       () async {
         await storage.save(
           const PersistedClientState(
             clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
+            credential: 'credential-1',
           ),
         );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
 
-        await client.forgetCredential();
+        await client.disconnect();
 
         final PersistedClientState stored = await storage.load();
         expect(stored.clientId, 'client-1');
-        expect(stored.credential, isNull);
-        expect(stored.recoveryState, PairingRecoveryState.none);
+        expect(stored.credential, 'credential-1');
       },
     );
+  });
 
-    test('is safe to call with nothing persisted yet', () async {
-      await expectLater(client.forgetCredential(), completes);
-
-      final PersistedClientState stored = await storage.load();
-      expect(stored.clientId, isNull);
-      expect(stored.credential, isNull);
-    });
-
-    test('is a no-op when the credential is already clear', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
-
-      await client.forgetCredential();
-
-      final PersistedClientState stored = await storage.load();
-      expect(stored.clientId, 'client-1');
-      expect(stored.credential, isNull);
-      expect(stored.recoveryState, PairingRecoveryState.none);
-    });
-
-    test('is idempotent: calling it twice does not throw', () async {
-      await storage.save(
-        const PersistedClientState(
-          clientId: 'client-1',
-          credential: 'a1b2c3d4e5f6',
-        ),
-      );
-
-      await client.forgetCredential();
-
-      await expectLater(client.forgetCredential(), completes);
-    });
-
+  group('Method forgetCredential behaves correctly', () {
     test(
-      'does not touch the transport or in-memory connection state',
-      () async {
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
-        await client.hello();
-
-        await client.forgetCredential();
-
-        expect(transport.closeCalled, isFalse);
-        expect(client.connectionState, DovahLinkConnectionState.connected);
-      },
-    );
-
-    test(
-      'a later hello presents unpaired instead of the forgotten credential',
+      'Method forgetCredential a later hello presents unpaired instead of the forgotten credential',
       () async {
         await storage.save(
           const PersistedClientState(
@@ -1491,8 +889,11 @@ void main() {
           ),
         );
         await client.forgetCredential();
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(_rawCapabilities());
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
 
         await client.hello();
 
@@ -1504,25 +905,770 @@ void main() {
     );
   });
 
-  group('protocol violations', () {
+  group('Behavior inbound message routing behaves correctly', () {
     test(
-      'an unexpected message type throws DovahLinkProtocolException',
+      'Behavior inbound message routing gives sequential requests their own correlated replies',
       () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        final HelloResult helloResult = await client.hello();
+        expect(helloResult.trustState, DovahLinkTrustState.unpaired);
+
         transport.queueResponse(
           _rawFixture('pairing/pairing-status-available.json'),
         );
+        final PairingChallengeStatus status = await client.requestPairing();
+
+        expect(status.availability, PairingAvailability.available);
+        expect(transport.sent, hasLength(2));
+      },
+    );
+
+    test('Behavior inbound message routing does not consume an unsolicited message as a pending '
+        'request reply', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      // capabilities is queued before hello-ack here, unlike every other test above, to prove
+      // the router does not treat "whatever arrives first" as the pending operation's reply.
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+
+      final HelloResult result = await client.hello();
+
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+    });
+
+    test(
+      'Behavior inbound message routing fails closed for an unmatched correlationId',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final Future<HelloResult> helloFuture = client.hello();
+        await pumpEventQueue();
+
+        transport.queueRawResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-1',
+            'sessionId': 'session-1',
+            'correlationId': 'no-such-pending-operation',
+            'payload': <String, dynamic>{
+              'bridgeVersion': '0.3.2',
+              'clientIdentityKind': 'unpaired',
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
 
         await expectLater(
-          client.hello(),
+          helloFuture,
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
               'code',
-              'unexpected_message_type',
+              ProtocolErrorCode.malformedMessage,
             ),
           ),
         );
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(transport.closeCalled, isTrue);
       },
     );
+
+    test(
+      'Behavior inbound message routing contains malformed background JSON as a protocol failure',
+      () async {
+        final List<Object> uncaughtErrors = <Object>[];
+        final Completer<void> done = Completer<void>();
+
+        runZonedGuarded(() async {
+          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+          transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+          await client.hello();
+
+          transport.queueRawResponse('not valid json');
+          await pumpEventQueue();
+          done.complete();
+        }, (Object error, StackTrace stackTrace) => uncaughtErrors.add(error));
+
+        await done.future;
+
+        expect(uncaughtErrors, isEmpty);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(transport.closeCalled, isTrue);
+      },
+    );
+  });
+
+  group('Behavior session_invalidated handling behaves correctly', () {
+    test(
+      'Behavior session_invalidated handling exposes the typed invalidationReason',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        transport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pumpEventQueue();
+
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          client.invalidationReason,
+          AdministrativeInvalidationReason.revoked,
+        );
+      },
+    );
+
+    for (final MapEntry<AdministrativeInvalidationReason, String> entry
+        in _invalidationWireValues.entries) {
+      test(
+        'Behavior session_invalidated handling clears the persisted credential for ${entry.key.name}',
+        () async {
+          await storage.save(
+            const PersistedClientState(
+              clientId: 'client-1',
+              credential: 'credential-1',
+            ),
+          );
+          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+          transport.queueResponse(
+            _rawFixture('connection/hello-ack-paired.json'),
+          );
+          transport.queueResponse(
+            _rawFixture('capabilities/capabilities-bridge.json'),
+          );
+          await client.hello();
+
+          transport.queueResponse(_rawSessionInvalidated(entry.value));
+          await pumpEventQueue();
+
+          final PersistedClientState stored = await storage.load();
+          expect(stored.clientId, 'client-1');
+          expect(stored.credential, isNull);
+          expect(stored.recoveryState, PairingRecoveryState.none);
+        },
+      );
+    }
+
+    test(
+      'Behavior session_invalidated handling clears a confirming credential and recovery state',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        transport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pumpEventQueue();
+
+        final PersistedClientState stored = await storage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.credential, isNull);
+        expect(stored.recoveryState, PairingRecoveryState.none);
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling cleans up once when close signals are duplicated',
+      () async {
+        final TrackingClientStorage trackingStorage = TrackingClientStorage(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+          ),
+        );
+        final FakeDovahLinkTransport trackingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient trackingClient = DovahLinkClient(
+          transport: trackingTransport,
+          storage: trackingStorage,
+        );
+        addTearDown(trackingClient.disconnect);
+
+        await trackingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        trackingTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        trackingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await trackingClient.hello();
+
+        trackingTransport.queueResponse(_rawSessionInvalidated('revoked'));
+        trackingTransport.failMessagesWithBoth(
+          const SocketException('closed by bridge'),
+        );
+        await pumpEventQueue();
+
+        expect(trackingStorage.saveCount, 1);
+        expect((await trackingStorage.load()).credential, isNull);
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling contains a persistence cleanup failure',
+      () async {
+        final TrackingClientStorage failingStorage = TrackingClientStorage(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+          ),
+        )..saveError = StateError('storage unavailable');
+        final FakeDovahLinkTransport failingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient failingClient = DovahLinkClient(
+          transport: failingTransport,
+          storage: failingStorage,
+        );
+        addTearDown(failingClient.disconnect);
+
+        await failingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        failingTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        failingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await failingClient.hello();
+
+        final List<Object> uncaughtErrors = <Object>[];
+        final Completer<void> done = Completer<void>();
+        runZonedGuarded(() async {
+          failingTransport.queueResponse(_rawSessionInvalidated('revoked'));
+          await pumpEventQueue();
+          done.complete();
+        }, (Object error, StackTrace stackTrace) => uncaughtErrors.add(error));
+        await done.future;
+
+        expect(uncaughtErrors, isEmpty);
+        expect(failingStorage.saveCount, 1);
+        expect((await failingStorage.load()).credential, 'credential-1');
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling fails a pending operation with a connection exception '
+      'while it awaits a reply',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<PairingChallengeStatus> pending = client.requestPairing();
+        await pumpEventQueue();
+        transport.queueResponse(_rawSessionInvalidated('revoked'));
+
+        await expectLater(
+          pending,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          client.invalidationReason,
+          AdministrativeInvalidationReason.revoked,
+        );
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling fails closed when no session is authenticated',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        // hello() never ran -- no sessionId/trustState exists yet.
+        transport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pumpEventQueue();
+
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.invalidationReason, isNull);
+        expect(transport.closeCalled, isTrue);
+      },
+    );
+
+    test('Behavior session_invalidated handling preserves its typed reason during a transport '
+        'failure race', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      // Both delivered on the same still-active subscription before either is processed,
+      // simulating the bridge's own follow-up socket close racing this SDK's own
+      // subscription-cancellation cleanup for session_invalidated.
+      transport.queueResponse(_rawSessionInvalidated('blocked'));
+      transport.failMessagesWith(const SocketException('closed by bridge'));
+      await pumpEventQueue();
+
+      expect(
+        client.connectionState,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      );
+      expect(
+        client.invalidationReason,
+        AdministrativeInvalidationReason.blocked,
+      );
+    });
+  });
+
+  group('Behavior retry-safe operations across reconnect behaves correctly', () {
+    test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
+        'via automatic reconnect', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      final Future<PairingChallengeStatus> pending = client.requestPairing();
+      await pumpEventQueue();
+      // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
+      // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-status-available.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
+
+      final PairingChallengeStatus status = await pending;
+      expect(status.availability, PairingAvailability.available);
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      // hello#1, pairing_request#1 (orphaned), hello#2 (automatic), pairing_request#2 (the one
+      // retry).
+      expect(transport.sent, hasLength(4));
+    });
+
+    test('Behavior retry-safe reconnect fails without retransmission when trust state changes, via '
+        'automatic reconnect', () async {
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      final Future<PairingChallengeStatus> pending = client.requestPairing();
+      await pumpEventQueue();
+      // The reconnected session comes back already trusted -- pairing_request requires
+      // unpaired, so the orphaned request must fail instead of being retried into a session it
+      // was never classified for. Queued ahead of the drop so automatic reconnect's own
+      // connect()+hello() finds it ready the moment it retries.
+      transport.queueResponse(
+        jsonEncode(<String, dynamic>{
+          'messageType': 'hello_ack',
+          'messageId': 'message-hello-ack-2',
+          'sessionId': 'session-2',
+          'correlationId': 'irrelevant',
+          'payload': <String, dynamic>{
+            'bridgeVersion': '0.2.0',
+            'clientIdentityKind': 'paired',
+          },
+          'bridgeInstanceId': 'bridge-1',
+          'playContextId': null,
+          'clientId': 'client-1',
+        }),
+      );
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
+
+      await expectLater(pending, throwsA(isA<DovahLinkConnectionException>()));
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      // hello#1, pairing_request#1 (orphaned, already sent before the drop), hello#2
+      // (automatic) -- no pairing_request#2: the orphaned request was never retransmitted.
+      expect(transport.sent, hasLength(3));
+    });
+
+    test(
+      'Behavior retry-safe reconnect does not orphan a retried operation a second time',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<PairingChallengeStatus> pending = client.requestPairing();
+        // Attached immediately, before this Future can possibly settle: Dart reports an error on
+        // a Future that settles before anything is listening as unhandled, even if something
+        // awaits it later.
+        final Future<void> pendingFails = expectLater(
+          pending,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await pumpEventQueue();
+        // Queued ahead of the drop so automatic reconnect's own connect()+hello() finds them
+        // ready, retransmitting the orphaned request as its one retry once the fresh session is
+        // admitted.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+        // Waits for the full automatic-reconnect cycle above -- connect, hello, admitSession, and
+        // the resulting retransmit -- to actually finish before dropping the retry itself; a
+        // single pumpEventQueue() does not reliably drain every hop in that chain. Bounded so a
+        // genuine failure to reconnect fails this test instead of hanging it.
+        for (int i = 0; i < 20 && transport.sent.length < 4; i++) {
+          await pumpEventQueue();
+        }
+        expect(transport.sent, hasLength(4));
+        // The retry itself now also drops, with no reply ever queued for it, so the next
+        // automatic reconnect's own hello() succeeds but never resurrects the already-retried
+        // operation.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped again'));
+
+        await pendingFails;
+        // Waits for automatic reconnect's own second cycle (triggered by the drop above) to
+        // finish connecting and re-authenticating before asserting on its outcome, bounded so a
+        // genuine failure to reconnect fails this test instead of hanging it.
+        for (
+          int i = 0;
+          i < 20 &&
+              client.connectionState != DovahLinkConnectionState.connected;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+
+        // A third connect/hello round must not resurrect it for a second retry.
+        await client.disconnect();
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        // hello#1, pairing_request#1, hello#2(automatic), pairing_request#2(retry),
+        // hello#3(automatic), hello#4(manual) -- no third pairing_request.
+        expect(transport.sent, hasLength(6));
+      },
+    );
+
+    test(
+      'Behavior retry-safe reconnect fails a non-retry-safe operation immediately',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<String> pending = client.confirmPairingCode(
+          code: '123456',
+        );
+        await pumpEventQueue();
+        transport.failMessagesWith(const SocketException('dropped'));
+
+        await expectLater(
+          pending,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        // Cancels the automatic reconnect the drop above also started (this test is only about
+        // the non-retry-safe operation's own immediate failure), so it cannot leak into a later
+        // test's transport/client instances.
+        await client.disconnect();
+      },
+    );
+  });
+
+  group('Behavior stale receiver isolation behaves correctly', () {
+    test(
+      'Behavior stale receiver isolation does not consume a late reply for a new operation',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        // confirmPairingCode (not retry-safe) rather than requestPairing here: the point of this
+        // test is what happens to a stale reply arriving late for an old, dead generation, not
+        // retry behavior -- a retry-safe first request would itself get auto-retried by the
+        // second hello() below, which is exactly the mechanism the sibling group above already
+        // covers and would confuse this test's own generation-isolation assertion.
+        final Future<String> firstRequest = client.confirmPairingCode(
+          code: '123456',
+        );
+        final Future<void> firstRequestFails = expectLater(
+          firstRequest,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await pumpEventQueue();
+        final String staleMessageId =
+            (jsonDecode(transport.sent.last) as JsonMap)['messageId'] as String;
+        transport.failMessagesWith(const SocketException('dropped'));
+        await firstRequestFails;
+        await pumpEventQueue();
+        // Cancels whatever bounded automatic reconnect the drop above already started, so this
+        // test regains explicit manual control of the next connect/hello cycle -- this test is
+        // about stale-reply isolation across generations, not automatic recovery.
+        await client.disconnect();
+
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<PairingChallengeStatus> secondRequest = client
+            .requestPairing();
+        final Future<void> secondRequestFails = expectLater(
+          secondRequest,
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+        await pumpEventQueue();
+
+        // A reply correlated to the old, already-failed first request must not be mistaken for
+        // the new one's reply -- it fails closed as an unmatched correlationId instead.
+        transport.queueRawResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'pairing_status',
+            'messageId': 'message-late-1',
+            'sessionId': 'session-1',
+            'correlationId': staleMessageId,
+            'payload': <String, dynamic>{
+              'state': 'available',
+              'expiresInSeconds': 300,
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+
+        await secondRequestFails;
+      },
+    );
+  });
+
+  group('Behavior request policy timeout handling behaves correctly', () {
+    test(
+      'Behavior request timeout handling surfaces DovahLinkConnectionException for a '
+      'never-connected transport',
+      () async {
+        final DovahLinkClient realTransportClient = DovahLinkClient(
+          transport: WebSocketTransport(),
+          storage: storage,
+        );
+
+        await expectLater(
+          realTransportClient.hello(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+      },
+    );
+
+    test(
+      'Behavior request timeout handling fails and disconnects after its timeout class duration',
+      () async {
+        final DovahLinkClient timeoutClient =
+            DovahLinkClient.withTimeoutDurations(
+              transport: transport,
+              storage: storage,
+              timeoutDurations: const <TimeoutClass, Duration>{
+                TimeoutClass.short: Duration(milliseconds: 20),
+                TimeoutClass.normal: Duration(milliseconds: 20),
+                TimeoutClass.heavy: Duration(milliseconds: 20),
+              },
+            );
+
+        // No reply is ever queued for hello -- it must time out rather than hang.
+        await expectLater(
+          timeoutClient.hello(),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(
+          timeoutClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+      },
+    );
+
+    test('Behavior request timeout handling retransmits retry-safe acknowledgeTrustedCredential '
+        'after ordinary transport loss, via automatic reconnect', () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'a1b2c3d4e5f6',
+          recoveryState: PairingRecoveryState.confirming,
+        ),
+      );
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      final Future<void> pending = client.acknowledgeTrustedCredential(
+        'a1b2c3d4e5f6',
+      );
+      final Future<void> pendingCompletes = expectLater(pending, completes);
+      await pumpEventQueue();
+      // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
+      // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      transport.queueResponse(
+        _rawFixture('pairing/pairing-outcome-trusted.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
+
+      await pendingCompletes;
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      expect(client.trustState, DovahLinkTrustState.trusted);
+    });
+
+    test(
+      'Behavior request timeout handling fails a pending retry-safe operation immediately after a '
+      'protocol violation',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<PairingChallengeStatus> pending = client
+            .requestPairing(); // retrySafe
+        final Future<void> pendingFails = expectLater(
+          pending,
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+        await pumpEventQueue();
+
+        transport.queueRawResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'pairing_status',
+            'messageId': 'message-x',
+            'sessionId': 'session-1',
+            'correlationId': 'no-such-pending-operation',
+            'payload': <String, dynamic>{
+              'state': 'available',
+              'expiresInSeconds': 300,
+            },
+            'bridgeInstanceId': 'bridge-1',
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+        await pendingFails;
+
+        // Confirmed not orphaned: a fresh connect/hello does not retransmit it.
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+        expect(transport.sent, hasLength(3));
+      },
+    );
+
+    test(
+      'disconnect() also fails an already-orphaned operation, not just a currently pending one',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        final Future<PairingChallengeStatus> pending = client.requestPairing();
+        final Future<void> pendingFails = expectLater(
+          pending,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await pumpEventQueue();
+        transport.failMessagesWith(const SocketException('dropped'));
+        await pumpEventQueue();
+        // Bounded automatic reconnect has already reconnected the transport (attempt 0 fires
+        // immediately and this fake transport's connect() always succeeds) and is awaiting its
+        // own re-authentication reply, never queued here -- so the orphaned operation has not
+        // yet been retried; that only happens once a fresh session is actually admitted.
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+
+        // Deliberate disconnect while automatic reconnect is still awaiting re-authentication and
+        // has not yet retried the orphaned operation -- must not leave it hanging forever.
+        await client.disconnect();
+
+        await pendingFails;
+      },
+    );
+  });
+
+  group('Behavior composition-root teardown deduplication behaves correctly', () {
+    test('Behavior composition-root teardown deduplication closes the transport exactly once for a '
+        'duplicate onError/onDone signal on one dead connection', () async {
+      // Proves, through a real DovahLinkClient composed of real ConnectionTeardownCoordinator
+      // and LifecycleOperationQueue instances (not mocked away, unlike every Service's own
+      // unit test), that a stream's onError and onDone both firing for one dead connection --
+      // exactly what a real dropped socket delivers -- runs real teardown/close exactly once,
+      // per `ai/context/sdk/testing.md`'s "Session/request refactor regression requirements".
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      transport.failMessagesWithBoth(const SocketException('dropped'));
+      await pumpEventQueue();
+
+      expect(transport.closeCallCount, 1);
+      // Ordinary transport loss with a known endpoint hands off to bounded automatic
+      // reconnect; disconnect before its own delayed next attempt runs so this test does not
+      // leave a live background reconnect cycle behind it, mirroring the established pattern
+      // above.
+      await client.disconnect();
+    });
   });
 }

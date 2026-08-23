@@ -3,7 +3,34 @@
 Read `ai/context/integration/testing.md` for the cross-side contract-test conventions this file
 does not repeat, and `ai/context/dart/dart-style.md` for general Dart test style.
 
-## Ownership after SDK migration
+Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK tests.
+- Tests for a collaborator's method belong with that source unit's mirrored test file. A service test
+  may prove the service's recovery behavior through a collaborator, but it must not become the
+  direct test suite for the collaborator's method.
+
+## Test fixtures and ownership
+
+- Keep SDK-owned fixtures below the package-local
+  `sdk/dart/dovahlink_client/test/fixtures/` directory, with subfolders mirroring the owning
+  production area below `lib/src/` (`protocol`, `persistence`, `internal`, and so on). For example,
+  the typed envelope fixture belongs at `test/fixtures/protocol/envelope.fixture.dart` relative to
+  the SDK package root. This is an in-memory unit-test fixture, not a canonical cross-side JSON
+  fixture. Use descriptive `.fixture.dart` files; do not create one global fixture or constants
+  file, and apply the shared Dart fixture-builder rules.
+- No exceptions: a DTO/value type is constructed in `test/` code in exactly one place, its own
+  `build<Type>()` fixture. Every other test file calls the builder; none hand-rolls its own private
+  construction helper or inline literal for a type another file already builds. When one fixture's
+  own default value needs another type's fixture (`PendingOperation`'s default `policy` needs
+  `RequestPolicy`'s representative shape), compose the other builder rather than re-deriving that
+  shape locally — since a fixture-builder call is never `const`-eligible, do this via a nullable
+  parameter and `??`, not a `const` default.
+- A DTO/value type used through a fixture builder needs real `==`/`hashCode` (see the hand-written
+  pattern on `PersistedClientState`) if any test ever compares two instances for equality —
+  `const` literals canonicalize to the same instance and can silently stand in for a missing
+  equality override; a fixture builder's non-`const` calls cannot, and will surface the gap as a
+  failing `verify()`/`expect()` the moment inline literals are replaced with fixture calls.
+
+## Test ownership boundaries
 
 SDK tests own: canonical contract encoding/decoding, semantic validation, Bridge compatibility
 checks, session identity, Bridge identity, play-context identity, revision handling, stale
@@ -38,3 +65,60 @@ The .NET validation client (`integration/DovahLinkValidationClient/`) must remai
 hand-written implementation of the canonical contract. It must not consume, wrap, generate from, or
 otherwise reuse the Dart SDK; its value is precisely that it can catch a Bridge bug, an SDK bug, or
 an assumption accidentally shared only by the official Dart implementation.
+
+## Service test boundaries
+
+Every constructor dependency of the class under test is mocked (`mocktail`'s `class MockX extends
+Mock implements X {}`), with no exceptions for plain, no-interface, or zero-dependency
+collaborators. This applies uniformly to every class this package tests, not only the seven
+Services: `SessionServiceImpl`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
+`ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
+`PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks
+`LifecycleOperationQueue`, in turn. A class's own test file is the only place that class's real
+behavior runs; every consumer treats it as a black box and verifies via `verify()`/`captureAny()`
+that the right call happened with the right arguments — never by composing the real object and
+observing the outcome it produces. This holds even where the dependency is a small, mechanical,
+zero-constructor-dependency object like `LifecycleOperationQueue` (just a real FIFO sequencer): its
+own behavior is already proven once, in its own test file, and re-proving that same behavior through
+every consumer's test is exactly the duplication this rule exists to eliminate. The one place real,
+composed objects are deliberately used together is `DovahLinkClient`'s composition-root assembly
+integration test (see `ai/context/sdk/architecture.md`'s composition root) — that is where genuine
+end-to-end call-sequencing guarantees (for example `ConnectionTeardownCoordinator`'s queued-call
+deduplication, composed with a real `LifecycleOperationQueue`) get their one, deliberate, real-object
+proof; no individual Service or collaborator's own unit test re-derives it.
+
+A consumer's test suite proves its own reaction to a dependency's contract — success, each documented
+failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
+and (for a mocked collaborator) that the right method was called with the right arguments — and must
+not become a second test suite for that dependency's own internal branches, which stay owned by the
+dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `SessionService` and
+`AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
+bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
+how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
+`AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
+and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
+`SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
+interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
+mocking a concrete class' single interface a one-line cost regardless of that interface's size, so
+mock-boilerplate reduction is never, by itself, sufficient justification for a new interface in this
+codebase; every Service interface exists because of a genuine architectural reason documented in
+`ai/context/sdk/architecture.md`.
+
+## Teardown deduplication and connection-guard coverage
+
+Two behaviors need their own explicit tests, not just whatever coverage happens to exist elsewhere:
+
+- `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
+  and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
+  transport's `onError` and `onDone` both firing for one dead connection). Under "Service test
+  boundaries"' full mock isolation, `SessionServiceImpl`'s own test proves only that it calls
+  `ConnectionTeardownCoordinator.tearDown` with the right arguments for each reactive signal;
+  `ConnectionTeardownCoordinator`'s own generation-check dedup logic is proven in its own test file;
+  the full, real, composed guarantee (a real coordinator over a real queue actually deduplicating a
+  queued-behind call) is proven once, deliberately, at `DovahLinkClient`'s composition-root assembly
+  integration test (`test/dovahlink_client_test.dart`'s "Behavior composition-root teardown
+  deduplication" group) — never re-derived at any individual Service's own mocked-everything
+  unit-test level.
+- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard must fail a request issued before any
+  `connect()` call immediately and synchronously with a typed `DovahLinkConnectionException`,
+  without registering or transmitting anything.

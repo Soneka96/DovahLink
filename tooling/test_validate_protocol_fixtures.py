@@ -229,6 +229,7 @@ class ValidateAllTests(unittest.TestCase):
         expected = {
             "connection/hello.json",
             "connection/hello-ack.json",
+            "connection/hello-ack-paired.json",
             "connection/hello-ack-active-context.json",
             "connection/hello-unpaired.json",
             "connection/hello-trusted-device-credential.json",
