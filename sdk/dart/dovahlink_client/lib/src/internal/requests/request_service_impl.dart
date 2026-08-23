@@ -1,0 +1,113 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/reply_validator.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+
+/// Implements [RequestService], per `ai/context/sdk/architecture.md`'s "Internal composition" and
+/// "Request/session boundary". Every collaborator ([PendingOperationBookkeeping],
+/// [PendingOperationTransmitter], [MessageRouter]) is supplied by the caller per
+/// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
+/// its own dependencies. [PendingOperationTransmitter] and [MessageRouter] depend directly on
+/// [SessionService] and [PendingOperationBookkeeping], the same instances this class holds --
+/// no adapter stands between them.
+class RequestServiceImpl implements RequestService {
+  /// The session this service reads identity/trust from.
+  final SessionService _sessionService;
+
+  /// Owns every pending and orphaned-for-retry operation this service tracks.
+  final PendingOperationBookkeeping _bookkeeping;
+
+  /// Owns one request's wire-attempt mechanics while [_bookkeeping] owns pending-operation state.
+  final PendingOperationTransmitter _transmitter;
+
+  /// Owns envelope decoding, correlation, and unsolicited routing.
+  final MessageRouter _messageRouter;
+
+  /// Creates a request service over already-constructed [sessionService], [bookkeeping],
+  /// [transmitter], and [messageRouter].
+  RequestServiceImpl({
+    required SessionService sessionService,
+    required PendingOperationBookkeeping bookkeeping,
+    required PendingOperationTransmitter transmitter,
+    required MessageRouter messageRouter,
+  }) : _sessionService = sessionService,
+       _bookkeeping = bookkeeping,
+       _transmitter = transmitter,
+       _messageRouter = messageRouter;
+
+  /// Implements [RequestService.sendAndAwait]. Fails immediately, before registering or
+  /// transmitting anything, unless [SessionService.connectionState] is currently `connected` or
+  /// `reconnecting` -- replacing the eliminated `ensureReceiving` mechanism per
+  /// `ai/context/sdk/architecture.md`'s "Request/session boundary".
+  @override
+  Future<Envelope> sendAndAwait({
+    required ProtocolMessageType messageType,
+    required JsonMap payload,
+    required ProtocolMessageType expectedType,
+    required RequestPolicy policy,
+  }) async {
+    final DovahLinkConnectionState connectionState =
+        _sessionService.connectionState;
+    if (connectionState != DovahLinkConnectionState.connected &&
+        connectionState != DovahLinkConnectionState.reconnecting) {
+      throw DovahLinkConnectionException(
+        'Cannot send $messageType: no active connection.',
+      );
+    }
+    final PendingOperation operation = PendingOperation(
+      messageType: messageType,
+      payload: payload,
+      policy: policy,
+    );
+    _transmitter.transmit(operation);
+    final Envelope envelope = await operation.completer.future;
+    return ReplyValidator.validate(
+      expectedType: expectedType,
+      envelope: envelope,
+    );
+  }
+
+  /// Implements [RequestService.handleIncoming].
+  @override
+  void handleIncoming(String raw) => _messageRouter.handleIncoming(raw);
+
+  /// Implements [RequestService.failAll].
+  @override
+  void failAll(Exception reason, {required bool orphanRetrySafeOperations}) =>
+      _bookkeeping.failAll(
+        reason,
+        orphanRetrySafeOperations: orphanRetrySafeOperations,
+      );
+
+  /// Implements [RequestService.retryOrphanedOperations]. An operation whose
+  /// [RequestPolicy.requiredTrustState] the new session no longer satisfies fails without
+  /// retransmission instead of being retried into a session it was never classified for.
+  @override
+  void retryOrphanedOperations() {
+    final List<PendingOperation> toRetry = _bookkeeping.takeOrphaned();
+    for (final PendingOperation operation in toRetry) {
+      final DovahLinkTrustState? required = operation.policy.requiredTrustState;
+      if (required != null && required != _sessionService.currentTrustState) {
+        if (!operation.completer.isCompleted) {
+          operation.completer.completeError(
+            DovahLinkConnectionException(
+              'Cannot retry ${operation.messageType} after reconnect: the new session no '
+              'longer satisfies its required trust state.',
+            ),
+          );
+        }
+        continue;
+      }
+      operation.hasRetried = true;
+      _transmitter.transmit(operation);
+    }
+  }
+}
