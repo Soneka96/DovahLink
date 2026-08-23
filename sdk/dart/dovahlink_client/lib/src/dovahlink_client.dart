@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
@@ -131,7 +133,6 @@ class DovahLinkClient {
       transmitter: transmitter,
       messageRouter: messageRouter,
     );
-    _sessionService.onTeardown = _requestService.failAll;
     _sessionService.onIncomingMessage = _requestService.handleIncoming;
 
     final SessionAdmissionServiceImpl sessionAdmissionService =
@@ -153,6 +154,25 @@ class DovahLinkClient {
       storage: _storage,
       clientIdResolver: clientIdResolver,
     );
+    _sessionService.onTeardown = (
+      Exception reason, {
+      required bool orphanRetrySafeOperations,
+    }) {
+      _requestService.failAll(
+        reason,
+        orphanRetrySafeOperations: orphanRetrySafeOperations,
+      );
+      if (_sessionService.invalidationReason != null) {
+        unawaited(
+          _authenticationService.forgetCredential().catchError(
+            (Object _, StackTrace __) {
+              // Invalidation is already terminal; a later explicit authentication can retry this
+              // best-effort cleanup when the persistence failure has been resolved.
+            },
+          ),
+        );
+      }
+    };
     _pairingService = PairingServiceImpl(
       sessionTrustService: sessionTrustService,
       requestService: _requestService,

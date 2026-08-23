@@ -182,6 +182,42 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
       _incoming ??= StreamController<String>();
 }
 
+/// Tracks persistence writes for composition-root invalidation tests.
+class TrackingClientStorage implements ClientStorage {
+  /// Creates storage seeded with [state].
+  TrackingClientStorage(this._state);
+
+  /// State returned by [load].
+  PersistedClientState _state;
+
+  /// Optional error thrown by [save].
+  Object? saveError;
+
+  /// Number of attempted [save] calls.
+  int saveCount = 0;
+
+  /// See [ClientStorage.load].
+  @override
+  Future<PersistedClientState> load() async => _state;
+
+  /// See [ClientStorage.save].
+  @override
+  Future<void> save(PersistedClientState state) async {
+    saveCount++;
+    final Object? error = saveError;
+    if (error != null) {
+      throw error;
+    }
+    _state = state;
+  }
+
+  /// See [ClientStorage.clear].
+  @override
+  Future<void> clear() async {
+    _state = const PersistedClientState();
+  }
+}
+
 /// Reads one canonical protocol fixture as raw JSON text, relative to `protocol/fixtures/`.
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
@@ -198,6 +234,15 @@ String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
   'playContextId': null,
   'clientId': null,
 });
+
+/// Maps each typed administrative invalidation reason to its canonical wire value.
+const Map<AdministrativeInvalidationReason, String> _invalidationWireValues =
+    <AdministrativeInvalidationReason, String>{
+      AdministrativeInvalidationReason.revoked: 'revoked',
+      AdministrativeInvalidationReason.blocked: 'blocked',
+      AdministrativeInvalidationReason.trustReset: 'trust_reset',
+      AdministrativeInvalidationReason.factoryReset: 'factory_reset',
+    };
 
 /// Connects [client] to the fake transport and admits an unpaired session for a public-client test.
 Future<void> _connectAndHello(
@@ -805,6 +850,32 @@ void main() {
         expect(client.sessionId, isNull);
       },
     );
+
+    test(
+      'Method disconnect preserves the persisted credential',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+          ),
+        );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        await client.disconnect();
+
+        final PersistedClientState stored = await storage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.credential, 'credential-1');
+      },
+    );
   });
 
   group('Method forgetCredential behaves correctly', () {
@@ -956,6 +1027,144 @@ void main() {
           client.invalidationReason,
           AdministrativeInvalidationReason.revoked,
         );
+      },
+    );
+
+    for (final MapEntry<AdministrativeInvalidationReason, String> entry
+        in _invalidationWireValues.entries) {
+      test(
+        'Behavior session_invalidated handling clears the persisted credential for ${entry.key.name}',
+        () async {
+          await storage.save(
+            const PersistedClientState(
+              clientId: 'client-1',
+              credential: 'credential-1',
+            ),
+          );
+          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+          transport.queueResponse(
+            _rawFixture('connection/hello-ack-paired.json'),
+          );
+          transport.queueResponse(
+            _rawFixture('capabilities/capabilities-bridge.json'),
+          );
+          await client.hello();
+
+          transport.queueResponse(_rawSessionInvalidated(entry.value));
+          await pumpEventQueue();
+
+          final PersistedClientState stored = await storage.load();
+          expect(stored.clientId, 'client-1');
+          expect(stored.credential, isNull);
+          expect(stored.recoveryState, PairingRecoveryState.none);
+        },
+      );
+    }
+
+    test(
+      'Behavior session_invalidated handling clears a confirming credential and recovery state',
+      () async {
+        await storage.save(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        transport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pumpEventQueue();
+
+        final PersistedClientState stored = await storage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.credential, isNull);
+        expect(stored.recoveryState, PairingRecoveryState.none);
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling cleans up once when close signals are duplicated',
+      () async {
+        final TrackingClientStorage trackingStorage = TrackingClientStorage(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+          ),
+        );
+        final FakeDovahLinkTransport trackingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient trackingClient = DovahLinkClient(
+          transport: trackingTransport,
+          storage: trackingStorage,
+        );
+        addTearDown(trackingClient.disconnect);
+
+        await trackingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        trackingTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        trackingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await trackingClient.hello();
+
+        trackingTransport.queueResponse(_rawSessionInvalidated('revoked'));
+        trackingTransport.failMessagesWithBoth(
+          const SocketException('closed by bridge'),
+        );
+        await pumpEventQueue();
+
+        expect(trackingStorage.saveCount, 1);
+        expect((await trackingStorage.load()).credential, isNull);
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling contains a persistence cleanup failure',
+      () async {
+        final TrackingClientStorage failingStorage = TrackingClientStorage(
+          const PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+          ),
+        )..saveError = StateError('storage unavailable');
+        final FakeDovahLinkTransport failingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient failingClient = DovahLinkClient(
+          transport: failingTransport,
+          storage: failingStorage,
+        );
+        addTearDown(failingClient.disconnect);
+
+        await failingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        failingTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        failingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await failingClient.hello();
+
+        final List<Object> uncaughtErrors = <Object>[];
+        final Completer<void> done = Completer<void>();
+        runZonedGuarded(() async {
+          failingTransport.queueResponse(_rawSessionInvalidated('revoked'));
+          await pumpEventQueue();
+          done.complete();
+        }, (Object error, StackTrace stackTrace) => uncaughtErrors.add(error));
+        await done.future;
+
+        expect(uncaughtErrors, isEmpty);
+        expect(failingStorage.saveCount, 1);
+        expect((await failingStorage.load()).credential, 'credential-1');
       },
     );
 
