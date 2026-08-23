@@ -94,12 +94,6 @@ class ConnectionTeardownCoordinator {
         }
       });
 
-  /// Best-effort cancels [subscription] and closes the transport.
-  Future<void> closeResources(StreamSubscription<String>? subscription) async {
-    await cancelSubscription(subscription);
-    await closeTransport();
-  }
-
   /// Best-effort cancels [subscription].
   Future<void> cancelSubscription(
     StreamSubscription<String>? subscription,
