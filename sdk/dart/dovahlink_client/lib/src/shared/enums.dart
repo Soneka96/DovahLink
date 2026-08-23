@@ -18,6 +18,12 @@ enum DovahLinkConnectionState {
   /// current session -- recovery is only ever a fresh, explicit `DovahLinkClient.connect`, never
   /// automatic.
   administrativelyInvalidated,
+
+  /// Bounded automatic recovery is in progress after ordinary, unexpected transport loss (not a
+  /// deliberate disconnect, and not an administrative invalidation -- neither of those ever enters
+  /// this state). Resolves to [connected] once recovery re-establishes a trusted session, or to
+  /// [disconnected] if the bounded recovery window is exhausted first.
+  reconnecting,
 }
 
 /// The client's own trust standing with the bridge, established once `DovahLinkClient.hello`
