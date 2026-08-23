@@ -1,11 +1,15 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/client_session.dart';
+import 'package:dovahlink_client_sdk/src/internal/session_context.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Connects, disconnects, and admits a newly authenticated session, for a collaborator that
 /// orchestrates authentication but does not itself own transport lifecycle or connection state --
 /// see `ai/context/sdk/architecture.md`'s "Internal composition". Implemented by [ClientSession].
-abstract interface class SessionConnector {
+/// Extends [SessionContext] because every consumer of this port also needs read access to the
+/// current session identity/trust state (a collaborator that only needs the read side takes
+/// [SessionContext] alone instead).
+abstract interface class SessionConnector implements SessionContext {
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState;
 

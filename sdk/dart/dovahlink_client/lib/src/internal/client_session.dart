@@ -27,7 +27,6 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// state directly; [admitSession] and [markTrusted] are the only write commands.
 class ClientSession
     implements
-        SessionContext,
         ConnectionLifecycleReporter,
         SessionConnector,
         SessionTrustWriter,

@@ -127,10 +127,12 @@ closures or a concrete back-reference to a specific class:
 
 - `SessionContext` — read-only access to the current `sessionId`/trust state, for a collaborator
   that needs to know the live session without commanding it.
-- `ConnectionLifecycleReporter` — reports an unhealthy connection, a protocol violation, or an
-  administrative session invalidation upward to whichever class owns the connection.
+- `ConnectionLifecycleReporter` — reports an unhealthy connection, a protocol violation, an
+  unsolicited bridge-reported error, or an administrative session invalidation upward to whichever
+  class owns the connection.
 - `SessionConnector` — connects, disconnects, reads connection state, and admits a newly
-  authenticated session.
+  authenticated session. Extends `SessionContext`, since every current `SessionConnector` consumer
+  also needs `SessionContext`'s read access; see the inheritance note below.
 - `SessionTrustWriter` — upgrades trust standing alone, for a collaborator that never connects or
   disconnects.
 - `MessageReceiver` — ensures the transport's inbound message stream is being read, for a
@@ -140,22 +142,27 @@ closures or a concrete back-reference to a specific class:
 - `ReplyResolver` — resolves one inbound correlated reply, for the router that matches transport
   messages without owning pending-operation state.
 - `PendingOperationRegistry` — registers a generated outgoing `messageId` with the class that owns
-  pending-operation state before the corresponding wire attempt is sent, and removes an operation
-  when it fails before a correlated reply arrives.
+  pending-operation state before the corresponding wire attempt is sent.
 - `SessionLifecycleState` — exposes only the state commands a teardown coordinator needs, while the
   session class remains the sole owner of connection state, generation, and stream fields.
 - `PendingOperationFailureHandler` — fails or orphans pending operations during connection teardown
   without exposing the request manager's pending-operation storage.
 
-These ten ports are independent, not one merged interface and not related by inheritance: a
-collaborator composes only the ports its own responsibility actually needs (for example
-`AuthenticationService` takes `RequestSender`, `SessionConnector`, `SessionContext`, and
-`MessageReceiver`, `PairingService` takes `RequestSender`, `SessionTrustWriter`, and
-`MessageReceiver`, and `MessageRouter` takes `ReplyResolver` and
-`ConnectionLifecycleReporter`, while `PendingOperationTransmitter` takes
-`PendingOperationRegistry` and `ConnectionTeardownCoordinator` takes `SessionLifecycleState` and
-`PendingOperationFailureHandler`),
-keeping each dependency as narrow as the class that declares it.
+These ten ports are independent, not one merged interface, and not related by inheritance by
+default: a collaborator composes only the ports its own responsibility actually needs (for example
+`PairingService` takes `RequestSender`, `SessionTrustWriter`, and `MessageReceiver`, and
+`MessageRouter` takes `ReplyResolver` and `ConnectionLifecycleReporter`, while
+`PendingOperationTransmitter` takes `PendingOperationRegistry` and `ConnectionTeardownCoordinator`
+takes `SessionLifecycleState` and `PendingOperationFailureHandler`), keeping each dependency as
+narrow as the class that declares it. One narrow, justified exception exists: `SessionConnector`
+extends `SessionContext` because every real consumer that needs `SessionConnector`'s
+connect/disconnect/admit commands also needs `SessionContext`'s read access, while a consumer that
+needs only the read side (for example `RequestManager`/`PendingOperationTransmitter`, stamping the
+live `sessionId` onto an outgoing envelope) keeps depending on bare `SessionContext` alone --
+inheritance here removes a redundant constructor parameter from the one consumer that always needed
+both, without widening any narrower consumer's access. This is not a general merge policy: a new
+port still defaults to standing alone unless the same real-world "every consumer of the wider port
+already needs the full narrower port too" pattern applies.
 
 ## Session-state ownership
 
