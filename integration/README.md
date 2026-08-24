@@ -64,5 +64,5 @@ the defaults (`127.0.0.1` / `58231`, the documented Phase 1 port) if needed.
 The current transitional contract has no registered state area, so the scenarios prove explicit
 capability absence, rejected `subscribe`/`snapshot_request` behavior, and the transport/security/
 session machinery around it. Live, unprompted `state_event` push and registered progression domains
-remain Stage 4 work — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and the
-`roadmap/04-live-state-synchronization-foundation.md` entry.
+remain Stage 4 work — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
+the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries.

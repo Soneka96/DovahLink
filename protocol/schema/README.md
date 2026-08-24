@@ -400,7 +400,9 @@ Requests state areas after capabilities are negotiated.
 }
 ```
 
-The bridge confirms the subscription and sends a `state_snapshot` before sending events for that state area.
+The bridge confirms the subscription and sends a `state_snapshot` before sending events only for a
+requested state area that is registered and accepted. When every requested area is rejected, the
+bridge sends only `subscription_ack` and no snapshot.
 
 Required payload field: `stateAreas`. The bridge responds with `subscription_ack`. No state area is
 currently registered (see "Registered state areas" above), so every requested area is rejected into
@@ -425,7 +427,8 @@ currently registered, so `acceptedStateAreas` is always empty and every requeste
 
 ### `snapshot_request`
 
-Requests a fresh baseline for one state area. The bridge responds with a `state_snapshot` at the current revision.
+Requests a fresh baseline for one registered state area. When the area is accepted, the bridge
+responds with a `state_snapshot` at the current revision; an unregistered area is rejected instead.
 
 ```json
 {
@@ -434,9 +437,9 @@ Requests a fresh baseline for one state area. The bridge responds with a `state_
 }
 ```
 
-Required payload field: `stateArea`. `knownRevision` is optional and advisory only. No state area
-is currently registered (see "Registered state areas" above), so every request is rejected as
-`unsupported_capability`.
+Required payload field: `stateArea`. `knownRevision` is optional and advisory only. A
+`state_snapshot` is returned only when the requested state area is registered and accepted;
+otherwise the request is rejected as `unsupported_capability`.
 
 ### `state_snapshot`
 
