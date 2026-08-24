@@ -3,7 +3,8 @@
 // plugin, prints READY followed by its generated bridge instance ID and the
 // loopback port it actually bound after startup, and handles increase_level,
 // new_game, load_game, load_game_fail, revert, revoke <clientId>,
-// block <clientId>, unblock <clientId>, and quit commands on standard input.
+// block <clientId>, unblock <clientId>, trust_reset <clientId>,
+// factory_reset, and quit commands on standard input.
 
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
@@ -48,6 +49,8 @@ constexpr const char* kPortOverrideEnvVar = "DOVAHLINK_HARNESS_PORT_OVERRIDE";
 constexpr std::string_view kRevokeCommandPrefix = "revoke ";
 constexpr std::string_view kBlockCommandPrefix = "block ";
 constexpr std::string_view kUnblockCommandPrefix = "unblock ";
+constexpr std::string_view kTrustResetCommandPrefix = "trust_reset ";
+constexpr std::string_view kFactoryResetCommand = "factory_reset";
 
 /// Provides no-op callback registration for the Skyrim-independent harness.
 class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
@@ -329,6 +332,34 @@ int main() {
                 std::cout << "UNBLOCKED " << unblockedClientId << std::endl;
             } else {
                 std::cout << "UNBLOCK_FAILED " << unblockedClientId << std::endl;
+            }
+        } else if (line.starts_with(kTrustResetCommandPrefix)) {
+            // Test-only shortcut straight to TrustStore::ResetTrust, mirroring "revoke "/"block "
+            // above: skips TrustAdminService's confirmation-challenge gate but still exercises the
+            // same ActiveSessionDisconnector::DisconnectIfClientActive primitive
+            // TrustAdminService::ResetTrust itself calls for a formerly-trusted client's active
+            // session -- targeted by clientId (not DisconnectActive) because Reset Trust only
+            // revokes previously-trusted devices, so an active session that never held trust must
+            // not be disconnected by it.
+            std::string trustResetClientId = line.substr(kTrustResetCommandPrefix.size());
+            if (trustStore.ResetTrust()) {
+                bridgeWorkerPool.DisconnectIfClientActive(trustResetClientId, "trust_reset");
+                std::cout << "TRUST_RESET " << trustResetClientId << std::endl;
+            } else {
+                std::cout << "TRUST_RESET_FAILED " << trustResetClientId << std::endl;
+            }
+        } else if (line == kFactoryResetCommand) {
+            // Test-only shortcut straight to TrustStore::Reset, bypassing TrustAdminService's
+            // StartFactoryReset/ConfirmFactoryReset confirmation-challenge dance. Uses
+            // DisconnectActive rather than DisconnectIfClientActive, mirroring
+            // TrustAdminService::ConfirmFactoryReset itself: Factory Reset wipes every known
+            // device record unconditionally, so any active session -- trusted or not -- is
+            // disconnected, unlike trust_reset above.
+            if (trustStore.Reset()) {
+                bridgeWorkerPool.DisconnectActive("factory_reset");
+                std::cout << "FACTORY_RESET" << std::endl;
+            } else {
+                std::cout << "FACTORY_RESET_FAILED" << std::endl;
             }
         } else if (line == "quit") {
             break;

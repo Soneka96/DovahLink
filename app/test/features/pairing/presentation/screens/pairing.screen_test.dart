@@ -50,9 +50,7 @@ void main() {
     when(() => mockViewModel.error).thenReturn(null);
     when(() => mockViewModel.onStart).thenReturn(() {});
     when(() => mockViewModel.onRequestCode).thenReturn(() {});
-    when(
-      () => mockViewModel.onSubmitCode,
-    ).thenReturn((String _, String? _) {});
+    when(() => mockViewModel.onSubmitCode).thenReturn((String _, String? _) {});
     when(() => mockViewModel.onBack).thenReturn(() {});
     sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
       Store<AppState> store,
@@ -68,7 +66,10 @@ void main() {
           dispatchedActions.add(invocation.positionalArguments[0]),
     );
     when(() => store.state).thenReturn(
-      AppState(connection: ConnectionState.initial(), pairing: PairingState.initial()),
+      AppState(
+        connection: ConnectionState.initial(),
+        pairing: PairingState.initial(),
+      ),
     );
     when(
       () => store.onChange,
@@ -94,7 +95,7 @@ void main() {
       );
 
   group('PairingScreen contains widgets', () {
-    testWidgets('shows a loading indicator when connecting', (
+    testWidgets('PairingScreen shows a loading indicator when connecting', (
       WidgetTester tester,
     ) async {
       when(() => mockViewModel.phase).thenReturn(PairingPhase.connecting);
@@ -106,7 +107,7 @@ void main() {
       expect(find.byType(PairingLoadingIndicator), findsOneWidget);
     });
 
-    testWidgets('contains the back button on mount', (
+    testWidgets('PairingScreen contains the back button on mount', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(buildWidget());
@@ -115,7 +116,7 @@ void main() {
     });
 
     testWidgets(
-      'contains the back button once trusted, not just while connecting',
+      'PairingScreen contains the back button once trusted, not just while connecting',
       (WidgetTester tester) async {
         // The back button sits in the AppBar, outside the phase switch that
         // picks the body content, so this and the mount-time check together
@@ -129,32 +130,34 @@ void main() {
       },
     );
 
-    testWidgets('contains the request-code button when unpaired', (
-      WidgetTester tester,
-    ) async {
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.unpaired);
-      when(() => mockViewModel.statusLabel).thenReturn('Not paired');
+    testWidgets(
+      'PairingScreen contains the request-code button when unpaired',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => mockViewModel.statusLabel).thenReturn('Not paired');
 
-      await tester.pumpWidget(buildWidget());
+        await tester.pumpWidget(buildWidget());
 
-      expect(find.text('Not paired'), findsOneWidget);
-      expect(find.byType(PairingRequestCodeButton), findsOneWidget);
-    });
-
-    testWidgets('contains the code entry form when awaiting a code', (
-      WidgetTester tester,
-    ) async {
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
-      when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
-
-      await tester.pumpWidget(buildWidget());
-
-      expect(find.text('Awaiting code'), findsOneWidget);
-      expect(find.byType(PairingCodeForm), findsOneWidget);
-    });
+        expect(find.text('Not paired'), findsOneWidget);
+        expect(find.byType(PairingRequestCodeButton), findsOneWidget);
+      },
+    );
 
     testWidgets(
-      'contains countdown widget when awaiting a code',
+      'PairingScreen contains the code entry form when awaiting a code',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
+        when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.text('Awaiting code'), findsOneWidget);
+        expect(find.byType(PairingCodeForm), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PairingScreen contains countdown widget when awaiting a code',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
         when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
@@ -166,7 +169,7 @@ void main() {
     );
 
     testWidgets(
-      'contains renotify and cancel buttons when awaiting a code',
+      'PairingScreen contains renotify and cancel buttons when awaiting a code',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
         when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
@@ -178,7 +181,7 @@ void main() {
       },
     );
 
-    testWidgets('contains the trusted state once paired', (
+    testWidgets('PairingScreen contains the trusted state once paired', (
       WidgetTester tester,
     ) async {
       when(() => mockViewModel.phase).thenReturn(PairingPhase.trusted);
@@ -190,12 +193,10 @@ void main() {
     });
 
     testWidgets(
-      'shows a neutral waiting state with no error when the bridge is disconnected',
+      'PairingScreen shows a neutral waiting state with no error when the bridge is disconnected',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.disconnected);
-        when(
-          () => mockViewModel.statusLabel,
-        ).thenReturn('Waiting for bridge');
+        when(() => mockViewModel.statusLabel).thenReturn('Waiting for bridge');
 
         await tester.pumpWidget(buildWidget());
 
@@ -206,24 +207,50 @@ void main() {
       },
     );
 
-    testWidgets('displays a pairing error and a retry button when failed', (
-      WidgetTester tester,
-    ) async {
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
-      when(() => mockViewModel.statusLabel).thenReturn('Failed');
-      when(() => mockViewModel.error).thenReturn("That code isn't correct.");
+    testWidgets(
+      'PairingScreen displays a pairing error and a retry button when failed',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
+        when(() => mockViewModel.statusLabel).thenReturn('Failed');
+        when(() => mockViewModel.error).thenReturn("That code isn't correct.");
 
-      await tester.pumpWidget(buildWidget());
+        await tester.pumpWidget(buildWidget());
 
-      expect(find.text('Failed'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-error')), findsOneWidget);
-      expect(find.text("That code isn't correct."), findsOneWidget);
-      expect(find.byType(PairingRetryButton), findsOneWidget);
-    });
+        expect(find.text('Failed'), findsOneWidget);
+        expect(find.byKey(const Key('pairing-error')), findsOneWidget);
+        expect(find.text("That code isn't correct."), findsOneWidget);
+        expect(find.byType(PairingRetryButton), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PairingScreen displays an administrative session invalidation through the same failed/Retry '
+      'presentation as any other failure',
+      (WidgetTester tester) async {
+        // The screen has no reason-specific rendering: whichever of the four administrative
+        // reasons (revoked/blocked/trustReset/factoryReset) produced this message, it reaches
+        // this same PairingPhase.failed + Retry presentation, proving PLAN.md Stage 3's
+        // "intentionally identical generic presentation" claim at the screen itself.
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
+        when(() => mockViewModel.statusLabel).thenReturn('Failed');
+        when(
+          () => mockViewModel.error,
+        ).thenReturn('This device was disconnected by the bridge. Try again.');
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byKey(const Key('pairing-error')), findsOneWidget);
+        expect(
+          find.text('This device was disconnected by the bridge. Try again.'),
+          findsOneWidget,
+        );
+        expect(find.byType(PairingRetryButton), findsOneWidget);
+      },
+    );
   });
 
   group("PairingScreen's elements behavior", () {
-    testWidgets('tapping the back button calls onBack', (
+    testWidgets('PairingScreen tapping the back button calls onBack', (
       WidgetTester tester,
     ) async {
       bool called = false;
@@ -237,24 +264,25 @@ void main() {
       expect(called, isTrue);
     });
 
-    testWidgets('tapping the request-code button calls onRequestCode', (
-      WidgetTester tester,
-    ) async {
-      bool called = false;
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.unpaired);
-      when(() => mockViewModel.statusLabel).thenReturn('Not paired');
-      when(() => mockViewModel.onRequestCode).thenReturn(() => called = true);
+    testWidgets(
+      'PairingScreen tapping the request-code button calls onRequestCode',
+      (WidgetTester tester) async {
+        bool called = false;
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => mockViewModel.statusLabel).thenReturn('Not paired');
+        when(() => mockViewModel.onRequestCode).thenReturn(() => called = true);
 
-      await tester.pumpWidget(buildWidget());
-      await tester.tap(find.byKey(const Key('pairing-request-code-button')));
-      await tester.pump();
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.byKey(const Key('pairing-request-code-button')));
+        await tester.pump();
 
-      expect(called, isA<bool>());
-      expect(called, isTrue);
-    });
+        expect(called, isA<bool>());
+        expect(called, isTrue);
+      },
+    );
 
     testWidgets(
-      'submitting the code form calls onSubmitCode with the entered values',
+      'PairingScreen submitting the code form calls onSubmitCode with the entered values',
       (WidgetTester tester) async {
         String? capturedCode;
         String? capturedDisplayName;
@@ -288,7 +316,7 @@ void main() {
     );
 
     testWidgets(
-      'submitting the code form with no display name calls onSubmitCode with a null displayName',
+      'PairingScreen submitting the code form with no display name calls onSubmitCode with a null displayName',
       (WidgetTester tester) async {
         String? capturedCode;
         String? capturedDisplayName = 'not null yet';
@@ -316,7 +344,7 @@ void main() {
       },
     );
 
-    testWidgets('tapping the retry button calls onStart', (
+    testWidgets('PairingScreen tapping the retry button calls onStart', (
       WidgetTester tester,
     ) async {
       bool called = false;
@@ -335,7 +363,7 @@ void main() {
   });
 
   group("PairingScreen's StoreConnector dispatches actions on the Store", () {
-    testWidgets('dispatches PairingStartedAction on mount', (
+    testWidgets('PairingScreen dispatches PairingStartedAction on mount', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(buildWidget());
@@ -343,21 +371,22 @@ void main() {
       expect(dispatchedActions, contains(const PairingStartedAction()));
     });
 
-    testWidgets('dispatches PairingDisposedAction when the screen unmounts', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(buildWidget());
-      await tester.pumpWidget(const SizedBox.shrink());
+    testWidgets(
+      'PairingScreen dispatches PairingDisposedAction when the screen unmounts',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildWidget());
+        await tester.pumpWidget(const SizedBox.shrink());
 
-      expect(
-        dispatchedActions,
-        contains(const PairingDisposedAction(wasTrusted: false)),
-      );
-      expect(tester.takeException(), isNull);
-    });
+        expect(
+          dispatchedActions,
+          contains(const PairingDisposedAction(wasTrusted: false)),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
 
     testWidgets(
-      'dispatches PairingDisposedAction with wasTrusted when the Store reports trusted',
+      'PairingScreen dispatches PairingDisposedAction with wasTrusted when the Store reports trusted',
       (WidgetTester tester) async {
         when(() => store.state).thenReturn(
           AppState(
@@ -385,7 +414,7 @@ void main() {
   });
 
   group('PairingScreen meets accessibility recommended guidelines', () {
-    testWidgets('contains a semantic pairing status label', (
+    testWidgets('PairingScreen contains a semantic pairing status label', (
       WidgetTester tester,
     ) async {
       when(() => mockViewModel.phase).thenReturn(PairingPhase.connecting);
@@ -403,42 +432,44 @@ void main() {
       }
     });
 
-    testWidgets('exposes the disconnected status label as semantics', (
-      WidgetTester tester,
-    ) async {
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.disconnected);
-      when(() => mockViewModel.statusLabel).thenReturn('Waiting for bridge');
-      final SemanticsHandle handle = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(buildWidget());
+    testWidgets(
+      'PairingScreen exposes the disconnected status label as semantics',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.disconnected);
+        when(() => mockViewModel.statusLabel).thenReturn('Waiting for bridge');
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(buildWidget());
 
-        expect(
-          tester.getSemantics(find.byKey(const Key('pairing-status'))),
-          matchesSemantics(label: 'Waiting for bridge'),
-        );
-      } finally {
-        handle.dispose();
-      }
-    });
-
-    testWidgets('meets text contrast guidelines when displaying an error', (
-      WidgetTester tester,
-    ) async {
-      when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
-      when(() => mockViewModel.statusLabel).thenReturn('Failed');
-      when(() => mockViewModel.error).thenReturn("That code isn't correct.");
-      final SemanticsHandle handle = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(buildWidget());
-
-        await expectLater(tester, meetsGuideline(textContrastGuideline));
-      } finally {
-        handle.dispose();
-      }
-    });
+          expect(
+            tester.getSemantics(find.byKey(const Key('pairing-status'))),
+            matchesSemantics(label: 'Waiting for bridge'),
+          );
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
 
     testWidgets(
-      'lays out the code form without overflow at a large text scale',
+      'PairingScreen meets text contrast guidelines when displaying an error',
+      (WidgetTester tester) async {
+        when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
+        when(() => mockViewModel.statusLabel).thenReturn('Failed');
+        when(() => mockViewModel.error).thenReturn("That code isn't correct.");
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(buildWidget());
+
+          await expectLater(tester, meetsGuideline(textContrastGuideline));
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
+
+    testWidgets(
+      'PairingScreen lays out the code form without overflow at a large text scale',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
         when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
@@ -449,15 +480,12 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
-        expect(
-          find.byKey(const Key('pairing-confirm-button')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
       },
     );
 
     testWidgets(
-      'lays out countdown and buttons without overflow at large text scale',
+      'PairingScreen lays out countdown and buttons without overflow at large text scale',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.awaitingCode);
         when(() => mockViewModel.statusLabel).thenReturn('Awaiting code');
@@ -474,7 +502,7 @@ void main() {
     );
 
     testWidgets(
-      'does not show countdown or buttons outside awaitingCode phase',
+      'PairingScreen does not show countdown or buttons outside awaitingCode phase',
       (WidgetTester tester) async {
         when(() => mockViewModel.phase).thenReturn(PairingPhase.connecting);
         when(() => mockViewModel.statusLabel).thenReturn('Connecting');

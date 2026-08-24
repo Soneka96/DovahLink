@@ -94,6 +94,13 @@ Follow the shared documentation rules in `ai/context/common.md`.
   not include the class name. Tests for actions, selectors, reducers, middleware, widgets, and
   protocol fixtures target the specific action, selector, entry point, widget behavior, or fixture
   behavior being proven rather than the whole type.
+- A plain value/data type (a DTO, a `Failure` subclass, and similar) has no `Method` entry point of
+  its own, but still groups by property or behavior rather than by type: group a getter or field
+  under `Property <name> behaves correctly`, and group `==`/`hashCode` under `Behavior equality
+  behaves correctly`, asserting `hashCode` equality alongside `==` in the same test (see
+  `sdk/dart/dovahlink_client/test/persistence/persisted_client_state_test.dart` for the reference
+  shape). A bare `group('ClassName', ...)` -- the type's own name and nothing else -- is never a
+  valid group name, on a value type or any other.
 - When the same callable entry-point name appears for multiple declaring types in one test file,
   qualify every colliding group and its test descriptions with `in <DeclaringType>` to keep the
   output unambiguous. Put the qualification after the entry-point name and before the expected
@@ -102,8 +109,15 @@ Follow the shared documentation rules in `ai/context/common.md`.
   to other labels (`Property`, `Behavior`, and so on); use the declaring type's normal symbol name
   for an enum, class, extension type, or other declaration. Top-level functions and fixture
   builders keep their unique function names because they have no declaring type to disambiguate.
-- Keep every test inside one group and do not nest groups. Test descriptions name the method,
-  action, selector, or behavior and state the expected result or side effect.
+- Keep every test inside one group and do not nest groups. Every test description repeats its
+  subject (the method, action, selector, or behavior name from its group) and states the expected
+  result or side effect, so the description reads as a complete sentence on its own in test output,
+  never a fragment that only makes sense read after its group name. This applies identically in
+  every Dart package in this repository -- SDK and Flutter alike; a package does not get to drop the
+  subject because its own group name already states it. Wrong: `group('Method copyWith behaves
+  correctly', () { test('replaces only the given clientId', ...) })` -- the test line alone reads as
+  a sentence fragment. Right: `test('Method copyWith replaces only the given clientId', ...)` --
+  identical grouping, but the test description repeats `Method copyWith` as its subject.
 - Place top-level test helpers and fixture builders before `main()`. Keep a helper local to
   `main()` only when it requires per-file state declared there; otherwise lift it to the top level
   and pass its dependencies explicitly.

@@ -45,9 +45,22 @@
 - Repositories have one behavior group per method, including exact datasource calls and symmetric
   no-call branches.
 - Reducers have one group per action passed to the reducer, including a separate group for the
-  unhandled-action pass-through behavior.
+  unhandled-action pass-through behavior, named `Action <ActionType> behaves correctly` (for
+  example `Action PairingStartedAction behaves correctly`), mirroring `ai/context/dart/dart-style.md`'s
+  `Method`/`Property`/`Behavior` template with `Action` as the label for this Flutter/Redux-specific
+  case. Per that same doc's "Test organization", each test description repeats the action as its
+  subject: `<ActionType> <verb...>`, for example `'PairingStartedAction changes the phase to
+  connecting'`, never a bare `'changes the phase to connecting'` that only reads as a sentence once
+  paired with its group.
 - Middleware has one group per action passed to `middleware.call(store, action, next)`, rather than
-  one group for the middleware class. Middleware tests call
+  one group for the middleware class, named `<MiddlewareClass> processes <ActionType> correctly`
+  (for example `PairingMiddleware processes PairingStartedAction correctly`) -- the middleware class
+  stays in the group name for at-a-glance readability even though the action, not the class, is the
+  actual grouping key. Per `ai/context/dart/dart-style.md`'s "Test organization", each test
+  description repeats the action as its subject: `<ActionType> <verb...>`, for example
+  `'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds'`, never
+  a bare `'dispatches PairingAuthenticatedAction when authentication succeeds'` that only reads as a
+  sentence once paired with its group. Middleware tests call
   `middleware.call(store, action, next)` directly rather than dispatching through a real `Store` --
   against a mocktail `MockStore` (`store.state` stubbed per test, no
   live reducer behind it), the same "mock every `sl<>()`-resolved dependency, no real store"
@@ -67,6 +80,13 @@
 - Use “in state” for values inside `AppState`; reserve “in the store” for the `Store` instance.
 - Add “with correct parameters” when the test verifies a configured state rather than bare
   presence.
+- Per `ai/context/dart/dart-style.md`'s "Test organization", a widget/screen test description
+  repeats its subject -- the widget or screen class name a `contains`/`displays`/`calls`/
+  `dispatches` group already names -- rather than reading as a bare fragment that only makes sense
+  paired with its group. Wrong: `group('PairingScreen contains widgets', () { testWidgets('contains
+  the request-code button when unpaired', ...) })`. Right: `testWidgets('PairingScreen contains the
+  request-code button when unpaired', ...)` -- identical grouping, but the test description repeats
+  `PairingScreen` as its subject.
 
 ## Widget tests
 

@@ -852,30 +852,55 @@ void main() {
     );
 
     test(
-      'Method disconnect preserves the persisted credential',
+      'Method disconnect is observable through connectionStateChanges for an ordinary, '
+      'non-administrative transition',
       () async {
-        await storage.save(
-          const PersistedClientState(
-            clientId: 'client-1',
-            credential: 'credential-1',
-          ),
-        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription = client
+            .connectionStateChanges
+            .listen(observed.add);
+        addTearDown(subscription.cancel);
+
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
-        );
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
         );
         await client.hello();
 
         await client.disconnect();
+        await pumpEventQueue();
 
-        final PersistedClientState stored = await storage.load();
-        expect(stored.clientId, 'client-1');
-        expect(stored.credential, 'credential-1');
+        expect(observed, [
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.connecting,
+          DovahLinkConnectionState.connected,
+          DovahLinkConnectionState.disconnected,
+        ]);
       },
     );
+
+    test('Method disconnect preserves the persisted credential', () async {
+      await storage.save(
+        const PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+        ),
+      );
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      await client.disconnect();
+
+      final PersistedClientState stored = await storage.load();
+      expect(stored.clientId, 'client-1');
+      expect(stored.credential, 'credential-1');
+    });
   });
 
   group('Method forgetCredential behaves correctly', () {
@@ -1029,6 +1054,33 @@ void main() {
         );
       },
     );
+
+    test('Behavior session_invalidated handling is observable through '
+        'connectionStateChanges without waiting for another request', () async {
+      final List<DovahLinkConnectionState> observed =
+          <DovahLinkConnectionState>[];
+      final StreamSubscription<DovahLinkConnectionState> subscription = client
+          .connectionStateChanges
+          .listen(observed.add);
+      addTearDown(subscription.cancel);
+
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      transport.queueResponse(_rawSessionInvalidated('blocked'));
+      await pumpEventQueue();
+
+      expect(observed, [
+        DovahLinkConnectionState.disconnected,
+        DovahLinkConnectionState.connecting,
+        DovahLinkConnectionState.connected,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      ]);
+    });
 
     for (final MapEntry<AdministrativeInvalidationReason, String> entry
         in _invalidationWireValues.entries) {
@@ -1239,6 +1291,79 @@ void main() {
     });
   });
 
+  group('Behavior explicit retry after administrative invalidation behaves '
+      'correctly', () {
+    test('Behavior explicit retry after administrative invalidation never '
+        'starts an automatic reconnect on its own', () async {
+      await _connectAndHello(transport, client);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+
+      expect(
+        client.connectionState,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      );
+      expect(transport.connectCalls, hasLength(1));
+
+      // Nothing further happens on its own: no automatic reconnect fires while this client
+      // just sits invalidated.
+      await pumpEventQueue();
+      expect(
+        client.connectionState,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      );
+      expect(transport.connectCalls, hasLength(1));
+    });
+
+    test('Behavior explicit retry after administrative invalidation succeeds '
+        'and clears the typed reason', () async {
+      await _connectAndHello(transport, client);
+      final String? clientIdBeforeInvalidation = client.clientId;
+      expect(clientIdBeforeInvalidation, isNotNull);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+      expect(
+        client.invalidationReason,
+        AdministrativeInvalidationReason.revoked,
+      );
+
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      final HelloResult result = await client.hello();
+
+      expect(transport.connectCalls, hasLength(2));
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+      expect(client.connectionState, DovahLinkConnectionState.connected);
+      expect(client.invalidationReason, isNull);
+      // The stable clientId survives explicit recovery -- only the rejected credential was
+      // discarded, per `ai/context/sdk/persistence.md`.
+      expect(client.clientId, clientIdBeforeInvalidation);
+    });
+
+    test('Behavior explicit retry after administrative invalidation leaves '
+        'connectionState disconnected, not reverted to invalidated, when the '
+        'retry attempt itself fails to connect', () async {
+      await _connectAndHello(transport, client);
+
+      transport.queueResponse(_rawSessionInvalidated('revoked'));
+      await pumpEventQueue();
+
+      transport.failConnectWith = const SocketException('still unreachable');
+      await expectLater(
+        client.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      expect(client.invalidationReason, isNull);
+    });
+  });
+
   group('Behavior retry-safe operations across reconnect behaves correctly', () {
     test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
         'via automatic reconnect', () async {
@@ -1412,6 +1537,187 @@ void main() {
       },
     );
   });
+
+  group('Behavior reconnect re-authentication sequencing behaves correctly', () {
+    test(
+      'Behavior automatic reconnect passes through reauthenticating before resolving to '
+      'connected, never exposing connected before hello succeeds',
+      () async {
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription = client
+            .connectionStateChanges
+            .listen(observed.add);
+        addTearDown(subscription.cancel);
+
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello() finds
+        // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
+        // reconnect by hand.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+
+        // A fixed pump count, not a "not yet connected" condition -- connectionState is already
+        // `connected` before the drop, so a condition guarding on that would exit before the drop
+        // is ever actually processed. Includes a real wait past kReconnectAttemptDelays[1] in case
+        // the immediate first attempt does not land within pumped microtasks alone.
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, [
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.connecting,
+          DovahLinkConnectionState.connected,
+          // Ordinary transport loss tears a fully connected session down to disconnected first
+          // (it was not already recovering), then hands off to bounded automatic reconnect.
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+      },
+    );
+
+    test(
+      'Behavior automatic reconnect continues after a retryable hello rejection instead of '
+      'giving up, and still restores the session',
+      () async {
+        await _connectAndHello(transport, client);
+
+        //  Answers the first (zero-delay) automatic attempt's hello with a retryable rejection --
+        // built inline, mirroring protocol/fixtures/errors/error-rate-limited.json, since that
+        // canonical fixture's own correlationId is null (an unsolicited push shape) and this case
+        // needs one correlated to the hello it rejects, the same way
+        // errors/error-unauthenticated-invalid-token.json already is.
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'error',
+            'messageId': 'message-error-rate-limited-retry-1',
+            'sessionId': null,
+            'correlationId': 'message-hello-placeholder',
+            'payload': <String, dynamic>{
+              'code': 'rate_limited',
+              'message': 'Inbound message rate exceeded 100 messages per second',
+              'retryable': true,
+              'details': null,
+            },
+            'bridgeInstanceId': null,
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+        // Answers the second automatic attempt (after kReconnectAttemptDelays[1]'s real 1-second
+        // delay) with success.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+
+        // Lets the immediate first attempt run and fail, then waits out the real delay before the
+        // second attempt -- no override point exists on DovahLinkClient's public constructor to
+        // shorten kReconnectAttemptDelays for this test. A fixed pump count, not a "not yet
+        // connected" condition -- connectionState is already `connected` from _connectAndHello
+        // before the drop, so a condition guarding on that would exit before the drop is ever
+        // actually processed.
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+        final List<String> helloSends = transport.sent
+            .where(
+              (String raw) =>
+                  (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+            )
+            .toList();
+        // hello#1 (initial, from _connectAndHello), hello#2 (automatic, rejected retryably),
+        // hello#3 (automatic, succeeds) -- the retryable rejection must consume one attempt and
+        // continue, not end the cycle after hello#2.
+        expect(helloSends, hasLength(3));
+      },
+    );
+  });
+
+  group(
+    'Behavior credential cleanup during automatic reconnect behaves correctly',
+    () {
+      test(
+        'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
+        'recovering, preserving clientId and ending the cycle without retrying',
+        () async {
+          await storage.save(
+            const PersistedClientState(
+              clientId: 'client-1',
+              credential: 'stale-cred',
+            ),
+          );
+          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+          transport.queueResponse(
+            _rawFixture('connection/hello-ack-paired.json'),
+          );
+          transport.queueResponse(
+            _rawFixture('capabilities/capabilities-bridge.json'),
+          );
+          await client.hello();
+
+          // Answers the automatic reconnect's own hello -- the bridge decides, while this device
+          // was briefly offline, that its presented credential is now blocked.
+          transport.queueResponse(
+            jsonEncode(<String, dynamic>{
+              'messageType': 'error',
+              'messageId': 'message-error-blocked-1',
+              'sessionId': null,
+              'correlationId': 'message-hello-placeholder',
+              'payload': <String, dynamic>{
+                'code': 'blocked',
+                'message': 'This clientId is blocked',
+                'retryable': false,
+                'details': null,
+              },
+              'bridgeInstanceId': null,
+              'playContextId': null,
+              'clientId': null,
+            }),
+          );
+          transport.failMessagesWith(const SocketException('dropped'));
+
+          for (int i = 0; i < 20; i++) {
+            await pumpEventQueue();
+          }
+
+          expect(client.connectionState, DovahLinkConnectionState.disconnected);
+          final PersistedClientState stored = await storage.load();
+          expect(stored.credential, isNull);
+          expect(stored.clientId, 'client-1');
+          final List<String> helloSends = transport.sent
+              .where(
+                (String raw) =>
+                    (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+              )
+              .toList();
+          // hello#1 (initial, succeeds) and hello#2 (automatic, rejected as blocked) -- a
+          // terminal rejection must not consume the remaining attempt budget by retrying with
+          // the now-forgotten credential.
+          expect(helloSends, hasLength(2));
+        },
+      );
+    },
+  );
 
   group('Behavior stale receiver isolation behaves correctly', () {
     test(
@@ -1632,9 +1938,13 @@ void main() {
         await pumpEventQueue();
         // Bounded automatic reconnect has already reconnected the transport (attempt 0 fires
         // immediately and this fake transport's connect() always succeeds) and is awaiting its
-        // own re-authentication reply, never queued here -- so the orphaned operation has not
-        // yet been retried; that only happens once a fresh session is actually admitted.
-        expect(client.connectionState, DovahLinkConnectionState.connected);
+        // own re-authentication reply, never queued here -- so the session is reauthenticating,
+        // not yet trusted, and the orphaned operation has not yet been retried; that only happens
+        // once a fresh session is actually admitted.
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.reauthenticating,
+        );
 
         // Deliberate disconnect while automatic reconnect is still awaiting re-authentication and
         // has not yet retried the orphaned operation -- must not leave it hanging forever.

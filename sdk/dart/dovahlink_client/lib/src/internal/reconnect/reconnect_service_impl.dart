@@ -64,7 +64,12 @@ class ReconnectServiceImpl implements ReconnectService {
   /// without consuming further attempts -- on a terminal protocol rejection from
   /// re-authenticating, per [ReconnectRejectionClassifier.isTerminal]; a retryable protocol
   /// rejection instead consumes the attempt and continues, the same as a generic
-  /// transport/connectivity failure. Also stops, without touching the connection again, if
+  /// transport/connectivity failure. When a terminal rejection is specifically about this
+  /// installation's credential (per [CredentialRejectionReason.fromProtocolErrorCode] -- `revoked`
+  /// or `blocked`, not a generic `unauthorized`/`malformedMessage`), forgets that credential before
+  /// stopping, the same way `AuthenticationServiceImpl.authenticate`'s own explicit-retry path
+  /// already does: a credential the bridge has permanently rejected must not be presented again by
+  /// a later automatic recovery attempt. Also stops, without touching the connection again, if
   /// something else (an explicit disconnect or an administrative invalidation) already moved the
   /// session out of `reconnecting`. On exhaustion or terminal rejection, finalizes the cycle with
   /// a disconnect that fails whatever operations `AuthenticationServiceImpl.hello`'s own
@@ -95,6 +100,15 @@ class ReconnectServiceImpl implements ReconnectService {
         return;
       } on DovahLinkProtocolException catch (error) {
         if (ReconnectRejectionClassifier.isTerminal(error)) {
+          if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
+              null) {
+            try {
+              await _authenticationService.forgetCredential();
+            } on Object {
+              // Best-effort cleanup must not prevent the recovery cycle from finalizing with a
+              // disconnect. A later explicit authentication can retry this cleanup.
+            }
+          }
           break;
         }
         continue;

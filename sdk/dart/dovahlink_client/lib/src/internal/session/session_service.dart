@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -14,6 +16,11 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 abstract interface class SessionService {
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState;
+
+  /// A stream of every [connectionState] transition: the current value immediately on listen,
+  /// then each subsequent real change, per `ai/context/sdk/api-design.md`'s "New-subscriber
+  /// state replay".
+  Stream<DovahLinkConnectionState> get connectionStateChanges;
 
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.

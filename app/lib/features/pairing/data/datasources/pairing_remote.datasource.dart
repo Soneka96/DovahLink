@@ -3,6 +3,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
@@ -31,6 +32,13 @@ abstract interface class PairingRemoteDataSource {
 
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
+
+  /// Emits every change in the bridge connection's status while a session is active -- ordinary
+  /// transport loss and recovery, and administrative invalidation, unified rather than split
+  /// into a narrower administrative-only slice -- including one that arrives with nothing
+  /// pending -- unlike every method above, this never completes and carries no request of its
+  /// own.
+  Stream<PairingConnectionStatus> get connectionStatus;
 }
 
 /// The user-safe [Failure] reported for any exception this data source's typed catches don't
@@ -74,6 +82,14 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
         ),
       );
     } on DovahLinkConnectionException catch (error) {
+      // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
+      // pending call with a generic DovahLinkConnectionException; distinguishing it here through
+      // the SDK's already-public connectionState prevents the caller from treating it as ordinary
+      // transport loss eligible for silent automatic retry, per PLAN.md's Stage 3.
+      if (_client.connectionState ==
+          DovahLinkConnectionState.administrativelyInvalidated) {
+        return const Left(SessionInvalidatedFailure.administrative);
+      }
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
@@ -99,6 +115,9 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       "This device's trust was revoked. Requesting a new pairing code.",
     CredentialRejectionReason.unrecognized =>
       "This device isn't recognized by this bridge. Requesting a new pairing code.",
+    CredentialRejectionReason.blocked =>
+      'This device is blocked by the bridge and cannot be paired again until an '
+          'administrator unblocks it.',
     null => null,
   };
 
@@ -185,8 +204,10 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// Converts a `pairing_confirm`/`pairing_ack` outcome into a
   /// user-safe message.
   String _pairingOutcomeMessage(PairingOutcome outcome) => switch (outcome) {
-    PairingOutcome.expired => 'That pairing code has expired. Request a new one.',
-    PairingOutcome.invalid => "That code isn't correct. Check Skyrim and try again.",
+    PairingOutcome.expired =>
+      'That pairing code has expired. Request a new one.',
+    PairingOutcome.invalid =>
+      "That code isn't correct. Check Skyrim and try again.",
     PairingOutcome.pacingLimited => 'Slow down a little, then try again.',
     PairingOutcome.hardLimitReached =>
       'Too many wrong attempts. Request a new pairing code.',
@@ -241,4 +262,32 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return const Left(_unexpectedPairingFailure);
     }
   }
+
+  /// See [PairingRemoteDataSource.connectionStatus]. `connecting` carries no distinct status for
+  /// this feature -- it never occurs for a trusted session's own bounded recovery (see
+  /// `SessionState.beginConnectAttempt`'s "reconnecting" mid-recovery guard), and this data
+  /// source is only ever observed post-trust -- so it maps to `null` and is filtered out before
+  /// the stream is cast down to its non-nullable element type. [Stream] has no `whereType`
+  /// equivalent to [Iterable.whereType], so `where` plus `cast` is the standard substitute.
+  /// `reauthenticating` -- the transport back up but not yet re-trusted during recovery -- maps to
+  /// `lost` alongside `reconnecting`/`disconnected`, not `restored`: this feature must not report
+  /// the connection restored before the session is actually re-authenticated.
+  @override
+  Stream<PairingConnectionStatus> get connectionStatus => _client
+      .connectionStateChanges
+      .map(
+        (DovahLinkConnectionState state) => switch (state) {
+          DovahLinkConnectionState.reconnecting ||
+          DovahLinkConnectionState.reauthenticating ||
+          DovahLinkConnectionState.disconnected =>
+            PairingConnectionStatus.lost,
+          DovahLinkConnectionState.connected =>
+            PairingConnectionStatus.restored,
+          DovahLinkConnectionState.administrativelyInvalidated =>
+            PairingConnectionStatus.invalidated,
+          DovahLinkConnectionState.connecting => null,
+        },
+      )
+      .where((PairingConnectionStatus? status) => status != null)
+      .cast<PairingConnectionStatus>();
 }

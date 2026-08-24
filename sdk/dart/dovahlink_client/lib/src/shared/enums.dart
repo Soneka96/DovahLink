@@ -21,9 +21,17 @@ enum DovahLinkConnectionState {
 
   /// Bounded automatic recovery is in progress after ordinary, unexpected transport loss (not a
   /// deliberate disconnect, and not an administrative invalidation -- neither of those ever enters
-  /// this state). Resolves to [connected] once recovery re-establishes a trusted session, or to
-  /// [disconnected] if the bounded recovery window is exhausted first.
+  /// this state). Transitions to [reauthenticating] once the transport reconnects, or resolves
+  /// directly to [disconnected] if the bounded recovery window is exhausted first while still
+  /// trying to reconnect.
   reconnecting,
+
+  /// The transport reconnected during bounded automatic recovery and is being re-authenticated
+  /// (`hello`) before trust is confirmed -- distinct from [connected], which means a live session
+  /// is actually trusted and usable. Resolves to [connected] once `hello` admits a session, back to
+  /// [reconnecting] if `hello` fails and the recovery cycle still has attempts or time remaining, or
+  /// to [disconnected] once recovery gives up.
+  reauthenticating,
 }
 
 /// The client's own trust standing with the bridge, established once `DovahLinkClient.hello`
@@ -59,7 +67,12 @@ enum CredentialRejectionReason {
   revoked,
 
   /// The presented credential did not match any credential the bridge currently trusts.
-  unrecognized;
+  unrecognized,
+
+  /// The presented credential's clientId is a currently blocked Known Device. Unlike [revoked],
+  /// recovering from this must not imply a new pairing code is being requested -- a blocked device
+  /// is denied pairing until an administrator unblocks it.
+  blocked;
 
   /// Returns the recovery reason for a rejected credential [code], or `null` when the rejection
   /// must surface to the caller.
@@ -68,6 +81,7 @@ enum CredentialRejectionReason {
   ) => switch (code) {
     ProtocolErrorCode.revoked => CredentialRejectionReason.revoked,
     ProtocolErrorCode.unauthenticated => CredentialRejectionReason.unrecognized,
+    ProtocolErrorCode.blocked => CredentialRejectionReason.blocked,
     _ => null,
   };
 }

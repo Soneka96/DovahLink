@@ -20,6 +20,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,16 +45,32 @@ constexpr const char* kHarnessExePath = DOVAHLINK_HARNESS_EXE;
 // every harness this file spawns binds its own OS-assigned port instead of
 // the real, documented kBridgePort -- no test in this file ever contends for
 // that one shared port.
+/// Creates a unique path for one harness process's isolated trust store.
+std::filesystem::path MakeTemporaryTrustStorePath() {
+    char tempDirectory[MAX_PATH]{};
+    DWORD directoryLength = GetTempPathA(MAX_PATH, tempDirectory);
+    REQUIRE(directoryLength != 0);
+    REQUIRE(directoryLength < MAX_PATH);
+
+    char tempFile[MAX_PATH]{};
+    REQUIRE(GetTempFileNameA(tempDirectory, "dvl", 0, tempFile) != 0);
+    REQUIRE(DeleteFileA(tempFile));
+    return std::filesystem::path(tempFile);
+}
+
 /// Builds the complete environment block used by the child process.
-std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
+std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue,
+                                  std::optional<std::filesystem::path> trustStorePath) {
     std::string block;
     LPCH currentEnv = GetEnvironmentStringsA();
     REQUIRE(currentEnv != nullptr);
     std::string tokenPrefix = std::string(dovahlink::application::kTokenEnvVar) + "=";
     std::string portOverridePrefix = "DOVAHLINK_HARNESS_PORT_OVERRIDE=";
+    std::string trustStoreOverridePrefix = "DOVAHLINK_HARNESS_TRUST_STORE_PATH_OVERRIDE=";
     for (LPCH entry = currentEnv; *entry != '\0'; entry += std::strlen(entry) + 1) {
         std::string_view line(entry);
-        if (!line.starts_with(tokenPrefix) && !line.starts_with(portOverridePrefix)) {
+        if (!line.starts_with(tokenPrefix) && !line.starts_with(portOverridePrefix) &&
+            !line.starts_with(trustStoreOverridePrefix)) {
             block.append(line);
             block.push_back('\0');
         }
@@ -67,6 +84,11 @@ std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
     block.append(portOverridePrefix);
     block.append("0");
     block.push_back('\0');
+    if (trustStorePath.has_value()) {
+        block.append(trustStoreOverridePrefix);
+        block.append(trustStorePath->string());
+        block.push_back('\0');
+    }
     block.push_back('\0');
     return block;
 }
@@ -74,8 +96,11 @@ std::string BuildEnvironmentBlock(std::optional<std::string> tokenValue) {
 /// Owns a harness subprocess and its redirected standard handles.
 class HarnessProcess {
 public:
-    /// Launches the executable with the supplied token environment value.
-    HarnessProcess(const std::string& exePath, std::optional<std::string> tokenValue) {
+    /// Launches the executable with the supplied token and optional trust-store environment values.
+    HarnessProcess(const std::string& exePath, std::optional<std::string> tokenValue,
+                   std::optional<std::filesystem::path> trustStorePath = std::nullopt)
+        : trustStorePath_(trustStorePath.value_or(MakeTemporaryTrustStorePath())),
+          ownsTrustStorePath_(!trustStorePath.has_value()) {
         SECURITY_ATTRIBUTES sa{};
         sa.nLength = sizeof(sa);
         sa.bInheritHandle = TRUE;
@@ -96,7 +121,7 @@ public:
 
         PROCESS_INFORMATION pi{};
         std::string commandLine = "\"" + exePath + "\"";
-        std::string environmentBlock = BuildEnvironmentBlock(std::move(tokenValue));
+        std::string environmentBlock = BuildEnvironmentBlock(std::move(tokenValue), trustStorePath_);
         BOOL started = CreateProcessA(nullptr, commandLine.data(), nullptr, nullptr, /*bInheritHandles=*/TRUE, 0,
                                        environmentBlock.data(), nullptr, &si, &pi);
 
@@ -129,12 +154,22 @@ public:
         if (thread_) {
             CloseHandle(thread_);
         }
+        if (ownsTrustStorePath_) {
+            std::error_code cleanupError;
+            std::filesystem::remove(trustStorePath_, cleanupError);
+            std::filesystem::path temporaryPath = trustStorePath_;
+            temporaryPath += L".tmp";
+            std::filesystem::remove(temporaryPath, cleanupError);
+        }
     }
 
     /// Prevents copying process handles.
     HarnessProcess(const HarnessProcess&) = delete;
     /// Prevents assigning process handles.
     HarnessProcess& operator=(const HarnessProcess&) = delete;
+
+    /// Returns the trust-store path supplied to the child process.
+    [[nodiscard]] const std::filesystem::path& TrustStorePath() const { return trustStorePath_; }
 
     /// Writes one newline-terminated command to the child stdin.
     void WriteLine(const std::string& line) {
@@ -174,6 +209,10 @@ public:
     }
 
 private:
+    /// Trust-store path supplied to the child process.
+    std::filesystem::path trustStorePath_;
+    /// Whether this process owns and removes its automatically-created trust-store path.
+    bool ownsTrustStorePath_ = false;
     /// Child process handle.
     HANDLE process_ = nullptr;
     /// Child primary-thread handle.
@@ -380,6 +419,7 @@ TEST_CASE("two harnesses alive at the same time bind distinct ports", "[harness]
     std::uint16_t secondPort = ReadHarnessPort(second);
 
     CHECK(firstPort != secondPort);
+    CHECK(first.TrustStorePath() != second.TrustStorePath());
 
     first.WriteLine("quit");
     second.WriteLine("quit");
@@ -512,6 +552,72 @@ TEST_CASE("dovahlink_bridge_harness's unblock command reports UNBLOCK_FAILED for
     harness.WriteLine("quit");
     REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
     CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness's trust_reset command reports TRUST_RESET for the given clientId",
+          "[harness]") {
+    // Like TrustStore::Revoke, TrustStore::ResetTrust (bridge/security/trust_store.cpp) is
+    // idempotent-success: it revokes whichever currently-trusted devices exist (none, with no
+    // prior pairing) and still reports success, so TRUST_RESET is the only branch reachable
+    // without a persistence-layer save failure to inject. The .NET validator's
+    // PairingScenarioTests.cs additionally proves the real trust-reset-while-connected round trip
+    // against an actually trusted device, using machinery this harness test file has no
+    // equivalent of on its own (matching the existing revoke tests' own documented scope split).
+    std::filesystem::path trustStorePath;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        trustStorePath = harness.TrustStorePath();
+        REQUIRE(harness.ReadLine() == "READY");
+        (void)ReadBridgeInstanceId(harness);
+        (void)ReadHarnessPort(harness);
+
+        // An empty clientId (nothing after the "trust_reset " prefix) still matches the branch and
+        // reports success the same way, mirroring the equivalent "revoke " test.
+        harness.WriteLine("trust_reset ");
+        CHECK(harness.ReadLine() == "TRUST_RESET ");
+        CHECK(std::filesystem::exists(trustStorePath));
+
+        // Repeating the same never-trusted clientId stays TRUST_RESET every time, matching
+        // ResetTrust's documented idempotency.
+        harness.WriteLine("trust_reset never-paired-client");
+        CHECK(harness.ReadLine() == "TRUST_RESET never-paired-client");
+        harness.WriteLine("trust_reset never-paired-client");
+        CHECK(harness.ReadLine() == "TRUST_RESET never-paired-client");
+
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+        CHECK(harness.ExitCode() == 0);
+    }
+    CHECK_FALSE(std::filesystem::exists(trustStorePath));
+}
+
+TEST_CASE("dovahlink_bridge_harness's factory_reset command reports FACTORY_RESET and is idempotent",
+          "[harness]") {
+    // Like TrustStore::Reset's ResetTrust sibling above, TrustStore::Reset is idempotent-success:
+    // wiping an already-empty trust store still reports success, so FACTORY_RESET is the only
+    // branch reachable without a persistence-layer save failure to inject. Unlike every other
+    // trust command, factory_reset takes no clientId -- it wipes every known device
+    // unconditionally. The .NET validator's PairingScenarioTests.cs additionally proves the real
+    // factory-reset-while-connected round trip against an actually trusted device.
+    std::filesystem::path trustStorePath;
+    {
+        HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+        trustStorePath = harness.TrustStorePath();
+        REQUIRE(harness.ReadLine() == "READY");
+        (void)ReadBridgeInstanceId(harness);
+        (void)ReadHarnessPort(harness);
+
+        harness.WriteLine("factory_reset");
+        CHECK(harness.ReadLine() == "FACTORY_RESET");
+        CHECK(std::filesystem::exists(trustStorePath));
+        harness.WriteLine("factory_reset");
+        CHECK(harness.ReadLine() == "FACTORY_RESET");
+
+        harness.WriteLine("quit");
+        REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+        CHECK(harness.ExitCode() == 0);
+    }
+    CHECK_FALSE(std::filesystem::exists(trustStorePath));
 }
 
 TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "

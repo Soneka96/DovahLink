@@ -126,6 +126,13 @@ style guide.
   code. State the same tradeoff in plain language instead -- what was simplified, why it is
   accepted, and what would change the answer (a neutral lead-in such as "Known limitation:" reads
   the same to every future reader).
+- Do not cite a roadmap file, stage file, or a planning document such as `PLAN.md` as the
+  justification for a comment (for example "per PLAN.md's Stage 3" or "matching roadmap/03-...md's
+  acceptance criteria"). Roadmap and stage files record delivery status and are renamed,
+  restructured, or deleted once a phase completes, so a comment anchored to one goes stale or
+  dangling. State the invariant, behavior, or constraint itself in plain language instead -- what
+  must hold and why -- so the comment stays true independent of any planning document's current
+  name or existence.
 
 ## Quality floor
 

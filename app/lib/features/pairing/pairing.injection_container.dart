@@ -8,6 +8,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
@@ -40,6 +41,9 @@ void initPairingDependencies() {
   );
   sl.registerLazySingleton<CancelPairingUseCase>(
     () => CancelPairingUseCase(sl<IPairingRepository>()),
+  );
+  sl.registerLazySingleton<ObserveConnectionStatusUseCase>(
+    () => ObserveConnectionStatusUseCase(sl<IPairingRepository>()),
   );
   sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
     Store<AppState> store,

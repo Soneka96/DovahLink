@@ -46,12 +46,17 @@ class RequestServiceImpl implements RequestService {
   /// Implements [RequestService.sendAndAwait]. Fails immediately, before registering or
   /// transmitting anything, unless [SessionService.connectionState] is currently `connected` --
   /// replacing the eliminated `ensureReceiving` mechanism per
-  /// `ai/context/sdk/architecture.md`'s "Request/session boundary". `reconnecting` also fails: it
-  /// spans a whole bounded-recovery cycle (backoff delay, then an in-flight `connect()` attempt)
-  /// during which no transport is guaranteed usable, so a newly initiated request has nothing safe
-  /// to transmit to until recovery actually reaches `connected`. An already-pending `retrySafe`
-  /// operation orphaned by the transport loss that triggered recovery is unaffected by this guard;
-  /// see [retryOrphanedOperations].
+  /// `ai/context/sdk/architecture.md`'s "Request/session boundary". The one narrow exception is
+  /// [ProtocolMessageType.hello] itself while `reauthenticating` -- that is precisely the message
+  /// a bounded-recovery attempt sends to find out whether this device is trusted, blocked, or
+  /// revoked, so it cannot itself wait for trust to already be confirmed. No other message type is
+  /// ever exempted: whether this device is blocked or revoked is still unknown while
+  /// `reauthenticating`, so an ordinary application request must not be allowed to reach the wire
+  /// during that window merely because the transport happens to be up again. `reconnecting` fails
+  /// outright (no exception, not even for `hello`): it spans a whole bounded-recovery cycle
+  /// (backoff delay, then an in-flight `connect()` attempt) during which no transport is guaranteed
+  /// usable at all. An already-pending `retrySafe` operation orphaned by the transport loss that
+  /// triggered recovery is unaffected by this guard; see [retryOrphanedOperations].
   @override
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
@@ -61,7 +66,11 @@ class RequestServiceImpl implements RequestService {
   }) async {
     final DovahLinkConnectionState connectionState =
         _sessionService.connectionState;
-    if (connectionState != DovahLinkConnectionState.connected) {
+    final bool canSend =
+        connectionState == DovahLinkConnectionState.connected ||
+        (connectionState == DovahLinkConnectionState.reauthenticating &&
+            messageType == ProtocolMessageType.hello);
+    if (!canSend) {
       throw DovahLinkConnectionException(
         'Cannot send $messageType: no active connection.',
       );
