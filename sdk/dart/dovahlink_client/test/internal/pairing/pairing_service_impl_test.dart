@@ -124,16 +124,10 @@ void main() {
         requestService,
         Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: 'req-1',
           payload: <String, dynamic>{
             'state': 'available',
             'expiresInSeconds': 60,
           },
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: null,
         ),
       );
 
@@ -158,13 +152,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{'state': 'other_device_pairing'},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -245,13 +233,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -457,13 +439,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -584,13 +560,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -688,13 +658,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -987,13 +951,7 @@ void main() {
           requestService,
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
