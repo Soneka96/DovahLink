@@ -1538,6 +1538,121 @@ void main() {
     );
   });
 
+  group('Behavior reconnect re-authentication sequencing behaves correctly', () {
+    test(
+      'Behavior automatic reconnect passes through reauthenticating before resolving to '
+      'connected, never exposing connected before hello succeeds',
+      () async {
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription = client
+            .connectionStateChanges
+            .listen(observed.add);
+        addTearDown(subscription.cancel);
+
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello() finds
+        // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
+        // reconnect by hand.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+
+        // A fixed pump count, not a "not yet connected" condition -- connectionState is already
+        // `connected` before the drop, so a condition guarding on that would exit before the drop
+        // is ever actually processed. Includes a real wait past kReconnectAttemptDelays[1] in case
+        // the immediate first attempt does not land within pumped microtasks alone.
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, [
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.connecting,
+          DovahLinkConnectionState.connected,
+          // Ordinary transport loss tears a fully connected session down to disconnected first
+          // (it was not already recovering), then hands off to bounded automatic reconnect.
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+      },
+    );
+
+    test(
+      'Behavior automatic reconnect continues after a retryable hello rejection instead of '
+      'giving up, and still restores the session',
+      () async {
+        await _connectAndHello(transport, client);
+
+        //  Answers the first (zero-delay) automatic attempt's hello with a retryable rejection --
+        // built inline, mirroring protocol/fixtures/errors/error-rate-limited.json, since that
+        // canonical fixture's own correlationId is null (an unsolicited push shape) and this case
+        // needs one correlated to the hello it rejects, the same way
+        // errors/error-unauthenticated-invalid-token.json already is.
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'error',
+            'messageId': 'message-error-rate-limited-retry-1',
+            'sessionId': null,
+            'correlationId': 'message-hello-placeholder',
+            'payload': <String, dynamic>{
+              'code': 'rate_limited',
+              'message': 'Inbound message rate exceeded 100 messages per second',
+              'retryable': true,
+              'details': null,
+            },
+            'bridgeInstanceId': null,
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+        // Answers the second automatic attempt (after kReconnectAttemptDelays[1]'s real 1-second
+        // delay) with success.
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+
+        // Lets the immediate first attempt run and fail, then waits out the real delay before the
+        // second attempt -- no override point exists on DovahLinkClient's public constructor to
+        // shorten kReconnectAttemptDelays for this test. A fixed pump count, not a "not yet
+        // connected" condition -- connectionState is already `connected` from _connectAndHello
+        // before the drop, so a condition guarding on that would exit before the drop is ever
+        // actually processed.
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+        final List<String> helloSends = transport.sent
+            .where(
+              (String raw) =>
+                  (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+            )
+            .toList();
+        // hello#1 (initial, from _connectAndHello), hello#2 (automatic, rejected retryably),
+        // hello#3 (automatic, succeeds) -- the retryable rejection must consume one attempt and
+        // continue, not end the cycle after hello#2.
+        expect(helloSends, hasLength(3));
+      },
+    );
+  });
+
   group('Behavior stale receiver isolation behaves correctly', () {
     test(
       'Behavior stale receiver isolation does not consume a late reply for a new operation',
@@ -1757,9 +1872,13 @@ void main() {
         await pumpEventQueue();
         // Bounded automatic reconnect has already reconnected the transport (attempt 0 fires
         // immediately and this fake transport's connect() always succeeds) and is awaiting its
-        // own re-authentication reply, never queued here -- so the orphaned operation has not
-        // yet been retried; that only happens once a fresh session is actually admitted.
-        expect(client.connectionState, DovahLinkConnectionState.connected);
+        // own re-authentication reply, never queued here -- so the session is reauthenticating,
+        // not yet trusted, and the orphaned operation has not yet been retried; that only happens
+        // once a fresh session is actually admitted.
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.reauthenticating,
+        );
 
         // Deliberate disconnect while automatic reconnect is still awaiting re-authentication and
         // has not yet retried the orphaned operation -- must not leave it hanging forever.

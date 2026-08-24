@@ -323,6 +323,79 @@ void main() {
         verify(() => transmitter.transmit(any())).called(1);
       },
     );
+
+    test(
+      'Behavior connectionState guard allows only a hello request while reauthenticating, since '
+      'that is the message a bounded-recovery attempt sends to find out whether this device is '
+      'trusted, blocked, or revoked',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.reauthenticating);
+
+        unawaited(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.helloAck,
+            policy: _nonRetrySafePolicy,
+          ),
+        );
+        await pumpEventQueue();
+
+        final PendingOperation operation =
+            verify(() => transmitter.transmit(captureAny())).captured.single
+                as PendingOperation;
+        expect(operation.messageType, ProtocolMessageType.hello);
+      },
+    );
+
+    test(
+      'Behavior connectionState guard fails a non-hello request immediately while '
+      'reauthenticating, without transmitting anything, since whether this device is blocked or '
+      'revoked is still unknown until hello resolves',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.reauthenticating);
+
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.pairingRequest,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.pairingStatus,
+            policy: _nonRetrySafePolicy,
+          ),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
+
+    test(
+      'Behavior connectionState guard admitting a hello request while reauthenticating still '
+      'falls through to the trustState guard, which fails it if the policy requires a trust '
+      'state this not-yet-admitted session cannot have',
+      () async {
+        when(
+          () => sessionService.connectionState,
+        ).thenReturn(DovahLinkConnectionState.reauthenticating);
+        when(() => sessionService.currentTrustState).thenReturn(null);
+
+        await expectLater(
+          service.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: const <String, dynamic>{},
+            expectedType: ProtocolMessageType.helloAck,
+            policy: buildRequestPolicy(
+              requiredTrustState: DovahLinkTrustState.trusted,
+            ),
+          ),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => transmitter.transmit(any()));
+      },
+    );
   });
 
   group('Behavior trustState guard behaves correctly', () {
