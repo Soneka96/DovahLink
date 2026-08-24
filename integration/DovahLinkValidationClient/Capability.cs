@@ -16,7 +16,21 @@ public sealed record Capability(string Id, int Version)
     /// Encodes this capability entry as a JSON object.
     /// </summary>
     /// <returns>The encoded capability entry.</returns>
-    public JsonObject Encode() => new() { ["id"] = Id, ["version"] = Version };
+    /// <exception cref="FormatException">Thrown when <see cref="Id"/> is empty or
+    /// <see cref="Version"/> is negative.</exception>
+    public JsonObject Encode()
+    {
+        if (string.IsNullOrEmpty(Id))
+        {
+            throw new FormatException("id must be a non-empty string.");
+        }
+        if (Version < 0)
+        {
+            throw new FormatException("version must be a non-negative integer.");
+        }
+
+        return new JsonObject { ["id"] = Id, ["version"] = Version };
+    }
 
     /// <summary>
     /// Decodes and validates one capability entry.

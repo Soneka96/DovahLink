@@ -102,4 +102,53 @@ public class CapabilityTests
 
         Assert.Equal(0, capability.Version);
     }
+
+    /// <summary>Verifies that Encode rejects an empty capability identifier.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenIdIsEmpty()
+    {
+        Capability capability = new("", 1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode rejects a null capability identifier.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenIdIsNull()
+    {
+        Capability capability = new(null!, 1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode rejects a negative capability version.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenVersionIsNegative()
+    {
+        Capability capability = new("state.inventory", -1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode preserves the lowest valid capability version.</summary>
+    [Fact]
+    public void EncodeIncludesZeroVersion()
+    {
+        Capability capability = new("state.inventory", 0);
+
+        JsonObject encoded = capability.Encode();
+
+        Assert.Equal(0, encoded["version"]?.GetValue<int>());
+    }
+
+    /// <summary>Verifies that Encode preserves any non-empty capability identifier.</summary>
+    [Fact]
+    public void EncodePreservesWhitespaceIdentifier()
+    {
+        Capability capability = new(" ", 1);
+
+        JsonObject encoded = capability.Encode();
+
+        Assert.Equal(" ", encoded["id"]?.GetValue<string>());
+    }
 }
