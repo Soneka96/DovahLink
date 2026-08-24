@@ -28,6 +28,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3.0 CONFIG REQUIRED)
+find_package(FakeIt CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(boost_beast CONFIG REQUIRED)
 find_package(boost_json CONFIG REQUIRED)
@@ -169,6 +170,7 @@ add_executable(dovahlink_bridge_tests
     application/timestamp_test.cpp
     application/trust_admin_service_test.cpp
     application/rename_handler_test.cpp
+    application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp
@@ -214,7 +216,11 @@ add_executable(dovahlink_bridge_tests
     transport/loopback_peer_test.cpp
     transport/websocket_session_test.cpp
 )
-target_link_libraries(dovahlink_bridge_tests PRIVATE dovahlink_bridge_core Catch2::Catch2WithMain)
+target_link_libraries(dovahlink_bridge_tests PRIVATE
+    dovahlink_bridge_core
+    Catch2::Catch2WithMain
+    FakeIt::FakeIt-catch
+)
 target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"

@@ -5,12 +5,7 @@ import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload_validator.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-
-/// Builds a pairing-status payload with representative expiry defaults.
-PairingStatusPayload buildPairingStatusPayload({
-  PairingAvailability state = PairingAvailability.available,
-  int? expiresInSeconds = 300,
-}) => PairingStatusPayload(state: state, expiresInSeconds: expiresInSeconds);
+import '../fixtures/fixtures.dart';
 
 /// Runs pairing-status validator behavior tests.
 void main() {
@@ -103,16 +98,16 @@ void main() {
 
         for (final JsonMap json in invalidCases) {
           final PairingStatusPayload payload = switch (json['state']) {
-            'available' => buildPairingStatusPayload(),
-            'unavailable' => buildPairingStatusPayload(
+            'available' => Fixtures.buildPairingStatusPayload(),
+            'unavailable' => Fixtures.buildPairingStatusPayload(
               state: PairingAvailability.unavailable,
               expiresInSeconds: json['expiresInSeconds'] as int?,
             ),
-            'in_progress' => buildPairingStatusPayload(
+            'in_progress' => Fixtures.buildPairingStatusPayload(
               state: PairingAvailability.inProgress,
               expiresInSeconds: json['expiresInSeconds'] as int?,
             ),
-            _ => buildPairingStatusPayload(
+            _ => Fixtures.buildPairingStatusPayload(
               state: PairingAvailability.otherDevicePairing,
               expiresInSeconds: null,
             ),

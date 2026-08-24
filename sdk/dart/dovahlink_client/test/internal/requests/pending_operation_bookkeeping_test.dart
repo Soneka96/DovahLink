@@ -8,19 +8,17 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_boo
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/internal/requests/pending_operation.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
-final RequestPolicy _nonRetrySafePolicy = buildRequestPolicy(
+final RequestPolicy _nonRetrySafePolicy = Fixtures.buildRequestPolicy(
   retrySafe: false,
   requiredTrustState: null,
   timeoutClass: TimeoutClass.normal,
 );
 
 /// Builds one reply envelope correlated to [correlationId].
-Envelope buildReply(String correlationId) => buildEnvelope(
+Envelope buildReply(String correlationId) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.pairingStatus,
   correlationId: correlationId,
 );
@@ -49,7 +47,7 @@ void main() {
     test(
       'Method resolveReply completes the registered operation and returns true',
       () {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         bookkeeping.register('id-1', operation);
         final Envelope reply = buildReply('id-1');
 
@@ -61,7 +59,7 @@ void main() {
     );
 
     test('Method resolveReply cancels the operation timer', () async {
-      final PendingOperation operation = buildPendingOperation();
+      final PendingOperation operation = Fixtures.buildPendingOperation();
       bool timerFired = false;
       operation.timer = Timer(
         const Duration(milliseconds: 20),
@@ -76,7 +74,7 @@ void main() {
     });
 
     test('Method resolveReply resolves the same id only once', () {
-      final PendingOperation operation = buildPendingOperation();
+      final PendingOperation operation = Fixtures.buildPendingOperation();
       bookkeeping.register('id-1', operation);
       bookkeeping.resolveReply('id-1', buildReply('id-1'));
 
@@ -93,7 +91,7 @@ void main() {
     test(
       'Method failAll fails a non-retrySafe operation immediately even when orphaning is requested',
       () {
-        final PendingOperation operation = buildPendingOperation(
+        final PendingOperation operation = Fixtures.buildPendingOperation(
           policy: _nonRetrySafePolicy,
         );
         bookkeeping.register('id-1', operation);
@@ -112,7 +110,7 @@ void main() {
     test(
       'Method failAll fails a retrySafe operation immediately when not orphaning',
       () {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         bookkeeping.register('id-1', operation);
 
         bookkeeping.failAll(
@@ -128,7 +126,7 @@ void main() {
     test(
       'Method failAll orphans a retrySafe operation instead of failing it, when requested',
       () {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         bookkeeping.register('id-1', operation);
 
         bookkeeping.failAll(
@@ -144,7 +142,7 @@ void main() {
     test(
       'Method failAll fails an already-retried operation immediately instead of re-orphaning it',
       () {
-        final PendingOperation operation = buildPendingOperation()
+        final PendingOperation operation = Fixtures.buildPendingOperation()
           ..hasRetried = true;
         bookkeeping.register('id-1', operation);
 
@@ -162,7 +160,7 @@ void main() {
     test(
       'Method failAll cancels the timer of every operation it fails',
       () async {
-        final PendingOperation operation = buildPendingOperation(
+        final PendingOperation operation = Fixtures.buildPendingOperation(
           policy: _nonRetrySafePolicy,
         );
         bool timerFired = false;
@@ -186,7 +184,7 @@ void main() {
     test(
       'Method failAll fails an already-orphaned operation too when a later call does not orphan',
       () {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         bookkeeping.register('id-1', operation);
         bookkeeping.failAll(
           const DovahLinkConnectionException('first loss'),
@@ -220,10 +218,10 @@ void main() {
     test(
       'Method failAll fails every pending operation, not just the first',
       () {
-        final PendingOperation first = buildPendingOperation(
+        final PendingOperation first = Fixtures.buildPendingOperation(
           policy: _nonRetrySafePolicy,
         );
-        final PendingOperation second = buildPendingOperation(
+        final PendingOperation second = Fixtures.buildPendingOperation(
           policy: _nonRetrySafePolicy,
         );
         bookkeeping.register('id-1', first);
@@ -250,7 +248,7 @@ void main() {
     test(
       'Method takeOrphaned clears the orphaned list so a second call returns nothing',
       () {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         bookkeeping.register('id-1', operation);
         bookkeeping.failAll(
           const DovahLinkConnectionException('lost'),

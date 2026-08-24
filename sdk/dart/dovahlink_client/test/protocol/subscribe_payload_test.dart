@@ -17,16 +17,23 @@ JsonMap _readPayload(String relativePath) {
 void main() {
   group('Method toJson behaves correctly', () {
     test('Method toJson matches the canonical subscribe fixture', () {
-      const SubscribePayload payload = SubscribePayload(stateAreas: <String>['example_area']);
+      const SubscribePayload payload = SubscribePayload(
+        stateAreas: <String>['example_area'],
+      );
 
       expect(payload.toJson(), _readPayload('subscriptions/subscribe.json'));
     });
 
-    test('Method toJson encodes an empty stateAreas list as an unsubscribe', () {
-      const SubscribePayload payload = SubscribePayload(stateAreas: <String>[]);
+    test(
+      'Method toJson encodes an empty stateAreas list as an unsubscribe',
+      () {
+        const SubscribePayload payload = SubscribePayload(
+          stateAreas: <String>[],
+        );
 
-      expect(payload.toJson(), <String, dynamic>{'stateAreas': <String>[]});
-    });
+        expect(payload.toJson(), <String, dynamic>{'stateAreas': <String>[]});
+      },
+    );
 
     test('Method toJson encodes multiple requested state areas', () {
       const SubscribePayload payload = SubscribePayload(

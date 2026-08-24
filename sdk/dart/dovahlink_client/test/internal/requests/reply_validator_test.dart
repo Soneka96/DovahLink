@@ -4,13 +4,13 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/reply_validator.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Runs reply-validator behavior tests.
 void main() {
   group('Method validate behaves correctly', () {
     test('Method validate returns a reply with the expected message type', () {
-      final Envelope reply = buildEnvelope(
+      final Envelope reply = Fixtures.buildEnvelope(
         messageType: ProtocolMessageType.pong,
       );
 
@@ -26,7 +26,7 @@ void main() {
     test(
       'Method validate converts a valid wire error into a typed exception',
       () {
-        final Envelope reply = buildEnvelope(
+        final Envelope reply = Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.error,
           payload: const <String, dynamic>{
             'code': 'rate_limited',
@@ -65,7 +65,7 @@ void main() {
     test(
       'Method validate translates a malformed wire error into malformed_message',
       () {
-        final Envelope reply = buildEnvelope(
+        final Envelope reply = Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.error,
           payload: const <String, dynamic>{
             'code': 'future_error_code',
@@ -91,7 +91,7 @@ void main() {
     );
 
     test('Method validate rejects an unexpected message type', () {
-      final Envelope reply = buildEnvelope(
+      final Envelope reply = Fixtures.buildEnvelope(
         messageType: ProtocolMessageType.ping,
       );
 

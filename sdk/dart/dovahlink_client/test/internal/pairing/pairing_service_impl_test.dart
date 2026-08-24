@@ -14,9 +14,7 @@ import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/persistence/persisted_client_state.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mock request service used to isolate pairing service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -40,7 +38,7 @@ Envelope buildPairingOutcomeEnvelope({
   String? shortId,
   String? displayName,
   int? retryAfterSeconds,
-}) => buildEnvelope(
+}) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.pairingOutcome,
   payload: <String, dynamic>{
     'outcome': _wirePairingOutcome(outcome),
@@ -95,13 +93,13 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.pairingRequest);
     registerFallbackValue(
-      buildRequestPolicy(
+      Fixtures.buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,
       ),
     );
-    registerFallbackValue(buildPersistedClientState());
+    registerFallbackValue(Fixtures.buildPersistedClientState());
   });
 
   setUp(() {
@@ -109,9 +107,9 @@ void main() {
     sessionTrustService = MockSessionTrustService();
     storage = MockClientStorage();
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
-    when(
-      () => storage.load(),
-    ).thenAnswer((_) async => buildPersistedClientState(clientId: 'client-1'));
+    when(() => storage.load()).thenAnswer(
+      (_) async => Fixtures.buildPersistedClientState(clientId: 'client-1'),
+    );
     when(() => storage.save(any())).thenAnswer((_) async {});
     service = PairingServiceImpl(
       sessionTrustService: sessionTrustService,
@@ -124,18 +122,12 @@ void main() {
     test('Method requestPairing decodes the pairing_status reply', () async {
       stubSendAndAwait(
         requestService,
-        buildEnvelope(
+        Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.pairingStatus,
-          messageId: 'reply-1',
-          sessionId: 'session-1',
-          correlationId: 'req-1',
           payload: <String, dynamic>{
             'state': 'available',
             'expiresInSeconds': 60,
           },
-          bridgeInstanceId: 'bridge-1',
-          playContextId: null,
-          clientId: null,
         ),
       );
 
@@ -146,7 +138,7 @@ void main() {
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingStatus,
-          policy: buildRequestPolicy(),
+          policy: Fixtures.buildRequestPolicy(),
         ),
       ).called(1);
       expect(status.availability, PairingAvailability.available);
@@ -158,15 +150,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{'state': 'other_device_pairing'},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -182,7 +168,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'unavailable',
@@ -203,7 +189,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'in_progress',
@@ -224,7 +210,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'in_progress',
@@ -245,15 +231,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -275,7 +255,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'available',
@@ -309,7 +289,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{'state': 'in_progress'},
           ),
@@ -373,7 +353,7 @@ void main() {
             messageType: ProtocolMessageType.pairingRenotify,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         expect(result.status, PairingRenotifyStatus.renotified);
@@ -457,15 +437,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -529,7 +503,7 @@ void main() {
           messageType: ProtocolMessageType.pairingCancel,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingOutcome,
-          policy: buildRequestPolicy(),
+          policy: Fixtures.buildRequestPolicy(),
         ),
       ).called(1);
       expect(result.status, PairingCancelStatus.cancelled);
@@ -584,15 +558,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -650,7 +618,7 @@ void main() {
         expect(credential, 'new-cred');
         verify(
           () => storage.save(
-            buildPersistedClientState(
+            Fixtures.buildPersistedClientState(
               clientId: 'client-1',
               credential: 'new-cred',
               recoveryState: PairingRecoveryState.confirming,
@@ -688,15 +656,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -734,7 +696,7 @@ void main() {
                     messageType: ProtocolMessageType.pairingConfirm,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.pairingOutcome,
-                    policy: buildRequestPolicy(
+                    policy: Fixtures.buildRequestPolicy(
                       retrySafe: false,
                       timeoutClass: TimeoutClass.normal,
                     ),
@@ -854,7 +816,7 @@ void main() {
       'Method acknowledgeTrustedCredential marks the session trusted and clears the recovery state on a trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -876,13 +838,16 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(
           () => storage.save(
-            buildPersistedClientState(clientId: 'client-1', credential: 'cred'),
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              credential: 'cred',
+            ),
           ),
         ).called(1);
       },
@@ -892,7 +857,7 @@ void main() {
       'Method acknowledgeTrustedCredential also marks the session trusted on an already_trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -912,7 +877,10 @@ void main() {
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(
           () => storage.save(
-            buildPersistedClientState(clientId: 'client-1', credential: 'cred'),
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              credential: 'cred',
+            ),
           ),
         ).called(1);
       },
@@ -981,15 +949,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -1054,7 +1016,7 @@ void main() {
       'Method recoverPendingPairing is a no-op returning unpaired when confirming but no credential is stored',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             recoveryState: PairingRecoveryState.confirming,
           ),
@@ -1079,7 +1041,7 @@ void main() {
       'Method recoverPendingPairing retries the stored credential and returns trusted on success',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1103,7 +1065,7 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'stored-cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
@@ -1115,7 +1077,7 @@ void main() {
       'reports pending_not_found',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1131,7 +1093,9 @@ void main() {
 
         expect(result, DovahLinkTrustState.unpaired);
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
       },
     );
@@ -1140,7 +1104,7 @@ void main() {
       'Method recoverPendingPairing leaves the CONFIRMING state untouched and rethrows for any other failure',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,

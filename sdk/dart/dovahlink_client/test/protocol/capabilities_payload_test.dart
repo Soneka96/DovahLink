@@ -18,69 +18,95 @@ JsonMap _readPayload(String relativePath) {
 /// Runs [CapabilitiesPayload.fromJson] and [CapabilitiesPayload.toJson] behavior tests.
 void main() {
   group('Method fromJson behaves correctly', () {
-    test('Method fromJson matches the canonical capabilities-bridge fixture', () {
-      final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
-        _readPayload('capabilities/capabilities-bridge.json'),
-      );
+    test(
+      'Method fromJson matches the canonical capabilities-bridge fixture',
+      () {
+        final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
+          _readPayload('capabilities/capabilities-bridge.json'),
+        );
 
-      expect(payload.capabilities, isEmpty);
-    });
+        expect(payload.capabilities, isEmpty);
+      },
+    );
 
-    test('Method fromJson matches the canonical capabilities-client fixture', () {
-      final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
-        _readPayload('capabilities/capabilities-client.json'),
-      );
+    test(
+      'Method fromJson matches the canonical capabilities-client fixture',
+      () {
+        final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
+          _readPayload('capabilities/capabilities-client.json'),
+        );
 
-      expect(payload.capabilities, isEmpty);
-    });
+        expect(payload.capabilities, isEmpty);
+      },
+    );
 
     test('Method fromJson decodes a non-empty capabilities list', () {
-      final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(<String, dynamic>{
-        'capabilities': <Map<String, dynamic>>[
-          <String, dynamic>{'id': 'state.inventory', 'version': 1},
-        ],
-      });
+      final CapabilitiesPayload payload = CapabilitiesPayload.fromJson(
+        <String, dynamic>{
+          'capabilities': <Map<String, dynamic>>[
+            <String, dynamic>{'id': 'state.inventory', 'version': 1},
+          ],
+        },
+      );
 
       expect(payload.capabilities, hasLength(1));
       expect(payload.capabilities.single.id, 'state.inventory');
       expect(payload.capabilities.single.version, 1);
     });
 
-    test('Method fromJson throws ProtocolFormatException when capabilities is missing', () {
-      expect(
-        () => CapabilitiesPayload.fromJson(<String, dynamic>{}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when capabilities is missing',
+      () {
+        expect(
+          () => CapabilitiesPayload.fromJson(<String, dynamic>{}),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when an entry is malformed', () {
-      expect(
-        () => CapabilitiesPayload.fromJson(<String, dynamic>{
-          'capabilities': <Map<String, dynamic>>[
-            <String, dynamic>{'id': 'state.inventory'},
-          ],
-        }),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when an entry is malformed',
+      () {
+        expect(
+          () => CapabilitiesPayload.fromJson(<String, dynamic>{
+            'capabilities': <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'state.inventory'},
+            ],
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
   });
 
   group('Method toJson behaves correctly', () {
     test('Method toJson matches the canonical capabilities-bridge fixture', () {
-      const CapabilitiesPayload payload = CapabilitiesPayload(capabilities: <Capability>[]);
+      const CapabilitiesPayload payload = CapabilitiesPayload(
+        capabilities: <Capability>[],
+      );
 
-      expect(payload.toJson(), _readPayload('capabilities/capabilities-bridge.json'));
+      expect(
+        payload.toJson(),
+        _readPayload('capabilities/capabilities-bridge.json'),
+      );
     });
 
     test('Method toJson matches the canonical capabilities-client fixture', () {
-      const CapabilitiesPayload payload = CapabilitiesPayload(capabilities: <Capability>[]);
+      const CapabilitiesPayload payload = CapabilitiesPayload(
+        capabilities: <Capability>[],
+      );
 
-      expect(payload.toJson(), _readPayload('capabilities/capabilities-client.json'));
+      expect(
+        payload.toJson(),
+        _readPayload('capabilities/capabilities-client.json'),
+      );
     });
 
     test('Method toJson encodes a non-empty capabilities list', () {
       const CapabilitiesPayload payload = CapabilitiesPayload(
-        capabilities: <Capability>[Capability(id: 'state.inventory', version: 1)],
+        capabilities: <Capability>[
+          Capability(id: 'state.inventory', version: 1),
+        ],
       );
 
       expect(payload.toJson(), <String, dynamic>{

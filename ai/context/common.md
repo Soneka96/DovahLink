@@ -54,6 +54,20 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - No area may place its implementation types, private fixtures, or infrastructure in another area's directory.
 - `protocol/fixtures/` contains canonical cross-side fixtures; `integration/` contains scenarios and harnesses that consume them.
 
+## Behavioral boundaries and test isolation
+
+- A behavior-bearing consumer uses explicit dependency boundaries for the collaborators whose
+  behavior it coordinates; it must not construct those collaborators internally when substitution
+  is useful for isolation.
+- Consumer tests prove the consumer's behavior through test doubles for behavior-bearing
+  collaborators, including calls, arguments, failure handling, and contractually important
+  ordering.
+- A collaborator's behavior remains owned by that collaborator's own tests. Do not mock DTOs,
+  value objects, pure conversion functions, or other logic whose behavior is the subject of the
+  test.
+- Small composition or integration tests use real implementations to prove that the production
+  graph is wired correctly; they are not a second exhaustive suite for every collaborator.
+
 ## File organization
 
 Keep one primary public type (class, struct, record, interface, enum, or similar) per file as the

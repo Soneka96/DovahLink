@@ -9,6 +9,7 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Builds an isolated state-file path so this test never touches a real per-user SDK state file,
 /// mirroring this project's existing isolated-trust-store-path test convention.
@@ -43,12 +44,12 @@ void main() {
       () async {
         final PersistedClientState state = await storage.load();
 
-        expect(state, const PersistedClientState());
+        expect(state, Fixtures.buildPersistedClientState(clientId: null));
       },
     );
 
     test('Method load round-trips a full state through save', () async {
-      const PersistedClientState saved = PersistedClientState(
+      final PersistedClientState saved = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3d4e5f6',
         recoveryState: PairingRecoveryState.confirming,
@@ -61,10 +62,10 @@ void main() {
     });
 
     test('Method load round-trips the empty state through save', () async {
-      await storage.save(const PersistedClientState());
+      await storage.save(Fixtures.buildPersistedClientState(clientId: null));
       final PersistedClientState loaded = await storage.load();
 
-      expect(loaded, const PersistedClientState());
+      expect(loaded, Fixtures.buildPersistedClientState(clientId: null));
     });
 
     test(
@@ -222,7 +223,9 @@ void main() {
     test(
       'Method load ignores a stale leftover .tmp file when reading the real target file',
       () async {
-        await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         await File(
           '$filePath.tmp',
         ).writeAsBytes(Uint8List.fromList(<int>[9, 9, 9]));
@@ -237,7 +240,12 @@ void main() {
       'Method load never exposes the plaintext credential in raw on-disk bytes',
       () async {
         const String credential = 'super-secret-credential-value';
-        await storage.save(const PersistedClientState(credential: credential));
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: null,
+            credential: credential,
+          ),
+        );
 
         final Uint8List raw = await File(filePath).readAsBytes();
         final String rawAsLatin1 = latin1.decode(raw, allowInvalid: true);
@@ -249,8 +257,12 @@ void main() {
 
   group('Method save behaves correctly', () {
     test('Method save overwrites a previously saved state', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
-      await storage.save(const PersistedClientState(clientId: 'client-2'));
+      await storage.save(
+        Fixtures.buildPersistedClientState(clientId: 'client-1'),
+      );
+      await storage.save(
+        Fixtures.buildPersistedClientState(clientId: 'client-2'),
+      );
 
       final PersistedClientState loaded = await storage.load();
 
@@ -260,7 +272,9 @@ void main() {
     test(
       'Method save does not leave a temporary file behind after completing',
       () async {
-        await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
 
         expect(File('$filePath.tmp').existsSync(), isFalse);
       },
@@ -278,7 +292,9 @@ void main() {
 
         try {
           await expectLater(
-            storage.save(const PersistedClientState(clientId: 'client-1')),
+            storage.save(
+              Fixtures.buildPersistedClientState(clientId: 'client-1'),
+            ),
             throwsA(isA<PathAccessException>()),
           );
         } finally {
@@ -294,12 +310,14 @@ void main() {
     test(
       'Method clear deletes persisted state so load returns the empty state',
       () async {
-        await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
 
         await storage.clear();
 
         final PersistedClientState loaded = await storage.load();
-        expect(loaded, const PersistedClientState());
+        expect(loaded, Fixtures.buildPersistedClientState(clientId: null));
       },
     );
 

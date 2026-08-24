@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../fixtures/fixtures.dart';
 
 /// Runs in-memory client-storage behavior tests.
 void main() {
@@ -18,12 +19,12 @@ void main() {
       () async {
         final PersistedClientState state = await storage.load();
 
-        expect(state, const PersistedClientState());
+        expect(state, Fixtures.buildPersistedClientState(clientId: null));
       },
     );
 
     test('Method load returns the most recently saved state', () async {
-      const PersistedClientState saved = PersistedClientState(
+      final PersistedClientState saved = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3',
         recoveryState: PairingRecoveryState.confirming,
@@ -38,8 +39,12 @@ void main() {
 
   group('Method save behaves correctly', () {
     test('Method save overwrites a previously saved state', () async {
-      await storage.save(const PersistedClientState(clientId: 'client-1'));
-      await storage.save(const PersistedClientState(clientId: 'client-2'));
+      await storage.save(
+        Fixtures.buildPersistedClientState(clientId: 'client-1'),
+      );
+      await storage.save(
+        Fixtures.buildPersistedClientState(clientId: 'client-2'),
+      );
 
       final PersistedClientState loaded = await storage.load();
 
@@ -50,7 +55,7 @@ void main() {
   group('Method clear behaves correctly', () {
     test('Method clear resets to the empty state', () async {
       await storage.save(
-        const PersistedClientState(
+        Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'a1b2c3',
           recoveryState: PairingRecoveryState.confirming,
@@ -60,7 +65,7 @@ void main() {
       await storage.clear();
 
       final PersistedClientState loaded = await storage.load();
-      expect(loaded, const PersistedClientState());
+      expect(loaded, Fixtures.buildPersistedClientState(clientId: null));
     });
 
     test('Method clear is idempotent when called twice', () async {

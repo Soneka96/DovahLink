@@ -14,9 +14,7 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/persistence/persisted_client_state.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to isolate authentication service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -46,7 +44,7 @@ Envelope buildHelloAckEnvelope({
   String bridgeVersion = '1.0',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
   String? clientId = 'client-1',
-}) => buildEnvelope(
+}) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.helloAck,
   sessionId: sessionId,
   clientId: clientId,
@@ -82,7 +80,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.hello);
     registerFallbackValue(
-      buildRequestPolicy(
+      Fixtures.buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,
@@ -90,7 +88,7 @@ void main() {
     );
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
     registerFallbackValue(DovahLinkTrustState.unpaired);
-    registerFallbackValue(buildPersistedClientState());
+    registerFallbackValue(Fixtures.buildPersistedClientState());
   });
 
   setUp(() {
@@ -115,9 +113,9 @@ void main() {
         trustState: any(named: 'trustState'),
       ),
     ).thenAnswer((_) {});
-    when(
-      () => storage.load(),
-    ).thenAnswer((_) async => buildPersistedClientState(clientId: 'client-1'));
+    when(() => storage.load()).thenAnswer(
+      (_) async => Fixtures.buildPersistedClientState(clientId: 'client-1'),
+    );
     when(() => storage.save(any())).thenAnswer((_) async {});
     when(
       () => clientIdResolver.resolve(any()),
@@ -196,7 +194,7 @@ void main() {
     test(
       'Method hello resolves clientId from the loaded persisted state and exposes it as its own',
       () async {
-        final PersistedClientState loaded = buildPersistedClientState(
+        final PersistedClientState loaded = Fixtures.buildPersistedClientState(
           clientId: 'existing-client',
         );
         when(() => storage.load()).thenAnswer((_) async => loaded);
@@ -223,7 +221,7 @@ void main() {
       'Method hello presents the stored credential as trusted_device_credential for an ordinary reconnect',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'good-cred',
           ),
@@ -261,7 +259,7 @@ void main() {
       'outstanding',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -309,10 +307,14 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildHelloAckEnvelope(
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.helloAck,
             sessionId: null,
-            bridgeVersion: '1.0',
-            kind: ClientIdentityKind.unpaired,
+            payload: <String, dynamic>{
+              'bridgeVersion': '1.0',
+              'clientIdentityKind': 'unpaired',
+            },
+            clientId: 'client-1',
           ),
         );
 
@@ -343,15 +345,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -382,7 +378,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
               'bridgeVersion': '',
@@ -418,7 +414,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
               'bridgeVersion': '1.0',
@@ -634,7 +630,7 @@ void main() {
       'Method authenticate propagates the retry attempt\'s own rejection after credential-rejection recovery',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
@@ -665,7 +661,9 @@ void main() {
           ),
         );
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
         verify(
@@ -688,7 +686,7 @@ void main() {
       'Method authenticate propagates a retry connection failure after credential recovery',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
@@ -726,7 +724,9 @@ void main() {
           ),
         );
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
         verify(
@@ -751,7 +751,7 @@ void main() {
         // storage.load() must reflect forgetCredential()'s own storage.save() before the retry
         // attempt's hello() re-reads it, so the retry actually presents unpaired -- a static stub
         // would keep returning the stale credential regardless of the intervening save().
-        PersistedClientState persisted = buildPersistedClientState(
+        PersistedClientState persisted = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'stale-cred',
         );
@@ -796,7 +796,9 @@ void main() {
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
         final List<Object?> sentPayloads = verify(
@@ -818,7 +820,7 @@ void main() {
       'Method authenticate recovers from an unrecognized-credential rejection the same way',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
@@ -857,7 +859,9 @@ void main() {
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
       },
@@ -867,7 +871,7 @@ void main() {
       'Method authenticate recovers from a blocked credential rejection the same way',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
           ),
@@ -906,7 +910,9 @@ void main() {
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
       },
@@ -916,7 +922,7 @@ void main() {
       'Method authenticate does not recover from a non-recoverable protocol rejection',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'good-cred',
           ),
@@ -957,7 +963,7 @@ void main() {
       'Method forgetCredential clears credential and recovery state while preserving clientId',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -967,7 +973,9 @@ void main() {
         await service.forgetCredential();
 
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
       },
     );

@@ -10,20 +10,21 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 
 ## Test fixtures and ownership
 
-- Keep SDK-owned fixtures below the package-local
-  `sdk/dart/dovahlink_client/test/fixtures/` directory, with subfolders mirroring the owning
-  production area below `lib/src/` (`protocol`, `persistence`, `internal`, and so on). For example,
-  the typed envelope fixture belongs at `test/fixtures/protocol/envelope.fixture.dart` relative to
-  the SDK package root. This is an in-memory unit-test fixture, not a canonical cross-side JSON
-  fixture. Use descriptive `.fixture.dart` files; do not create one global fixture or constants
-  file, and apply the shared Dart fixture-builder rules.
-- No exceptions: a DTO/value type is constructed in `test/` code in exactly one place, its own
-  `build<Type>()` fixture. Every other test file calls the builder; none hand-rolls its own private
-  construction helper or inline literal for a type another file already builds. When one fixture's
-  own default value needs another type's fixture (`PendingOperation`'s default `policy` needs
-  `RequestPolicy`'s representative shape), compose the other builder rather than re-deriving that
-  shape locally — since a fixture-builder call is never `const`-eligible, do this via a nullable
-  parameter and `??`, not a `const` default.
+- Keep SDK-owned typed fixtures below the package-local
+  `sdk/dart/dovahlink_client/test/fixtures/` directory. The package's discoverable catalog is
+  `test/fixtures/fixtures.dart`, with named builders such as `Fixtures.buildEnvelope(...)` and
+  `Fixtures.buildPersistedClientState(...)` grouped by the owning production area (`Request`,
+  `Protocol`, `Persistence`, `Internal`, and so on). This catalog is test-only in-memory
+  construction; canonical cross-side JSON fixtures remain in `protocol/fixtures/`.
+- A representative DTO/value construction lives in exactly one catalog builder. Every other test
+  file calls the relevant named catalog builder, such as `Fixtures.buildPendingOperation(...)` or
+  `Fixtures.buildRequestPolicy(...)`, rather than duplicating construction inline or creating a
+  private builder. When one fixture's default value needs another fixture (`PendingOperation`'s
+  default `policy` needs `RequestPolicy`'s representative shape), compose the other builder via a
+  nullable parameter and `??`, because fixture-builder calls are not `const`-eligible.
+- A test-local helper may compose a catalog builder and override only the fields that define its
+  scenario, such as a reply envelope with a particular message type or correlation ID. It must not
+  re-derive the catalog builder's representative defaults.
 - A DTO/value type used through a fixture builder needs real `==`/`hashCode` (see the hand-written
   pattern on `PersistedClientState`) if any test ever compares two instances for equality —
   `const` literals canonicalize to the same instance and can silently stand in for a missing

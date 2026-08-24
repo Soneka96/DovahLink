@@ -12,7 +12,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
-import '../../fixtures/internal/requests/pending_operation.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mock transport used to isolate transmission tests from socket I/O.
 class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
@@ -69,7 +69,7 @@ void main() {
     test(
       'Method transmit registers the same message ID sent in the envelope',
       () async {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
           sessionService: sessionService,
@@ -100,7 +100,7 @@ void main() {
     test(
       'Method transmit reports a timeout through the session service',
       () async {
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
           sessionService: sessionService,
@@ -128,7 +128,7 @@ void main() {
         when(
           () => transport.send(any()),
         ).thenAnswer((_) async => throw StateError('send failed'));
-        final PendingOperation operation = buildPendingOperation();
+        final PendingOperation operation = Fixtures.buildPendingOperation();
         final PendingOperationTransmitter transmitter = buildTransmitter(
           transport: transport,
           sessionService: sessionService,

@@ -8,6 +8,7 @@
     "boost-beast",
     "boost-json",
     "catch2",
-    "commonlibsse-ng-flatrim"
+    "commonlibsse-ng-flatrim",
+    "fakeit"
   ]
 }

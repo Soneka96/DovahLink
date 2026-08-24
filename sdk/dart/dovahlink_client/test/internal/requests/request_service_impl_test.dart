@@ -14,9 +14,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/internal/requests/pending_operation.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to control connection state and trust state, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -40,17 +38,17 @@ class MockPendingOperationTransmitter extends Mock
 class MockMessageRouter extends Mock implements MessageRouter {}
 
 /// Retry-safe policy for operations that require an admitted unpaired session.
-final RequestPolicy _retrySafeUnpairedPolicy = buildRequestPolicy();
+final RequestPolicy _retrySafeUnpairedPolicy = Fixtures.buildRequestPolicy();
 
 /// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
-final RequestPolicy _nonRetrySafePolicy = buildRequestPolicy(
+final RequestPolicy _nonRetrySafePolicy = Fixtures.buildRequestPolicy(
   retrySafe: false,
   requiredTrustState: null,
   timeoutClass: TimeoutClass.normal,
 );
 
 /// Retry-safe policy for operations with no trust-state requirement to revalidate on retry.
-final RequestPolicy _retrySafeAnyTrustPolicy = buildRequestPolicy(
+final RequestPolicy _retrySafeAnyTrustPolicy = Fixtures.buildRequestPolicy(
   requiredTrustState: null,
 );
 
@@ -63,7 +61,7 @@ void main() {
   late RequestServiceImpl service;
 
   setUpAll(() {
-    registerFallbackValue(buildPendingOperation());
+    registerFallbackValue(Fixtures.buildPendingOperation());
     registerFallbackValue(
       const DovahLinkConnectionException('fallback for any()'),
     );
@@ -136,7 +134,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: const <String, dynamic>{'state': 'unavailable'},
           ),
@@ -162,7 +160,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.error,
             payload: const <String, dynamic>{
               'code': 'unauthenticated',
@@ -200,7 +198,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             payload: const <String, dynamic>{},
           ),
@@ -387,7 +385,7 @@ void main() {
             messageType: ProtocolMessageType.hello,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.helloAck,
-            policy: buildRequestPolicy(
+            policy: Fixtures.buildRequestPolicy(
               requiredTrustState: DovahLinkTrustState.trusted,
             ),
           ),
@@ -433,7 +431,7 @@ void main() {
             messageType: ProtocolMessageType.pairingRequest,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingStatus,
-            policy: buildRequestPolicy(
+            policy: Fixtures.buildRequestPolicy(
               requiredTrustState: DovahLinkTrustState.trusted,
             ),
           ),
@@ -473,7 +471,7 @@ void main() {
             messageType: ProtocolMessageType.hello,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.helloAck,
-            policy: buildRequestPolicy(
+            policy: Fixtures.buildRequestPolicy(
               retrySafe: false,
               requiredTrustState: DovahLinkTrustState.trusted,
               timeoutClass: TimeoutClass.normal,
@@ -540,7 +538,7 @@ void main() {
     test(
       'Method retryOrphanedOperations retransmits an operation whose policy has no requiredTrustState',
       () {
-        final PendingOperation operation = buildPendingOperation(
+        final PendingOperation operation = Fixtures.buildPendingOperation(
           policy: _retrySafeAnyTrustPolicy,
         );
         when(
@@ -561,7 +559,7 @@ void main() {
         when(
           () => sessionService.currentTrustState,
         ).thenReturn(DovahLinkTrustState.trusted);
-        final PendingOperation operation = buildPendingOperation(
+        final PendingOperation operation = Fixtures.buildPendingOperation(
           policy: _retrySafeUnpairedPolicy,
         );
         when(
@@ -586,7 +584,7 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.reconnecting);
-        final PendingOperation operation = buildPendingOperation(
+        final PendingOperation operation = Fixtures.buildPendingOperation(
           policy: _retrySafeAnyTrustPolicy,
         );
         when(
@@ -603,10 +601,10 @@ void main() {
     test(
       'Method retryOrphanedOperations retries every orphaned operation, not just the first',
       () {
-        final PendingOperation first = buildPendingOperation(
+        final PendingOperation first = Fixtures.buildPendingOperation(
           policy: _retrySafeAnyTrustPolicy,
         );
-        final PendingOperation second = buildPendingOperation(
+        final PendingOperation second = Fixtures.buildPendingOperation(
           messageType: ProtocolMessageType.pairingCancel,
           policy: _retrySafeAnyTrustPolicy,
         );

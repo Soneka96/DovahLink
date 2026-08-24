@@ -2,6 +2,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../fixtures/fixtures.dart';
 
 /// Runs persisted-client-state behavior tests.
 void main() {
@@ -23,7 +24,7 @@ void main() {
 
   group('Method copyWith behaves correctly', () {
     test('Method copyWith replaces only the given recoveryState', () {
-      const PersistedClientState original = PersistedClientState(
+      final PersistedClientState original = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3',
         recoveryState: PairingRecoveryState.confirming,
@@ -39,7 +40,7 @@ void main() {
     });
 
     test('Method copyWith replaces only the given clientId', () {
-      const PersistedClientState original = PersistedClientState(
+      final PersistedClientState original = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3',
       );
@@ -53,7 +54,7 @@ void main() {
     });
 
     test('Method copyWith replaces only the given credential', () {
-      const PersistedClientState original = PersistedClientState(
+      final PersistedClientState original = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3',
       );
@@ -67,7 +68,7 @@ void main() {
     });
 
     test('Method copyWith with no arguments returns an equal copy', () {
-      const PersistedClientState original = PersistedClientState(
+      final PersistedClientState original = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
         credential: 'a1b2c3',
         recoveryState: PairingRecoveryState.confirming,
@@ -81,12 +82,12 @@ void main() {
     test(
       'Behavior equality treats instances with the same fields as equal',
       () {
-        const PersistedClientState a = PersistedClientState(
+        final PersistedClientState a = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'a1b2c3',
           recoveryState: PairingRecoveryState.confirming,
         );
-        const PersistedClientState b = PersistedClientState(
+        final PersistedClientState b = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'a1b2c3',
           recoveryState: PairingRecoveryState.confirming,
@@ -98,23 +99,36 @@ void main() {
     );
 
     test('Behavior equality rejects instances differing by clientId', () {
-      const PersistedClientState a = PersistedClientState(clientId: 'client-1');
-      const PersistedClientState b = PersistedClientState(clientId: 'client-2');
+      final PersistedClientState a = Fixtures.buildPersistedClientState(
+        clientId: 'client-1',
+      );
+      final PersistedClientState b = Fixtures.buildPersistedClientState(
+        clientId: 'client-2',
+      );
 
       expect(a, isNot(b));
       expect(a.hashCode, isNot(b.hashCode));
     });
 
     test('Behavior equality rejects instances differing by credential', () {
-      const PersistedClientState a = PersistedClientState(credential: 'a1b2c3');
-      const PersistedClientState b = PersistedClientState(credential: 'd4e5f6');
+      final PersistedClientState a = Fixtures.buildPersistedClientState(
+        clientId: null,
+        credential: 'a1b2c3',
+      );
+      final PersistedClientState b = Fixtures.buildPersistedClientState(
+        clientId: null,
+        credential: 'd4e5f6',
+      );
 
       expect(a, isNot(b));
     });
 
     test('Behavior equality rejects instances differing by recoveryState', () {
-      const PersistedClientState a = PersistedClientState();
-      const PersistedClientState b = PersistedClientState(
+      final PersistedClientState a = Fixtures.buildPersistedClientState(
+        clientId: null,
+      );
+      final PersistedClientState b = Fixtures.buildPersistedClientState(
+        clientId: null,
         recoveryState: PairingRecoveryState.confirming,
       );
 
@@ -122,7 +136,7 @@ void main() {
     });
 
     test('Behavior equality rejects a non-PersistedClientState object', () {
-      const PersistedClientState state = PersistedClientState(
+      final PersistedClientState state = Fixtures.buildPersistedClientState(
         clientId: 'client-1',
       );
       const Object other = 'client-1';

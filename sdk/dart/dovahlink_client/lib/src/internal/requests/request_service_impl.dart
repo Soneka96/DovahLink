@@ -75,8 +75,7 @@ class RequestServiceImpl implements RequestService {
         'Cannot send $messageType: no active connection.',
       );
     }
-    final DovahLinkTrustState? requiredTrustState =
-        policy.requiredTrustState;
+    final DovahLinkTrustState? requiredTrustState = policy.requiredTrustState;
     if (requiredTrustState != null &&
         requiredTrustState != _sessionService.currentTrustState) {
       throw DovahLinkConnectionException(

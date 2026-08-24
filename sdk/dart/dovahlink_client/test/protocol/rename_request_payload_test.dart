@@ -17,13 +17,17 @@ JsonMap _readPayload(String relativePath) {
 void main() {
   group('Method toJson behaves correctly', () {
     test('Method toJson matches the canonical rename-request fixture', () {
-      const RenameRequestPayload payload = RenameRequestPayload(displayName: 'New Name');
+      const RenameRequestPayload payload = RenameRequestPayload(
+        displayName: 'New Name',
+      );
 
       expect(payload.toJson(), _readPayload('rename/rename-request.json'));
     });
 
     test('Method toJson encodes an empty displayName', () {
-      const RenameRequestPayload payload = RenameRequestPayload(displayName: '');
+      const RenameRequestPayload payload = RenameRequestPayload(
+        displayName: '',
+      );
 
       expect(payload.toJson(), <String, dynamic>{'displayName': ''});
     });

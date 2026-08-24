@@ -9,6 +9,7 @@ import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.da
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
+import 'fixtures/fixtures.dart';
 import 'support/pending_reply.dart';
 
 /// Owns ordered release and correlation rewriting for fake-transport replies.
@@ -214,7 +215,7 @@ class TrackingClientStorage implements ClientStorage {
   /// See [ClientStorage.clear].
   @override
   Future<void> clear() async {
-    _state = const PersistedClientState();
+    _state = Fixtures.buildPersistedClientState(clientId: null);
   }
 }
 
@@ -254,6 +255,22 @@ Future<void> _connectAndHello(
   transport.queueResponse(_rawFixture('capabilities/capabilities-bridge.json'));
   await client.hello();
 }
+
+/// Builds a public client whose reconnect attempts run without production-scale delays.
+DovahLinkClient _buildFastReconnectClient(
+  FakeDovahLinkTransport transport,
+  InMemoryClientStorage storage,
+) => DovahLinkClient.withReconnectPolicy(
+  transport: transport,
+  storage: storage,
+  attemptDelays: const <Duration>[
+    Duration.zero,
+    Duration.zero,
+    Duration.zero,
+    Duration.zero,
+  ],
+  deadline: const Duration(seconds: 30),
+);
 
 /// Runs public-client behavior tests.
 void main() {
@@ -426,7 +443,7 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'deadbeef',
           ),
@@ -465,7 +482,7 @@ void main() {
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'deadbeef',
           ),
@@ -703,7 +720,9 @@ void main() {
     test(
       'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
       () async {
-        await storage.save(const PersistedClientState(clientId: 'client-1'));
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
@@ -726,7 +745,7 @@ void main() {
       'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'already-confirming-credential',
             recoveryState: PairingRecoveryState.confirming,
@@ -754,7 +773,7 @@ void main() {
       'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'a1b2c3d4e5f6',
             recoveryState: PairingRecoveryState.confirming,
@@ -778,7 +797,8 @@ void main() {
       'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
+            clientId: null,
             credential: 'stored-credential',
             recoveryState: PairingRecoveryState.confirming,
           ),
@@ -804,7 +824,7 @@ void main() {
       'Method recoverPendingPairing leaves CONFIRMING untouched when the retry fails for another reason',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'a1b2c3d4e5f6',
             recoveryState: PairingRecoveryState.confirming,
@@ -883,7 +903,7 @@ void main() {
 
     test('Method disconnect preserves the persisted credential', () async {
       await storage.save(
-        const PersistedClientState(
+        Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'credential-1',
         ),
@@ -908,7 +928,7 @@ void main() {
       'Method forgetCredential a later hello presents unpaired instead of the forgotten credential',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'a1b2c3d4e5f6',
           ),
@@ -1088,7 +1108,7 @@ void main() {
         'Behavior session_invalidated handling clears the persisted credential for ${entry.key.name}',
         () async {
           await storage.save(
-            const PersistedClientState(
+            Fixtures.buildPersistedClientState(
               clientId: 'client-1',
               credential: 'credential-1',
             ),
@@ -1117,7 +1137,7 @@ void main() {
       'Behavior session_invalidated handling clears a confirming credential and recovery state',
       () async {
         await storage.save(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'credential-1',
             recoveryState: PairingRecoveryState.confirming,
@@ -1146,7 +1166,7 @@ void main() {
       'Behavior session_invalidated handling cleans up once when close signals are duplicated',
       () async {
         final TrackingClientStorage trackingStorage = TrackingClientStorage(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'credential-1',
           ),
@@ -1183,7 +1203,7 @@ void main() {
       'Behavior session_invalidated handling contains a persistence cleanup failure',
       () async {
         final TrackingClientStorage failingStorage = TrackingClientStorage(
-          const PersistedClientState(
+          Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'credential-1',
           ),
@@ -1539,78 +1559,163 @@ void main() {
   });
 
   group('Behavior reconnect re-authentication sequencing behaves correctly', () {
-    test(
-      'Behavior automatic reconnect passes through reauthenticating before resolving to '
-      'connected, never exposing connected before hello succeeds',
-      () async {
-        final List<DovahLinkConnectionState> observed =
-            <DovahLinkConnectionState>[];
-        final StreamSubscription<DovahLinkConnectionState> subscription = client
-            .connectionStateChanges
-            .listen(observed.add);
-        addTearDown(subscription.cancel);
+    test('Behavior automatic reconnect passes through reauthenticating before resolving to '
+        'connected, never exposing connected before hello succeeds', () async {
+      final FakeDovahLinkTransport reconnectTransport =
+          FakeDovahLinkTransport();
+      final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+      final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+        reconnectTransport,
+        reconnectStorage,
+      );
+      final List<DovahLinkConnectionState> observed =
+          <DovahLinkConnectionState>[];
+      final StreamSubscription<DovahLinkConnectionState> subscription =
+          reconnectClient.connectionStateChanges.listen(observed.add);
+      addTearDown(subscription.cancel);
 
+      await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await reconnectClient.hello();
+
+      // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello() finds
+      // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
+      // reconnect by hand.
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+      // A fixed pump count, not a "not yet connected" condition -- connectionState is already
+      // `connected` before the drop, so a condition guarding on that would exit before the drop
+      // is ever actually processed. Reconnect delays are injected as zero for this composition
+      // test, so no production-scale timer is required.
+      await pumpEventQueue();
+      for (int i = 0; i < 20; i++) {
+        await pumpEventQueue();
+      }
+
+      expect(observed, [
+        DovahLinkConnectionState.disconnected,
+        DovahLinkConnectionState.connecting,
+        DovahLinkConnectionState.connected,
+        // Ordinary transport loss tears a fully connected session down to disconnected first
+        // (it was not already recovering), then hands off to bounded automatic reconnect.
+        DovahLinkConnectionState.disconnected,
+        DovahLinkConnectionState.reconnecting,
+        DovahLinkConnectionState.reauthenticating,
+        DovahLinkConnectionState.connected,
+      ]);
+    });
+
+    test('Behavior automatic reconnect continues after a retryable hello rejection instead of '
+        'giving up, and still restores the session', () async {
+      final FakeDovahLinkTransport reconnectTransport =
+          FakeDovahLinkTransport();
+      final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+      final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+        reconnectTransport,
+        reconnectStorage,
+      );
+      await _connectAndHello(reconnectTransport, reconnectClient);
+
+      //  Answers the first (zero-delay) automatic attempt's hello with a retryable rejection --
+      // built inline, mirroring protocol/fixtures/errors/error-rate-limited.json, since that
+      // canonical fixture's own correlationId is null (an unsolicited push shape) and this case
+      // needs one correlated to the hello it rejects, the same way
+      // errors/error-unauthenticated-invalid-token.json already is.
+      reconnectTransport.queueResponse(
+        jsonEncode(<String, dynamic>{
+          'messageType': 'error',
+          'messageId': 'message-error-rate-limited-retry-1',
+          'sessionId': null,
+          'correlationId': 'message-hello-placeholder',
+          'payload': <String, dynamic>{
+            'code': 'rate_limited',
+            'message': 'Inbound message rate exceeded 100 messages per second',
+            'retryable': true,
+            'details': null,
+          },
+          'bridgeInstanceId': null,
+          'playContextId': null,
+          'clientId': null,
+        }),
+      );
+      // Answers the second automatic attempt with success.
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+      // A fixed pump count, not a "not yet connected" condition -- connectionState is already
+      // `connected` from _connectAndHello before the drop, so a condition guarding on that would
+      // exit before the drop is ever actually processed. Reconnect delays are injected as zero,
+      // so the retry path does not wait on production-scale timers.
+      await pumpEventQueue();
+      for (int i = 0; i < 20; i++) {
+        await pumpEventQueue();
+      }
+
+      expect(
+        reconnectClient.connectionState,
+        DovahLinkConnectionState.connected,
+      );
+      final List<String> helloSends = reconnectTransport.sent
+          .where(
+            (String raw) =>
+                (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+          )
+          .toList();
+      // hello#1 (initial, from _connectAndHello), hello#2 (automatic, rejected retryably),
+      // hello#3 (automatic, succeeds) -- the retryable rejection must consume one attempt and
+      // continue, not end the cycle after hello#2.
+      expect(helloSends, hasLength(3));
+    });
+  });
+
+  group('Behavior credential cleanup during automatic reconnect behaves correctly', () {
+    test(
+      'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
+      'recovering, preserving clientId and ending the cycle without retrying',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'stale-cred',
+          ),
+        );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-bridge.json'),
         );
         await client.hello();
 
-        // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello() finds
-        // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
-        // reconnect by hand.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
-        transport.failMessagesWith(const SocketException('dropped'));
-
-        // A fixed pump count, not a "not yet connected" condition -- connectionState is already
-        // `connected` before the drop, so a condition guarding on that would exit before the drop
-        // is ever actually processed. Includes a real wait past kReconnectAttemptDelays[1] in case
-        // the immediate first attempt does not land within pumped microtasks alone.
-        await pumpEventQueue();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
-        for (int i = 0; i < 20; i++) {
-          await pumpEventQueue();
-        }
-
-        expect(observed, [
-          DovahLinkConnectionState.disconnected,
-          DovahLinkConnectionState.connecting,
-          DovahLinkConnectionState.connected,
-          // Ordinary transport loss tears a fully connected session down to disconnected first
-          // (it was not already recovering), then hands off to bounded automatic reconnect.
-          DovahLinkConnectionState.disconnected,
-          DovahLinkConnectionState.reconnecting,
-          DovahLinkConnectionState.reauthenticating,
-          DovahLinkConnectionState.connected,
-        ]);
-      },
-    );
-
-    test(
-      'Behavior automatic reconnect continues after a retryable hello rejection instead of '
-      'giving up, and still restores the session',
-      () async {
-        await _connectAndHello(transport, client);
-
-        //  Answers the first (zero-delay) automatic attempt's hello with a retryable rejection --
-        // built inline, mirroring protocol/fixtures/errors/error-rate-limited.json, since that
-        // canonical fixture's own correlationId is null (an unsolicited push shape) and this case
-        // needs one correlated to the hello it rejects, the same way
-        // errors/error-unauthenticated-invalid-token.json already is.
+        // Answers the automatic reconnect's own hello -- the bridge decides, while this device
+        // was briefly offline, that its presented credential is now blocked.
         transport.queueResponse(
           jsonEncode(<String, dynamic>{
             'messageType': 'error',
-            'messageId': 'message-error-rate-limited-retry-1',
+            'messageId': 'message-error-blocked-1',
             'sessionId': null,
             'correlationId': 'message-hello-placeholder',
             'payload': <String, dynamic>{
-              'code': 'rate_limited',
-              'message': 'Inbound message rate exceeded 100 messages per second',
-              'retryable': true,
+              'code': 'blocked',
+              'message': 'This clientId is blocked',
+              'retryable': false,
               'details': null,
             },
             'bridgeInstanceId': null,
@@ -1618,106 +1723,29 @@ void main() {
             'clientId': null,
           }),
         );
-        // Answers the second automatic attempt (after kReconnectAttemptDelays[1]'s real 1-second
-        // delay) with success.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-bridge.json'),
-        );
         transport.failMessagesWith(const SocketException('dropped'));
 
-        // Lets the immediate first attempt run and fail, then waits out the real delay before the
-        // second attempt -- no override point exists on DovahLinkClient's public constructor to
-        // shorten kReconnectAttemptDelays for this test. A fixed pump count, not a "not yet
-        // connected" condition -- connectionState is already `connected` from _connectAndHello
-        // before the drop, so a condition guarding on that would exit before the drop is ever
-        // actually processed.
-        await pumpEventQueue();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
         for (int i = 0; i < 20; i++) {
           await pumpEventQueue();
         }
 
-        expect(client.connectionState, DovahLinkConnectionState.connected);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        final PersistedClientState stored = await storage.load();
+        expect(stored.credential, isNull);
+        expect(stored.clientId, 'client-1');
         final List<String> helloSends = transport.sent
             .where(
               (String raw) =>
                   (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
             )
             .toList();
-        // hello#1 (initial, from _connectAndHello), hello#2 (automatic, rejected retryably),
-        // hello#3 (automatic, succeeds) -- the retryable rejection must consume one attempt and
-        // continue, not end the cycle after hello#2.
-        expect(helloSends, hasLength(3));
+        // hello#1 (initial, succeeds) and hello#2 (automatic, rejected as blocked) -- a
+        // terminal rejection must not consume the remaining attempt budget by retrying with
+        // the now-forgotten credential.
+        expect(helloSends, hasLength(2));
       },
     );
   });
-
-  group(
-    'Behavior credential cleanup during automatic reconnect behaves correctly',
-    () {
-      test(
-        'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
-        'recovering, preserving clientId and ending the cycle without retrying',
-        () async {
-          await storage.save(
-            const PersistedClientState(
-              clientId: 'client-1',
-              credential: 'stale-cred',
-            ),
-          );
-          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-          transport.queueResponse(
-            _rawFixture('connection/hello-ack-paired.json'),
-          );
-          transport.queueResponse(
-            _rawFixture('capabilities/capabilities-bridge.json'),
-          );
-          await client.hello();
-
-          // Answers the automatic reconnect's own hello -- the bridge decides, while this device
-          // was briefly offline, that its presented credential is now blocked.
-          transport.queueResponse(
-            jsonEncode(<String, dynamic>{
-              'messageType': 'error',
-              'messageId': 'message-error-blocked-1',
-              'sessionId': null,
-              'correlationId': 'message-hello-placeholder',
-              'payload': <String, dynamic>{
-                'code': 'blocked',
-                'message': 'This clientId is blocked',
-                'retryable': false,
-                'details': null,
-              },
-              'bridgeInstanceId': null,
-              'playContextId': null,
-              'clientId': null,
-            }),
-          );
-          transport.failMessagesWith(const SocketException('dropped'));
-
-          for (int i = 0; i < 20; i++) {
-            await pumpEventQueue();
-          }
-
-          expect(client.connectionState, DovahLinkConnectionState.disconnected);
-          final PersistedClientState stored = await storage.load();
-          expect(stored.credential, isNull);
-          expect(stored.clientId, 'client-1');
-          final List<String> helloSends = transport.sent
-              .where(
-                (String raw) =>
-                    (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
-              )
-              .toList();
-          // hello#1 (initial, succeeds) and hello#2 (automatic, rejected as blocked) -- a
-          // terminal rejection must not consume the remaining attempt budget by retrying with
-          // the now-forgotten credential.
-          expect(helloSends, hasLength(2));
-        },
-      );
-    },
-  );
 
   group('Behavior stale receiver isolation behaves correctly', () {
     test(
@@ -1837,7 +1865,7 @@ void main() {
     test('Behavior request timeout handling retransmits retry-safe acknowledgeTrustedCredential '
         'after ordinary transport loss, via automatic reconnect', () async {
       await storage.save(
-        const PersistedClientState(
+        Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'a1b2c3d4e5f6',
           recoveryState: PairingRecoveryState.confirming,

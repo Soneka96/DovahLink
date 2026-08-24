@@ -27,47 +27,65 @@ void main() {
     });
 
     test('Method fromJson decodes a non-empty acceptedStateAreas list', () {
-      final SubscriptionAckPayload payload = SubscriptionAckPayload.fromJson(<String, dynamic>{
-        'acceptedStateAreas': <String>['area_a'],
-        'rejectedStateAreas': <String>[],
-      });
+      final SubscriptionAckPayload payload = SubscriptionAckPayload.fromJson(
+        <String, dynamic>{
+          'acceptedStateAreas': <String>['area_a'],
+          'rejectedStateAreas': <String>[],
+        },
+      );
 
       expect(payload.acceptedStateAreas, <String>['area_a']);
       expect(payload.rejectedStateAreas, isEmpty);
     });
 
-    test('Method fromJson throws ProtocolFormatException when acceptedStateAreas is missing', () {
-      expect(
-        () => SubscriptionAckPayload.fromJson(<String, dynamic>{'rejectedStateAreas': <String>[]}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when acceptedStateAreas is missing',
+      () {
+        expect(
+          () => SubscriptionAckPayload.fromJson(<String, dynamic>{
+            'rejectedStateAreas': <String>[],
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when rejectedStateAreas is missing', () {
-      expect(
-        () => SubscriptionAckPayload.fromJson(<String, dynamic>{'acceptedStateAreas': <String>[]}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when rejectedStateAreas is missing',
+      () {
+        expect(
+          () => SubscriptionAckPayload.fromJson(<String, dynamic>{
+            'acceptedStateAreas': <String>[],
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when acceptedStateAreas is not a list', () {
-      expect(
-        () => SubscriptionAckPayload.fromJson(<String, dynamic>{
-          'acceptedStateAreas': 'not-a-list',
-          'rejectedStateAreas': <String>[],
-        }),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when acceptedStateAreas is not a list',
+      () {
+        expect(
+          () => SubscriptionAckPayload.fromJson(<String, dynamic>{
+            'acceptedStateAreas': 'not-a-list',
+            'rejectedStateAreas': <String>[],
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when an entry is not a string', () {
-      expect(
-        () => SubscriptionAckPayload.fromJson(<String, dynamic>{
-          'acceptedStateAreas': <dynamic>[1],
-          'rejectedStateAreas': <String>[],
-        }),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when an entry is not a string',
+      () {
+        expect(
+          () => SubscriptionAckPayload.fromJson(<String, dynamic>{
+            'acceptedStateAreas': <dynamic>[1],
+            'rejectedStateAreas': <String>[],
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
   });
 }

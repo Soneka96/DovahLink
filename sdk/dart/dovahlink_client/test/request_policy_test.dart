@@ -2,6 +2,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'fixtures/fixtures.dart';
 
 /// Runs [RequestPolicy] behavior tests.
 void main() {
@@ -9,7 +10,7 @@ void main() {
     test(
       'Method constructor preserves retrySafe, requiredTrustState, and timeoutClass',
       () {
-        const RequestPolicy policy = RequestPolicy(
+        final RequestPolicy policy = Fixtures.buildRequestPolicy(
           retrySafe: true,
           requiredTrustState: DovahLinkTrustState.unpaired,
           timeoutClass: TimeoutClass.short,
@@ -26,15 +27,12 @@ void main() {
     test(
       'Operator == returns true for two separately-constructed instances with identical fields',
       () {
-        const RequestPolicy first = RequestPolicy(
+        final RequestPolicy first = Fixtures.buildRequestPolicy(
           retrySafe: true,
           requiredTrustState: DovahLinkTrustState.unpaired,
           timeoutClass: TimeoutClass.short,
         );
-        // Deliberately non-const: a const literal here would canonicalize to the same instance
-        // as `first` regardless of whether `==` is implemented, defeating this test's purpose.
-        // ignore: prefer_const_constructors
-        final RequestPolicy second = RequestPolicy(
+        final RequestPolicy second = Fixtures.buildRequestPolicy(
           retrySafe: true,
           requiredTrustState: DovahLinkTrustState.unpaired,
           timeoutClass: TimeoutClass.short,
@@ -46,12 +44,12 @@ void main() {
     );
 
     test('Operator == returns false when retrySafe differs', () {
-      const RequestPolicy first = RequestPolicy(
+      final RequestPolicy first = Fixtures.buildRequestPolicy(
         retrySafe: true,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.short,
       );
-      const RequestPolicy second = RequestPolicy(
+      final RequestPolicy second = Fixtures.buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.short,
@@ -61,12 +59,12 @@ void main() {
     });
 
     test('Operator == returns false when requiredTrustState differs', () {
-      const RequestPolicy first = RequestPolicy(
+      final RequestPolicy first = Fixtures.buildRequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.unpaired,
         timeoutClass: TimeoutClass.short,
       );
-      const RequestPolicy second = RequestPolicy(
+      final RequestPolicy second = Fixtures.buildRequestPolicy(
         retrySafe: true,
         requiredTrustState: DovahLinkTrustState.trusted,
         timeoutClass: TimeoutClass.short,
@@ -76,12 +74,12 @@ void main() {
     });
 
     test('Operator == returns false when timeoutClass differs', () {
-      const RequestPolicy first = RequestPolicy(
+      final RequestPolicy first = Fixtures.buildRequestPolicy(
         retrySafe: true,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.short,
       );
-      const RequestPolicy second = RequestPolicy(
+      final RequestPolicy second = Fixtures.buildRequestPolicy(
         retrySafe: true,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,
@@ -93,7 +91,7 @@ void main() {
     test(
       'Operator == returns false when compared against a different type',
       () {
-        const RequestPolicy policy = RequestPolicy(
+        final RequestPolicy policy = Fixtures.buildRequestPolicy(
           retrySafe: true,
           requiredTrustState: null,
           timeoutClass: TimeoutClass.short,
