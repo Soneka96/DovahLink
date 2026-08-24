@@ -81,12 +81,29 @@ void main() {
       expect(state.connectionState, DovahLinkConnectionState.connected);
     });
 
-    test('Method markConnected transitions from reconnecting to connected', () {
-      state.markReconnecting();
-      state.markConnected();
+    test(
+      'Method markConnected transitions from reconnecting to reauthenticating, not connected',
+      () {
+        state.markReconnecting();
+        state.markConnected();
 
-      expect(state.connectionState, DovahLinkConnectionState.connected);
-    });
+        expect(
+          state.connectionState,
+          DovahLinkConnectionState.reauthenticating,
+        );
+      },
+    );
+
+    test(
+      'Method markConnected transitions from reauthenticating to connected when called again',
+      () {
+        state.markReconnecting();
+        state.markConnected();
+        state.markConnected();
+
+        expect(state.connectionState, DovahLinkConnectionState.connected);
+      },
+    );
   });
 
   group('Method markConnectFailed behaves correctly', () {
@@ -158,6 +175,36 @@ void main() {
 
         expect(state.sessionId, 'session-2');
         expect(state.trustState, DovahLinkTrustState.trusted);
+      },
+    );
+
+    test(
+      'Method admit promotes a reauthenticating recovery attempt to connected',
+      () {
+        state.markReconnecting();
+        state.markConnected();
+
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+
+        expect(state.connectionState, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'Method admit leaves an ordinary connected session at connected',
+      () {
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+
+        expect(state.connectionState, DovahLinkConnectionState.connected);
       },
     );
   });
@@ -252,14 +299,30 @@ void main() {
 
   group('Method resetAfterTeardown behaves correctly', () {
     test(
-      'Method resetAfterTeardown stays reconnecting when preserveReconnecting is true and '
-      'already reconnecting',
+      'Method resetAfterTeardown resolves to disconnected after a previously admitted session '
+      'even when preserveReconnecting is true, clearing its identity',
       () {
         state.markReconnecting();
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
         );
+
+        state.resetAfterTeardown(preserveReconnecting: true);
+
+        expect(state.connectionState, DovahLinkConnectionState.disconnected);
+        expect(state.sessionId, isNull);
+        expect(state.trustState, isNull);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown stays reconnecting for an in-flight re-authentication attempt '
+      'that has not yet been admitted',
+      () {
+        state.markReconnecting();
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
 
         state.resetAfterTeardown(preserveReconnecting: true);
 
@@ -299,6 +362,19 @@ void main() {
       'from a connected session',
       () {
         state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+
+        state.resetAfterTeardown(preserveReconnecting: false);
+
+        expect(state.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown resolves to disconnected from reauthenticating when '
+      'preserveReconnecting is false',
+      () {
+        state.markReconnecting();
         state.markConnected();
 
         state.resetAfterTeardown(preserveReconnecting: false);
@@ -444,12 +520,12 @@ void main() {
         state.markReconnecting();
 
         // If the unchanged-value no-op were broken, the second element here would be a
-        // duplicate reconnecting instead of the real transition to connected.
+        // duplicate reconnecting instead of the real transition to reauthenticating.
         final Future<void> expectation = expectLater(
           state.connectionStateChanges,
           emitsInOrder(<Object>[
             DovahLinkConnectionState.reconnecting,
-            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.reauthenticating,
           ]),
         );
 
@@ -470,7 +546,7 @@ void main() {
           state.connectionStateChanges,
           emitsInOrder(<Object>[
             DovahLinkConnectionState.reconnecting,
-            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.reauthenticating,
           ]),
         );
 
@@ -491,7 +567,7 @@ void main() {
           state.connectionStateChanges,
           emitsInOrder(<Object>[
             DovahLinkConnectionState.reconnecting,
-            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.reauthenticating,
           ]),
         );
 
@@ -532,12 +608,61 @@ void main() {
           state.connectionStateChanges,
           emitsInOrder(<Object>[
             DovahLinkConnectionState.reconnecting,
-            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.reauthenticating,
           ]),
         );
 
         state.resetAfterTeardown(preserveReconnecting: true);
         state.markConnected();
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges emits connected when admit resolves a reauthenticating '
+      'recovery attempt',
+      () async {
+        state.markReconnecting();
+        state.markConnected();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.reauthenticating,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges does not emit when admit is called on an already '
+      'connected session',
+      () async {
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.administrativelyInvalidated,
+          ]),
+        );
+
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+        );
+        state.invalidate(AdministrativeInvalidationReason.revoked);
 
         await expectation;
       },
