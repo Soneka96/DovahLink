@@ -153,4 +153,22 @@ public static class Fixtures
         string occurredAt = "2026-08-11T12:00:02Z",
         JsonObject? data = null) =>
         new(stateArea, baseRevision, revision, occurredAt, data ?? new JsonObject { ["value"] = 13 });
+
+    // ---- Error and invalidation ----
+
+    /// <summary>Builds a representative ErrorPayload.</summary>
+    /// <param name="code">The error code to use.</param>
+    /// <param name="message">The diagnostic message to use.</param>
+    /// <param name="retryable">Whether the operation is retryable.</param>
+    /// <param name="details">The structured details to use.</param>
+    public static ErrorPayload BuildErrorPayload(
+        string code = "unauthenticated",
+        string message = "Token validation failed",
+        bool retryable = false,
+        JsonNode? details = null) =>
+        new(code, message, retryable, details);
+
+    /// <summary>Builds a representative SessionInvalidatedPayload.</summary>
+    /// <param name="reason">The invalidation reason to use.</param>
+    public static SessionInvalidatedPayload BuildSessionInvalidatedPayload(string reason = "revoked") => new(reason);
 }
