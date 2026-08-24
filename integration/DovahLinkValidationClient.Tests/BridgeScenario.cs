@@ -21,17 +21,8 @@ public static class BridgeScenario
     /// <returns>A hello envelope containing the client endpoint and authentication details.</returns>
     public static Envelope HelloEnvelope(string token, string messageId = "message-hello-1", string clientId = "client-1")
     {
-        var payload = new JsonObject
-        {
-            ["endpoint"] = "client",
-            ["clientId"] = clientId,
-            ["auth"] = new JsonObject
-            {
-                ["method"] = "one_time_local_token",
-                ["token"] = token,
-            },
-        };
-        return new Envelope("hello", messageId, null, null, payload);
+        var payload = new HelloPayload(clientId, new HelloAuthPayload("one_time_local_token", token));
+        return new Envelope("hello", messageId, null, null, payload.Encode());
     }
 
     /// <summary>
@@ -44,16 +35,8 @@ public static class BridgeScenario
     /// <returns>A hello envelope with <c>auth.method: "unpaired"</c> and no <c>auth.token</c> field.</returns>
     public static Envelope UnpairedHelloEnvelope(string messageId = "message-hello-1", string clientId = "client-1")
     {
-        var payload = new JsonObject
-        {
-            ["endpoint"] = "client",
-            ["clientId"] = clientId,
-            ["auth"] = new JsonObject
-            {
-                ["method"] = "unpaired",
-            },
-        };
-        return new Envelope("hello", messageId, null, null, payload);
+        var payload = new HelloPayload(clientId, new HelloAuthPayload("unpaired"));
+        return new Envelope("hello", messageId, null, null, payload.Encode());
     }
 
     /// <summary>
@@ -65,17 +48,8 @@ public static class BridgeScenario
     /// <returns>A hello envelope with <c>auth.method: "trusted_device_credential"</c>.</returns>
     public static Envelope TrustedDeviceHelloEnvelope(string credential, string messageId = "message-hello-1", string clientId = "client-1")
     {
-        var payload = new JsonObject
-        {
-            ["endpoint"] = "client",
-            ["clientId"] = clientId,
-            ["auth"] = new JsonObject
-            {
-                ["method"] = "trusted_device_credential",
-                ["token"] = credential,
-            },
-        };
-        return new Envelope("hello", messageId, null, null, payload);
+        var payload = new HelloPayload(clientId, new HelloAuthPayload("trusted_device_credential", credential));
+        return new Envelope("hello", messageId, null, null, payload.Encode());
     }
 
     /// <summary>
