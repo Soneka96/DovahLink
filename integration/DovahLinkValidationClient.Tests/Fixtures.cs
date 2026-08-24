@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace DovahLinkValidationClient.Tests;
 
 /// <summary>
@@ -121,4 +123,34 @@ public static class Fixtures
         string outcome = "renamed",
         string? displayName = "New Name") =>
         new(outcome, displayName);
+
+    // ---- State ----
+
+    /// <summary>Builds a representative StateSnapshotPayload.</summary>
+    /// <param name="stateArea">The state area to use.</param>
+    /// <param name="revision">The revision to use.</param>
+    /// <param name="occurredAt">The timestamp to use.</param>
+    /// <param name="data">The snapshot data to use, or <see langword="null"/> for a representative
+    /// default.</param>
+    public static StateSnapshotPayload BuildStateSnapshotPayload(
+        string stateArea = "example_area",
+        int revision = 1,
+        string occurredAt = "2026-08-11T12:00:00Z",
+        JsonObject? data = null) =>
+        new(stateArea, revision, occurredAt, data ?? new JsonObject { ["value"] = 12 });
+
+    /// <summary>Builds a representative StateEventPayload.</summary>
+    /// <param name="stateArea">The state area to use.</param>
+    /// <param name="baseRevision">The base revision to use.</param>
+    /// <param name="revision">The revision to use.</param>
+    /// <param name="occurredAt">The timestamp to use.</param>
+    /// <param name="data">The event data to use, or <see langword="null"/> for a representative
+    /// default.</param>
+    public static StateEventPayload BuildStateEventPayload(
+        string stateArea = "example_area",
+        int baseRevision = 1,
+        int revision = 2,
+        string occurredAt = "2026-08-11T12:00:02Z",
+        JsonObject? data = null) =>
+        new(stateArea, baseRevision, revision, occurredAt, data ?? new JsonObject { ["value"] = 13 });
 }
