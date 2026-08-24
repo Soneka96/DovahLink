@@ -224,18 +224,26 @@ TEST_CASE("BridgeWorkerPool releases the slot and accepts again after "
     Fixture fixture;
     std::atomic<int> callIndex{0};
     std::atomic<int> containedConnectionFailures{0};
+    std::promise<void> firstAcceptLoopStarted;
+    std::promise<void> secondAcceptLoopStarted;
+    auto firstAcceptLoopReady = firstAcceptLoopStarted.get_future();
+    auto secondAcceptLoopReady = secondAcceptLoopStarted.get_future();
     // Simulates "contained connection work fails": workerRunner is called both to wrap each
     // listener's whole AcceptLoop (BridgeWorkerPool::Start, once per listener -- this must actually
     // run the accept loop, or nothing is ever accepted at all) and, separately, once per accepted
     // connection on that connection's own freshly spawned thread
-    // (BridgeWorkerPool::RunSessionOnOwnThread). A same-thread-reentrancy trick can no longer tell
-    // these apart now that each connection gets its own thread rather than sharing the single
-    // accept thread, so this counts calls instead: the first two calls are always the two
-    // AcceptLoop wraps (one per listener, made before any connection can possibly be accepted) and
-    // must run for real; every call after that is a per-connection call, which this fails by never
-    // invoking it.
-    ContainedWorkRunner workerRunner = [&callIndex, &containedConnectionFailures](ContainedWork work) noexcept {
-        if (callIndex.fetch_add(1, std::memory_order_acq_rel) < 2) {
+    // (BridgeWorkerPool::RunSessionOnOwnThread). The test waits for both accept-loop wrappers to
+    // enter before connecting, so the first two calls are deterministic; every later call is a
+    // per-connection call, which this fails by never invoking it.
+    ContainedWorkRunner workerRunner = [&callIndex, &containedConnectionFailures, &firstAcceptLoopStarted,
+                                        &secondAcceptLoopStarted](ContainedWork work) noexcept {
+        const int call = callIndex.fetch_add(1, std::memory_order_acq_rel);
+        if (call < 2) {
+            if (call == 0) {
+                firstAcceptLoopStarted.set_value();
+            } else {
+                secondAcceptLoopStarted.set_value();
+            }
             try {
                 work();
             } catch (...) {
@@ -247,6 +255,8 @@ TEST_CASE("BridgeWorkerPool releases the slot and accepts again after "
         return false;
     };
     fixture.pool.Start(std::move(workerRunner));
+    REQUIRE(firstAcceptLoopReady.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+    REQUIRE(secondAcceptLoopReady.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
 
     for (int expectedFailures = 1; expectedFailures <= 2; ++expectedFailures) {
         boost::asio::io_context clientIoc;
@@ -260,6 +270,12 @@ TEST_CASE("BridgeWorkerPool releases the slot and accepts again after "
         clientWs.handshake("127.0.0.1", "/", handshakeEc);
         REQUIRE(handshakeEc);
         CHECK(containedConnectionFailures.load(std::memory_order_acquire) == expectedFailures);
+
+        auto releaseDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (fixture.slot.IsOccupied() && std::chrono::steady_clock::now() < releaseDeadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        REQUIRE_FALSE(fixture.slot.IsOccupied());
     }
 
     fixture.pool.Stop();
