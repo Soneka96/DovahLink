@@ -8,6 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 import '../../fixtures/pairing.fixture.dart';
@@ -1053,10 +1054,9 @@ void main() {
     );
   });
 
-  group('Property sessionInvalidated behaves correctly', () {
+  group('Property connectionStatus behaves correctly', () {
     test(
-      'Property sessionInvalidated emits SessionInvalidatedFailure when the client becomes '
-      'administratively invalidated',
+      'Property connectionStatus emits lost when the client becomes reconnecting',
       () async {
         final StreamController<DovahLinkConnectionState> connectionStates =
             StreamController<DovahLinkConnectionState>.broadcast();
@@ -1066,24 +1066,17 @@ void main() {
         ).thenAnswer((_) => connectionStates.stream);
 
         final Future<void> expectation = expectLater(
-          dataSource.sessionInvalidated,
-          emits(
-            const SessionInvalidatedFailure(
-              'This device was disconnected by the bridge. Try again.',
-            ),
-          ),
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.lost),
         );
-        connectionStates.add(
-          DovahLinkConnectionState.administrativelyInvalidated,
-        );
+        connectionStates.add(DovahLinkConnectionState.reconnecting);
 
         await expectation;
       },
     );
 
     test(
-      'Property sessionInvalidated emits its own SessionInvalidatedFailure for each of several '
-      'administrative invalidations in a row',
+      'Property connectionStatus emits lost when the client becomes disconnected',
       () async {
         final StreamController<DovahLinkConnectionState> connectionStates =
             StreamController<DovahLinkConnectionState>.broadcast();
@@ -1091,18 +1084,52 @@ void main() {
         when(
           () => mockClient.connectionStateChanges,
         ).thenAnswer((_) => connectionStates.stream);
-        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'This device was disconnected by the bridge. Try again.',
-        );
 
         final Future<void> expectation = expectLater(
-          dataSource.sessionInvalidated,
-          emitsInOrder(<Object>[failure, failure]),
-        );
-        connectionStates.add(
-          DovahLinkConnectionState.administrativelyInvalidated,
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.lost),
         );
         connectionStates.add(DovahLinkConnectionState.disconnected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus emits restored when the client becomes connected',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.restored),
+        );
+        connectionStates.add(DovahLinkConnectionState.connected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus emits invalidated when the client becomes administratively '
+      'invalidated',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.invalidated),
+        );
         connectionStates.add(
           DovahLinkConnectionState.administrativelyInvalidated,
         );
@@ -1112,8 +1139,7 @@ void main() {
     );
 
     test(
-      'Property sessionInvalidated does not emit for a non-administrative connectionState '
-      'transition',
+      'Property connectionStatus does not emit for a connecting connectionState transition',
       () async {
         final StreamController<DovahLinkConnectionState> connectionStates =
             StreamController<DovahLinkConnectionState>.broadcast();
@@ -1122,20 +1148,72 @@ void main() {
           () => mockClient.connectionStateChanges,
         ).thenAnswer((_) => connectionStates.stream);
 
-        final List<SessionInvalidatedFailure> received =
-            <SessionInvalidatedFailure>[];
-        final StreamSubscription<SessionInvalidatedFailure> subscription =
-            dataSource.sessionInvalidated.listen(received.add);
+        final List<PairingConnectionStatus> received =
+            <PairingConnectionStatus>[];
+        final StreamSubscription<PairingConnectionStatus> subscription =
+            dataSource.connectionStatus.listen(received.add);
         addTearDown(subscription.cancel);
 
-        connectionStates
-          ..add(DovahLinkConnectionState.connecting)
-          ..add(DovahLinkConnectionState.connected)
-          ..add(DovahLinkConnectionState.reconnecting)
-          ..add(DovahLinkConnectionState.disconnected);
+        connectionStates.add(DovahLinkConnectionState.connecting);
         await pumpEventQueue();
 
         expect(received, isEmpty);
+      },
+    );
+
+    test(
+      'Property connectionStatus emits a separate lost for each of two consecutive '
+      'lost-mapped transitions, rather than coalescing them',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emitsInOrder(<Object>[
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.lost,
+          ]),
+        );
+        connectionStates
+          ..add(DovahLinkConnectionState.reconnecting)
+          ..add(DovahLinkConnectionState.disconnected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus emits one status per transition in a mixed sequence',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emitsInOrder(<Object>[
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.restored,
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.invalidated,
+          ]),
+        );
+        connectionStates
+          ..add(DovahLinkConnectionState.reconnecting)
+          ..add(DovahLinkConnectionState.connecting)
+          ..add(DovahLinkConnectionState.connected)
+          ..add(DovahLinkConnectionState.disconnected)
+          ..add(DovahLinkConnectionState.administrativelyInvalidated);
+
+        await expectation;
       },
     );
   });

@@ -3,6 +3,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
@@ -32,11 +33,12 @@ abstract interface class PairingRemoteDataSource {
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
 
-  /// Emits once for every administrative session invalidation (revoked/blocked/trustReset/
-  /// factoryReset) the underlying SDK client observes, including one that arrives with nothing
+  /// Emits every change in the bridge connection's status while a session is active -- ordinary
+  /// transport loss and recovery, and administrative invalidation, unified rather than split
+  /// into a narrower administrative-only slice -- including one that arrives with nothing
   /// pending -- unlike every method above, this never completes and carries no request of its
   /// own.
-  Stream<SessionInvalidatedFailure> get sessionInvalidated;
+  Stream<PairingConnectionStatus> get connectionStatus;
 }
 
 /// The user-safe [Failure] reported for any exception this data source's typed catches don't
@@ -44,14 +46,6 @@ abstract interface class PairingRemoteDataSource {
 const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
-
-/// The user-safe [Failure] reported when the bridge administratively ended this device's session
-/// (revoked, blocked, trust reset, or factory reset). Deliberately reason-agnostic wording: the
-/// official presentation treats all four reasons identically, per PLAN.md's Stage 3.
-const SessionInvalidatedFailure _sessionInvalidatedFailure =
-    SessionInvalidatedFailure(
-      'This device was disconnected by the bridge. Try again.',
-    );
 
 /// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
@@ -94,7 +88,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       // transport loss eligible for silent automatic retry, per PLAN.md's Stage 3.
       if (_client.connectionState ==
           DovahLinkConnectionState.administrativelyInvalidated) {
-        return const Left(_sessionInvalidatedFailure);
+        return const Left(SessionInvalidatedFailure.administrative);
       }
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
@@ -266,13 +260,27 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// See [PairingRemoteDataSource.sessionInvalidated].
+  /// See [PairingRemoteDataSource.connectionStatus]. `connecting` carries no distinct status for
+  /// this feature -- it never occurs for a trusted session's own bounded recovery (see
+  /// `SessionState.beginConnectAttempt`'s "reconnecting" mid-recovery guard), and this data
+  /// source is only ever observed post-trust -- so it maps to `null` and is filtered out before
+  /// the stream is cast down to its non-nullable element type. [Stream] has no `whereType`
+  /// equivalent to [Iterable.whereType], so `where` plus `cast` is the standard substitute.
   @override
-  Stream<SessionInvalidatedFailure> get sessionInvalidated => _client
+  Stream<PairingConnectionStatus> get connectionStatus => _client
       .connectionStateChanges
-      .where(
-        (DovahLinkConnectionState state) =>
-            state == DovahLinkConnectionState.administrativelyInvalidated,
+      .map(
+        (DovahLinkConnectionState state) => switch (state) {
+          DovahLinkConnectionState.reconnecting ||
+          DovahLinkConnectionState.disconnected =>
+            PairingConnectionStatus.lost,
+          DovahLinkConnectionState.connected =>
+            PairingConnectionStatus.restored,
+          DovahLinkConnectionState.administrativelyInvalidated =>
+            PairingConnectionStatus.invalidated,
+          DovahLinkConnectionState.connecting => null,
+        },
       )
-      .map((DovahLinkConnectionState _) => _sessionInvalidatedFailure);
+      .where((PairingConnectionStatus? status) => status != null)
+      .cast<PairingConnectionStatus>();
 }
