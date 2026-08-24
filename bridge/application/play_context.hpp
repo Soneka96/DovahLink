@@ -3,6 +3,7 @@
 #include "application/character_state_store.hpp"
 #include "application/game_lifecycle_tracker.hpp"
 #include "application/level_event_sink.hpp"
+#include "application/revision_tracker.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -28,6 +29,11 @@ struct PlayContext {
 
     /// Character state captured while this play context is active.
     CharacterStateStore characterState;
+
+    /// Revisions for state areas belonging to this play context. Reconnects create new socket
+    /// sessions but do not replace this tracker; loading another game creates a new PlayContext and
+    /// therefore a fresh revision namespace.
+    RevisionTracker revisions;
 };
 
 /// Owns the currently active `PlayContext`, if any, and hands out shared ownership so an

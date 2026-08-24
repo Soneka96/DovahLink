@@ -9,7 +9,7 @@
 
 namespace dovahlink::application {
 
-/// Assigns monotonically increasing revisions within one session and state area.
+/// Assigns monotonically increasing revisions within one play context and state area.
 /// Snapshots establish baselines, events advance by one, and recovery continues the sequence.
 /// A snapshot given a fingerprint advances its revision only when that fingerprint differs from the
 /// one last committed for that area, per ARCHITECTURE.md's "advances only when authoritative state

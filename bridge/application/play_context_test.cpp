@@ -58,6 +58,8 @@ TEST_CASE("a fresh PlayContext has the given id and empty character state", "[ap
     PlayContext context("ctx-1");
     CHECK(context.id == "ctx-1");
     CHECK_FALSE(context.characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK_FALSE(context.revisions.CurrentRevision("character_level").has_value());
+    CHECK(context.revisions.StartSnapshot("character_level", "level-1") == 1);
 }
 
 TEST_CASE("repeated AcquireCurrent calls with no intervening change return the identical instance",
@@ -74,13 +76,16 @@ TEST_CASE("a new Begin discards the previous context's character state rather th
     auto first = active.Begin("ctx-1");
     first->characterState.OnLevelCaptured(5);
     REQUIRE(first->characterState.CurrentCharacterSnapshot().level == 5);
+    REQUIRE(first->revisions.StartSnapshot("character_level", "level-5") == 1);
 
     auto second = active.Begin("ctx-2");
     CHECK(second != first);
     // The new context starts with no captured state...
     CHECK_FALSE(second->characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK_FALSE(second->revisions.CurrentRevision("character_level").has_value());
     // ...while the handle a caller acquired before the swap keeps its own state untouched.
     CHECK(first->characterState.CurrentCharacterSnapshot().level == 5);
+    CHECK(first->revisions.CurrentRevision("character_level") == 1);
 }
 
 TEST_CASE("ApplyLifecycleTransition resets the active context on invalidation with no new id",
