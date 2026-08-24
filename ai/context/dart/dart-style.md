@@ -94,6 +94,13 @@ Follow the shared documentation rules in `ai/context/common.md`.
   not include the class name. Tests for actions, selectors, reducers, middleware, widgets, and
   protocol fixtures target the specific action, selector, entry point, widget behavior, or fixture
   behavior being proven rather than the whole type.
+- A plain value/data type (a DTO, a `Failure` subclass, and similar) has no `Method` entry point of
+  its own, but still groups by property or behavior rather than by type: group a getter or field
+  under `Property <name> behaves correctly`, and group `==`/`hashCode` under `Behavior equality
+  behaves correctly`, asserting `hashCode` equality alongside `==` in the same test (see
+  `sdk/dart/dovahlink_client/test/persistence/persisted_client_state_test.dart` for the reference
+  shape). A bare `group('ClassName', ...)` -- the type's own name and nothing else -- is never a
+  valid group name, on a value type or any other.
 - When the same callable entry-point name appears for multiple declaring types in one test file,
   qualify every colliding group and its test descriptions with `in <DeclaringType>` to keep the
   output unambiguous. Put the qualification after the entry-point name and before the expected

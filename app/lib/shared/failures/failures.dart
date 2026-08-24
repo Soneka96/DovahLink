@@ -48,3 +48,13 @@ class PairingRetriableFailure extends PairingFailure {
   /// Creates a retriable pairing failure.
   const PairingRetriableFailure(super.message);
 }
+
+/// Indicates the bridge administratively ended this device's session
+/// (revoked, blocked, trust reset, or factory reset), as distinct from an
+/// ordinary [NetworkFailure]. A consumer must not treat this as transient
+/// transport loss eligible for automatic retry; recovery is always an
+/// explicit user action.
+class SessionInvalidatedFailure extends Failure {
+  /// Creates a session-invalidated failure.
+  const SessionInvalidatedFailure(super.message);
+}
