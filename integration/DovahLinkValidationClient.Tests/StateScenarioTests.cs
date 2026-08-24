@@ -16,13 +16,14 @@ public class StateScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("example_area") }));
+            new SubscribePayload(["example_area"]).Encode()));
 
         Envelope ack = await connection.ReceiveAsync();
         Assert.Equal("subscription_ack", ack.MessageType);
         Assert.Equal("message-sub-1", ack.CorrelationId);
-        Assert.Empty(ack.Payload["acceptedStateAreas"]!.AsArray());
-        Assert.Equal(["example_area"], ack.Payload["rejectedStateAreas"]!.AsArray().Select(v => v!.GetValue<string>()));
+        SubscriptionAckPayload ackDecoded = SubscriptionAckPayload.Decode(ack.Payload);
+        Assert.Empty(ackDecoded.AcceptedStateAreas);
+        Assert.Equal(["example_area"], ackDecoded.RejectedStateAreas);
 
         // The next response must be the pong, proving that the rejected
         // subscription did not produce a state_snapshot.
@@ -43,16 +44,13 @@ public class StateScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("subscribe", "message-sub-duplicate", sessionId, null,
-            new JsonObject
-            {
-                ["stateAreas"] = new JsonArray("example_area", "example_area", "other_area", "other_area"),
-            }));
+            new SubscribePayload(["example_area", "example_area", "other_area", "other_area"]).Encode()));
 
         Envelope ack = await connection.ReceiveAsync();
         Assert.Equal("subscription_ack", ack.MessageType);
-        Assert.Empty(ack.Payload["acceptedStateAreas"]!.AsArray());
-        Assert.Equal(["example_area", "other_area"],
-            ack.Payload["rejectedStateAreas"]!.AsArray().Select(v => v!.GetValue<string>()));
+        SubscriptionAckPayload ackDecoded = SubscriptionAckPayload.Decode(ack.Payload);
+        Assert.Empty(ackDecoded.AcceptedStateAreas);
+        Assert.Equal(["example_area", "other_area"], ackDecoded.RejectedStateAreas);
 
         await connection.SendAsync(new Envelope("ping", "message-ping-duplicate", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
@@ -71,12 +69,13 @@ public class StateScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("subscribe", "message-sub-empty", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray() }));
+            new SubscribePayload([]).Encode()));
 
         Envelope ack = await connection.ReceiveAsync();
         Assert.Equal("subscription_ack", ack.MessageType);
-        Assert.Empty(ack.Payload["acceptedStateAreas"]!.AsArray());
-        Assert.Empty(ack.Payload["rejectedStateAreas"]!.AsArray());
+        SubscriptionAckPayload ackDecoded = SubscriptionAckPayload.Decode(ack.Payload);
+        Assert.Empty(ackDecoded.AcceptedStateAreas);
+        Assert.Empty(ackDecoded.RejectedStateAreas);
 
         await connection.SendAsync(new Envelope("ping", "message-ping-empty", sessionId, null, new JsonObject()));
         Envelope pong = await connection.ReceiveAsync();
@@ -95,12 +94,12 @@ public class StateScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("snapshot_request", "message-snapshot-unsupported", sessionId, null,
-            new JsonObject { ["stateArea"] = "example_area" }));
+            new SnapshotRequestPayload("example_area").Encode()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-snapshot-unsupported", error.CorrelationId);
-        Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unsupported_capability", ErrorPayload.Decode(error.Payload).Code);
 
         await connection.SendAsync(new Envelope("ping", "message-ping-after-snapshot-error", sessionId, null,
             new JsonObject()));
