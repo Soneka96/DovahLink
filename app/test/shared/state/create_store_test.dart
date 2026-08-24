@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
@@ -20,12 +20,12 @@ void main() {
   });
 
   group('CreateStore — dispatch', () {
-    test('updates connection state for a handled action', () {
+    test('updates pairing state for a handled action', () {
       final Store<AppState> store = const CreateStore()();
 
-      store.dispatch(const ConnectionStartedAction());
+      store.dispatch(const PairingStartedAction());
 
-      expect(store.state.connection.phase, ConnectionPhase.connecting);
+      expect(store.state.pairing.phase, PairingPhase.connecting);
     });
   });
 
@@ -34,18 +34,18 @@ void main() {
       final List<String> calls = [];
       final Store<AppState> store = const CreateStore()();
 
-      store.dispatch(const ConnectionStartedAction());
+      store.dispatch(const PairingStartedAction());
 
       expect(calls, isEmpty);
-      expect(store.state.connection.phase, ConnectionPhase.connecting);
+      expect(store.state.pairing.phase, PairingPhase.connecting);
     });
 
     test('wires provided middleware into the store', () {
       final List<String> calls = [];
       final Middleware<AppState> middleware =
-          TypedMiddleware<AppState, ConnectionStartedAction>((
+          TypedMiddleware<AppState, PairingStartedAction>((
             Store<AppState> store,
-            ConnectionStartedAction action,
+            PairingStartedAction action,
             NextDispatcher next,
           ) {
             calls.add('called');
@@ -55,10 +55,10 @@ void main() {
         middleware: [middleware],
       );
 
-      store.dispatch(const ConnectionStartedAction());
+      store.dispatch(const PairingStartedAction());
 
       expect(calls, ['called']);
-      expect(store.state.connection.phase, ConnectionPhase.connecting);
+      expect(store.state.pairing.phase, PairingPhase.connecting);
     });
   });
 }

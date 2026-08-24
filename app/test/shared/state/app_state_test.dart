@@ -13,9 +13,7 @@ void main() {
 
       expect(state, isA<AppState>());
       expect(state.connection, isA<ConnectionState>());
-      expect(state.connection.phase, ConnectionPhase.disconnected);
-      expect(state.connection.session, isNull);
-      expect(state.connection.error, isNull);
+      expect(state.connection.bridges, isNotEmpty);
     });
 
     test('initial creates the pairing state', () {
