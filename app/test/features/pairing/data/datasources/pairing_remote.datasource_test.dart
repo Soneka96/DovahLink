@@ -133,6 +133,37 @@ void main() {
     );
 
     test(
+      'Method authenticate carries the blocked-credential explanation through when the SDK recovered',
+      () async {
+        when(() => mockClient.authenticate(any())).thenAnswer(
+          (_) async => const HelloResult(
+            bridgeVersion: '1.2.3',
+            trustState: DovahLinkTrustState.unpaired,
+            recoveredFromRejectedCredential: CredentialRejectionReason.blocked,
+          ),
+        );
+        when(
+          () => mockClient.recoverPendingPairing(),
+        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          Right<Failure, PairingHandshakeEntity>(
+            buildPairingHandshakeEntity(
+              trusted: false,
+              credentialRejectedMessage:
+                  'This device is blocked by the bridge and cannot be paired again until an '
+                  'administrator unblocks it.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       'Method authenticate carries the unrecognized-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
@@ -1076,6 +1107,26 @@ void main() {
     );
 
     test(
+      'Property connectionStatus emits lost when the client becomes reauthenticating',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.lost),
+        );
+        connectionStates.add(DovahLinkConnectionState.reauthenticating);
+
+        await expectation;
+      },
+    );
+
+    test(
       'Property connectionStatus emits lost when the client becomes disconnected',
       () async {
         final StreamController<DovahLinkConnectionState> connectionStates =
@@ -1182,6 +1233,34 @@ void main() {
         connectionStates
           ..add(DovahLinkConnectionState.reconnecting)
           ..add(DovahLinkConnectionState.disconnected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus does not report restored until a reauthenticating recovery '
+      'attempt actually resolves to connected',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emitsInOrder(<Object>[
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.restored,
+          ]),
+        );
+        connectionStates
+          ..add(DovahLinkConnectionState.reconnecting)
+          ..add(DovahLinkConnectionState.reauthenticating)
+          ..add(DovahLinkConnectionState.connected);
 
         await expectation;
       },

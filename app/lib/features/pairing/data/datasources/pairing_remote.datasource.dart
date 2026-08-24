@@ -115,6 +115,9 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       "This device's trust was revoked. Requesting a new pairing code.",
     CredentialRejectionReason.unrecognized =>
       "This device isn't recognized by this bridge. Requesting a new pairing code.",
+    CredentialRejectionReason.blocked =>
+      'This device is blocked by the bridge and cannot be paired again until an '
+          'administrator unblocks it.',
     null => null,
   };
 
@@ -266,12 +269,16 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// source is only ever observed post-trust -- so it maps to `null` and is filtered out before
   /// the stream is cast down to its non-nullable element type. [Stream] has no `whereType`
   /// equivalent to [Iterable.whereType], so `where` plus `cast` is the standard substitute.
+  /// `reauthenticating` -- the transport back up but not yet re-trusted during recovery -- maps to
+  /// `lost` alongside `reconnecting`/`disconnected`, not `restored`: this feature must not report
+  /// the connection restored before the session is actually re-authenticated.
   @override
   Stream<PairingConnectionStatus> get connectionStatus => _client
       .connectionStateChanges
       .map(
         (DovahLinkConnectionState state) => switch (state) {
           DovahLinkConnectionState.reconnecting ||
+          DovahLinkConnectionState.reauthenticating ||
           DovahLinkConnectionState.disconnected =>
             PairingConnectionStatus.lost,
           DovahLinkConnectionState.connected =>
