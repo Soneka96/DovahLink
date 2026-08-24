@@ -5,6 +5,7 @@ import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Runs client-ID resolver behavior tests.
 void main() {
@@ -13,7 +14,7 @@ void main() {
       'Method resolve reuses an existing persisted client ID without replacing the state',
       () async {
         final InMemoryClientStorage storage = InMemoryClientStorage();
-        const PersistedClientState state = PersistedClientState(
+        final PersistedClientState state = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'credential-1',
           recoveryState: PairingRecoveryState.confirming,
@@ -35,7 +36,8 @@ void main() {
       'Method resolve generates and persists a client ID on first use',
       () async {
         final InMemoryClientStorage storage = InMemoryClientStorage();
-        const PersistedClientState state = PersistedClientState(
+        final PersistedClientState state = Fixtures.buildPersistedClientState(
+          clientId: null,
           credential: 'credential-1',
           recoveryState: PairingRecoveryState.confirming,
         );
@@ -65,7 +67,7 @@ void main() {
     test('Method resolve replaces an empty persisted client ID', () async {
       final InMemoryClientStorage storage = InMemoryClientStorage();
       await storage.save(
-        const PersistedClientState(
+        Fixtures.buildPersistedClientState(
           clientId: '',
           credential: 'credential-1',
           recoveryState: PairingRecoveryState.confirming,

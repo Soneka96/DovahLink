@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -120,6 +121,39 @@ void main() {
       final Envelope first = Fixtures.buildEnvelope();
       final Envelope second = Fixtures.buildEnvelope();
 
+      expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildPersistedClientState behaves correctly', () {
+    test('Method buildPersistedClientState builds representative defaults', () {
+      final PersistedClientState state = Fixtures.buildPersistedClientState();
+
+      expect(state.clientId, 'client-1');
+      expect(state.credential, isNull);
+      expect(state.recoveryState, PairingRecoveryState.none);
+    });
+
+    test(
+      'Method buildPersistedClientState preserves nullable and recovery overrides',
+      () {
+        final PersistedClientState state = Fixtures.buildPersistedClientState(
+          clientId: null,
+          credential: 'credential-1',
+          recoveryState: PairingRecoveryState.confirming,
+        );
+
+        expect(state.clientId, isNull);
+        expect(state.credential, 'credential-1');
+        expect(state.recoveryState, PairingRecoveryState.confirming);
+      },
+    );
+
+    test('Method buildPersistedClientState returns a fresh value per call', () {
+      final PersistedClientState first = Fixtures.buildPersistedClientState();
+      final PersistedClientState second = Fixtures.buildPersistedClientState();
+
+      expect(first, second);
       expect(identical(first, second), isFalse);
     });
   });

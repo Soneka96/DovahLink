@@ -15,7 +15,6 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
-import '../../fixtures/persistence/persisted_client_state.fixture.dart';
 
 /// Mock request service used to isolate pairing service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -100,7 +99,7 @@ void main() {
         timeoutClass: TimeoutClass.normal,
       ),
     );
-    registerFallbackValue(buildPersistedClientState());
+    registerFallbackValue(Fixtures.buildPersistedClientState());
   });
 
   setUp(() {
@@ -108,9 +107,9 @@ void main() {
     sessionTrustService = MockSessionTrustService();
     storage = MockClientStorage();
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
-    when(
-      () => storage.load(),
-    ).thenAnswer((_) async => buildPersistedClientState(clientId: 'client-1'));
+    when(() => storage.load()).thenAnswer(
+      (_) async => Fixtures.buildPersistedClientState(clientId: 'client-1'),
+    );
     when(() => storage.save(any())).thenAnswer((_) async {});
     service = PairingServiceImpl(
       sessionTrustService: sessionTrustService,
@@ -649,7 +648,7 @@ void main() {
         expect(credential, 'new-cred');
         verify(
           () => storage.save(
-            buildPersistedClientState(
+            Fixtures.buildPersistedClientState(
               clientId: 'client-1',
               credential: 'new-cred',
               recoveryState: PairingRecoveryState.confirming,
@@ -853,7 +852,7 @@ void main() {
       'Method acknowledgeTrustedCredential marks the session trusted and clears the recovery state on a trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -881,7 +880,10 @@ void main() {
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(
           () => storage.save(
-            buildPersistedClientState(clientId: 'client-1', credential: 'cred'),
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              credential: 'cred',
+            ),
           ),
         ).called(1);
       },
@@ -891,7 +893,7 @@ void main() {
       'Method acknowledgeTrustedCredential also marks the session trusted on an already_trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -911,7 +913,10 @@ void main() {
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(
           () => storage.save(
-            buildPersistedClientState(clientId: 'client-1', credential: 'cred'),
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              credential: 'cred',
+            ),
           ),
         ).called(1);
       },
@@ -1053,7 +1058,7 @@ void main() {
       'Method recoverPendingPairing is a no-op returning unpaired when confirming but no credential is stored',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             recoveryState: PairingRecoveryState.confirming,
           ),
@@ -1078,7 +1083,7 @@ void main() {
       'Method recoverPendingPairing retries the stored credential and returns trusted on success',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1114,7 +1119,7 @@ void main() {
       'reports pending_not_found',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1130,7 +1135,9 @@ void main() {
 
         expect(result, DovahLinkTrustState.unpaired);
         verify(
-          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
         ).called(1);
       },
     );
@@ -1139,7 +1146,7 @@ void main() {
       'Method recoverPendingPairing leaves the CONFIRMING state untouched and rethrows for any other failure',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => buildPersistedClientState(
+          (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
