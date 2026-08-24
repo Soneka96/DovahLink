@@ -29,6 +29,10 @@ dovahlink reset
 dovahlink confirm-reset -confirm <code>
 ```
 
+Entering bare `dovahlink` displays ConsoleUtil Extended's compact command index. Use
+`dovahlink help` for the full trust-administration descriptions. The YAML descriptions are kept
+short because ConsoleUtil Extended can crash while printing long generated help text.
+
 `<shortId>` is the five-digit administration-only identifier printed by `dovahlink list` — never
 the client's real (long) identity, and never a credential. `dovahlink list` lists every known device
 with its current state, sorted oldest-to-newest by creation time; repeated display names receive

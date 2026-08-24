@@ -1109,6 +1109,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for command in canonical_commands:
             self.assertIn(command, console_readme)
             self.assertIn(f"`{command}`", security)
+        self.assertIn("Entering bare `dovahlink` displays ConsoleUtil Extended's compact command index.", console_readme)
+        self.assertIn("`dovahlink help` for the full trust-administration descriptions.", console_readme)
 
         for retired_command in (
             "dovahlink devices",
@@ -1135,9 +1137,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             list(command_blocks),
             ["list", "help", "revoke", "block", "unblock", "forget", "reset-trust", "reset", "confirm-reset"],
         )
-        self.assertIn("func: ResetTrust", command_blocks["reset-trust"])
-        self.assertIn("func: Reset", command_blocks["reset"])
-        self.assertIn("func: ConfirmReset", command_blocks["confirm-reset"])
+        expected_functions = {
+            "list": "List",
+            "help": "Help",
+            "revoke": "Revoke",
+            "block": "Block",
+            "unblock": "Unblock",
+            "forget": "Forget",
+            "reset-trust": "ResetTrust",
+            "reset": "Reset",
+            "confirm-reset": "ConfirmReset",
+        }
+        for command, function in expected_functions.items():
+            self.assertIn(f"func: {function}", command_blocks[command])
         for command in ("revoke", "block", "unblock", "forget"):
             self.assertEqual(command_blocks[command].count("      - name: -id"), 1)
             self.assertIn("        required: true", command_blocks[command])
@@ -1147,6 +1159,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)
         self.assertIn("default: all", yaml)
+        self.assertIn("help: Use dovahlink help for full details.", yaml)
+        self.assertNotRegex(yaml, r"(?m)^[ \t]+help:\s*[|>]")
+        help_values = re.findall(r"(?m)^[ \t]+help:\s?(.*)$", yaml)
+        self.assertLessEqual(sum(len(value) for value in help_values), 500)
         self.assertNotIn("alias: id", yaml)
         self.assertNotIn("alias: confirm", yaml)
         self.assertNotIn("reset trust", yaml)

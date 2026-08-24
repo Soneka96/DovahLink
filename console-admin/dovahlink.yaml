@@ -6,51 +6,52 @@
 version: 1
 name: dovahlink
 script: DovahLinkAdmin
+help: Use dovahlink help for full details.
 subs:
   - name: list
     func: List
-    help: Lists known devices. Omit the scope for all devices, or use trust or block.
+    help: List devices.
     args:
       - name: scope
         type: String
         required: false
         default: all
-        help: "Optional scope: all, trust, or block."
+        help: "all, trust, or block."
   - name: help
     func: Help
-    help: Shows the canonical trust-administration commands and their descriptions.
+    help: Show full help.
   - name: revoke
     func: Revoke
-    help: Revokes the trusted client with the given administration-only id.
+    help: Revoke a trusted device.
     args:
       - name: -id
         type: String
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: Five-digit device id.
   - name: block
     func: Block
-    help: Blocks a trusted or revoked known device by the given administration-only id. An unpaired device is not eligible.
+    help: Block a device.
     args:
       - name: -id
         type: String
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: Five-digit device id.
   - name: unblock
     func: Unblock
-    help: Unblocks the known device with the given administration-only id, returning it to unpaired.
+    help: Unblock a device.
     args:
       - name: -id
         type: String
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: Five-digit device id.
   - name: forget
     func: Forget
-    help: Forgets the known device with the given administration-only id, deleting its record entirely. Only eligible from revoked or unpaired.
+    help: Forget a device.
     args:
       - name: -id
         type: String
         required: true
-        help: The five-digit administration-only id shown by "dovahlink list" (never the client's real, long identity or its credential).
+        help: Five-digit device id.
   # dovahlink reset-trust / dovahlink reset / dovahlink confirm-reset -confirm <code> route to three
   # distinct native functions (ResetTrust, Reset, ConfirmReset -- see DovahLinkAdmin.psc), not one
   # branching function the way "list"'s scope argument above does. The previous two-word reset
@@ -58,15 +59,15 @@ subs:
   # subcommand rules. Keep each subcommand unique so the complete command file loads.
   - name: reset-trust
     func: ResetTrust
-    help: Immediately converts every currently trusted device to revoked, cancels any pending pairing, and disconnects each affected session. Recoverable -- devices remain known and can re-pair.
+    help: Revoke all trusted devices.
   - name: reset
     func: Reset
-    help: Starts the Factory Reset confirmation challenge (a six-digit code, printed in Skyrim, expiring after 60 seconds). Performs no mutation itself; confirm with "dovahlink confirm-reset -confirm <code>".
+    help: Start Factory Reset confirmation.
   - name: confirm-reset
     func: ConfirmReset
-    help: Confirms a pending Factory Reset challenge with its six-digit code, permanently erasing every known device record and revocation tombstone. A wrong code cancels the challenge; start over with "dovahlink reset".
+    help: Complete Factory Reset with code.
     args:
       - name: -confirm
         type: String
         required: true
-        help: The six-digit Factory Reset confirmation code printed in Skyrim by "dovahlink reset".
+        help: Six-digit confirmation code.
