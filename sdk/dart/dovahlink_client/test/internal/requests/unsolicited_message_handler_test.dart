@@ -7,7 +7,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to capture unsolicited-message decisions.
 class MockSessionService extends Mock implements SessionService {}
@@ -37,7 +37,7 @@ void main() {
   group('Method handle behaves correctly', () {
     test('Method handle reports a valid session_invalidated reason', () {
       handler.handle(
-        buildEnvelope(
+        Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.sessionInvalidated,
           correlationId: null,
           payload: const <String, dynamic>{'reason': 'revoked'},
@@ -66,7 +66,7 @@ void main() {
 
       for (final JsonMap payload in malformedPayloads) {
         handler.handle(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.sessionInvalidated,
             correlationId: null,
             payload: payload,
@@ -95,7 +95,7 @@ void main() {
 
     test('Method handle ignores known unsupported unsolicited messages', () {
       handler.handle(
-        buildEnvelope(
+        Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.capabilities,
           correlationId: null,
           payload: const <String, dynamic>{},
@@ -113,7 +113,7 @@ void main() {
 
     test('Method handle reports a valid unsolicited error payload', () {
       handler.handle(
-        buildEnvelope(
+        Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.error,
           correlationId: null,
           payload: const <String, dynamic>{
@@ -158,7 +158,7 @@ void main() {
 
       for (final JsonMap payload in malformedPayloads) {
         handler.handle(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.error,
             correlationId: null,
             payload: payload,

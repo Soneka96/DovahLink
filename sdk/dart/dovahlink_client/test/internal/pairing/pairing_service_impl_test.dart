@@ -16,7 +16,6 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
 import '../../fixtures/persistence/persisted_client_state.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
 
 /// Mock request service used to isolate pairing service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -40,7 +39,7 @@ Envelope buildPairingOutcomeEnvelope({
   String? shortId,
   String? displayName,
   int? retryAfterSeconds,
-}) => buildEnvelope(
+}) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.pairingOutcome,
   payload: <String, dynamic>{
     'outcome': _wirePairingOutcome(outcome),
@@ -124,7 +123,7 @@ void main() {
     test('Method requestPairing decodes the pairing_status reply', () async {
       stubSendAndAwait(
         requestService,
-        buildEnvelope(
+        Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.pairingStatus,
           messageId: 'reply-1',
           sessionId: 'session-1',
@@ -158,7 +157,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -182,7 +181,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'unavailable',
@@ -203,7 +202,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'in_progress',
@@ -224,7 +223,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'in_progress',
@@ -245,7 +244,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -275,7 +274,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{
               'state': 'available',
@@ -309,7 +308,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: <String, dynamic>{'state': 'in_progress'},
           ),
@@ -457,7 +456,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -584,7 +583,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -688,7 +687,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -981,7 +980,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             messageId: 'reply-1',
             sessionId: 'session-1',

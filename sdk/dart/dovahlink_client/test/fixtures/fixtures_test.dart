@@ -1,6 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'fixtures.dart';
@@ -73,6 +74,53 @@ void main() {
       expect(identical(first, second), isFalse);
       expect(identical(first.completer, second.completer), isFalse);
       expect(identical(first.policy, second.policy), isFalse);
+    });
+  });
+
+  group('Method buildEnvelope behaves correctly', () {
+    test('Method buildEnvelope builds representative identity defaults', () {
+      final Envelope envelope = Fixtures.buildEnvelope();
+
+      expect(envelope.messageType, ProtocolMessageType.pong);
+      expect(envelope.messageId, 'reply-1');
+      expect(envelope.sessionId, 'session-1');
+      expect(envelope.correlationId, 'req-1');
+      expect(envelope.bridgeInstanceId, 'bridge-1');
+      expect(envelope.playContextId, isNull);
+      expect(envelope.clientId, isNull);
+      expect(envelope.payload, isEmpty);
+    });
+
+    test(
+      'Method buildEnvelope preserves named identity and payload overrides',
+      () {
+        final Envelope envelope = Fixtures.buildEnvelope(
+          messageType: ProtocolMessageType.pong,
+          messageId: 'message-1',
+          sessionId: null,
+          correlationId: null,
+          payload: <String, dynamic>{'bridgeVersion': '1.2.3'},
+          bridgeInstanceId: null,
+          playContextId: 'context-1',
+          clientId: 'client-1',
+        );
+
+        expect(envelope.messageType, ProtocolMessageType.pong);
+        expect(envelope.messageId, 'message-1');
+        expect(envelope.sessionId, isNull);
+        expect(envelope.correlationId, isNull);
+        expect(envelope.payload, <String, dynamic>{'bridgeVersion': '1.2.3'});
+        expect(envelope.bridgeInstanceId, isNull);
+        expect(envelope.playContextId, 'context-1');
+        expect(envelope.clientId, 'client-1');
+      },
+    );
+
+    test('Method buildEnvelope returns a fresh envelope per call', () {
+      final Envelope first = Fixtures.buildEnvelope();
+      final Envelope second = Fixtures.buildEnvelope();
+
+      expect(identical(first, second), isFalse);
     });
   });
 }

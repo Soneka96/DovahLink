@@ -15,7 +15,6 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
 
 /// Mock session service used to control connection state and trust state, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -135,7 +134,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingStatus,
             payload: const <String, dynamic>{'state': 'unavailable'},
           ),
@@ -161,7 +160,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.error,
             payload: const <String, dynamic>{
               'code': 'unauthenticated',
@@ -199,7 +198,7 @@ void main() {
                 as PendingOperation;
 
         operation.completer.complete(
-          buildEnvelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.pairingOutcome,
             payload: const <String, dynamic>{},
           ),

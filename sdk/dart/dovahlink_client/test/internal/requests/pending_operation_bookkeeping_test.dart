@@ -9,7 +9,6 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
 
 /// Non-retry-safe policy for operations whose lost response makes retransmission ambiguous.
 final RequestPolicy _nonRetrySafePolicy = Fixtures.buildRequestPolicy(
@@ -19,7 +18,7 @@ final RequestPolicy _nonRetrySafePolicy = Fixtures.buildRequestPolicy(
 );
 
 /// Builds one reply envelope correlated to [correlationId].
-Envelope buildReply(String correlationId) => buildEnvelope(
+Envelope buildReply(String correlationId) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.pairingStatus,
   correlationId: correlationId,
 );

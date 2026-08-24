@@ -16,7 +16,6 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
 import '../../fixtures/persistence/persisted_client_state.fixture.dart';
-import '../../fixtures/protocol/envelope.fixture.dart';
 
 /// Mock session service used to isolate authentication service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -46,7 +45,7 @@ Envelope buildHelloAckEnvelope({
   String bridgeVersion = '1.0',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
   String? clientId = 'client-1',
-}) => buildEnvelope(
+}) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.helloAck,
   sessionId: sessionId,
   clientId: clientId,
@@ -309,10 +308,18 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildHelloAckEnvelope(
+          const Envelope(
+            messageType: ProtocolMessageType.helloAck,
+            messageId: 'reply-1',
             sessionId: null,
-            bridgeVersion: '1.0',
-            kind: ClientIdentityKind.unpaired,
+            correlationId: 'req-1',
+            payload: <String, dynamic>{
+              'bridgeVersion': '1.0',
+              'clientIdentityKind': 'unpaired',
+            },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: 'client-1',
           ),
         );
 
@@ -343,7 +350,7 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          const Envelope(
             messageType: ProtocolMessageType.helloAck,
             messageId: 'reply-1',
             sessionId: 'session-1',
@@ -382,12 +389,18 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          const Envelope(
             messageType: ProtocolMessageType.helloAck,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: 'req-1',
             payload: <String, dynamic>{
               'bridgeVersion': '',
               'clientIdentityKind': 'unpaired',
             },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: null,
           ),
         );
 
@@ -418,12 +431,18 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildEnvelope(
+          const Envelope(
             messageType: ProtocolMessageType.helloAck,
+            messageId: 'reply-1',
+            sessionId: 'session-1',
+            correlationId: 'req-1',
             payload: <String, dynamic>{
               'bridgeVersion': '1.0',
               'clientIdentityKind': 'not-a-real-kind',
             },
+            bridgeInstanceId: 'bridge-1',
+            playContextId: null,
+            clientId: null,
           ),
         );
 
