@@ -144,6 +144,22 @@ public class StateEventPayloadTests
         Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
     }
 
+    /// <summary>Verifies that Decode rejects an empty state-area identifier.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenStateAreaIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
     /// <summary>Verifies that Decode throws FormatException when baseRevision is the wrong JSON type.</summary>
     [Fact]
     public void DecodeThrowsFormatExceptionWhenBaseRevisionIsTheWrongType()
@@ -381,6 +397,22 @@ public class StateEventPayloadTests
             ["stateArea"] = "example_area",
             ["baseRevision"] = 1,
             ["revision"] = 5,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an event after the maximum supported base revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenBaseRevisionIsIntMaxValue()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = int.MaxValue,
+            ["revision"] = 0,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };

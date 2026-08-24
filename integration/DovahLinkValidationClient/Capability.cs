@@ -23,14 +23,22 @@ public sealed record Capability(string Id, int Version)
     /// </summary>
     /// <param name="entry">The capability entry's decoded JSON object.</param>
     /// <returns>The decoded capability entry.</returns>
-    /// <exception cref="FormatException">Thrown when a required field is missing or the wrong JSON
-    /// type.</exception>
+    /// <exception cref="FormatException">Thrown when a required field is missing, has the wrong JSON
+    /// type, or violates the capability identifier/version rules.</exception>
     public static Capability Decode(JsonObject entry)
     {
         try
         {
             string id = entry["id"]?.GetValue<string>() ?? throw new FormatException("Missing id.");
             int version = entry["version"]?.GetValue<int>() ?? throw new FormatException("Missing version.");
+            if (id.Length == 0)
+            {
+                throw new FormatException("id must be a non-empty string.");
+            }
+            if (version < 0)
+            {
+                throw new FormatException("version must be a non-negative integer.");
+            }
             return new Capability(id, version);
         }
         catch (InvalidOperationException ex)

@@ -119,4 +119,70 @@ public class SubscriptionAckPayloadTests
         Assert.Equal(["area_a", "area_b"], decoded.AcceptedStateAreas);
         Assert.Equal(["area_c", "area_d"], decoded.RejectedStateAreas);
     }
+
+    /// <summary>Verifies that Decode rejects an empty accepted state-area entry.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenAnAcceptedEntryIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["acceptedStateAreas"] = new JsonArray(""),
+            ["rejectedStateAreas"] = new JsonArray(),
+        };
+
+        Assert.Throws<FormatException>(() => SubscriptionAckPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an empty rejected state-area entry.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenARejectedEntryIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["acceptedStateAreas"] = new JsonArray(),
+            ["rejectedStateAreas"] = new JsonArray(""),
+        };
+
+        Assert.Throws<FormatException>(() => SubscriptionAckPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a null accepted state-area entry.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenAnAcceptedEntryIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["acceptedStateAreas"] = new JsonArray((JsonNode?)null),
+            ["rejectedStateAreas"] = new JsonArray(),
+        };
+
+        Assert.Throws<FormatException>(() => SubscriptionAckPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a null rejected state-area entry.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenARejectedEntryIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["acceptedStateAreas"] = new JsonArray(),
+            ["rejectedStateAreas"] = new JsonArray((JsonNode?)null),
+        };
+
+        Assert.Throws<FormatException>(() => SubscriptionAckPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts two empty state-area result lists.</summary>
+    [Fact]
+    public void DecodeAcceptsEmptyAcceptedAndRejectedLists()
+    {
+        SubscriptionAckPayload payload = SubscriptionAckPayload.Decode(new JsonObject
+        {
+            ["acceptedStateAreas"] = new JsonArray(),
+            ["rejectedStateAreas"] = new JsonArray(),
+        });
+
+        Assert.Empty(payload.AcceptedStateAreas);
+        Assert.Empty(payload.RejectedStateAreas);
+    }
 }

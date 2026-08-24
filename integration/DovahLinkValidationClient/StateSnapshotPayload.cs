@@ -21,13 +21,18 @@ public sealed record StateSnapshotPayload(string StateArea, int Revision, string
     /// <param name="payload">The envelope's decoded payload object.</param>
     /// <returns>The decoded state-snapshot payload.</returns>
     /// <exception cref="FormatException">Thrown when a required field is missing, the wrong JSON
-    /// type, or fails semantic validation (a negative revision or malformed timestamp).</exception>
+    /// type, or fails semantic validation (an empty state area, negative revision, or malformed
+    /// timestamp).</exception>
     public static StateSnapshotPayload Decode(JsonObject payload)
     {
         try
         {
             string stateArea = payload["stateArea"]?.GetValue<string>()
                 ?? throw new FormatException("Missing stateArea.");
+            if (stateArea.Length == 0)
+            {
+                throw new FormatException("stateArea must be a non-empty string.");
+            }
             int revision = payload["revision"]?.GetValue<int>()
                 ?? throw new FormatException("Missing revision.");
             ProtocolRevisionValidator.ValidateNonNegative(revision, "revision");

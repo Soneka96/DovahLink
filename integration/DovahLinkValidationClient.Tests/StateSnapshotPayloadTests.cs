@@ -129,6 +129,21 @@ public class StateSnapshotPayloadTests
         Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
     }
 
+    /// <summary>Verifies that Decode rejects an empty state-area identifier.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenStateAreaIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
     /// <summary>Verifies that Decode throws FormatException when revision is the wrong JSON type.</summary>
     [Fact]
     public void DecodeThrowsFormatExceptionWhenRevisionIsTheWrongType()

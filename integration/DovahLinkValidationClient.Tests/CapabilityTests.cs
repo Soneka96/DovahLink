@@ -71,4 +71,35 @@ public class CapabilityTests
 
         Assert.Throws<FormatException>(() => Capability.Decode(entry));
     }
+
+    /// <summary>Verifies that Decode throws FormatException when id is empty.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenIdIsEmpty()
+    {
+        var entry = new JsonObject { ["id"] = "", ["version"] = 1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when version is negative.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenVersionIsNegative()
+    {
+        var entry = new JsonObject { ["id"] = "state.inventory", ["version"] = -1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode accepts the lowest valid capability version.</summary>
+    [Fact]
+    public void DecodeAcceptsZeroVersion()
+    {
+        Capability capability = Capability.Decode(new JsonObject
+        {
+            ["id"] = "state.inventory",
+            ["version"] = 0,
+        });
+
+        Assert.Equal(0, capability.Version);
+    }
 }
