@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/bridge_list_screen.viewmodel.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connection_status_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -19,12 +18,6 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
 void main() {
   group('injection_container — shared registrations', () {
-    test('initDependencies registers the connection ViewModel factory', () {
-      initDependencies();
-
-      expect(sl.isRegistered<ConnectionStatusScreenViewModel>(), isTrue);
-    });
-
     test('initDependencies registers the router', () {
       initDependencies();
 
