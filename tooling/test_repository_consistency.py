@@ -1099,9 +1099,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "dovahlink list block",
             "dovahlink help",
             "dovahlink revoke -id <shortId>",
-            "dovahlink reset trust",
+            "dovahlink reset-trust",
             "dovahlink reset",
-            "dovahlink reset -confirm <code>",
+            "dovahlink confirm-reset -confirm <code>",
             "dovahlink block -id <shortId>",
             "dovahlink unblock -id <shortId>",
             "dovahlink forget -id <shortId>",
@@ -1109,8 +1109,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for command in canonical_commands:
             self.assertIn(command, console_readme)
             self.assertIn(f"`{command}`", security)
+        self.assertIn("Entering bare `dovahlink` displays ConsoleUtil Extended's compact command index.", console_readme)
+        self.assertIn("`dovahlink help` for the full trust-administration descriptions.", console_readme)
 
-        for retired_command in ("dovahlink devices", "dovahlink blocklist"):
+        for retired_command in (
+            "dovahlink devices",
+            "dovahlink blocklist",
+            "dovahlink reset trust",
+            "dovahlink reset -confirm <code>",
+        ):
             self.assertNotIn(retired_command, console_readme)
             self.assertNotIn(retired_command, security)
             self.assertNotIn(retired_command, bridge_readme)
@@ -1120,13 +1127,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Function Devices", papyrus)
         self.assertNotIn("Function Blocked", papyrus)
 
-        self.assertEqual(
-            re.findall(r"(?m)^  - name: ([A-Za-z]+)$", yaml),
-            ["list", "help", "revoke", "block", "unblock", "forget", "reset", "reset"],
+        command_entries = re.findall(
+            r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
         )
+        raw_command_names = re.findall(r"(?m)^  - name: (.+)$", yaml)
+        self.assertEqual(
+            [name for name, _ in command_entries],
+            ["list", "help", "revoke", "block", "unblock", "forget", "reset-trust", "reset", "confirm-reset"],
+        )
+        self.assertEqual([name for name, _ in command_entries], raw_command_names)
+        command_blocks = dict(command_entries)
+        expected_functions = {
+            "list": "List",
+            "help": "Help",
+            "revoke": "Revoke",
+            "block": "Block",
+            "unblock": "Unblock",
+            "forget": "Forget",
+            "reset-trust": "ResetTrust",
+            "reset": "Reset",
+            "confirm-reset": "ConfirmReset",
+        }
+        for command, function in expected_functions.items():
+            self.assertEqual(len(re.findall(r"(?m)^    func: .+$", command_blocks[command])), 1)
+            self.assertIn(f"func: {function}", command_blocks[command])
+        for command in ("revoke", "block", "unblock", "forget"):
+            self.assertEqual(command_blocks[command].count("      - name: -id"), 1)
+            self.assertIn("        required: true", command_blocks[command])
+        self.assertNotIn("      - name:", command_blocks["reset"])
+        self.assertEqual(command_blocks["confirm-reset"].count("      - name: -confirm"), 1)
+        self.assertIn("        required: true", command_blocks["confirm-reset"])
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)
         self.assertIn("default: all", yaml)
+        self.assertIn("help: Use dovahlink help for full details.", yaml)
+        self.assertNotRegex(yaml, r"(?m)^[ \t]+help:\s*[|>]")
+        help_values = re.findall(r"(?m)^[ \t]+help:\s?(.*)$", yaml)
+        self.assertLessEqual(sum(len(value) for value in help_values), 500)
+        self.assertNotIn("alias: id", yaml)
+        self.assertNotIn("alias: confirm", yaml)
+        self.assertNotIn("reset trust", yaml)
+        self.assertNotIn("dovahlink reset -confirm", yaml)
         self.assertNotIn("name: devices", yaml)
         self.assertNotIn("name: blocklist", yaml)
 

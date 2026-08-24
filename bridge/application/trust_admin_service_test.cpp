@@ -264,7 +264,7 @@ TEST_CASE("Help lists only the canonical trust-admin commands", "[application][t
           "DovahLink commands:\n"
           " list [all|trust|block]\n"
           " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n"
-          " reset trust | reset | reset -confirm <code> | help");
+          " reset-trust | reset | confirm-reset -confirm <code> | help");
 }
 
 TEST_CASE("RevokeByShortId reports not-found on an empty store", "[application][trust_admin_service]") {

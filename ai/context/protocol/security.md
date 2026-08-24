@@ -191,9 +191,9 @@ unrecognized-credential/unpaired path, the same as a device that was never paire
     (`commandName subcommandName -argumentName value`) covers `dovahlink list`,
     `dovahlink list trust`, `dovahlink list block`, `dovahlink help`,
     `dovahlink revoke -id <shortId>`, `dovahlink block -id <shortId>`,
-    `dovahlink unblock -id <shortId>`, `dovahlink forget -id <shortId>`, `dovahlink reset trust`
+    `dovahlink unblock -id <shortId>`, `dovahlink forget -id <shortId>`, `dovahlink reset-trust`
     (Reset Trust, immediate, no confirmation), `dovahlink reset` (starts the Factory Reset
-    confirmation challenge; performs no mutation itself), and `dovahlink reset -confirm <code>`
+    confirmation challenge; performs no mutation itself), and `dovahlink confirm-reset -confirm <code>`
     (confirms it, executing the destructive wipe only on a matching code) directly.
   - DovahLink Bridge registers a small set of native Papyrus functions
     (`SKSE::GetPapyrusInterface()->Register(...)`, the standard SKSE Papyrus-binding mechanism -- no
