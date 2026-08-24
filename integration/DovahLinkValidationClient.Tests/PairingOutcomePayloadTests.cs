@@ -333,4 +333,244 @@ public class PairingOutcomePayloadTests
 
         Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
     }
+
+    /// <summary>Verifies that Decode rejects an unknown outcome value.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOutcomeIsUnknown()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "unknown",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a credential on an outcome that does not issue one.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenCredentialIsPresentForExpiredOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "expired",
+            ["credential"] = "a1b2c3d4e5f6",
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an empty credential.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenCredentialIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "trusted",
+            ["credential"] = "",
+            ["shortId"] = "12345",
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a short ID on an outcome that does not issue one.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenShortIdIsPresentForExpiredOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "expired",
+            ["credential"] = null,
+            ["shortId"] = "12345",
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an empty short ID.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenShortIdIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "trusted",
+            ["credential"] = "a1b2c3d4e5f6",
+            ["shortId"] = "",
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a display name on an outcome without credentials.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenDisplayNameIsPresentForExpiredOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "expired",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = "My PC",
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode requires a retry value for pacing-limited outcomes.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenPacingRetryValueIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "pacing_limited",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a retry value on an outcome that does not retry.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRetryValueIsPresentForExpiredOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "expired",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = 1,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a negative retry value.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRetryValueIsNegative()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "pacing_limited",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = -1,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts a credential-bearing outcome without a display name.</summary>
+    [Fact]
+    public void DecodeAcceptsCredentialIssuedOutcomeWithNullDisplayName()
+    {
+        PairingOutcomePayload payload = PairingOutcomePayload.Decode(new JsonObject
+        {
+            ["outcome"] = "credential_issued",
+            ["credential"] = "a1b2c3d4e5f6",
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        });
+
+        Assert.Null(payload.DisplayName);
+    }
+
+    /// <summary>Verifies that Decode accepts a zero pacing retry value.</summary>
+    [Fact]
+    public void DecodeAcceptsZeroPacingRetryValue()
+    {
+        PairingOutcomePayload payload = PairingOutcomePayload.Decode(new JsonObject
+        {
+            ["outcome"] = "pacing_limited",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = 0,
+        });
+
+        Assert.Equal(0, payload.RetryAfterSeconds);
+    }
+
+    /// <summary>Verifies that Decode requires a retry value for renotify cooldown.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRenotifyCooldownRetryValueIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "renotify_cooldown",
+            ["credential"] = null,
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a short ID on credential_issued.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenCredentialIssuedHasShortId()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "credential_issued",
+            ["credential"] = "a1b2c3d4e5f6",
+            ["shortId"] = "12345",
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode requires a credential for trusted.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenTrustedCredentialIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "trusted",
+            ["credential"] = null,
+            ["shortId"] = "12345",
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode requires a short ID for trusted.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenTrustedShortIdIsNull()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "trusted",
+            ["credential"] = "a1b2c3d4e5f6",
+            ["shortId"] = null,
+            ["displayName"] = null,
+            ["retryAfterSeconds"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => PairingOutcomePayload.Decode(payload));
+    }
 }

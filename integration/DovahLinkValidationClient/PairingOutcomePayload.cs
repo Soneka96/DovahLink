@@ -29,23 +29,88 @@ public sealed record PairingOutcomePayload(
     /// </summary>
     /// <param name="payload">The envelope's decoded payload object.</param>
     /// <returns>The decoded pairing-outcome payload.</returns>
-    /// <exception cref="FormatException">Thrown when a required key is missing or a value has the
-    /// wrong JSON type.</exception>
+    /// <exception cref="FormatException">Thrown when a required key is missing, a value has the
+    /// wrong JSON type, or fields do not match the outcome.</exception>
     public static PairingOutcomePayload Decode(JsonObject payload)
     {
         try
         {
             string outcome = payload["outcome"]?.GetValue<string>() ?? throw new FormatException("Missing outcome.");
-            return new PairingOutcomePayload(
-                outcome,
-                Credential: GetRequiredNullableString(payload, "credential"),
-                ShortId: GetRequiredNullableString(payload, "shortId"),
-                DisplayName: GetRequiredNullableString(payload, "displayName"),
-                RetryAfterSeconds: GetRequiredNullableInt(payload, "retryAfterSeconds"));
+            string? credential = GetRequiredNullableString(payload, "credential");
+            string? shortId = GetRequiredNullableString(payload, "shortId");
+            string? displayName = GetRequiredNullableString(payload, "displayName");
+            int? retryAfterSeconds = GetRequiredNullableInt(payload, "retryAfterSeconds");
+            ValidateSemantics(outcome, credential, shortId, displayName, retryAfterSeconds);
+            return new PairingOutcomePayload(outcome, credential, shortId, displayName, retryAfterSeconds);
         }
         catch (InvalidOperationException ex)
         {
             throw new FormatException($"Malformed pairing_outcome payload: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>Validates outcome-specific field presence and value rules.</summary>
+    /// <param name="outcome">The decoded outcome value.</param>
+    /// <param name="credential">The decoded credential value.</param>
+    /// <param name="shortId">The decoded administration identifier.</param>
+    /// <param name="displayName">The decoded display name.</param>
+    /// <param name="retryAfterSeconds">The decoded retry delay.</param>
+    /// <exception cref="FormatException">Thrown when a value is invalid for the outcome.</exception>
+    private static void ValidateSemantics(
+        string outcome,
+        string? credential,
+        string? shortId,
+        string? displayName,
+        int? retryAfterSeconds)
+    {
+        if (outcome is not (
+            "credential_issued" or
+            "trusted" or
+            "already_trusted" or
+            "expired" or
+            "invalid" or
+            "pacing_limited" or
+            "hard_limit_reached" or
+            "pending_not_found" or
+            "renotified" or
+            "renotify_cooldown" or
+            "cancelled" or
+            "already_idle"))
+        {
+            throw new FormatException($"Unknown pairing outcome: {outcome}.");
+        }
+
+        bool carriesCredential = outcome is "credential_issued" or "trusted" or "already_trusted";
+        bool carriesShortId = outcome is "trusted" or "already_trusted";
+        bool carriesRetryAfterSeconds = outcome is "pacing_limited" or "renotify_cooldown";
+
+        if ((credential is not null) != carriesCredential)
+        {
+            throw new FormatException($"credential presence is invalid for {outcome}.");
+        }
+        if (credential is { Length: 0 })
+        {
+            throw new FormatException("credential must not be empty when present.");
+        }
+        if ((shortId is not null) != carriesShortId)
+        {
+            throw new FormatException($"shortId presence is invalid for {outcome}.");
+        }
+        if (shortId is { Length: 0 })
+        {
+            throw new FormatException("shortId must not be empty when present.");
+        }
+        if (!carriesCredential && displayName is not null)
+        {
+            throw new FormatException($"displayName presence is invalid for {outcome}.");
+        }
+        if ((retryAfterSeconds is not null) != carriesRetryAfterSeconds)
+        {
+            throw new FormatException($"retryAfterSeconds presence is invalid for {outcome}.");
+        }
+        if (retryAfterSeconds is < 0)
+        {
+            throw new FormatException("retryAfterSeconds must be a non-negative integer.");
         }
     }
 
