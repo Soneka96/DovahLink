@@ -107,4 +107,18 @@ public static class Fixtures
         IReadOnlyList<string>? acceptedStateAreas = null,
         IReadOnlyList<string>? rejectedStateAreas = null) =>
         new(acceptedStateAreas ?? [], rejectedStateAreas ?? ["example_area"]);
+
+    // ---- Rename ----
+
+    /// <summary>Builds a representative RenameRequestPayload.</summary>
+    /// <param name="displayName">The requested display name to use.</param>
+    public static RenameRequestPayload BuildRenameRequestPayload(string displayName = "New Name") => new(displayName);
+
+    /// <summary>Builds a representative RenameOutcomePayload.</summary>
+    /// <param name="outcome">The outcome to use.</param>
+    /// <param name="displayName">The display name to use.</param>
+    public static RenameOutcomePayload BuildRenameOutcomePayload(
+        string outcome = "renamed",
+        string? displayName = "New Name") =>
+        new(outcome, displayName);
 }
