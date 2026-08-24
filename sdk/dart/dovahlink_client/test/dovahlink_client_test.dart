@@ -1653,6 +1653,72 @@ void main() {
     );
   });
 
+  group(
+    'Behavior credential cleanup during automatic reconnect behaves correctly',
+    () {
+      test(
+        'Behavior automatic reconnect discards a credential the bridge rejects as blocked while '
+        'recovering, preserving clientId and ending the cycle without retrying',
+        () async {
+          await storage.save(
+            const PersistedClientState(
+              clientId: 'client-1',
+              credential: 'stale-cred',
+            ),
+          );
+          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+          transport.queueResponse(
+            _rawFixture('connection/hello-ack-paired.json'),
+          );
+          transport.queueResponse(
+            _rawFixture('capabilities/capabilities-bridge.json'),
+          );
+          await client.hello();
+
+          // Answers the automatic reconnect's own hello -- the bridge decides, while this device
+          // was briefly offline, that its presented credential is now blocked.
+          transport.queueResponse(
+            jsonEncode(<String, dynamic>{
+              'messageType': 'error',
+              'messageId': 'message-error-blocked-1',
+              'sessionId': null,
+              'correlationId': 'message-hello-placeholder',
+              'payload': <String, dynamic>{
+                'code': 'blocked',
+                'message': 'This clientId is blocked',
+                'retryable': false,
+                'details': null,
+              },
+              'bridgeInstanceId': null,
+              'playContextId': null,
+              'clientId': null,
+            }),
+          );
+          transport.failMessagesWith(const SocketException('dropped'));
+
+          for (int i = 0; i < 20; i++) {
+            await pumpEventQueue();
+          }
+
+          expect(client.connectionState, DovahLinkConnectionState.disconnected);
+          final PersistedClientState stored = await storage.load();
+          expect(stored.credential, isNull);
+          expect(stored.clientId, 'client-1');
+          final List<String> helloSends = transport.sent
+              .where(
+                (String raw) =>
+                    (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+              )
+              .toList();
+          // hello#1 (initial, succeeds) and hello#2 (automatic, rejected as blocked) -- a
+          // terminal rejection must not consume the remaining attempt budget by retrying with
+          // the now-forgotten credential.
+          expect(helloSends, hasLength(2));
+        },
+      );
+    },
+  );
+
   group('Behavior stale receiver isolation behaves correctly', () {
     test(
       'Behavior stale receiver isolation does not consume a late reply for a new operation',
