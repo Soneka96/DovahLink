@@ -109,9 +109,14 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 - Stages 0–2 establish documentation, the client/protocol foundation, bridge connectivity, and
   identity/state ownership.
 - Stage 3 depends on Stage 2 and establishes local pairing, durable trust, and trust-state recovery.
-- Stage 4 depends on identity and pairing before adding continuous live-state delivery.
-- Stage 5 provides the reusable Dart client boundary; its scaffold and persistence work may be
-  pulled forward when required by earlier pairing/client work without closing the phase.
+- Stage 4 depends on identity and pairing and now establishes the redesigned typed protocol contract,
+  live Bridge delivery, the first production Snapshot and Event state domains, and the internal
+  synchronization kernel. Its protocol migration may use temporary boundary compatibility during
+  delivery, but the completed phase supports only the new contract.
+- Stage 5 consumes Stage 4's stable contract and synchronization kernel to complete the reusable Dart
+  client boundary, public subscription/recovery API, middleware-owned Flutter integration, and the
+  minimal live-state proof surface. Its scaffold and persistence work may be pulled forward when
+  required by earlier pairing/client work without closing the phase.
 - Stages 6–8 validate the connected second-screen product before multi-client, discovery, LAN/mobile,
   knowledge, theming, and action foundations expand the product.
 - Stages 9–11 establish multi-client, local discovery, and automatic connection policy before LAN.
