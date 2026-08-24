@@ -4,8 +4,8 @@
   "sessionId": "session-1",
   "correlationId": "message-subscribe-1",
   "payload": {
-    "acceptedStateAreas": ["character"],
-    "rejectedStateAreas": []
+    "acceptedStateAreas": [],
+    "rejectedStateAreas": ["example_area"]
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,

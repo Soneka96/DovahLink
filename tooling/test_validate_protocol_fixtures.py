@@ -258,9 +258,9 @@ class ValidateAllTests(unittest.TestCase):
             "capabilities/capabilities-client.json",
             "subscriptions/subscribe.json",
             "subscriptions/subscription-ack.json",
-            "state/character/character-state-event.json",
-            "state/character/character-state-snapshot.json",
-            "state/character/character-state-unavailable.json",
+            "state/state-event.json",
+            "state/state-snapshot.json",
+            "state/state-snapshot-unavailable.json",
             "errors/error-blocked.json",
             "errors/error-frame-too-large.json",
             "errors/error-malformed-message.json",
@@ -271,11 +271,12 @@ class ValidateAllTests(unittest.TestCase):
             "errors/error-unauthenticated-expired-token.json",
             "errors/error-unauthenticated-invalid-token.json",
             "errors/error-unauthenticated-reused-token.json",
+            "errors/error-unsupported-capability.json",
             "subscriptions/snapshot-request.json",
-            "state/character/state-event-revision-gap.json",
-            "state/character/state-event-duplicate.json",
-            "state/character/state-event-stale.json",
-            "state/character/state-snapshot-unknown-field.json",
+            "state/state-event-revision-gap.json",
+            "state/state-event-duplicate.json",
+            "state/state-event-stale.json",
+            "state/state-snapshot-unknown-field.json",
             "connection/ping.json",
             "connection/pong.json",
             "rename/rename-outcome-invalid-display-name.json",
@@ -288,11 +289,11 @@ class ValidateAllTests(unittest.TestCase):
     def test_nested_fixture_is_discovered_with_relative_path(self) -> None:
         """Discover nested fixtures and return relative paths."""
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "state" / "character" / "snapshot.json"
+            path = Path(tmp) / "state" / "example_area" / "snapshot.json"
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(_valid_snapshot()), encoding="utf-8")
 
-            self.assertEqual(validate_all(Path(tmp)), ["state/character/snapshot.json"])
+            self.assertEqual(validate_all(Path(tmp)), ["state/example_area/snapshot.json"])
 
     def test_empty_directory_raises(self) -> None:
         """Reject a fixture directory that contains no JSON files."""

@@ -4,9 +4,7 @@
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
-    "capabilities": [
-      {"id": "state.character", "version": 1}
-    ]
+    "capabilities": []
   },
   "bridgeInstanceId": "bridge-1",
   "playContextId": null,
