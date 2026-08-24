@@ -256,6 +256,22 @@ Future<void> _connectAndHello(
   await client.hello();
 }
 
+/// Builds a public client whose reconnect attempts run without production-scale delays.
+DovahLinkClient _buildFastReconnectClient(
+  FakeDovahLinkTransport transport,
+  InMemoryClientStorage storage,
+) => DovahLinkClient.withReconnectPolicy(
+  transport: transport,
+  storage: storage,
+  attemptDelays: const <Duration>[
+    Duration.zero,
+    Duration.zero,
+    Duration.zero,
+    Duration.zero,
+  ],
+  deadline: const Duration(seconds: 30),
+);
+
 /// Runs public-client behavior tests.
 void main() {
   late FakeDovahLinkTransport transport;
@@ -1545,35 +1561,44 @@ void main() {
   group('Behavior reconnect re-authentication sequencing behaves correctly', () {
     test('Behavior automatic reconnect passes through reauthenticating before resolving to '
         'connected, never exposing connected before hello succeeds', () async {
+      final FakeDovahLinkTransport reconnectTransport =
+          FakeDovahLinkTransport();
+      final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+      final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+        reconnectTransport,
+        reconnectStorage,
+      );
       final List<DovahLinkConnectionState> observed =
           <DovahLinkConnectionState>[];
-      final StreamSubscription<DovahLinkConnectionState> subscription = client
-          .connectionStateChanges
-          .listen(observed.add);
+      final StreamSubscription<DovahLinkConnectionState> subscription =
+          reconnectClient.connectionStateChanges.listen(observed.add);
       addTearDown(subscription.cancel);
 
-      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(
+      await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-bridge.json'),
       );
-      await client.hello();
+      await reconnectClient.hello();
 
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello() finds
       // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
       // reconnect by hand.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-bridge.json'),
       );
-      transport.failMessagesWith(const SocketException('dropped'));
+      reconnectTransport.failMessagesWith(const SocketException('dropped'));
 
       // A fixed pump count, not a "not yet connected" condition -- connectionState is already
       // `connected` before the drop, so a condition guarding on that would exit before the drop
-      // is ever actually processed. Includes a real wait past kReconnectAttemptDelays[1] in case
-      // the immediate first attempt does not land within pumped microtasks alone.
+      // is ever actually processed. Reconnect delays are injected as zero for this composition
+      // test, so no production-scale timer is required.
       await pumpEventQueue();
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
       for (int i = 0; i < 20; i++) {
         await pumpEventQueue();
       }
@@ -1593,14 +1618,21 @@ void main() {
 
     test('Behavior automatic reconnect continues after a retryable hello rejection instead of '
         'giving up, and still restores the session', () async {
-      await _connectAndHello(transport, client);
+      final FakeDovahLinkTransport reconnectTransport =
+          FakeDovahLinkTransport();
+      final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+      final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+        reconnectTransport,
+        reconnectStorage,
+      );
+      await _connectAndHello(reconnectTransport, reconnectClient);
 
       //  Answers the first (zero-delay) automatic attempt's hello with a retryable rejection --
       // built inline, mirroring protocol/fixtures/errors/error-rate-limited.json, since that
       // canonical fixture's own correlationId is null (an unsolicited push shape) and this case
       // needs one correlated to the hello it rejects, the same way
       // errors/error-unauthenticated-invalid-token.json already is.
-      transport.queueResponse(
+      reconnectTransport.queueResponse(
         jsonEncode(<String, dynamic>{
           'messageType': 'error',
           'messageId': 'message-error-rate-limited-retry-1',
@@ -1617,28 +1649,29 @@ void main() {
           'clientId': null,
         }),
       );
-      // Answers the second automatic attempt (after kReconnectAttemptDelays[1]'s real 1-second
-      // delay) with success.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
-      transport.queueResponse(
+      // Answers the second automatic attempt with success.
+      reconnectTransport.queueResponse(
+        _rawFixture('connection/hello-ack.json'),
+      );
+      reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-bridge.json'),
       );
-      transport.failMessagesWith(const SocketException('dropped'));
+      reconnectTransport.failMessagesWith(const SocketException('dropped'));
 
-      // Lets the immediate first attempt run and fail, then waits out the real delay before the
-      // second attempt -- no override point exists on DovahLinkClient's public constructor to
-      // shorten kReconnectAttemptDelays for this test. A fixed pump count, not a "not yet
-      // connected" condition -- connectionState is already `connected` from _connectAndHello
-      // before the drop, so a condition guarding on that would exit before the drop is ever
-      // actually processed.
+      // A fixed pump count, not a "not yet connected" condition -- connectionState is already
+      // `connected` from _connectAndHello before the drop, so a condition guarding on that would
+      // exit before the drop is ever actually processed. Reconnect delays are injected as zero,
+      // so the retry path does not wait on production-scale timers.
       await pumpEventQueue();
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
       for (int i = 0; i < 20; i++) {
         await pumpEventQueue();
       }
 
-      expect(client.connectionState, DovahLinkConnectionState.connected);
-      final List<String> helloSends = transport.sent
+      expect(
+        reconnectClient.connectionState,
+        DovahLinkConnectionState.connected,
+      );
+      final List<String> helloSends = reconnectTransport.sent
           .where(
             (String raw) =>
                 (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',

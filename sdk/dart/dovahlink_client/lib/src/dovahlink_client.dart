@@ -77,16 +77,38 @@ class DovahLinkClient {
          timeoutDurations: timeoutDurations,
        );
 
+  /// Creates a client with directly-injected reconnect timing controls. Test-only: production code
+  /// must use the unnamed constructor so reconnect shares the centrally tuned policy.
+  @visibleForTesting
+  DovahLinkClient.withReconnectPolicy({
+    required DovahLinkTransport transport,
+    required ClientStorage storage,
+    required List<Duration> attemptDelays,
+    required Duration deadline,
+    DateTime Function() now = DateTime.now,
+  }) : this._build(
+         transport: transport,
+         storage: storage,
+         timeoutDurations: kTimeoutClassDurations,
+         attemptDelays: attemptDelays,
+         reconnectDeadline: deadline,
+         reconnectNow: now,
+       );
+
   /// Assembles the full seven-service object graph over [transport], timed per
-  /// [timeoutDurations], per `ai/context/sdk/architecture.md`'s "Internal composition" -- the one
-  /// wiring path both public constructors share, differing only in [transport] source and
-  /// [timeoutDurations]. Every collaborator is constructed here, exactly once, and handed to its
-  /// consumer as an already-built constructor parameter; no class below this composition root ever
-  /// constructs one of its own dependencies.
+  /// [timeoutDurations] and recovered with the supplied reconnect policy, per
+  /// `ai/context/sdk/architecture.md`'s "Internal composition" -- the one wiring path all client
+  /// constructors and factories share, differing only in [transport] source, [timeoutDurations],
+  /// and test-only reconnect controls. Every collaborator is constructed here, exactly once, and
+  /// handed to its consumer as an already-built constructor parameter; no class below this
+  /// composition root ever constructs one of its own dependencies.
   DovahLinkClient._build({
     required DovahLinkTransport transport,
     required ClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
+    List<Duration> attemptDelays = kReconnectAttemptDelays,
+    Duration reconnectDeadline = kReconnectDeadline,
+    DateTime Function() reconnectNow = DateTime.now,
   }) : _storage = storage {
     final SessionState state = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
@@ -180,6 +202,9 @@ class DovahLinkClient {
     _reconnectService = ReconnectServiceImpl(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
+      attemptDelays: attemptDelays,
+      deadline: reconnectDeadline,
+      now: reconnectNow,
     );
     _sessionService.onOrdinaryTransportLoss =
         _reconnectService.onOrdinaryTransportLoss;
