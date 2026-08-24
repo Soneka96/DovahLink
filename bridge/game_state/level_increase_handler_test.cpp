@@ -25,8 +25,8 @@ TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",
 
     handler.HandleLevelIncrease();
 
-    Verify(Method(accessor, ReadLevel)).Once();
-    Verify(Method(sink, OnLevelCaptured).Using(std::optional<std::int64_t>{15})).Once();
+    Verify(Method(accessor, ReadLevel) +
+           Method(sink, OnLevelCaptured).Using(std::optional<std::int64_t>{15}));
     VerifyNoOtherInvocations(accessor, sink);
 }
 

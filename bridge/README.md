@@ -64,6 +64,7 @@ Pinned package versions resolved at that baseline:
 |---|---|
 | Boost (Asio, Beast, JSON — one release for all three) | `1.91.0` |
 | Catch2 | `3.15.3` |
+| FakeIt (test-only, Catch2 integration) | `2.5.0` |
 
 CommonLibSSE-NG (`commonlibsse-ng-flatrim`, SE/AE-capable, VR excluded) comes from the
 Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:

@@ -170,6 +170,7 @@ add_executable(dovahlink_bridge_tests
     application/timestamp_test.cpp
     application/trust_admin_service_test.cpp
     application/rename_handler_test.cpp
+    application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/runtime_guard_test.cpp

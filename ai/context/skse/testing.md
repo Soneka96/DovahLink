@@ -28,6 +28,14 @@ through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, r
 If it cannot satisfy those requirements, use GoogleMock as the fallback. Do not retain multiple
 production mocking frameworks or build a project-specific mock generator.
 
+The Bridge pilot selected FakeIt `2.5.0` through the pinned vcpkg baseline for synchronous
+interaction tests. The Catch2 configuration passed the supported MSVC/C++23 build, `const`
+methods, `std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
+unexpected-call diagnostics, and Catch2 failure reporting. FakeIt remains test-only: its mocks are
+not thread-safe and do not support multiple or virtual inheritance, so worker, callback, transport,
+and other concurrency/lifetime tests continue to use controllable stateful fakes. GoogleMock is a
+fallback to evaluate only if a later in-scope synchronous boundary cannot satisfy these constraints.
+
 Unexpected interactions must be detectable by default. Verify ordering only when it is part of the
 service contract; do not impose global ordering on incidental calls. Keep framework syntax visible
 in the test when that makes the interaction being proved clearer.
