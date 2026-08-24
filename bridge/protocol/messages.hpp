@@ -11,7 +11,6 @@
 
 #include "protocol/capabilities_payload.hpp"
 #include "protocol/capability.hpp"
-#include "protocol/character_state.hpp"
 #include "protocol/constants.hpp"
 #include "protocol/decode_error.hpp"
 #include "protocol/error_payload.hpp"
@@ -21,7 +20,6 @@
 #include "protocol/pairing_confirm_payload.hpp"
 #include "protocol/pairing_outcome_payload.hpp"
 #include "protocol/pairing_status_payload.hpp"
-#include "protocol/resource_value.hpp"
 #include "protocol/snapshot_request_payload.hpp"
 #include "protocol/state_event_payload.hpp"
 #include "protocol/state_snapshot_payload.hpp"

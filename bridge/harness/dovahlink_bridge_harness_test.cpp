@@ -26,6 +26,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 // Launches the harness as a real process, drives its protocol over a real
 // loopback socket, changes level through stdin, and verifies clean shutdown.
@@ -260,32 +261,6 @@ std::string SubscribeMessage(const std::string& sessionId, const std::string& me
            R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
 }
 
-/// Builds a character snapshot request for one authenticated session.
-std::string SnapshotRequestMessage(const std::string& sessionId, const std::string& messageId) {
-    return R"({"messageType": "snapshot_request", "messageId": ")" + messageId + R"(", "sessionId": ")" + sessionId +
-           R"(", "correlationId": null, "payload": {"stateArea": "character"}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
-}
-
-/// Decodes and returns the character level from a state snapshot envelope.
-std::int64_t SnapshotLevel(const dovahlink::protocol::Envelope& snapshot) {
-    auto decoded = dovahlink::protocol::DecodeStateSnapshotPayload(snapshot.payload);
-    REQUIRE(decoded.has_value());
-    auto characterState = dovahlink::protocol::DecodeCharacterState(decoded->data);
-    REQUIRE(characterState.has_value());
-    REQUIRE(characterState->level.has_value());
-    return *characterState->level;
-}
-
-/// Asserts that a state snapshot envelope reports the character level as unavailable.
-void CheckSnapshotLevelUnavailable(const dovahlink::protocol::Envelope& snapshot) {
-    auto decoded = dovahlink::protocol::DecodeStateSnapshotPayload(snapshot.payload);
-    REQUIRE(decoded.has_value());
-    auto characterState = dovahlink::protocol::DecodeCharacterState(decoded->data);
-    REQUIRE(characterState.has_value());
-    CHECK_FALSE(characterState->level.has_value());
-}
-
 /// Reads and validates the harness's `BRIDGE_INSTANCE <id>` startup line,
 /// returning the identifier text after the prefix.
 std::string ReadBridgeInstanceId(HarnessProcess& harness) {
@@ -326,10 +301,6 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     // OS-assigned port private to this one harness instance, not the shared kBridgePort.
     std::uint16_t port = ReadHarnessPort(harness);
 
-    // A capture has nowhere to be attributed to before a play context exists
-    // (ActivePlayContextLevelSink drops it, matching real play: main menu
-    // has no play context). Begin one before subscribing, the same way a
-    // real client would only see character state once a game is loaded.
     harness.WriteLine("new_game");
     CHECK_FALSE(ReadPlayContext(harness) == "(none)");
 
@@ -373,28 +344,24 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket a
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
 
+    // No state area is currently registered (protocol/schema/README.md's "Registered state
+    // areas"), so subscribe rejects the requested area and no snapshot follows.
     ClientWriteText(clientWs, SubscribeMessage(sessionId, "message-sub-1"));
     auto subscriptionAck = ClientReadEnvelope(clientWs);
     CHECK(subscriptionAck.messageType == "subscription_ack");
-    auto initialSnapshot = ClientReadEnvelope(clientWs);
-    CHECK(initialSnapshot.messageType == "state_snapshot");
-    // Nothing has captured a level into this context yet: an unavailable
-    // value, not a plausible default (protocol/schema/README.md).
-    CheckSnapshotLevelUnavailable(initialSnapshot);
+    auto ack = dovahlink::protocol::DecodeSubscriptionAckPayload(subscriptionAck.payload);
+    REQUIRE(ack.has_value());
+    CHECK(ack->acceptedStateAreas.empty());
+    CHECK(ack->rejectedStateAreas == std::vector<std::string>{"character"});
 
+    // The level-capture pipeline itself is proven independently of wire delivery: the harness
+    // still captures a real value and reports it over stdout.
     harness.WriteLine("increase_level");
     CHECK(harness.ReadLine() == "LEVEL 6");
 
     // An unrecognized command must not crash or wedge the harness -- proven
     // by the rest of the scenario still completing normally afterward.
     harness.WriteLine("not_a_real_command");
-
-    // Per bridge/README.md's documented Phase 1 boundary, the level change
-    // is not pushed -- it only becomes visible by asking again.
-    ClientWriteText(clientWs, SnapshotRequestMessage(sessionId, "message-snap-1"));
-    auto recoverySnapshot = ClientReadEnvelope(clientWs);
-    CHECK(recoverySnapshot.messageType == "state_snapshot");
-    CHECK(SnapshotLevel(recoverySnapshot) == 6);
 
     boost::system::error_code closeEc;
     clientWs.close(boost::beast::websocket::close_code::normal, closeEc);

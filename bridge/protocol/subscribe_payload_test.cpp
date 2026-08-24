@@ -16,7 +16,7 @@ TEST_CASE("subscribe fixture decodes to the expected SubscribePayload", "[protoc
     auto envelope = DecodeFixtureEnvelope("subscriptions/subscribe.json");
     auto subscribe = dovahlink::protocol::DecodeSubscribePayload(envelope.payload);
     REQUIRE(subscribe.has_value());
-    CHECK(subscribe->stateAreas == std::vector<std::string>{"character"});
+    CHECK(subscribe->stateAreas == std::vector<std::string>{"example_area"});
 }
 
 TEST_CASE("subscribe is rejected when stateAreas contains a non-string item", "[protocol][subscribe_payload]") {

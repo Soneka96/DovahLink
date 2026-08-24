@@ -3,18 +3,15 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_handler.hpp"
 #include "application/rename_handler.hpp"
-#include "application/revision_tracker.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
 #include "security/limits.hpp"
 
 #include <boost/json/object.hpp>
-#include <boost/json/serialize.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cassert>
-#include <iterator>
 #include <string_view>
 #include <utility>
 
@@ -126,16 +123,6 @@ DispatchResult FromHandlerResponse(protocol::Envelope firstResponse, security::V
     return result;
 }
 
-/// Supplies the existing unavailable character-state shape (every field
-/// absent) when no play context is currently active. Reuses
-/// HandleSubscribe/HandleSnapshotRequest unchanged rather than inventing a
-/// new wire signal, per protocol/schema/README.md.
-class NullCharacterStateProvider : public CharacterStateProvider {
-public:
-    /// @copydoc CharacterStateProvider::CurrentCharacterSnapshot
-    [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const override { return CharacterSnapshot{}; }
-};
-
 /// Builds a pong response correlated with an incoming ping.
 /// @param pingEnvelope Envelope of the ping being acknowledged.
 /// @param sessionId Authenticated session identifier.
@@ -153,29 +140,6 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope, const std::
                                          "Unable to build response", false);
 }
 
-/// Builds an unsolicited fresh snapshot reflecting whichever character-state
-/// source is currently effective, for the context-change resync mechanism.
-/// `correlationId` is null: this message is unsolicited, matching
-/// `capabilities`/`state_event`'s existing convention (protocol/schema/README.md).
-/// @return The snapshot envelope, or no value if it could not be built (the
-///     same unreachable-in-practice CSPRNG failure every envelope-building
-///     path in this codebase shares).
-std::optional<protocol::Envelope> BuildResyncSnapshot(const std::string& sessionId,
-                                                       const CharacterStateProvider& provider,
-                                                       RevisionTracker& revisions,
-                                                       std::chrono::system_clock::time_point now) {
-    const std::string stateArea(protocol::state_area::kCharacter);
-    CharacterSnapshot snapshot = provider.CurrentCharacterSnapshot();
-    std::optional<std::string> fingerprint =
-        std::make_optional(boost::json::serialize(BuildCharacterStateData(snapshot)));
-    // CommitSnapshotIfBuilt assigns and commits the revision atomically with building the
-    // envelope, closing the race a separate preview (NextSnapshotRevision) followed by a later
-    // commit (StartSnapshot) leaves open against another concurrent snapshot for this state area.
-    return revisions.CommitSnapshotIfBuilt(stateArea, fingerprint, [&](std::int64_t revision) {
-        return BuildCharacterSnapshotEnvelope(sessionId, /*correlationId=*/std::nullopt, snapshot, revision, now);
-    });
-}
-
 }
 
 DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t& receivedMessageCount,
@@ -185,12 +149,10 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
                                       security::InboundMessageRateLimiter& rateLimiter,
                                       ConnectionTimeoutTracker& timeoutTracker,
                                       const ActivePlayContext& activePlayContext,
-                                      SubscriptionState& subscriptionState,
                                       security::PairingSession& pairingSession, security::TrustStore& trustStore,
                                       PairingNotificationSink& pairingNotificationSink,
                                       const std::optional<std::string>& bridgeInstanceId,
-                                      std::chrono::steady_clock::time_point steadyNow,
-                                      std::chrono::system_clock::time_point wallNow) {
+                                      std::chrono::steady_clock::time_point steadyNow) {
     ++receivedMessageCount;
     if (receivedMessageCount > security::kMaxMessagesPerSession) {
         return DispatchResult{.closeConnection = true};
@@ -205,13 +167,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     // hygiene rejection below -- carries the same bridge/play-context
     // identity a client compares its cached state against (protocol/schema/
     // README.md: present on every Bridge-originated message once
-    // authenticated). No active context: throwaway state producing the
-    // existing unavailable shape, freshly constructed on every call, so a
-    // NoContext response always reports revision 1 -- there is no
-    // authoritative state outside a play context for a revision to persist
-    // against, and the client already keys staleness off `playContextId:
-    // null` rather than this number (ARCHITECTURE.md's "Authoritative state
-    // and revisions").
+    // authenticated).
     std::shared_ptr<PlayContext> context = activePlayContext.AcquireCurrent();
     std::optional<std::string> currentContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
 
@@ -270,33 +226,6 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
 
     timeoutTracker.RecordActivity(steadyNow);
 
-    NullCharacterStateProvider noContextProvider;
-    RevisionTracker noContextRevisions;
-    const CharacterStateProvider& effectiveProvider =
-        context ? static_cast<const CharacterStateProvider&>(context->characterState)
-                : static_cast<const CharacterStateProvider&>(noContextProvider);
-    RevisionTracker& effectiveRevisions = context ? context->revisions : noContextRevisions;
-
-    // The "existing connected clients learn context transitions" mechanism
-    // (protocol/schema/README.md): on every message, a subscribed connection
-    // whose remembered context differs from the current one gets an
-    // unsolicited fresh snapshot prepended to whatever this message would
-    // otherwise produce, bounded by the connection's own keepalive cadence
-    // rather than pushed independently (Phase 4 scope).
-    std::vector<protocol::Envelope> prepended;
-    bool contextChanged = currentContextId != subscriptionState.lastKnownPlayContextId;
-    if (contextChanged && !subscriptionState.subscribedStateAreas.empty()) {
-        auto resyncSnapshot = BuildResyncSnapshot(sessionId, effectiveProvider, effectiveRevisions, wallNow);
-        if (resyncSnapshot.has_value()) {
-            prepended.push_back(std::move(*resyncSnapshot));
-            subscriptionState.lastKnownPlayContextId = currentContextId;
-        }
-        // Building failed (unreachable-in-practice CSPRNG failure):
-        // lastKnownPlayContextId stays stale so the next message retries.
-    } else {
-        subscriptionState.lastKnownPlayContextId = currentContextId;
-    }
-
     DispatchResult result;
     if (envelope->messageType == protocol::message_type::kPing) {
         result = DispatchResult{.responses = {BuildPong(*envelope, sessionId)}};
@@ -305,14 +234,7 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
         result = error.has_value() ? FromHandlerResponse(std::move(*error), violations, steadyNow)
                                     : DispatchResult{};
     } else if (envelope->messageType == protocol::message_type::kSubscribe) {
-        auto subscribeResult = HandleSubscribe(*envelope, sessionId, effectiveProvider, effectiveRevisions, wallNow);
-        // Only a genuinely processed request (never a failure -- malformed
-        // payload, or an internal error building the response) replaces the
-        // remembered subscription: a rejected request carries no client
-        // intent to unsubscribe, so a prior subscription must survive it.
-        if (subscribeResult.subscriptionAck.messageType == protocol::message_type::kSubscriptionAck) {
-            subscriptionState.subscribedStateAreas = subscribeResult.acceptedStateAreas;
-        }
+        auto subscribeResult = HandleSubscribe(*envelope, sessionId);
         result = FromHandlerResponse(std::move(subscribeResult.subscriptionAck), violations, steadyNow);
         for (auto& snapshot : subscribeResult.snapshots) {
             result.responses.push_back(std::move(snapshot));
@@ -357,12 +279,9 @@ DispatchResult ProcessInboundMessage(const std::string& rawMessage, std::size_t&
     } else {
         // Only kSnapshotRequest remains, per kFullAllowedMessageTypes -- unreachable for a
         // Restricted session, since every Restricted-allowed type is handled explicitly above.
-        auto response = HandleSnapshotRequest(*envelope, sessionId, effectiveProvider, effectiveRevisions, wallNow);
+        auto response = HandleSnapshotRequest(*envelope, sessionId);
         result = FromHandlerResponse(std::move(response), violations, steadyNow);
     }
-
-    result.responses.insert(result.responses.begin(), std::make_move_iterator(prepended.begin()),
-                            std::make_move_iterator(prepended.end()));
 
     // Stamps the connection's bridge and play-context identity onto every
     // response built through normal dispatch. The earlier Reject() calls

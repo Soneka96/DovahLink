@@ -39,7 +39,6 @@ find_package(boost_json CONFIG REQUIRED)
 add_library(dovahlink_bridge_core STATIC
     application/bridge_transport.cpp
     application/bridge_worker_pool.cpp
-    application/character_state.cpp
     application/character_state_store.cpp
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
@@ -61,7 +60,6 @@ add_library(dovahlink_bridge_core STATIC
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
     protocol/capabilities_payload.cpp
-    protocol/character_state.cpp
     protocol/envelope.cpp
     protocol/error_payload.cpp
     protocol/hello_ack_payload.cpp
@@ -151,7 +149,6 @@ add_executable(dovahlink_bridge_tests
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
     application/character_state_store_test.cpp
-    application/character_state_test.cpp
     application/connection_session_test.cpp
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
@@ -194,7 +191,6 @@ add_executable(dovahlink_bridge_tests
     security/windows_trust_store_persistence_test.cpp
     protocol/bounded_json_test.cpp
     protocol/capabilities_payload_test.cpp
-    protocol/character_state_test.cpp
     protocol/envelope_test.cpp
     protocol/error_payload_test.cpp
     protocol/hello_ack_payload_test.cpp

@@ -32,8 +32,7 @@ using SteadyNowProvider = std::function<std::chrono::steady_clock::time_point()>
 /// @param credentialThrottle Plugin-lifetime failed device-credential attempt throttle.
 /// @param sessionManager Session registry for the connection.
 /// @param connection Transport connection identifier.
-/// @param activePlayContext Source of the acquired play context this connection's state and
-///     revisions belong to.
+/// @param activePlayContext Source of the acquired play context this connection's state belongs to.
 /// @param pairingSession Plugin-lifetime pairing challenge/pending-credential state machine.
 /// @param pairingNotificationSink Displays a freshly generated pairing code to the user.
 /// @param bridgeInstanceId This bridge process's identity, stamped onto every response envelope;

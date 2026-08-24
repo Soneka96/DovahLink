@@ -94,11 +94,11 @@ TEST_CASE("EncodeEnvelope round-trips the hello-ack fixture, including its ident
     CHECK(roundTripped->clientId == original.clientId);
 }
 
-TEST_CASE("character-state-snapshot fixture decodes with its payload intact", "[protocol][envelope]") {
-    auto envelope = DecodeFixture("state/character/character-state-snapshot.json");
+TEST_CASE("state-snapshot fixture decodes with its payload intact", "[protocol][envelope]") {
+    auto envelope = DecodeFixture("state/state-snapshot.json");
     CHECK(envelope.messageType == "state_snapshot");
     REQUIRE(envelope.payload.if_contains("stateArea"));
-    CHECK(envelope.payload.at("stateArea").as_string() == "character");
+    CHECK(envelope.payload.at("stateArea").as_string() == "example_area");
 }
 
 TEST_CASE("error-unauthenticated-invalid-token fixture decodes with a null sessionId", "[protocol][envelope]") {
@@ -117,7 +117,7 @@ TEST_CASE("error-stale-session fixture decodes with a non-null sessionId", "[pro
 TEST_CASE("state-snapshot-unknown-field fixture decodes, ignoring the "
           "unrecognized top-level field",
           "[protocol][envelope]") {
-    auto envelope = DecodeFixture("state/character/state-snapshot-unknown-field.json");
+    auto envelope = DecodeFixture("state/state-snapshot-unknown-field.json");
     CHECK(envelope.messageType == "state_snapshot");
     REQUIRE(envelope.payload.if_contains("stateArea"));
 }
