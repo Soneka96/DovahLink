@@ -1127,16 +1127,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Function Devices", papyrus)
         self.assertNotIn("Function Blocked", papyrus)
 
-        command_blocks = {
-            name: body
-            for name, body in re.findall(
-                r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
-            )
-        }
+        command_entries = re.findall(
+            r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
+        )
+        raw_command_names = re.findall(r"(?m)^  - name: (.+)$", yaml)
         self.assertEqual(
-            list(command_blocks),
+            [name for name, _ in command_entries],
             ["list", "help", "revoke", "block", "unblock", "forget", "reset-trust", "reset", "confirm-reset"],
         )
+        self.assertEqual([name for name, _ in command_entries], raw_command_names)
+        command_blocks = dict(command_entries)
         expected_functions = {
             "list": "List",
             "help": "Help",
@@ -1149,6 +1149,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "confirm-reset": "ConfirmReset",
         }
         for command, function in expected_functions.items():
+            self.assertEqual(len(re.findall(r"(?m)^    func: .+$", command_blocks[command])), 1)
             self.assertIn(f"func: {function}", command_blocks[command])
         for command in ("revoke", "block", "unblock", "forget"):
             self.assertEqual(command_blocks[command].count("      - name: -id"), 1)
