@@ -15,8 +15,7 @@ public class CapabilitiesScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        JsonArray registered = capabilities.Payload["capabilities"]!.AsArray();
-        Assert.Empty(registered);
+        Assert.Empty(CapabilitiesPayload.Decode(capabilities.Payload).Capabilities);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -30,7 +29,7 @@ public class CapabilitiesScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("capabilities", "message-cap-1", sessionId, null,
-            new JsonObject { ["capabilities"] = new JsonArray() }));
+            new CapabilitiesPayload([]).Encode()));
 
         // v1's registered client-side capabilities is deliberately the
         // empty set (protocol/schema/README.md): a valid, empty list gets
@@ -53,15 +52,12 @@ public class CapabilitiesScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("capabilities", "message-cap-nonempty", sessionId, null,
-            new JsonObject
-            {
-                ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "example.capability", ["version"] = 1 }),
-            }));
+            new CapabilitiesPayload([new Capability("example.capability", 1)]).Encode()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-cap-nonempty", error.CorrelationId);
-        Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unsupported_capability", ErrorPayload.Decode(error.Payload).Code);
 
         await connection.SendAsync(new Envelope("ping", "message-ping-after-capability-error", sessionId, null, new JsonObject()));
         Envelope response = await connection.ReceiveAsync();
@@ -79,15 +75,12 @@ public class CapabilitiesScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("capabilities", "message-cap-2", sessionId, null,
-            new JsonObject
-            {
-                ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "made.up.capability", ["version"] = 1 }),
-            }));
+            new CapabilitiesPayload([new Capability("made.up.capability", 1)]).Encode()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-cap-2", error.CorrelationId);
-        Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unsupported_capability", ErrorPayload.Decode(error.Payload).Code);
 
         // One protocol violation does not close the connection -- the limit
         // is 3 within 30 seconds (ai/context/protocol/security.md). Proven
@@ -110,16 +103,14 @@ public class CapabilitiesScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("capabilities", "message-cap-mixed", sessionId, null,
-            new JsonObject
-            {
-                ["capabilities"] = new JsonArray(
-                    new JsonObject { ["id"] = "example.capability", ["version"] = 1 },
-                    new JsonObject { ["id"] = "made.up.capability", ["version"] = 1 }),
-            }));
+            new CapabilitiesPayload([
+                new Capability("example.capability", 1),
+                new Capability("made.up.capability", 1),
+            ]).Encode()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unsupported_capability", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
