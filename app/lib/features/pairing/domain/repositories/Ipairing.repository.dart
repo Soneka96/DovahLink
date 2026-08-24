@@ -1,6 +1,7 @@
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Domain boundary for negotiating local device pairing with the bridge.
@@ -34,8 +35,9 @@ abstract interface class IPairingRepository {
   /// reports idle status.
   Future<Either<Failure, Unit>> cancelPairing();
 
-  /// Emits once for every administrative session invalidation the SDK
-  /// observes, including one that arrives with nothing pending. Never
-  /// completes and carries no request of its own.
-  Stream<SessionInvalidatedFailure> get sessionInvalidated;
+  /// Emits every change in the bridge connection's status while a session is active -- ordinary
+  /// transport loss and recovery, and administrative invalidation, unified rather than split
+  /// into a narrower administrative-only slice -- including one that arrives with nothing
+  /// pending. Never completes and carries no request of its own.
+  Stream<PairingConnectionStatus> get connectionStatus;
 }

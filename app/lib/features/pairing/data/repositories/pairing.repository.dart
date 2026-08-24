@@ -3,6 +3,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Implements [IPairingRepository] over [PairingRemoteDataSource].
@@ -47,8 +48,8 @@ class PairingRepositoryImpl implements IPairingRepository {
   Future<Either<Failure, Unit>> cancelPairing() =>
       _remoteDataSource.cancelPairing();
 
-  /// See [IPairingRepository.sessionInvalidated].
+  /// See [IPairingRepository.connectionStatus].
   @override
-  Stream<SessionInvalidatedFailure> get sessionInvalidated =>
-      _remoteDataSource.sessionInvalidated;
+  Stream<PairingConnectionStatus> get connectionStatus =>
+      _remoteDataSource.connectionStatus;
 }

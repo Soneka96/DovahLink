@@ -10,7 +10,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
@@ -88,7 +88,7 @@ void main() {
       expect(sl.isRegistered<DisconnectUseCase>(), isTrue);
       expect(sl.isRegistered<RequestPairingRenotifyUseCase>(), isTrue);
       expect(sl.isRegistered<CancelPairingUseCase>(), isTrue);
-      expect(sl.isRegistered<ObserveSessionInvalidationUseCase>(), isTrue);
+      expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
     });
 
     test('initDependencies registers the pairing ViewModel factory', () {

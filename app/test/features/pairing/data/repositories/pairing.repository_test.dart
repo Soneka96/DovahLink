@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remot
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 import '../../fixtures/pairing.fixture.dart';
@@ -282,19 +283,21 @@ void main() {
     );
   });
 
-  group('Property sessionInvalidated behaves correctly', () {
+  group('Property connectionStatus behaves correctly', () {
     test(
-      'Property sessionInvalidated delegates to the data source stream',
+      'Property connectionStatus delegates to the data source stream',
       () async {
-        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'disconnected by the bridge',
+        when(() => mockDataSource.connectionStatus).thenAnswer(
+          (_) => Stream<PairingConnectionStatus>.value(
+            PairingConnectionStatus.lost,
+          ),
         );
-        when(
-          () => mockDataSource.sessionInvalidated,
-        ).thenAnswer((_) => Stream<SessionInvalidatedFailure>.value(failure));
 
-        await expectLater(repository.sessionInvalidated, emits(failure));
-        verify(() => mockDataSource.sessionInvalidated).called(1);
+        await expectLater(
+          repository.connectionStatus,
+          emits(PairingConnectionStatus.lost),
+        );
+        verify(() => mockDataSource.connectionStatus).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
     );
