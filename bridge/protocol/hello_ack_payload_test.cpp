@@ -13,7 +13,7 @@ TEST_CASE("hello-ack fixture decodes to the expected HelloAckPayload", "[protoco
     auto envelope = DecodeFixtureEnvelope("connection/hello-ack.json");
     auto helloAck = dovahlink::protocol::DecodeHelloAckPayload(envelope.payload);
     REQUIRE(helloAck.has_value());
-    CHECK(helloAck->bridgeVersion == "0.3.2");
+    CHECK(helloAck->bridgeVersion == "0.3.3");
     CHECK(helloAck->clientIdentityKind == "unpaired");
 }
 

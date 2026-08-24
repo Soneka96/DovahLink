@@ -89,6 +89,8 @@ the version-audit skill manually; a contract-breaking bugfix is not silently cla
 
 #### 4.1 Typed Protocol Contract Redesign and Migration
 
+**Status:** Complete
+
 Create the typed message-family contract for connection, pairing, state, error, invalidation, and
 control messages. Keep a small shared header and give each complete message its own DTO, generated
 structural JSON serialization, and handwritten semantic validation. Unknown optional fields remain

@@ -11,7 +11,7 @@ public class HelloAckPayloadTests
     {
         HelloAckPayload payload = HelloAckPayload.Decode(ProtocolFixtures.ReadFixturePayload("connection/hello-ack.json"));
 
-        Assert.Equal("0.3.2", payload.BridgeVersion);
+        Assert.Equal("0.3.3", payload.BridgeVersion);
         Assert.Equal("unpaired", payload.ClientIdentityKind);
     }
 
@@ -22,7 +22,7 @@ public class HelloAckPayloadTests
         HelloAckPayload payload =
             HelloAckPayload.Decode(ProtocolFixtures.ReadFixturePayload("connection/hello-ack-paired.json"));
 
-        Assert.Equal("0.3.2", payload.BridgeVersion);
+        Assert.Equal("0.3.3", payload.BridgeVersion);
         Assert.Equal("paired", payload.ClientIdentityKind);
     }
 

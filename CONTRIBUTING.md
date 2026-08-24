@@ -60,12 +60,16 @@ Branch names:
   a glance: `roadmap/03-local-device-pairing-and-reconnection.md`'s "## 3.1 Live Pairing Challenge UX" becomes
   `feature/3.1-live-pairing-challenge-ux`.
 - For a fix or a change with no corresponding roadmap phase, use a short kebab-case description
-  instead:
+  instead.
+- For a release (the version bump, its `CHANGELOG.md` entry, and every synced version literal --
+  see `ai/context/common.md`'s "Versioning"), name it `release/<version-string>`, cut from `main`,
+  as its own dedicated pull request separate from any feature/phase branch.
 
 ```text
 feature/3.1-live-pairing-challenge-ux
 fix/reconnect-state
 docs/protocol-notes
+release/0.3.3
 ```
 
 ## AI-assisted development
