@@ -50,4 +50,22 @@ public static class Fixtures
         string code = "123456",
         string? displayName = "My PC") =>
         new(code, displayName);
+
+    /// <summary>Builds a representative PairingAckPayload.</summary>
+    /// <param name="credential">The credential to use.</param>
+    public static PairingAckPayload BuildPairingAckPayload(string credential = "a1b2c3d4e5f6") => new(credential);
+
+    /// <summary>Builds a representative PairingOutcomePayload.</summary>
+    /// <param name="outcome">The outcome to use.</param>
+    /// <param name="credential">The credential to use.</param>
+    /// <param name="shortId">The short ID to use.</param>
+    /// <param name="displayName">The display name to use.</param>
+    /// <param name="retryAfterSeconds">The retry-after seconds to use.</param>
+    public static PairingOutcomePayload BuildPairingOutcomePayload(
+        string outcome = "trusted",
+        string? credential = "a1b2c3d4e5f6",
+        string? shortId = "12345",
+        string? displayName = "My PC",
+        int? retryAfterSeconds = null) =>
+        new(outcome, credential, shortId, displayName, retryAfterSeconds);
 }
