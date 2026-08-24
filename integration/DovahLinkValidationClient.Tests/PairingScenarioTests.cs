@@ -1172,6 +1172,155 @@ public class PairingScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
+    /// <summary>
+    /// Verifies Reset Trust's live-session effect (PLAN.md Stage 4's integration coverage for the
+    /// four administrative reasons): resetting trust while a just-paired client is connected
+    /// force-closes its session immediately, mirroring
+    /// <see cref="RevokeWhileConnectedClosesTheLiveSessionImmediately"/>'s same proof for revoke,
+    /// via the harness's own <c>trust_reset &lt;clientId&gt;</c> shortcut
+    /// (bridge/harness/dovahlink_bridge_harness.cpp) straight to <c>TrustStore::ResetTrust</c>.
+    /// </summary>
+    [Fact]
+    public async Task TrustResetWhileConnectedClosesTheLiveSessionImmediately()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Unlike a bare reconnect-only proof, this connection stays open through the reset below --
+        // proving the live session itself is force-closed, not merely that a later reconnect
+        // attempt would be rejected.
+        await harness.WriteLineAsync("trust_reset client-1");
+        Assert.Equal("TRUST_RESET client-1", await harness.ReadLineAsync());
+
+        // The Bridge sends session_invalidated(reason: "trust_reset") before force-closing (Stage
+        // 7, ai/context/protocol/security.md's "Administrative session invalidation"), mirroring
+        // RevokeWhileConnectedClosesTheLiveSessionImmediately's same proof for revoke.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("trust_reset", invalidated.Payload["reason"]!.GetValue<string>());
+
+        InvalidOperationException closeException =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
+        Assert.Contains("ended before a complete protocol message was received", closeException.Message);
+        await connection.CloseAsync();
+
+        // The connection slot isn't wedged: a fresh, unrelated connection still succeeds right
+        // after, mirroring RevokeWhileConnectedClosesTheLiveSessionImmediately's same proof.
+        await using BridgeConnection healthyConnection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await healthyConnection.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope healthyHelloAck = await healthyConnection.ReceiveAsync();
+        Assert.Equal("hello_ack", healthyHelloAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, healthyConnection);
+    }
+
+    /// <summary>
+    /// Verifies Factory Reset's live-session effect (PLAN.md Stage 4's integration coverage for the
+    /// four administrative reasons): a factory reset while a just-paired client is connected
+    /// force-closes its session immediately, mirroring
+    /// <see cref="TrustResetWhileConnectedClosesTheLiveSessionImmediately"/>'s same proof for trust
+    /// reset, via the harness's own <c>factory_reset</c> shortcut
+    /// (bridge/harness/dovahlink_bridge_harness.cpp) straight to <c>TrustStore::Reset</c>. Unlike
+    /// trust reset, Factory Reset disconnects the active session unconditionally -- it targets no
+    /// specific clientId, since it wipes every known device record. Also verifies the distinct
+    /// reconnect outcome ai/context/protocol/security.md documents for this case: because Factory
+    /// Reset deletes the Known Device record and any revocation tombstone entirely, a reconnect
+    /// with the old credential gets the generic "unauthenticated" outcome -- the same as a device
+    /// that was never paired -- rather than the "revoked"/"blocked" outcomes
+    /// <see cref="RevokedCredentialReconnectReceivesARevokedOutcome"/> and the block scenario prove
+    /// for those two reasons, which still leave a classifiable tombstone behind.
+    /// </summary>
+    [Fact]
+    public async Task FactoryResetWhileConnectedClosesTheLiveSessionImmediately()
+    {
+        using var trustStore = new IsolatedTrustStore();
+        (HarnessProcess harness, BridgeConnection connection, string sessionId, Envelope _, Envelope _) =
+            await BridgeScenario.ConnectAndAuthenticateUnpairedAsync(trustStore.Override());
+        using var disposeHarness = harness;
+        await using var disposeConnection = connection;
+
+        await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
+        Envelope status = await connection.ReceiveAsync();
+        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+
+        string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
+
+        await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
+            new JsonObject { ["code"] = code }));
+        Envelope confirmOutcome = await connection.ReceiveAsync();
+        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+
+        await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
+            new JsonObject { ["credential"] = credential }));
+        Envelope ackOutcome = await connection.ReceiveAsync();
+        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+
+        // Unlike a bare reconnect-only proof, this connection stays open through the reset below --
+        // proving the live session itself is force-closed, not merely that a later reconnect
+        // attempt would be rejected.
+        await harness.WriteLineAsync("factory_reset");
+        Assert.Equal("FACTORY_RESET", await harness.ReadLineAsync());
+
+        // The Bridge sends session_invalidated(reason: "factory_reset") before force-closing
+        // (Stage 7, ai/context/protocol/security.md's "Administrative session invalidation"),
+        // mirroring TrustResetWhileConnectedClosesTheLiveSessionImmediately's same proof.
+        Envelope invalidated = await connection.ReceiveAsync();
+        Assert.Equal("session_invalidated", invalidated.MessageType);
+        Assert.Equal(sessionId, invalidated.SessionId);
+        Assert.Null(invalidated.CorrelationId);
+        Assert.Equal("factory_reset", invalidated.Payload["reason"]!.GetValue<string>());
+
+        InvalidOperationException closeException =
+            await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
+        Assert.Contains("ended before a complete protocol message was received", closeException.Message);
+        await connection.CloseAsync();
+
+        // A reconnect with the old (now-unrecorded) credential gets the generic "unauthenticated"
+        // outcome, distinct from "revoked"/"blocked" -- security.md's "the Bridge rejects it
+        // through the ordinary unrecognized-credential/unpaired path, the same as a device that
+        // was never paired, not through the blocked/revoked outcomes above", since Factory Reset
+        // deleted the Known Device record entirely rather than leaving a revocation tombstone.
+        await using BridgeConnection staleReconnect = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await staleReconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
+        Envelope staleError = await staleReconnect.ReceiveAsync();
+        Assert.Equal("error", staleError.MessageType);
+        Assert.Equal("unauthenticated", staleError.Payload["code"]!.GetValue<string>());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => staleReconnect.ReceiveAsync());
+        await staleReconnect.CloseAsync();
+
+        // The connection slot isn't wedged: a fresh, unrelated connection still succeeds right
+        // after, mirroring TrustResetWhileConnectedClosesTheLiveSessionImmediately's same proof.
+        await using BridgeConnection healthyConnection = await BridgeConnection.ConnectWithRetryAsync(BridgeScenario.BridgeUri);
+        await healthyConnection.SendAsync(BridgeScenario.UnpairedHelloEnvelope(clientId: "client-2"));
+        Envelope healthyHelloAck = await healthyConnection.ReceiveAsync();
+        Assert.Equal("hello_ack", healthyHelloAck.MessageType);
+
+        await BridgeScenario.CloseAndQuitAsync(harness, healthyConnection);
+    }
+
     /// <summary>Builds a six-digit code guaranteed to differ from <paramref name="realCode"/>.</summary>
     /// <param name="realCode">The genuine pairing code to avoid.</param>
     private static string DifferentCode(string realCode)

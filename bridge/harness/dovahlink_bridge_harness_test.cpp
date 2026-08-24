@@ -514,6 +514,60 @@ TEST_CASE("dovahlink_bridge_harness's unblock command reports UNBLOCK_FAILED for
     CHECK(harness.ExitCode() == 0);
 }
 
+TEST_CASE("dovahlink_bridge_harness's trust_reset command reports TRUST_RESET for the given clientId",
+          "[harness]") {
+    // Like TrustStore::Revoke, TrustStore::ResetTrust (bridge/security/trust_store.cpp) is
+    // idempotent-success: it revokes whichever currently-trusted devices exist (none, with no
+    // prior pairing) and still reports success, so TRUST_RESET is the only branch reachable
+    // without a persistence-layer save failure to inject. The .NET validator's
+    // PairingScenarioTests.cs additionally proves the real trust-reset-while-connected round trip
+    // against an actually trusted device, using machinery this harness test file has no
+    // equivalent of on its own (matching the existing revoke tests' own documented scope split).
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
+
+    // An empty clientId (nothing after the "trust_reset " prefix) still matches the branch and
+    // reports success the same way, mirroring the equivalent "revoke " test.
+    harness.WriteLine("trust_reset ");
+    CHECK(harness.ReadLine() == "TRUST_RESET ");
+
+    // Repeating the same never-trusted clientId stays TRUST_RESET every time, matching
+    // ResetTrust's documented idempotency.
+    harness.WriteLine("trust_reset never-paired-client");
+    CHECK(harness.ReadLine() == "TRUST_RESET never-paired-client");
+    harness.WriteLine("trust_reset never-paired-client");
+    CHECK(harness.ReadLine() == "TRUST_RESET never-paired-client");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness's factory_reset command reports FACTORY_RESET and is idempotent",
+          "[harness]") {
+    // Like TrustStore::Reset's ResetTrust sibling above, TrustStore::Reset is idempotent-success:
+    // wiping an already-empty trust store still reports success, so FACTORY_RESET is the only
+    // branch reachable without a persistence-layer save failure to inject. Unlike every other
+    // trust command, factory_reset takes no clientId -- it wipes every known device
+    // unconditionally. The .NET validator's PairingScenarioTests.cs additionally proves the real
+    // factory-reset-while-connected round trip against an actually trusted device.
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
+
+    harness.WriteLine("factory_reset");
+    CHECK(harness.ReadLine() == "FACTORY_RESET");
+    harness.WriteLine("factory_reset");
+    CHECK(harness.ReadLine() == "FACTORY_RESET");
+
+    harness.WriteLine("quit");
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
 TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands drive a real play-context "
           "lifecycle",
           "[harness]") {
