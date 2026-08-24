@@ -129,9 +129,9 @@ void main() {
     reset(store);
   });
 
-  group('PairingMiddleware — PairingStartedAction', () {
+  group('PairingMiddleware processes PairingStartedAction correctly', () {
     test(
-      'dispatches PairingAuthenticatedAction when authentication succeeds',
+      'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds',
       () async {
         final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
           trusted: false,
@@ -163,7 +163,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
+      'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
         final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
           trusted: false,
@@ -185,7 +185,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
+      'PairingStartedAction dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
       () {
         fakeAsync((FakeAsync async) {
           const NetworkFailure failure = NetworkFailure('unreachable');
@@ -213,7 +213,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingFailedAction when authentication fails with a non-network failure',
+      'PairingStartedAction dispatches PairingFailedAction when authentication fails with a non-network failure',
       () async {
         const PairingFailure failure = PairingFailure('rejected');
         when(
@@ -228,8 +228,40 @@ void main() {
       },
     );
 
+    test('PairingStartedAction dispatches PairingFailedAction, and never '
+        'schedules a reconnect, when authentication fails with a '
+        'SessionInvalidatedFailure', () {
+      fakeAsync((FakeAsync async) {
+        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+          'disconnected by the bridge',
+        );
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(failure));
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        async.flushMicrotasks();
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          const PairingFailedAction('disconnected by the bridge'),
+        ]);
+
+        // Administrative invalidation must never auto-retry, unlike NetworkFailure above --
+        // elapsing the same reconnectDelay proves no PairingStartedAction was scheduled, even
+        // with store.state stubbed to the disconnected phase _scheduleReconnect checks for.
+        async.elapse(middleware.reconnectDelay);
+        async.flushMicrotasks();
+
+        expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
+      });
+    });
+
     test(
-      'schedules a retry that dispatches PairingStartedAction again after reconnectDelay when the Store still reports disconnected',
+      'PairingStartedAction schedules a retry that dispatches PairingStartedAction again after reconnectDelay when the Store still reports disconnected',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
@@ -261,7 +293,7 @@ void main() {
     );
 
     test(
-      'does not retry once the Store no longer reports disconnected (e.g. disposed) before reconnectDelay elapses',
+      'PairingStartedAction does not retry once the Store no longer reports disconnected (e.g. disposed) before reconnectDelay elapses',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
@@ -295,7 +327,7 @@ void main() {
     );
 
     test(
-      'does not retry once the Store reports a phase other than disconnected before reconnectDelay elapses',
+      'PairingStartedAction does not retry once the Store reports a phase other than disconnected before reconnectDelay elapses',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
@@ -330,9 +362,9 @@ void main() {
     );
   });
 
-  group('PairingMiddleware — PairingCodeRequestedAction', () {
+  group('PairingMiddleware processes PairingCodeRequestedAction correctly', () {
     test(
-      'dispatches PairingCodeAvailableAction when the request succeeds',
+      'PairingCodeRequestedAction dispatches PairingCodeAvailableAction when the request succeeds',
       () async {
         when(
           () => mockRequestPairing(any()),
@@ -349,7 +381,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingCodeAvailableAction with expiresInSeconds forwarded',
+      'PairingCodeRequestedAction dispatches PairingCodeAvailableAction with expiresInSeconds forwarded',
       () async {
         when(
           () => mockRequestPairing(any()),
@@ -365,23 +397,26 @@ void main() {
       },
     );
 
-    test('dispatches PairingFailedAction when the request fails', () async {
-      const PairingFailure failure = PairingFailure('unavailable');
-      when(
-        () => mockRequestPairing(any()),
-      ).thenAnswer((_) async => const Left(failure));
+    test(
+      'PairingCodeRequestedAction dispatches PairingFailedAction when the request fails',
+      () async {
+        const PairingFailure failure = PairingFailure('unavailable');
+        when(
+          () => mockRequestPairing(any()),
+        ).thenAnswer((_) async => const Left(failure));
 
-      middleware.call(store, const PairingCodeRequestedAction(), next);
-      await Future<void>.delayed(Duration.zero);
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(actionLog[0], isA<PairingCodeRequestedAction>());
-      expect(actionLog[1], const PairingFailedAction('unavailable'));
-    });
+        expect(actionLog[0], isA<PairingCodeRequestedAction>());
+        expect(actionLog[1], const PairingFailedAction('unavailable'));
+      },
+    );
   });
 
-  group('PairingMiddleware — PairingCodeSubmittedAction', () {
+  group('PairingMiddleware processes PairingCodeSubmittedAction correctly', () {
     test(
-      'dispatches PairingConfirmedAction and forwards code/displayName when confirmation succeeds',
+      'PairingCodeSubmittedAction dispatches PairingConfirmedAction and forwards code/displayName when confirmation succeeds',
       () async {
         when(
           () => mockConfirmPairingCode(
@@ -420,30 +455,33 @@ void main() {
       },
     );
 
-    test('dispatches PairingFailedAction when confirmation fails', () async {
-      const PairingFailure failure = PairingFailure('invalid');
-      when(
-        () => mockConfirmPairingCode(
-          const ConfirmPairingCodeParams(code: '000000'),
-        ),
-      ).thenAnswer((_) async => const Left(failure));
+    test(
+      'PairingCodeSubmittedAction dispatches PairingFailedAction when confirmation fails',
+      () async {
+        const PairingFailure failure = PairingFailure('invalid');
+        when(
+          () => mockConfirmPairingCode(
+            const ConfirmPairingCodeParams(code: '000000'),
+          ),
+        ).thenAnswer((_) async => const Left(failure));
 
-      middleware.call(
-        store,
-        const PairingCodeSubmittedAction(code: '000000'),
-        next,
-      );
-      await Future<void>.delayed(Duration.zero);
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '000000'),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
 
-      expect(actionLog, [
-        const PairingCodeSubmittedAction(code: '000000'),
-        const PairingFailedAction('invalid'),
-      ]);
-    });
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '000000'),
+          const PairingFailedAction('invalid'),
+        ]);
+      },
+    );
 
     test(
-      'dispatches PairingConfirmFailedWithAttemptsRemainingAction, not PairingFailedAction, '
-      'when the failure is retriable',
+      'PairingCodeSubmittedAction dispatches PairingConfirmFailedWithAttemptsRemainingAction, '
+      'not PairingFailedAction, when the failure is retriable',
       () async {
         const PairingRetriableFailure failure = PairingRetriableFailure(
           "That code isn't correct. Check Skyrim and try again.",
@@ -471,9 +509,9 @@ void main() {
     );
   });
 
-  group('PairingMiddleware — PairingDisposedAction', () {
+  group('PairingMiddleware processes PairingDisposedAction correctly', () {
     test(
-      'calls DisconnectUseCase as a best-effort cleanup when not yet trusted',
+      'PairingDisposedAction calls DisconnectUseCase as a best-effort cleanup when not yet trusted',
       () async {
         when(
           () => mockDisconnect(any()),
@@ -492,7 +530,7 @@ void main() {
     );
 
     test(
-      'does not call DisconnectUseCase when pairing had already succeeded',
+      'PairingDisposedAction does not call DisconnectUseCase when pairing had already succeeded',
       () async {
         middleware.call(
           store,
@@ -507,9 +545,9 @@ void main() {
     );
   });
 
-  group('PairingMiddleware — PairingRenotifyRequestedAction', () {
+  group('PairingMiddleware processes PairingRenotifyRequestedAction correctly', () {
     test(
-      'dispatches PairingRenotifySucceededAction when renotify succeeds',
+      'PairingRenotifyRequestedAction dispatches PairingRenotifySucceededAction when renotify succeeds',
       () async {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
@@ -530,7 +568,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingRenotifyCooldownAction with seconds when renotify is in cooldown',
+      'PairingRenotifyRequestedAction dispatches PairingRenotifyCooldownAction with seconds when renotify is in cooldown',
       () async {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
@@ -554,7 +592,7 @@ void main() {
     );
 
     test(
-      'dispatches PairingRenotifyCooldownAction with zero when renotify cooldown is immediate',
+      'PairingRenotifyRequestedAction dispatches PairingRenotifyCooldownAction with zero when renotify cooldown is immediate',
       () async {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
@@ -573,26 +611,29 @@ void main() {
       },
     );
 
-    test('dispatches PairingFailedAction when renotify fails', () async {
-      final mockRenotifyUseCase =
-          sl<RequestPairingRenotifyUseCase>()
-              as MockRequestPairingRenotifyUseCase;
-      const PairingFailure failure = PairingFailure('no challenge active');
-      when(
-        () => mockRenotifyUseCase(any()),
-      ).thenAnswer((_) async => const Left(failure));
+    test(
+      'PairingRenotifyRequestedAction dispatches PairingFailedAction when renotify fails',
+      () async {
+        final mockRenotifyUseCase =
+            sl<RequestPairingRenotifyUseCase>()
+                as MockRequestPairingRenotifyUseCase;
+        const PairingFailure failure = PairingFailure('no challenge active');
+        when(
+          () => mockRenotifyUseCase(any()),
+        ).thenAnswer((_) async => const Left(failure));
 
-      middleware.call(store, const PairingRenotifyRequestedAction(), next);
-      await Future<void>.delayed(Duration.zero);
+        middleware.call(store, const PairingRenotifyRequestedAction(), next);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(actionLog[0], isA<PairingRenotifyRequestedAction>());
-      expect(actionLog[1], const PairingFailedAction('no challenge active'));
-    });
+        expect(actionLog[0], isA<PairingRenotifyRequestedAction>());
+        expect(actionLog[1], const PairingFailedAction('no challenge active'));
+      },
+    );
   });
 
-  group('PairingMiddleware — PairingCancelRequestedAction', () {
+  group('PairingMiddleware processes PairingCancelRequestedAction correctly', () {
     test(
-      'dispatches PairingCancelSucceededAction when cancel succeeds',
+      'PairingCancelRequestedAction dispatches PairingCancelSucceededAction when cancel succeeds',
       () async {
         final mockCancelUseCase =
             sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
@@ -611,24 +652,27 @@ void main() {
       },
     );
 
-    test('dispatches PairingFailedAction when cancel fails', () async {
-      final mockCancelUseCase =
-          sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
-      const NetworkFailure failure = NetworkFailure('connection lost');
-      when(
-        () => mockCancelUseCase(any()),
-      ).thenAnswer((_) async => const Left(failure));
+    test(
+      'PairingCancelRequestedAction dispatches PairingFailedAction when cancel fails',
+      () async {
+        final mockCancelUseCase =
+            sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
+        const NetworkFailure failure = NetworkFailure('connection lost');
+        when(
+          () => mockCancelUseCase(any()),
+        ).thenAnswer((_) async => const Left(failure));
 
-      middleware.call(store, const PairingCancelRequestedAction(), next);
-      await Future<void>.delayed(Duration.zero);
+        middleware.call(store, const PairingCancelRequestedAction(), next);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(actionLog[0], isA<PairingCancelRequestedAction>());
-      expect(actionLog[1], const PairingFailedAction('connection lost'));
-    });
+        expect(actionLog[0], isA<PairingCancelRequestedAction>());
+        expect(actionLog[1], const PairingFailedAction('connection lost'));
+      },
+    );
   });
 
-  group('PairingMiddleware — PairingBackRequestedAction', () {
-    test('navigates to the home route', () {
+  group('PairingMiddleware processes PairingBackRequestedAction correctly', () {
+    test('PairingBackRequestedAction navigates to the home route', () {
       middleware.call(store, const PairingBackRequestedAction(), next);
 
       expect(actionLog, [const PairingBackRequestedAction()]);

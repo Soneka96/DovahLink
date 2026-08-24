@@ -109,8 +109,15 @@ Follow the shared documentation rules in `ai/context/common.md`.
   to other labels (`Property`, `Behavior`, and so on); use the declaring type's normal symbol name
   for an enum, class, extension type, or other declaration. Top-level functions and fixture
   builders keep their unique function names because they have no declaring type to disambiguate.
-- Keep every test inside one group and do not nest groups. Test descriptions name the method,
-  action, selector, or behavior and state the expected result or side effect.
+- Keep every test inside one group and do not nest groups. Every test description repeats its
+  subject (the method, action, selector, or behavior name from its group) and states the expected
+  result or side effect, so the description reads as a complete sentence on its own in test output,
+  never a fragment that only makes sense read after its group name. This applies identically in
+  every Dart package in this repository -- SDK and Flutter alike; a package does not get to drop the
+  subject because its own group name already states it. Wrong: `group('Method copyWith behaves
+  correctly', () { test('replaces only the given clientId', ...) })` -- the test line alone reads as
+  a sentence fragment. Right: `test('Method copyWith replaces only the given clientId', ...)` --
+  identical grouping, but the test description repeats `Method copyWith` as its subject.
 - Place top-level test helpers and fixture builders before `main()`. Keep a helper local to
   `main()` only when it requires per-file state declared there; otherwise lift it to the top level
   and pass its dependencies explicitly.

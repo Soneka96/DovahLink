@@ -47,7 +47,14 @@
 - Reducers have one group per action passed to the reducer, including a separate group for the
   unhandled-action pass-through behavior.
 - Middleware has one group per action passed to `middleware.call(store, action, next)`, rather than
-  one group for the middleware class. Middleware tests call
+  one group for the middleware class, named `<MiddlewareClass> processes <ActionType> correctly`
+  (for example `PairingMiddleware processes PairingStartedAction correctly`) -- the middleware class
+  stays in the group name for at-a-glance readability even though the action, not the class, is the
+  actual grouping key. Per `ai/context/dart/dart-style.md`'s "Test organization", each test
+  description repeats the action as its subject: `<ActionType> <verb...>`, for example
+  `'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds'`, never
+  a bare `'dispatches PairingAuthenticatedAction when authentication succeeds'` that only reads as a
+  sentence once paired with its group. Middleware tests call
   `middleware.call(store, action, next)` directly rather than dispatching through a real `Store` --
   against a mocktail `MockStore` (`store.state` stubbed per test, no
   live reducer behind it), the same "mock every `sl<>()`-resolved dependency, no real store"

@@ -39,6 +39,14 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
 
+/// The user-safe [Failure] reported when the bridge administratively ended this device's session
+/// (revoked, blocked, trust reset, or factory reset). Deliberately reason-agnostic wording: the
+/// official presentation treats all four reasons identically, per PLAN.md's Stage 3.
+const SessionInvalidatedFailure _sessionInvalidatedFailure =
+    SessionInvalidatedFailure(
+      'This device was disconnected by the bridge. Try again.',
+    );
+
 /// Connects to the shared default Bridge endpoint ([defaultBridgeUri]) through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
@@ -74,6 +82,14 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
         ),
       );
     } on DovahLinkConnectionException catch (error) {
+      // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
+      // pending call with a generic DovahLinkConnectionException; distinguishing it here through
+      // the SDK's already-public connectionState prevents the caller from treating it as ordinary
+      // transport loss eligible for silent automatic retry, per PLAN.md's Stage 3.
+      if (_client.connectionState ==
+          DovahLinkConnectionState.administrativelyInvalidated) {
+        return const Left(_sessionInvalidatedFailure);
+      }
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
@@ -185,8 +201,10 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
   /// Converts a `pairing_confirm`/`pairing_ack` outcome into a
   /// user-safe message.
   String _pairingOutcomeMessage(PairingOutcome outcome) => switch (outcome) {
-    PairingOutcome.expired => 'That pairing code has expired. Request a new one.',
-    PairingOutcome.invalid => "That code isn't correct. Check Skyrim and try again.",
+    PairingOutcome.expired =>
+      'That pairing code has expired. Request a new one.',
+    PairingOutcome.invalid =>
+      "That code isn't correct. Check Skyrim and try again.",
     PairingOutcome.pacingLimited => 'Slow down a little, then try again.',
     PairingOutcome.hardLimitReached =>
       'Too many wrong attempts. Request a new pairing code.',

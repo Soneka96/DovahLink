@@ -27,9 +27,9 @@ void main() {
     dataSource = PairingRemoteDataSourceImpl(mockClient);
   });
 
-  group('PairingRemoteDataSourceImpl.authenticate', () {
+  group('Method authenticate behaves correctly', () {
     test(
-      'returns a trusted handshake without recovering pending pairing',
+      'Method authenticate returns a trusted handshake without recovering pending pairing',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
@@ -51,7 +51,7 @@ void main() {
     );
 
     test(
-      'recovers an interrupted pairing when hello admits unpaired',
+      'Method authenticate recovers an interrupted pairing when hello admits unpaired',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
@@ -74,30 +74,33 @@ void main() {
       },
     );
 
-    test('reports still-unpaired when no pairing recovers', () async {
-      when(() => mockClient.authenticate(any())).thenAnswer(
-        (_) async => const HelloResult(
-          bridgeVersion: '1.2.3',
-          trustState: DovahLinkTrustState.unpaired,
-        ),
-      );
-      when(
-        () => mockClient.recoverPendingPairing(),
-      ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
+    test(
+      'Method authenticate reports still-unpaired when no pairing recovers',
+      () async {
+        when(() => mockClient.authenticate(any())).thenAnswer(
+          (_) async => const HelloResult(
+            bridgeVersion: '1.2.3',
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+        when(
+          () => mockClient.recoverPendingPairing(),
+        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-      final Either<Failure, PairingHandshakeEntity> result = await dataSource
-          .authenticate();
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
 
-      expect(
-        result,
-        Right<Failure, PairingHandshakeEntity>(
-          buildPairingHandshakeEntity(trusted: false),
-        ),
-      );
-    });
+        expect(
+          result,
+          Right<Failure, PairingHandshakeEntity>(
+            buildPairingHandshakeEntity(trusted: false),
+          ),
+        );
+      },
+    );
 
     test(
-      'carries the revoked-credential explanation through when the SDK recovered',
+      'Method authenticate carries the revoked-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
@@ -127,7 +130,7 @@ void main() {
     );
 
     test(
-      'carries the unrecognized-credential explanation through when the SDK recovered',
+      'Method authenticate carries the unrecognized-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
@@ -157,60 +160,130 @@ void main() {
       },
     );
 
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.authenticate(any()),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
+    test(
+      'Method authenticate maps a connection failure to NetworkFailure when the session is not '
+      'administratively invalidated',
+      () async {
+        when(
+          () => mockClient.authenticate(any()),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+        when(
+          () => mockClient.connectionState,
+        ).thenReturn(DovahLinkConnectionState.disconnected);
 
-      final Either<Failure, PairingHandshakeEntity> result = await dataSource
-          .authenticate();
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
 
-      expect(
-        result,
-        const Left<Failure, PairingHandshakeEntity>(
-          NetworkFailure('socket failed'),
-        ),
-      );
-    });
-
-    test('maps a protocol failure to NetworkFailure', () async {
-      when(() => mockClient.authenticate(any())).thenThrow(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'bad reply',
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, PairingHandshakeEntity> result = await dataSource
-          .authenticate();
-
-      expect(
-        result,
-        const Left<Failure, PairingHandshakeEntity>(
-          NetworkFailure('bad reply'),
-        ),
-      );
-    });
-
-    test('maps a storage failure to DatabaseFailure', () async {
-      when(
-        () => mockClient.authenticate(any()),
-      ).thenThrow(const DovahLinkStorageException('corrupt store'));
-
-      final Either<Failure, PairingHandshakeEntity> result = await dataSource
-          .authenticate();
-
-      expect(
-        result,
-        const Left<Failure, PairingHandshakeEntity>(
-          DatabaseFailure('corrupt store'),
-        ),
-      );
-    });
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeEntity>(
+            NetworkFailure('socket failed'),
+          ),
+        );
+      },
+    );
 
     test(
-      'maps a pairing failure from recovery to a user-safe PairingFailure',
+      'Method authenticate maps a connection failure to SessionInvalidatedFailure when the '
+      'client is administratively invalidated',
+      () async {
+        when(
+          () => mockClient.authenticate(any()),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+        when(
+          () => mockClient.connectionState,
+        ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeEntity>(
+            SessionInvalidatedFailure(
+              'This device was disconnected by the bridge. Try again.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps a connection failure from recoverPendingPairing to '
+      'SessionInvalidatedFailure when the client is administratively '
+      'invalidated',
+      () async {
+        when(() => mockClient.authenticate(any())).thenAnswer(
+          (_) async => const HelloResult(
+            bridgeVersion: '1.2.3',
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+        when(
+          () => mockClient.recoverPendingPairing(),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+        when(
+          () => mockClient.connectionState,
+        ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeEntity>(
+            SessionInvalidatedFailure(
+              'This device was disconnected by the bridge. Try again.',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps a protocol failure to NetworkFailure',
+      () async {
+        when(() => mockClient.authenticate(any())).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'bad reply',
+            retryable: false,
+          ),
+        );
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeEntity>(
+            NetworkFailure('bad reply'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps a storage failure to DatabaseFailure',
+      () async {
+        when(
+          () => mockClient.authenticate(any()),
+        ).thenThrow(const DovahLinkStorageException('corrupt store'));
+
+        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+            .authenticate();
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeEntity>(
+            DatabaseFailure('corrupt store'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps a pairing failure from recovery to a user-safe PairingFailure',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
           (_) async => const HelloResult(
@@ -235,7 +308,7 @@ void main() {
     );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method authenticate maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(
           () => mockClient.authenticate(any()),
@@ -254,9 +327,9 @@ void main() {
     );
   });
 
-  group('PairingRemoteDataSourceImpl.requestPairingCode', () {
+  group('Method requestPairingCode behaves correctly', () {
     test(
-      'returns Right with expiresInSeconds when a fresh code is shown',
+      'Method requestPairingCode returns Right with expiresInSeconds when a fresh code is shown',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -273,7 +346,7 @@ void main() {
     );
 
     test(
-      'returns Right with expiresInSeconds when a challenge is already in progress',
+      'Method requestPairingCode returns Right with expiresInSeconds when a challenge is already in progress',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -290,7 +363,7 @@ void main() {
     );
 
     test(
-      'returns a PairingFailure revealing nothing when a different device owns the challenge',
+      'Method requestPairingCode returns a PairingFailure revealing nothing when a different device owns the challenge',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -313,7 +386,7 @@ void main() {
     );
 
     test(
-      'returns Right with null when available but the bridge does not report an expiry',
+      'Method requestPairingCode returns Right with null when available but the bridge does not report an expiry',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -329,7 +402,7 @@ void main() {
     );
 
     test(
-      'returns a PairingFailure and ignores expiresInSeconds when pairing is unavailable',
+      'Method requestPairingCode returns a PairingFailure and ignores expiresInSeconds when pairing is unavailable',
       () async {
         when(() => mockClient.requestPairing()).thenAnswer(
           (_) async => const PairingChallengeStatus(
@@ -352,37 +425,43 @@ void main() {
       },
     );
 
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.requestPairing(),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
+    test(
+      'Method requestPairingCode maps a connection failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.requestPairing(),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingCode();
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingCode();
 
-      expect(
-        result,
-        const Left<Failure, int?>(NetworkFailure('socket failed')),
-      );
-    });
-
-    test('maps a protocol failure to NetworkFailure', () async {
-      when(() => mockClient.requestPairing()).thenThrow(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'bad reply',
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingCode();
-
-      expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
-    });
+        expect(
+          result,
+          const Left<Failure, int?>(NetworkFailure('socket failed')),
+        );
+      },
+    );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method requestPairingCode maps a protocol failure to NetworkFailure',
+      () async {
+        when(() => mockClient.requestPairing()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'bad reply',
+            retryable: false,
+          ),
+        );
+
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingCode();
+
+        expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
+      },
+    );
+
+    test(
+      'Method requestPairingCode maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(() => mockClient.requestPairing()).thenThrow(StateError('boom'));
 
@@ -399,56 +478,59 @@ void main() {
     );
   });
 
-  group('PairingRemoteDataSourceImpl.confirmPairingCode', () {
-    test('confirms and acknowledges the credential in order', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenAnswer((_) async => 'credential-1');
-      when(
-        () => mockClient.acknowledgeTrustedCredential('credential-1'),
-      ).thenAnswer((_) async {});
+  group('Method confirmPairingCode behaves correctly', () {
+    test(
+      'Method confirmPairingCode confirms and acknowledges the credential in order',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenAnswer((_) async => 'credential-1');
+        when(
+          () => mockClient.acknowledgeTrustedCredential('credential-1'),
+        ).thenAnswer((_) async {});
 
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '123456',
-        displayName: 'Desktop',
-      );
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456', displayName: 'Desktop');
 
-      expect(result, const Right<Failure, Unit>(unit));
-      verifyInOrder([
-        () => mockClient.confirmPairingCode(
-          code: '123456',
-          displayName: 'Desktop',
-        ),
-        () => mockClient.acknowledgeTrustedCredential('credential-1'),
-      ]);
-    });
-
-    test('maps an expired code to a user-safe PairingFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
-
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '123456',
-      );
-
-      expect(
-        result,
-        const Left<Failure, Unit>(
-          PairingFailure('That pairing code has expired. Request a new one.'),
-        ),
-      );
-      verifyNever(() => mockClient.acknowledgeTrustedCredential(any()));
-    });
+        expect(result, const Right<Failure, Unit>(unit));
+        verifyInOrder([
+          () => mockClient.confirmPairingCode(
+            code: '123456',
+            displayName: 'Desktop',
+          ),
+          () => mockClient.acknowledgeTrustedCredential('credential-1'),
+        ]);
+      },
+    );
 
     test(
-      'maps an invalid code to a retriable PairingRetriableFailure',
+      'Method confirmPairingCode maps an expired code to a user-safe PairingFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456');
+
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingFailure('That pairing code has expired. Request a new one.'),
+          ),
+        );
+        verifyNever(() => mockClient.acknowledgeTrustedCredential(any()));
+      },
+    );
+
+    test(
+      'Method confirmPairingCode maps an invalid code to a retriable PairingRetriableFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -472,7 +554,7 @@ void main() {
     );
 
     test(
-      'maps a pacing-limited attempt to a retriable PairingRetriableFailure',
+      'Method confirmPairingCode maps a pacing-limited attempt to a retriable PairingRetriableFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -496,7 +578,7 @@ void main() {
     );
 
     test(
-      'maps a hard-limit-reached code to a non-retriable PairingFailure',
+      'Method confirmPairingCode maps a hard-limit-reached code to a non-retriable PairingFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -526,7 +608,7 @@ void main() {
     );
 
     test(
-      'maps an unrecognized outcome from acknowledgement to a non-retriable PairingFailure',
+      'Method confirmPairingCode maps an unrecognized outcome from acknowledgement to a non-retriable PairingFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -554,65 +636,71 @@ void main() {
       },
     );
 
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
+    test(
+      'Method confirmPairingCode maps a connection failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '123456',
-      );
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456');
 
-      expect(
-        result,
-        const Left<Failure, Unit>(NetworkFailure('socket failed')),
-      );
-    });
-
-    test('maps a protocol failure to NetworkFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'bad reply',
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '123456',
-      );
-
-      expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
-    });
-
-    test('maps a storage failure to DatabaseFailure', () async {
-      when(
-        () => mockClient.confirmPairingCode(
-          code: any(named: 'code'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenThrow(const DovahLinkStorageException('corrupt store'));
-
-      final Either<Failure, Unit> result = await dataSource.confirmPairingCode(
-        code: '123456',
-      );
-
-      expect(
-        result,
-        const Left<Failure, Unit>(DatabaseFailure('corrupt store')),
-      );
-    });
+        expect(
+          result,
+          const Left<Failure, Unit>(NetworkFailure('socket failed')),
+        );
+      },
+    );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method confirmPairingCode maps a protocol failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'bad reply',
+            retryable: false,
+          ),
+        );
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456');
+
+        expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
+      },
+    );
+
+    test(
+      'Method confirmPairingCode maps a storage failure to DatabaseFailure',
+      () async {
+        when(
+          () => mockClient.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(const DovahLinkStorageException('corrupt store'));
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456');
+
+        expect(
+          result,
+          const Left<Failure, Unit>(DatabaseFailure('corrupt store')),
+        );
+      },
+    );
+
+    test(
+      'Method confirmPairingCode maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(
           () => mockClient.confirmPairingCode(
@@ -635,8 +723,8 @@ void main() {
     );
   });
 
-  group('PairingRemoteDataSourceImpl.disconnect', () {
-    test('returns Right on a clean disconnect', () async {
+  group('Method disconnect behaves correctly', () {
+    test('Method disconnect returns Right on a clean disconnect', () async {
       when(() => mockClient.disconnect()).thenAnswer((_) async {});
 
       final Either<Failure, Unit> result = await dataSource.disconnect();
@@ -644,21 +732,24 @@ void main() {
       expect(result, const Right<Failure, Unit>(unit));
     });
 
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.disconnect(),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
+    test(
+      'Method disconnect maps a connection failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.disconnect(),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
-      final Either<Failure, Unit> result = await dataSource.disconnect();
+        final Either<Failure, Unit> result = await dataSource.disconnect();
 
-      expect(
-        result,
-        const Left<Failure, Unit>(NetworkFailure('socket failed')),
-      );
-    });
+        expect(
+          result,
+          const Left<Failure, Unit>(NetworkFailure('socket failed')),
+        );
+      },
+    );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method disconnect maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(() => mockClient.disconnect()).thenThrow(StateError('boom'));
 
@@ -674,22 +765,25 @@ void main() {
     );
   });
 
-  group('PairingRemoteDataSourceImpl.requestPairingRenotify', () {
-    test('returns Right with null when the code was redisplayed', () async {
-      when(() => mockClient.requestPairingRenotify()).thenAnswer(
-        (_) async => const PairingRenotifyResult(
-          status: PairingRenotifyStatus.renotified,
-        ),
-      );
+  group('Method requestPairingRenotify behaves correctly', () {
+    test(
+      'Method requestPairingRenotify returns Right with null when the code was redisplayed',
+      () async {
+        when(() => mockClient.requestPairingRenotify()).thenAnswer(
+          (_) async => const PairingRenotifyResult(
+            status: PairingRenotifyStatus.renotified,
+          ),
+        );
 
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingRenotify();
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingRenotify();
 
-      expect(result, const Right<Failure, int?>(null));
-    });
+        expect(result, const Right<Failure, int?>(null));
+      },
+    );
 
     test(
-      'returns Right with cooldown seconds when cooldown is active',
+      'Method requestPairingRenotify returns Right with cooldown seconds when cooldown is active',
       () async {
         when(() => mockClient.requestPairingRenotify()).thenAnswer(
           (_) async => const PairingRenotifyResult(
@@ -705,55 +799,64 @@ void main() {
       },
     );
 
-    test('returns Left with PairingFailure when nothing is owned', () async {
-      when(() => mockClient.requestPairingRenotify()).thenAnswer(
-        (_) async => const PairingRenotifyResult(
-          status: PairingRenotifyStatus.alreadyIdle,
-        ),
-      );
+    test(
+      'Method requestPairingRenotify returns Left with PairingFailure when nothing is owned',
+      () async {
+        when(() => mockClient.requestPairingRenotify()).thenAnswer(
+          (_) async => const PairingRenotifyResult(
+            status: PairingRenotifyStatus.alreadyIdle,
+          ),
+        );
 
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingRenotify();
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingRenotify();
 
-      expect(
-        result,
-        const Left<Failure, int?>(
-          PairingFailure('No pairing is currently active.'),
-        ),
-      );
-    });
-
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.requestPairingRenotify(),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
-
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingRenotify();
-
-      expect(
-        result,
-        const Left<Failure, int?>(NetworkFailure('socket failed')),
-      );
-    });
-
-    test('maps a protocol failure to NetworkFailure', () async {
-      when(() => mockClient.requestPairingRenotify()).thenThrow(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'bad reply',
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, int?> result = await dataSource
-          .requestPairingRenotify();
-
-      expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
-    });
+        expect(
+          result,
+          const Left<Failure, int?>(
+            PairingFailure('No pairing is currently active.'),
+          ),
+        );
+      },
+    );
 
     test(
-      'maps an expired pairing outcome to a user-safe PairingFailure',
+      'Method requestPairingRenotify maps a connection failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.requestPairingRenotify(),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingRenotify();
+
+        expect(
+          result,
+          const Left<Failure, int?>(NetworkFailure('socket failed')),
+        );
+      },
+    );
+
+    test(
+      'Method requestPairingRenotify maps a protocol failure to NetworkFailure',
+      () async {
+        when(() => mockClient.requestPairingRenotify()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'bad reply',
+            retryable: false,
+          ),
+        );
+
+        final Either<Failure, int?> result = await dataSource
+            .requestPairingRenotify();
+
+        expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
+      },
+    );
+
+    test(
+      'Method requestPairingRenotify maps an expired pairing outcome to a user-safe PairingFailure',
       () async {
         when(
           () => mockClient.requestPairingRenotify(),
@@ -772,7 +875,7 @@ void main() {
     );
 
     test(
-      'maps an invalid pairing outcome to a user-safe PairingFailure',
+      'Method requestPairingRenotify maps an invalid pairing outcome to a user-safe PairingFailure',
       () async {
         when(
           () => mockClient.requestPairingRenotify(),
@@ -793,7 +896,7 @@ void main() {
     );
 
     test(
-      'maps a pairing outcome outside the explicit message set to a generic PairingFailure',
+      'Method requestPairingRenotify maps a pairing outcome outside the explicit message set to a generic PairingFailure',
       () async {
         // credentialIssued is a real PairingOutcome value, just never a valid reply to
         // pairing_renotify -- exercises _pairingOutcomeMessage's defensive fallback arm the same
@@ -815,7 +918,7 @@ void main() {
     );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method requestPairingRenotify maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(
           () => mockClient.requestPairingRenotify(),
@@ -834,86 +937,105 @@ void main() {
     );
   });
 
-  group('PairingRemoteDataSourceImpl.cancelPairing', () {
-    test('returns Right when a challenge was cancelled', () async {
-      when(() => mockClient.cancelPairing()).thenAnswer(
-        (_) async =>
-            const PairingCancelOutcome(status: PairingCancelStatus.cancelled),
-      );
+  group('Method cancelPairing behaves correctly', () {
+    test(
+      'Method cancelPairing returns Right when a challenge was cancelled',
+      () async {
+        when(() => mockClient.cancelPairing()).thenAnswer(
+          (_) async =>
+              const PairingCancelOutcome(status: PairingCancelStatus.cancelled),
+        );
 
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
 
-      expect(result, const Right<Failure, Unit>(unit));
-    });
-
-    test('returns Right when nothing was owned (already idle)', () async {
-      when(() => mockClient.cancelPairing()).thenAnswer(
-        (_) async =>
-            const PairingCancelOutcome(status: PairingCancelStatus.alreadyIdle),
-      );
-
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
-
-      expect(result, const Right<Failure, Unit>(unit));
-    });
-
-    test('maps a connection failure to NetworkFailure', () async {
-      when(
-        () => mockClient.cancelPairing(),
-      ).thenThrow(const DovahLinkConnectionException('socket failed'));
-
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
-
-      expect(
-        result,
-        const Left<Failure, Unit>(NetworkFailure('socket failed')),
-      );
-    });
-
-    test('maps a protocol failure to NetworkFailure', () async {
-      when(() => mockClient.cancelPairing()).thenThrow(
-        const DovahLinkProtocolException(
-          code: ProtocolErrorCode.malformedMessage,
-          message: 'bad reply',
-          retryable: false,
-        ),
-      );
-
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
-
-      expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
-    });
-
-    test('maps a pairing exception to a user-safe PairingFailure', () async {
-      when(
-        () => mockClient.cancelPairing(),
-      ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
-
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
-
-      expect(
-        result,
-        const Left<Failure, Unit>(
-          PairingFailure('That pairing code has expired. Request a new one.'),
-        ),
-      );
-    });
-
-    test('maps a storage failure to DatabaseFailure', () async {
-      when(
-        () => mockClient.cancelPairing(),
-      ).thenThrow(const DovahLinkStorageException('corrupt store'));
-
-      final Either<Failure, Unit> result = await dataSource.cancelPairing();
-
-      expect(
-        result,
-        const Left<Failure, Unit>(DatabaseFailure('corrupt store')),
-      );
-    });
+        expect(result, const Right<Failure, Unit>(unit));
+      },
+    );
 
     test(
-      'maps an unexpected exception to a user-safe PairingFailure',
+      'Method cancelPairing returns Right when nothing was owned (already idle)',
+      () async {
+        when(() => mockClient.cancelPairing()).thenAnswer(
+          (_) async => const PairingCancelOutcome(
+            status: PairingCancelStatus.alreadyIdle,
+          ),
+        );
+
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
+
+        expect(result, const Right<Failure, Unit>(unit));
+      },
+    );
+
+    test(
+      'Method cancelPairing maps a connection failure to NetworkFailure',
+      () async {
+        when(
+          () => mockClient.cancelPairing(),
+        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
+
+        expect(
+          result,
+          const Left<Failure, Unit>(NetworkFailure('socket failed')),
+        );
+      },
+    );
+
+    test(
+      'Method cancelPairing maps a protocol failure to NetworkFailure',
+      () async {
+        when(() => mockClient.cancelPairing()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'bad reply',
+            retryable: false,
+          ),
+        );
+
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
+
+        expect(result, const Left<Failure, Unit>(NetworkFailure('bad reply')));
+      },
+    );
+
+    test(
+      'Method cancelPairing maps a pairing exception to a user-safe PairingFailure',
+      () async {
+        when(
+          () => mockClient.cancelPairing(),
+        ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
+
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
+
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingFailure('That pairing code has expired. Request a new one.'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method cancelPairing maps a storage failure to DatabaseFailure',
+      () async {
+        when(
+          () => mockClient.cancelPairing(),
+        ).thenThrow(const DovahLinkStorageException('corrupt store'));
+
+        final Either<Failure, Unit> result = await dataSource.cancelPairing();
+
+        expect(
+          result,
+          const Left<Failure, Unit>(DatabaseFailure('corrupt store')),
+        );
+      },
+    );
+
+    test(
+      'Method cancelPairing maps an unexpected exception to a user-safe PairingFailure',
       () async {
         when(() => mockClient.cancelPairing()).thenThrow(StateError('boom'));
 
