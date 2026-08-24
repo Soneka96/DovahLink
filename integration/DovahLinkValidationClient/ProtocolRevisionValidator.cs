@@ -14,7 +14,7 @@ public static class ProtocolRevisionValidator
     /// <param name="value">The already-decoded revision value.</param>
     /// <param name="fieldName">The field's name, for the exception message.</param>
     /// <exception cref="FormatException">Thrown when the value is negative.</exception>
-    public static void ValidateNonNegative(int value, string fieldName)
+    public static void ValidateNonNegative(long value, string fieldName)
     {
         if (value < 0)
         {

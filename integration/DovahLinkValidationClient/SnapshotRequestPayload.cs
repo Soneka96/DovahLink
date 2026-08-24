@@ -10,7 +10,7 @@ namespace DovahLinkValidationClient;
 /// <param name="StateArea">The state area whose snapshot is requested.</param>
 /// <param name="KnownRevision">The client's latest known revision, when available; advisory only.
 /// Omitted from the encoded object entirely (not merely <see langword="null"/>) when absent.</param>
-public sealed record SnapshotRequestPayload(string StateArea, int? KnownRevision = null)
+public sealed record SnapshotRequestPayload(string StateArea, long? KnownRevision = null)
 {
     /// <summary>
     /// Encodes this payload as a JSON object.

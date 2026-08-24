@@ -13,7 +13,7 @@ namespace DovahLinkValidationClient;
 /// <param name="OccurredAt">UTC RFC 3339 wall-clock time for display and diagnostics; not an
 /// ordering source.</param>
 /// <param name="Data">The state-area-specific snapshot data.</param>
-public sealed record StateSnapshotPayload(string StateArea, int Revision, string OccurredAt, JsonObject Data)
+public sealed record StateSnapshotPayload(string StateArea, long Revision, string OccurredAt, JsonObject Data)
 {
     /// <summary>
     /// Decodes and validates one <c>state_snapshot</c> payload.
@@ -33,7 +33,7 @@ public sealed record StateSnapshotPayload(string StateArea, int Revision, string
             {
                 throw new FormatException("stateArea must be a non-empty string.");
             }
-            int revision = payload["revision"]?.GetValue<int>()
+            long revision = payload["revision"]?.GetValue<long>()
                 ?? throw new FormatException("Missing revision.");
             ProtocolRevisionValidator.ValidateNonNegative(revision, "revision");
             string occurredAt = payload["occurredAt"]?.GetValue<string>()

@@ -13,8 +13,8 @@ public class StateEventPayloadTests
             StateEventPayload.Decode(ProtocolFixtures.ReadFixturePayload("state/state-event.json"));
 
         Assert.Equal("example_area", payload.StateArea);
-        Assert.Equal(1, payload.BaseRevision);
-        Assert.Equal(2, payload.Revision);
+        Assert.Equal(1L, payload.BaseRevision);
+        Assert.Equal(2L, payload.Revision);
         Assert.Equal("2026-08-11T12:00:02Z", payload.OccurredAt);
         Assert.True(JsonNode.DeepEquals(payload.Data, new JsonObject { ["value"] = 13 }));
     }
@@ -27,8 +27,8 @@ public class StateEventPayloadTests
         StateEventPayload payload =
             StateEventPayload.Decode(ProtocolFixtures.ReadFixturePayload("state/state-event-duplicate.json"));
 
-        Assert.Equal(1, payload.BaseRevision);
-        Assert.Equal(2, payload.Revision);
+        Assert.Equal(1L, payload.BaseRevision);
+        Assert.Equal(2L, payload.Revision);
     }
 
     /// <summary>Verifies that Decode decodes the canonical state-event-revision-gap fixture.</summary>
@@ -38,8 +38,8 @@ public class StateEventPayloadTests
         StateEventPayload payload =
             StateEventPayload.Decode(ProtocolFixtures.ReadFixturePayload("state/state-event-revision-gap.json"));
 
-        Assert.Equal(5, payload.BaseRevision);
-        Assert.Equal(6, payload.Revision);
+        Assert.Equal(5L, payload.BaseRevision);
+        Assert.Equal(6L, payload.Revision);
     }
 
     /// <summary>Verifies that Decode decodes the canonical state-event-stale fixture.</summary>
@@ -49,8 +49,8 @@ public class StateEventPayloadTests
         StateEventPayload payload =
             StateEventPayload.Decode(ProtocolFixtures.ReadFixturePayload("state/state-event-stale.json"));
 
-        Assert.Equal(0, payload.BaseRevision);
-        Assert.Equal(1, payload.Revision);
+        Assert.Equal(0L, payload.BaseRevision);
+        Assert.Equal(1L, payload.Revision);
     }
 
     /// <summary>Verifies that Decode throws FormatException when stateArea is missing.</summary>
@@ -59,8 +59,8 @@ public class StateEventPayloadTests
     {
         var payload = new JsonObject
         {
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -75,7 +75,7 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 2,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -90,7 +90,7 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
+            ["baseRevision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -105,8 +105,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["data"] = new JsonObject(),
         };
 
@@ -120,8 +120,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
         };
 
@@ -135,8 +135,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = 1,
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -151,8 +151,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -168,7 +168,7 @@ public class StateEventPayloadTests
         {
             ["stateArea"] = "example_area",
             ["baseRevision"] = "one",
-            ["revision"] = 2,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -183,7 +183,7 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
+            ["baseRevision"] = 1L,
             ["revision"] = "two",
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
@@ -199,8 +199,24 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = -1,
-            ["revision"] = 0,
+            ["baseRevision"] = -1L,
+            ["revision"] = 0L,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects the smallest signed 64-bit base revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenBaseRevisionIsLongMinValue()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = long.MinValue,
+            ["revision"] = 0L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -217,8 +233,56 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 0,
-            ["revision"] = -1,
+            ["baseRevision"] = 0L,
+            ["revision"] = -1L,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects the smallest signed 64-bit revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRevisionIsLongMinValue()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 0L,
+            ["revision"] = long.MinValue,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a fractional base revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenBaseRevisionIsFractional()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1.5,
+            ["revision"] = 2L,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a fractional revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRevisionIsFractional()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1L,
+            ["revision"] = 2.5,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -233,8 +297,8 @@ public class StateEventPayloadTests
         StateEventPayload payload = StateEventPayload.Decode(new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00.1Z",
             ["data"] = new JsonObject(),
         });
@@ -250,8 +314,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00+02:00",
             ["data"] = new JsonObject(),
         };
@@ -266,8 +330,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00",
             ["data"] = new JsonObject(),
         };
@@ -282,8 +346,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11 12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -298,8 +362,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00z",
             ["data"] = new JsonObject(),
         };
@@ -314,8 +378,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:60:00Z",
             ["data"] = new JsonObject(),
         };
@@ -330,8 +394,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-02-30T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -346,8 +410,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = 1,
             ["data"] = new JsonObject(),
         };
@@ -362,8 +426,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "not-a-timestamp",
             ["data"] = new JsonObject(),
         };
@@ -378,8 +442,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 2,
+            ["baseRevision"] = 1L,
+            ["revision"] = 2L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = "not an object",
         };
@@ -395,8 +459,8 @@ public class StateEventPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = 1,
-            ["revision"] = 5,
+            ["baseRevision"] = 1L,
+            ["revision"] = 5L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -406,17 +470,50 @@ public class StateEventPayloadTests
 
     /// <summary>Verifies that Decode rejects an event after the maximum supported base revision.</summary>
     [Fact]
-    public void DecodeThrowsFormatExceptionWhenBaseRevisionIsIntMaxValue()
+    public void DecodeThrowsFormatExceptionWhenBaseRevisionIsLongMaxValue()
     {
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["baseRevision"] = int.MaxValue,
-            ["revision"] = 0,
+            ["baseRevision"] = long.MaxValue,
+            ["revision"] = 0L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
 
         Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a non-consecutive revision below the overflow point.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenMaximumAdjacentRevisionIsMissing()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = long.MaxValue - 1,
+            ["revision"] = 0L,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts the largest representable consecutive revision pair.</summary>
+    [Fact]
+    public void DecodeAcceptsMaximumLongRevisionPair()
+    {
+        StateEventPayload payload = StateEventPayload.Decode(new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = long.MaxValue - 1,
+            ["revision"] = long.MaxValue,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        });
+
+        Assert.Equal(long.MaxValue - 1, payload.BaseRevision);
+        Assert.Equal(long.MaxValue, payload.Revision);
     }
 }

@@ -13,7 +13,7 @@ public class StateSnapshotPayloadTests
             StateSnapshotPayload.Decode(ProtocolFixtures.ReadFixturePayload("state/state-snapshot.json"));
 
         Assert.Equal("example_area", payload.StateArea);
-        Assert.Equal(1, payload.Revision);
+        Assert.Equal(1L, payload.Revision);
         Assert.Equal("2026-08-11T12:00:00Z", payload.OccurredAt);
         Assert.True(JsonNode.DeepEquals(payload.Data, new JsonObject { ["value"] = 12 }));
     }
@@ -35,12 +35,12 @@ public class StateSnapshotPayloadTests
         StateSnapshotPayload payload = StateSnapshotPayload.Decode(new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 0,
+            ["revision"] = 0L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         });
 
-        Assert.Equal(0, payload.Revision);
+        Assert.Equal(0L, payload.Revision);
     }
 
     /// <summary>Verifies that Decode accepts a fractional-seconds UTC timestamp.</summary>
@@ -50,7 +50,7 @@ public class StateSnapshotPayloadTests
         StateSnapshotPayload payload = StateSnapshotPayload.Decode(new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00.1Z",
             ["data"] = new JsonObject(),
         });
@@ -64,7 +64,7 @@ public class StateSnapshotPayloadTests
     {
         var payload = new JsonObject
         {
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -93,7 +93,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["data"] = new JsonObject(),
         };
 
@@ -107,7 +107,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
         };
 
@@ -121,7 +121,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = 1,
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -136,7 +136,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -166,12 +166,57 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = -1,
+            ["revision"] = -1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = new JsonObject(),
         };
 
         Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects the smallest signed 64-bit revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRevisionIsLongMinValue()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = long.MinValue,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a fractional revision.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenRevisionIsFractional()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1.5,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts the maximum signed 64-bit revision.</summary>
+    [Fact]
+    public void DecodeAcceptsMaximumLongRevision()
+    {
+        StateSnapshotPayload payload = StateSnapshotPayload.Decode(new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = long.MaxValue,
+            ["occurredAt"] = "2026-08-11T12:00:00Z",
+            ["data"] = new JsonObject(),
+        });
+
+        Assert.Equal(long.MaxValue, payload.Revision);
     }
 
     /// <summary>Verifies that Decode throws FormatException when occurredAt is the wrong JSON type.</summary>
@@ -181,7 +226,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = 1,
             ["data"] = new JsonObject(),
         };
@@ -196,7 +241,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "not-a-timestamp",
             ["data"] = new JsonObject(),
         };
@@ -212,7 +257,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00+02:00",
             ["data"] = new JsonObject(),
         };
@@ -227,7 +272,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00",
             ["data"] = new JsonObject(),
         };
@@ -242,7 +287,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11 12:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -257,7 +302,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00+00:00",
             ["data"] = new JsonObject(),
         };
@@ -272,7 +317,7 @@ public class StateSnapshotPayloadTests
         StateSnapshotPayload payload = StateSnapshotPayload.Decode(new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00.123456Z",
             ["data"] = new JsonObject(),
         });
@@ -287,7 +332,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00.1234567Z",
             ["data"] = new JsonObject(),
         };
@@ -302,7 +347,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T24:00:00Z",
             ["data"] = new JsonObject(),
         };
@@ -317,7 +362,7 @@ public class StateSnapshotPayloadTests
         var payload = new JsonObject
         {
             ["stateArea"] = "example_area",
-            ["revision"] = 1,
+            ["revision"] = 1L,
             ["occurredAt"] = "2026-08-11T12:00:00Z",
             ["data"] = "not an object",
         };

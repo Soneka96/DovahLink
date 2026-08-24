@@ -18,8 +18,8 @@ namespace DovahLinkValidationClient;
 /// <param name="Data">The complete post-change, state-area-specific data.</param>
 public sealed record StateEventPayload(
     string StateArea,
-    int BaseRevision,
-    int Revision,
+    long BaseRevision,
+    long Revision,
     string OccurredAt,
     JsonObject Data)
 {
@@ -41,17 +41,17 @@ public sealed record StateEventPayload(
             {
                 throw new FormatException("stateArea must be a non-empty string.");
             }
-            int baseRevision = payload["baseRevision"]?.GetValue<int>()
+            long baseRevision = payload["baseRevision"]?.GetValue<long>()
                 ?? throw new FormatException("Missing baseRevision.");
             ProtocolRevisionValidator.ValidateNonNegative(baseRevision, "baseRevision");
-            int revision = payload["revision"]?.GetValue<int>()
+            long revision = payload["revision"]?.GetValue<long>()
                 ?? throw new FormatException("Missing revision.");
             ProtocolRevisionValidator.ValidateNonNegative(revision, "revision");
             string occurredAt = payload["occurredAt"]?.GetValue<string>()
                 ?? throw new FormatException("Missing occurredAt.");
             ProtocolTimestampValidator.ValidateUtcRfc3339(occurredAt);
             JsonObject data = payload["data"] as JsonObject ?? throw new FormatException("Missing or malformed data.");
-            if (revision != baseRevision + 1)
+            if (baseRevision == long.MaxValue || revision != baseRevision + 1)
             {
                 throw new FormatException("revision must equal baseRevision + 1.");
             }

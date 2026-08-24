@@ -97,7 +97,7 @@ public static class Fixtures
     /// <param name="knownRevision">The known revision to use, or <see langword="null"/> to omit it.</param>
     public static SnapshotRequestPayload BuildSnapshotRequestPayload(
         string stateArea = "example_area",
-        int? knownRevision = 2) =>
+        long? knownRevision = 2) =>
         new(stateArea, knownRevision);
 
     /// <summary>Builds a representative SubscriptionAckPayload.</summary>
@@ -134,7 +134,7 @@ public static class Fixtures
     /// default.</param>
     public static StateSnapshotPayload BuildStateSnapshotPayload(
         string stateArea = "example_area",
-        int revision = 1,
+        long revision = 1,
         string occurredAt = "2026-08-11T12:00:00Z",
         JsonObject? data = null) =>
         new(stateArea, revision, occurredAt, data ?? new JsonObject { ["value"] = 12 });
@@ -148,8 +148,8 @@ public static class Fixtures
     /// default.</param>
     public static StateEventPayload BuildStateEventPayload(
         string stateArea = "example_area",
-        int baseRevision = 1,
-        int revision = 2,
+        long baseRevision = 1,
+        long revision = 2,
         string occurredAt = "2026-08-11T12:00:02Z",
         JsonObject? data = null) =>
         new(stateArea, baseRevision, revision, occurredAt, data ?? new JsonObject { ["value"] = 13 });
