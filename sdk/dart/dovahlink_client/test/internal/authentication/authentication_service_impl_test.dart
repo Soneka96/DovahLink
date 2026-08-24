@@ -864,6 +864,55 @@ void main() {
     );
 
     test(
+      'Method authenticate recovers from a blocked credential rejection the same way',
+      () async {
+        when(() => storage.load()).thenAnswer(
+          (_) async => buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'stale-cred',
+          ),
+        );
+        int callCount = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) async {
+          callCount++;
+          if (callCount == 1) {
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.blocked,
+              message: 'nope',
+              retryable: false,
+            );
+          }
+          return buildHelloAckEnvelope(
+            sessionId: 'session-2',
+            bridgeVersion: '3.0',
+            kind: ClientIdentityKind.unpaired,
+          );
+        });
+
+        final HelloResult result = await service.authenticate(
+          Uri.parse('ws://127.0.0.1:1/'),
+        );
+
+        expect(
+          result.recoveredFromRejectedCredential,
+          CredentialRejectionReason.blocked,
+        );
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+        verify(
+          () => storage.save(buildPersistedClientState(clientId: 'client-1')),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(2);
+      },
+    );
+
+    test(
       'Method authenticate does not recover from a non-recoverable protocol rejection',
       () async {
         when(() => storage.load()).thenAnswer(
