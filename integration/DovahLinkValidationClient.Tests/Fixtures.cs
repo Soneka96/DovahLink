@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-
 namespace DovahLinkValidationClient.Tests;
 
 /// <summary>
@@ -27,23 +25,7 @@ public static class Fixtures
     public static HelloPayload BuildHelloPayload(string clientId = "client-1", HelloAuthPayload? auth = null) =>
         new(clientId, auth ?? BuildHelloAuthPayload());
 
-    /// <summary>Builds a representative HelloAckPayload.</summary>
-    /// <param name="bridgeVersion">The bridge version to use.</param>
-    /// <param name="clientIdentityKind">The client identity kind to use.</param>
-    public static HelloAckPayload BuildHelloAckPayload(
-        string bridgeVersion = "0.3.2",
-        string clientIdentityKind = "paired") =>
-        new(bridgeVersion, clientIdentityKind);
-
     // ---- Pairing ----
-
-    /// <summary>Builds a representative PairingStatusPayload.</summary>
-    /// <param name="state">The pairing state to use.</param>
-    /// <param name="expiresInSeconds">The remaining code validity to use.</param>
-    public static PairingStatusPayload BuildPairingStatusPayload(
-        string state = "available",
-        int? expiresInSeconds = 300) =>
-        new(state, expiresInSeconds);
 
     /// <summary>Builds a representative PairingConfirmPayload.</summary>
     /// <param name="code">The six-digit code to use.</param>
@@ -56,20 +38,6 @@ public static class Fixtures
     /// <summary>Builds a representative PairingAckPayload.</summary>
     /// <param name="credential">The credential to use.</param>
     public static PairingAckPayload BuildPairingAckPayload(string credential = "a1b2c3d4e5f6") => new(credential);
-
-    /// <summary>Builds a representative PairingOutcomePayload.</summary>
-    /// <param name="outcome">The outcome to use.</param>
-    /// <param name="credential">The credential to use.</param>
-    /// <param name="shortId">The short ID to use.</param>
-    /// <param name="displayName">The display name to use.</param>
-    /// <param name="retryAfterSeconds">The retry-after seconds to use.</param>
-    public static PairingOutcomePayload BuildPairingOutcomePayload(
-        string outcome = "trusted",
-        string? credential = "a1b2c3d4e5f6",
-        string? shortId = "12345",
-        string? displayName = "My PC",
-        int? retryAfterSeconds = null) =>
-        new(outcome, credential, shortId, displayName, retryAfterSeconds);
 
     // ---- Capabilities ----
 
@@ -100,75 +68,9 @@ public static class Fixtures
         long? knownRevision = 2) =>
         new(stateArea, knownRevision);
 
-    /// <summary>Builds a representative SubscriptionAckPayload.</summary>
-    /// <param name="acceptedStateAreas">The accepted state areas to use, or <see langword="null"/>
-    /// for an empty list -- the only currently reachable shape.</param>
-    /// <param name="rejectedStateAreas">The rejected state areas to use, or <see langword="null"/>
-    /// for one representative rejected area.</param>
-    public static SubscriptionAckPayload BuildSubscriptionAckPayload(
-        IReadOnlyList<string>? acceptedStateAreas = null,
-        IReadOnlyList<string>? rejectedStateAreas = null) =>
-        new(acceptedStateAreas ?? [], rejectedStateAreas ?? ["example_area"]);
-
     // ---- Rename ----
 
     /// <summary>Builds a representative RenameRequestPayload.</summary>
     /// <param name="displayName">The requested display name to use.</param>
     public static RenameRequestPayload BuildRenameRequestPayload(string displayName = "New Name") => new(displayName);
-
-    /// <summary>Builds a representative RenameOutcomePayload.</summary>
-    /// <param name="outcome">The outcome to use.</param>
-    /// <param name="displayName">The display name to use.</param>
-    public static RenameOutcomePayload BuildRenameOutcomePayload(
-        string outcome = "renamed",
-        string? displayName = "New Name") =>
-        new(outcome, displayName);
-
-    // ---- State ----
-
-    /// <summary>Builds a representative StateSnapshotPayload.</summary>
-    /// <param name="stateArea">The state area to use.</param>
-    /// <param name="revision">The revision to use.</param>
-    /// <param name="occurredAt">The timestamp to use.</param>
-    /// <param name="data">The snapshot data to use, or <see langword="null"/> for a representative
-    /// default.</param>
-    public static StateSnapshotPayload BuildStateSnapshotPayload(
-        string stateArea = "example_area",
-        long revision = 1,
-        string occurredAt = "2026-08-11T12:00:00Z",
-        JsonObject? data = null) =>
-        new(stateArea, revision, occurredAt, data ?? new JsonObject { ["value"] = 12 });
-
-    /// <summary>Builds a representative StateEventPayload.</summary>
-    /// <param name="stateArea">The state area to use.</param>
-    /// <param name="baseRevision">The base revision to use.</param>
-    /// <param name="revision">The revision to use.</param>
-    /// <param name="occurredAt">The timestamp to use.</param>
-    /// <param name="data">The event data to use, or <see langword="null"/> for a representative
-    /// default.</param>
-    public static StateEventPayload BuildStateEventPayload(
-        string stateArea = "example_area",
-        long baseRevision = 1,
-        long revision = 2,
-        string occurredAt = "2026-08-11T12:00:02Z",
-        JsonObject? data = null) =>
-        new(stateArea, baseRevision, revision, occurredAt, data ?? new JsonObject { ["value"] = 13 });
-
-    // ---- Error and invalidation ----
-
-    /// <summary>Builds a representative ErrorPayload.</summary>
-    /// <param name="code">The error code to use.</param>
-    /// <param name="message">The diagnostic message to use.</param>
-    /// <param name="retryable">Whether the operation is retryable.</param>
-    /// <param name="details">The structured details to use.</param>
-    public static ErrorPayload BuildErrorPayload(
-        string code = "unauthenticated",
-        string message = "Token validation failed",
-        bool retryable = false,
-        JsonNode? details = null) =>
-        new(code, message, retryable, details);
-
-    /// <summary>Builds a representative SessionInvalidatedPayload.</summary>
-    /// <param name="reason">The invalidation reason to use.</param>
-    public static SessionInvalidatedPayload BuildSessionInvalidatedPayload(string reason = "revoked") => new(reason);
 }
