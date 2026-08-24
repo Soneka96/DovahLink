@@ -6,21 +6,17 @@ namespace DovahLinkValidationClient.Tests;
 /// <summary>Exercises capability negotiation and validation scenarios.</summary>
 public class CapabilitiesScenarioTests
 {
-    /// <summary>Verifies that the bridge advertises the registered character capability.</summary>
+    /// <summary>Verifies that the bridge advertises no state capabilities before a domain is registered.</summary>
     [Fact]
-    public async Task BridgeAdvertisesTheOneRegisteredCharacterCapability()
+    public async Task BridgeAdvertisesNoRegisteredCapabilities()
     {
         (HarnessProcess harness, BridgeConnection connection, string _, Envelope capabilities) =
             await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        // protocol/schema/README.md: "the only registered capability is
-        // state.character version 1."
         JsonArray registered = capabilities.Payload["capabilities"]!.AsArray();
-        Assert.Single(registered);
-        Assert.Equal("state.character", registered[0]!["id"]!.GetValue<string>());
-        Assert.Equal(1, registered[0]!["version"]!.GetValue<int>());
+        Assert.Empty(registered);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -48,24 +44,26 @@ public class CapabilitiesScenarioTests
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
-    /// <summary>Verifies that a registered client capability receives no response.</summary>
+    /// <summary>Verifies that a non-empty client capability list is rejected without closing the connection.</summary>
     [Fact]
-    public async Task RegisteredCapabilityIdIsAcceptedWithNoResponse()
+    public async Task NonEmptyClientCapabilitiesListIsRejectedWithoutClosingTheConnection()
     {
-        // The negation of the empty-list case: a real, registered ID (not
-        // just an empty list) must also be accepted with no response, not
-        // just inferred from the empty-list path.
         (HarnessProcess harness, BridgeConnection connection, string sessionId, _) = await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        await connection.SendAsync(new Envelope("capabilities", "message-cap-valid", sessionId, null,
+        await connection.SendAsync(new Envelope("capabilities", "message-cap-nonempty", sessionId, null,
             new JsonObject
             {
-                ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "state.character", ["version"] = 1 }),
+                ["capabilities"] = new JsonArray(new JsonObject { ["id"] = "example.capability", ["version"] = 1 }),
             }));
 
-        await connection.SendAsync(new Envelope("ping", "message-ping-valid", sessionId, null, new JsonObject()));
+        Envelope error = await connection.ReceiveAsync();
+        Assert.Equal("error", error.MessageType);
+        Assert.Equal("message-cap-nonempty", error.CorrelationId);
+        Assert.Equal("unsupported_capability", error.Payload["code"]!.GetValue<string>());
+
+        await connection.SendAsync(new Envelope("ping", "message-ping-after-capability-error", sessionId, null, new JsonObject()));
         Envelope response = await connection.ReceiveAsync();
         Assert.Equal("pong", response.MessageType);
 
@@ -105,8 +103,8 @@ public class CapabilitiesScenarioTests
     [Fact]
     public async Task OneUnregisteredIdAmongOthersStillRejectsTheWholeMessage()
     {
-        // Proves the validation loop actually checks every entry rather
-        // than stopping after the first (which happens to be valid here).
+        // Proves the validation loop rejects every non-empty list while the
+        // Bridge has no registered client capability IDs.
         (HarnessProcess harness, BridgeConnection connection, string sessionId, _) = await BridgeScenario.ConnectAndAuthenticateAsync();
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
@@ -115,7 +113,7 @@ public class CapabilitiesScenarioTests
             new JsonObject
             {
                 ["capabilities"] = new JsonArray(
-                    new JsonObject { ["id"] = "state.character", ["version"] = 1 },
+                    new JsonObject { ["id"] = "example.capability", ["version"] = 1 },
                     new JsonObject { ["id"] = "made.up.capability", ["version"] = 1 }),
             }));
 

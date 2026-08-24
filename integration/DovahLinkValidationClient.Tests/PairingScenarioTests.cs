@@ -58,12 +58,14 @@ public class PairingScenarioTests
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
         Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
 
-        // The upgrade lands in place on the same connection: subscribe succeeds on the very next
-        // message, with no reconnect and no fresh hello_ack.
+        // The upgrade lands in place on the same connection: the subscription request is accepted
+        // by the Full-session allowlist on the very next message, with no reconnect and no fresh
+        // hello_ack; the currently unregistered state area is rejected in the acknowledgement.
         await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         Envelope subscriptionAck = await connection.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+        AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
 
         // The issued credential must actually work on its own, not just as an in-memory upgrade of
         // this connection's session: close this connection and reconnect with
@@ -476,11 +478,13 @@ public class PairingScenarioTests
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
         Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
 
-        // Session upgrade lands on the reconnected socket; subscribe succeeds immediately without a fresh reconnect.
+        // Session upgrade lands on the reconnected socket; the subscription request is accepted
+        // immediately without a fresh reconnect, while the unregistered area is rejected.
         await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", newSessionId, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         Envelope subscriptionAck = await reconnect.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+        AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
 
         // Verify the credential issued during grace-period pairing is actually persisted and works on a new connection,
         // not just an in-memory upgrade of this connection's session (matching FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe).
@@ -585,11 +589,13 @@ public class PairingScenarioTests
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
         Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
 
-        // Client-1's session is now Full (paired); subscription succeeds.
+        // Client-1's session is now Full (paired); the subscription request is allowed, but no state
+        // area is currently registered so the acknowledgement rejects the requested area.
         await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId1Reconnected, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         Envelope subscriptionAck = await reconnect.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+        AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
 
         await BridgeScenario.CloseAndQuitAsync(harness, reconnect);
     }
@@ -669,13 +675,27 @@ public class PairingScenarioTests
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
         Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
 
-        // Session upgrade lands on the same connection; subscription succeeds.
+        // Session upgrade lands on the same connection; the subscription request is allowed, but
+        // the currently unregistered state area is rejected.
         await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
             new JsonObject { ["stateAreas"] = new JsonArray("character") }));
         Envelope subscriptionAck = await connection2.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+        AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-2", "character");
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection2);
+    }
+
+    /// <summary>Asserts the Full-session response for a currently unregistered state area.</summary>
+    private static void AssertUnregisteredSubscriptionAcknowledged(
+        Envelope acknowledgement,
+        string correlationId,
+        string stateArea)
+    {
+        Assert.Equal(correlationId, acknowledgement.CorrelationId);
+        Assert.Empty(acknowledgement.Payload["acceptedStateAreas"]!.AsArray());
+        Assert.Equal([stateArea],
+            acknowledgement.Payload["rejectedStateAreas"]!.AsArray().Select(value => value!.GetValue<string>()));
     }
 
     /// <summary>

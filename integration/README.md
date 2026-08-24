@@ -54,14 +54,15 @@ $env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token the plugin was launched with>
 dotnet run
 ```
 
-It connects, negotiates `hello`/`hello_ack`, exchanges capabilities, subscribes to `character`, and
-prints every message the bridge sends. `DOVAHLINK_BRIDGE_HOST` / `DOVAHLINK_BRIDGE_PORT` override
+It connects, negotiates `hello`/`hello_ack`, exchanges the currently empty capabilities, and can
+probe the unsupported state-area contract. No state area is currently registered, so the Bridge
+does not produce a state snapshot. `DOVAHLINK_BRIDGE_HOST` / `DOVAHLINK_BRIDGE_PORT` override
 the defaults (`127.0.0.1` / `58231`, the documented Phase 1 port) if needed.
 
 ## Known Phase 1 boundary
 
-Every scenario here proves the pull side of state delivery (`subscribe` / `snapshot_request`) and
-the transport/security/session machinery around it. Live, unprompted `state_event` push to an
-already-subscribed client and genuine reconnect after a successful session are both out of scope
-for Phase 1 by design — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and
-"Known limitation: no reconnect after a successful session" for why, and the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries for where each is planned.
+The current transitional contract has no registered state area, so the scenarios prove explicit
+capability absence, rejected `subscribe`/`snapshot_request` behavior, and the transport/security/
+session machinery around it. Live, unprompted `state_event` push and registered progression domains
+remain Stage 4 work — see `bridge/README.md`'s "Live event delivery is deferred to Phase 4" and the
+`roadmap/04-live-state-synchronization-foundation.md` entry.

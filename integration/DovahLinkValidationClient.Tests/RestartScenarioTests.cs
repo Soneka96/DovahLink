@@ -42,35 +42,31 @@ public class RestartScenarioTests
 
     /// <summary>
     /// Completes the bridge-restart acceptance criterion's wire-level half: even when a forced
-    /// coincidence gives two harness instances the same playContextId AND the same first-pull
-    /// revision, their bridgeInstanceId still differs, so the full identity a real client compares
-    /// against its cache is genuinely stale across the restart. Proves bridgeInstanceId -- not
-    /// playContextId or revision alone -- is load-bearing in that comparison, per ROADMAP.md's
-    /// bridge-restart acceptance criterion ("...including when its play context and revision match
-    /// the new bridge's values").
+    /// coincidence gives two harness instances the same playContextId, their bridgeInstanceId
+    /// still differs, so the full identity a real client compares against its cache is genuinely
+    /// stale across the restart.
+    /// The revision-coincidence half of that criterion is deferred until Stage 4 registers the first
+    /// production state domain; this transitional contract has no state snapshot from which to read
+    /// a revision.
     /// </summary>
     [Fact]
     public async Task RestartingTheBridgeMakesTheOldBridgeInstanceAndPlayContextPairStaleEvenWithACoincidentalPlayContextIdMatch()
     {
-        (string firstBridgeInstanceId, string firstPlayContextId, int firstRevision) =
-            await LaunchNewGameHelloAndSubscribeAsync(extraEnvironmentVariables: null);
+        (string firstBridgeInstanceId, string firstPlayContextId) =
+            await LaunchNewGameHelloAndProbeAsync(extraEnvironmentVariables: null);
 
         var forcedPlayContext = new Dictionary<string, string>
         {
             ["DOVAHLINK_HARNESS_PLAY_CONTEXT_ID_OVERRIDE"] = firstPlayContextId,
         };
-        (string secondBridgeInstanceId, string secondPlayContextId, int secondRevision) =
-            await LaunchNewGameHelloAndSubscribeAsync(forcedPlayContext);
+        (string secondBridgeInstanceId, string secondPlayContextId) =
+            await LaunchNewGameHelloAndProbeAsync(forcedPlayContext);
 
         // The forced coincidence: the second instance's playContextId equals the first's, deliberately.
         Assert.Equal(firstPlayContextId, secondPlayContextId);
-        // No forcing needed here: every fresh play context's first pull naturally lands on revision 1,
-        // so this coincidence holds for free -- exactly the "revision matches too" case
-        // ROADMAP.md's acceptance wording calls out.
-        Assert.Equal(firstRevision, secondRevision);
-        // Despite both coincidences, bridgeInstanceId differs -- a bridge restart always mints a fresh
-        // one -- so the full identity pair a client compares against its cache is still correctly
-        // detected as stale.
+        // Despite the play-context coincidence, bridgeInstanceId differs -- a bridge restart always
+        // mints a fresh one -- so the full identity pair a client compares against its cache is
+        // still correctly detected as stale.
         Assert.NotEqual(firstBridgeInstanceId, secondBridgeInstanceId);
         Assert.NotEqual((firstBridgeInstanceId, firstPlayContextId), (secondBridgeInstanceId, secondPlayContextId));
     }
@@ -157,12 +153,11 @@ public class RestartScenarioTests
         await reconnect.ReceiveAsync();  // capabilities
 
         // Proves Trusted-tier access genuinely works against the second process, not just that
-        // clientIdentityKind reports "paired" -- mirrors
-        // PairingScenarioTests.FullPairingRoundTripUpgradesTheSessionAndAllowsSubscribe's same check.
-        await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", reconnectHelloAck.SessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
-        Envelope subscriptionAck = await reconnect.ReceiveAsync();
-        Assert.Equal("subscription_ack", subscriptionAck.MessageType);
+        // clientIdentityKind reports "paired".
+        await reconnect.SendAsync(new Envelope("ping", "message-ping-after-restart", reconnectHelloAck.SessionId, null,
+            new JsonObject()));
+        Envelope pong = await reconnect.ReceiveAsync();
+        Assert.Equal("pong", pong.MessageType);
 
         await BridgeScenario.CloseAndQuitAsync(secondHarness, reconnect);
     }
@@ -235,14 +230,13 @@ public class RestartScenarioTests
     /// <summary>
     /// Launches one harness instance, drives it into an active play context via <c>new_game</c>,
     /// completes hello over a fresh connection to capture the bridge's own reported
-    /// (bridgeInstanceId, playContextId) pair from the wire, then subscribes to the character state
-    /// area to capture its first-pull revision.
+    /// (bridgeInstanceId, playContextId) pair from the wire, then probes the trusted session with a
+    /// ping because no state area is currently registered.
     /// </summary>
     /// <param name="extraEnvironmentVariables">Extra environment variables for the harness process,
     /// such as the harness-only playContextId override used to force a coincidental collision.</param>
-    /// <returns>The (bridgeInstanceId, playContextId, revision) the bridge stamped onto its hello_ack
-    /// and initial character-state snapshot.</returns>
-    private static async Task<(string BridgeInstanceId, string PlayContextId, int Revision)> LaunchNewGameHelloAndSubscribeAsync(
+    /// <returns>The (bridgeInstanceId, playContextId) the bridge stamped onto its hello_ack.</returns>
+    private static async Task<(string BridgeInstanceId, string PlayContextId)> LaunchNewGameHelloAndProbeAsync(
         IReadOnlyDictionary<string, string>? extraEnvironmentVariables)
     {
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken, extraEnvironmentVariables);
@@ -273,19 +267,17 @@ public class RestartScenarioTests
 
         await connection.ReceiveAsync();  // capabilities (unsolicited, sent right after hello_ack)
 
-        await connection.SendAsync(new Envelope("subscribe", "message-sub-1", helloAck.SessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
-        await connection.ReceiveAsync();  // subscription_ack
-        Envelope snapshot = await connection.ReceiveAsync();
-        if (snapshot.MessageType != "state_snapshot")
+        await connection.SendAsync(new Envelope("ping", "message-ping-restart", helloAck.SessionId, null,
+            new JsonObject()));
+        Envelope pong = await connection.ReceiveAsync();
+        if (pong.MessageType != "pong")
         {
             throw new InvalidOperationException(
-                $"Expected a state_snapshot after subscribing, got {snapshot.MessageType}: {snapshot.Payload}");
+                $"Expected a pong after authentication, got {pong.MessageType}: {pong.Payload}");
         }
-        int revision = snapshot.Payload["revision"]!.GetValue<int>();
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
 
-        return (helloAck.BridgeInstanceId, helloAck.PlayContextId, revision);
+        return (helloAck.BridgeInstanceId, helloAck.PlayContextId);
     }
 }
