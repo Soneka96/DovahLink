@@ -415,3 +415,21 @@ enum PairingRecoveryState {
   /// been acknowledged by the bridge as `trusted`/`already_trusted`.
   confirming,
 }
+
+// ---- Rename ----
+
+/// The raw wire value of `rename_outcome.outcome` (`protocol/schema/README.md`'s `rename_outcome`),
+/// decoded directly by `RenameOutcomePayload`.
+enum RenameOutcome {
+  /// The device's display name was updated.
+  @JsonValue('renamed')
+  renamed,
+
+  /// The requested display name failed the trust store's length or control-character bound.
+  @JsonValue('invalid_display_name')
+  invalidDisplayName,
+
+  /// The session's identity is unrecognized or not currently trusted.
+  @JsonValue('not_trusted')
+  notTrusted,
+}
