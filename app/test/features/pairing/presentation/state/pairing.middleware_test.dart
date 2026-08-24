@@ -12,7 +12,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -44,8 +44,8 @@ class MockCancelPairingUseCase extends Mock implements CancelPairingUseCase {}
 
 class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 
-class MockObserveSessionInvalidationUseCase extends Mock
-    implements ObserveSessionInvalidationUseCase {}
+class MockObserveConnectionStatusUseCase extends Mock
+    implements ObserveConnectionStatusUseCase {}
 
 /// Mocktail double for [NavigatorService], matching this project's existing
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
@@ -81,7 +81,7 @@ void main() {
   late MockRequestPairingUseCase mockRequestPairing;
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
-  late MockObserveSessionInvalidationUseCase mockObserveSessionInvalidation;
+  late MockObserveConnectionStatusUseCase mockObserveConnectionStatus;
   late MockNavigatorService mockNavigatorService;
   late MockStore store;
   late List<Object?> actionLog;
@@ -99,7 +99,7 @@ void main() {
     mockRequestPairing = MockRequestPairingUseCase();
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
     mockDisconnect = MockDisconnectUseCase();
-    mockObserveSessionInvalidation = MockObserveSessionInvalidationUseCase();
+    mockObserveConnectionStatus = MockObserveConnectionStatusUseCase();
     mockNavigatorService = MockNavigatorService();
     sl.registerLazySingleton<AuthenticateUseCase>(() => mockAuthenticate);
     sl.registerLazySingleton<RequestPairingUseCase>(() => mockRequestPairing);
@@ -113,8 +113,8 @@ void main() {
       () => MockCancelPairingUseCase(),
     );
     sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
-    sl.registerLazySingleton<ObserveSessionInvalidationUseCase>(
-      () => mockObserveSessionInvalidation,
+    sl.registerLazySingleton<ObserveConnectionStatusUseCase>(
+      () => mockObserveConnectionStatus,
     );
     sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
 
@@ -136,7 +136,7 @@ void main() {
     reset(mockRequestPairing);
     reset(mockConfirmPairingCode);
     reset(mockDisconnect);
-    reset(mockObserveSessionInvalidation);
+    reset(mockObserveConnectionStatus);
     reset(mockNavigatorService);
     reset(store);
   });
@@ -188,8 +188,8 @@ void main() {
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
         when(
-          () => mockObserveSessionInvalidation(any()),
-        ).thenAnswer((_) => const Stream<SessionInvalidatedFailure>.empty());
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
 
         middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -467,8 +467,8 @@ void main() {
           ),
         ).thenAnswer((_) async => const Right(unit));
         when(
-          () => mockObserveSessionInvalidation(any()),
-        ).thenAnswer((_) => const Stream<SessionInvalidatedFailure>.empty());
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
 
         middleware.call(
           store,
@@ -589,13 +589,13 @@ void main() {
     );
 
     test(
-      'PairingDisposedAction does not cancel a running session-invalidation observation',
+      'PairingDisposedAction does not cancel a running connection-status observation',
       () async {
-        final StreamController<SessionInvalidatedFailure> controller =
-            StreamController<SessionInvalidatedFailure>.broadcast();
+        final StreamController<PairingConnectionStatus> controller =
+            StreamController<PairingConnectionStatus>.broadcast();
         addTearDown(controller.close);
         when(
-          () => mockObserveSessionInvalidation(any()),
+          () => mockObserveConnectionStatus(any()),
         ).thenAnswer((_) => controller.stream);
         middleware.call(store, const PairingSessionTrustedAction(), next);
         await pumpEventQueue();
@@ -607,16 +607,13 @@ void main() {
         );
         await pumpEventQueue();
 
-        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'disconnected by the bridge',
-        );
-        controller.add(failure);
+        controller.add(PairingConnectionStatus.invalidated);
         await pumpEventQueue();
 
         expect(actionLog, [
           const PairingSessionTrustedAction(),
           const PairingDisposedAction(wasTrusted: true),
-          PairingFailedAction(failure.message),
+          PairingFailedAction(SessionInvalidatedFailure.administrative.message),
         ]);
       },
     );
@@ -759,22 +756,83 @@ void main() {
 
   group('PairingMiddleware processes PairingSessionTrustedAction correctly', () {
     test(
-      'PairingSessionTrustedAction dispatches PairingFailedAction for each event the '
-      'observation stream emits',
+      'PairingSessionTrustedAction dispatches PairingDisconnectedAction when the observation '
+      'stream emits lost',
       () async {
-        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'disconnected by the bridge',
+        when(() => mockObserveConnectionStatus(any())).thenAnswer(
+          (_) => Stream<PairingConnectionStatus>.value(
+            PairingConnectionStatus.lost,
+          ),
         );
-        when(
-          () => mockObserveSessionInvalidation(any()),
-        ).thenAnswer((_) => Stream<SessionInvalidatedFailure>.value(failure));
 
         middleware.call(store, const PairingSessionTrustedAction(), next);
         await pumpEventQueue();
 
         expect(actionLog, [
           const PairingSessionTrustedAction(),
-          PairingFailedAction(failure.message),
+          const PairingDisconnectedAction(),
+        ]);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction dispatches PairingConnectionRestoredAction when the '
+      'observation stream emits restored',
+      () async {
+        when(() => mockObserveConnectionStatus(any())).thenAnswer(
+          (_) => Stream<PairingConnectionStatus>.value(
+            PairingConnectionStatus.restored,
+          ),
+        );
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          const PairingConnectionRestoredAction(),
+        ]);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction dispatches PairingFailedAction with the canonical '
+      'administrative message when the observation stream emits invalidated',
+      () async {
+        when(() => mockObserveConnectionStatus(any())).thenAnswer(
+          (_) => Stream<PairingConnectionStatus>.value(
+            PairingConnectionStatus.invalidated,
+          ),
+        );
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          PairingFailedAction(SessionInvalidatedFailure.administrative.message),
+        ]);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction dispatches one action for each event the observation stream '
+      'emits, in order',
+      () async {
+        when(() => mockObserveConnectionStatus(any())).thenAnswer(
+          (_) => Stream<PairingConnectionStatus>.fromIterable([
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.restored,
+          ]),
+        );
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          const PairingDisconnectedAction(),
+          const PairingConnectionRestoredAction(),
         ]);
       },
     );
@@ -782,30 +840,27 @@ void main() {
     test(
       'PairingSessionTrustedAction does not start a second observation when dispatched again',
       () async {
-        final StreamController<SessionInvalidatedFailure> controller =
-            StreamController<SessionInvalidatedFailure>.broadcast();
+        final StreamController<PairingConnectionStatus> controller =
+            StreamController<PairingConnectionStatus>.broadcast();
         addTearDown(controller.close);
         when(
-          () => mockObserveSessionInvalidation(any()),
+          () => mockObserveConnectionStatus(any()),
         ).thenAnswer((_) => controller.stream);
 
         middleware.call(store, const PairingSessionTrustedAction(), next);
         middleware.call(store, const PairingSessionTrustedAction(), next);
         await pumpEventQueue();
 
-        verify(() => mockObserveSessionInvalidation(any())).called(1);
+        verify(() => mockObserveConnectionStatus(any())).called(1);
 
         // Proves the guard actually prevents a second listener attaching to the stream, not just
         // a second use-case constructor call: exactly one PairingFailedAction reaches actionLog
         // per event, never two.
-        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
-          'disconnected by the bridge',
-        );
-        controller.add(failure);
+        controller.add(PairingConnectionStatus.invalidated);
         await pumpEventQueue();
 
         expect(actionLog.whereType<PairingFailedAction>(), [
-          PairingFailedAction(failure.message),
+          PairingFailedAction(SessionInvalidatedFailure.administrative.message),
         ]);
       },
     );

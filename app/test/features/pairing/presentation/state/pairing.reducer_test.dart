@@ -588,6 +588,74 @@ void main() {
     },
   );
 
+  group('Action PairingConnectionRestoredAction behaves correctly', () {
+    test(
+      'PairingConnectionRestoredAction changes the phase to trusted, clears error, and '
+      'preserves bridgeVersion',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.disconnected,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConnectionRestoredAction(),
+        );
+
+        expect(result.phase, PairingPhase.trusted);
+        expect(result.error, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+
+    test(
+      'PairingConnectionRestoredAction clears a leftover error from the lost-connection phase',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.disconnected,
+          bridgeVersion: '1.2.3',
+          error: 'old error',
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConnectionRestoredAction(),
+        );
+
+        expect(result.error, isNull);
+      },
+    );
+
+    test(
+      'PairingConnectionRestoredAction stays trusted when a redundant event arrives while '
+      'already trusted (e.g. the observation stream replaying its current value on subscribe)',
+      () {
+        const PairingState state = PairingState(
+          phase: PairingPhase.trusted,
+          bridgeVersion: '1.2.3',
+          error: null,
+          codeExpiresAt: null,
+          renotifyAvailableAt: null,
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingConnectionRestoredAction(),
+        );
+
+        expect(result.phase, PairingPhase.trusted);
+        expect(result.error, isNull);
+        expect(result.bridgeVersion, '1.2.3');
+      },
+    );
+  });
+
   group('Behavior unhandled-action pass-through behaves correctly', () {
     test(
       'Behavior unhandled-action pass-through leaves state unchanged for an action with no '

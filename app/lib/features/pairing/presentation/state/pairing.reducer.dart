@@ -58,6 +58,10 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
   TypedReducer<PairingState, PairingConfirmFailedWithAttemptsRemainingAction>(
     pairingConfirmFailedWithAttemptsRemainingReducer,
   ).call,
+
+  TypedReducer<PairingState, PairingConnectionRestoredAction>(
+    pairingConnectionRestoredReducer,
+  ).call,
 ]);
 
 /// Handles [PairingStartedAction].
@@ -198,3 +202,10 @@ PairingState pairingConfirmFailedWithAttemptsRemainingReducer(
   phase: PairingPhase.awaitingCode,
   error: Some(action.message),
 );
+
+/// Handles [PairingConnectionRestoredAction].
+/// Updates [PairingState.phase], [PairingState.error].
+PairingState pairingConnectionRestoredReducer(
+  PairingState state,
+  PairingConnectionRestoredAction action,
+) => state.copyWith(phase: PairingPhase.trusted, error: const None());

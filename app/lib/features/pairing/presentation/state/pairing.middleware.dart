@@ -7,7 +7,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -34,11 +34,10 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
 
   /// The active subscription started by [_pairingSessionTrusted], or `null` before the first
   /// trusted session this middleware instance has observed. Never cancelled: this middleware
-  /// lives for the app's whole process, the same as the trusted session it watches for
-  /// administrative invalidation surviving navigation away from the pairing screen (see
-  /// [_pairingDisposed]'s `wasTrusted` handling).
-  StreamSubscription<SessionInvalidatedFailure>?
-  _sessionInvalidationSubscription;
+  /// lives for the app's whole process, the same as the trusted session it watches connection
+  /// status for, surviving navigation away from the pairing screen (see [_pairingDisposed]'s
+  /// `wasTrusted` handling).
+  StreamSubscription<PairingConnectionStatus>? _connectionStatusSubscription;
 
   /// See [MiddlewareClass.call].
   @override
@@ -228,21 +227,37 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     sl<NavigatorService>().go(AppRoutes.home);
   }
 
-  /// Handles [PairingSessionTrustedAction] by starting [_sessionInvalidationSubscription]
-  /// through [ObserveSessionInvalidationUseCase], unless one is already running -- a later
-  /// reconnect or re-pair dispatching this action again must not stack a second subscription
-  /// onto the same underlying SDK stream.
+  /// Handles [PairingSessionTrustedAction] by starting [_connectionStatusSubscription] through
+  /// [ObserveConnectionStatusUseCase], unless one is already running -- a later reconnect or
+  /// re-pair dispatching this action again must not stack a second subscription onto the same
+  /// underlying SDK stream. Dispatches by status: [PairingConnectionStatus.lost] as ordinary
+  /// transport loss ([PairingDisconnectedAction], distinct from a rejected pairing attempt),
+  /// [PairingConnectionStatus.restored] as recovery ([PairingConnectionRestoredAction]), and
+  /// [PairingConnectionStatus.invalidated] as an administrative failure
+  /// ([PairingFailedAction] carrying [SessionInvalidatedFailure.administrative]'s reason-agnostic
+  /// message, per PLAN.md's Stage 3).
   void _pairingSessionTrusted(
     Store<AppState> store,
     PairingSessionTrustedAction action,
   ) {
-    if (_sessionInvalidationSubscription != null) {
+    if (_connectionStatusSubscription != null) {
       return;
     }
-    _sessionInvalidationSubscription =
-        sl<ObserveSessionInvalidationUseCase>()(NoParams()).listen(
-          (SessionInvalidatedFailure failure) =>
-              store.dispatch(PairingFailedAction(failure.message)),
+    _connectionStatusSubscription =
+        sl<ObserveConnectionStatusUseCase>()(NoParams()).listen(
+          (PairingConnectionStatus status) => switch (status) {
+            PairingConnectionStatus.lost => store.dispatch(
+              const PairingDisconnectedAction(),
+            ),
+            PairingConnectionStatus.restored => store.dispatch(
+              const PairingConnectionRestoredAction(),
+            ),
+            PairingConnectionStatus.invalidated => store.dispatch(
+              PairingFailedAction(
+                SessionInvalidatedFailure.administrative.message,
+              ),
+            ),
+          },
         );
   }
 }

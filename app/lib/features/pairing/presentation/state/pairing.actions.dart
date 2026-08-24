@@ -93,8 +93,10 @@ class PairingConfirmedAction extends Equatable {
 }
 
 /// Marks the bridge as unreachable. Distinct from [PairingFailedAction]: this
-/// is an expected transport-level condition (the bridge may not be running
-/// yet), not a rejected pairing attempt.
+/// is an expected transport-level condition -- the bridge may not be running
+/// yet, or a previously trusted session's connection was ordinarily lost and
+/// the SDK's own bounded recovery may still succeed -- not a rejected pairing
+/// attempt.
 class PairingDisconnectedAction extends Equatable {
   /// Creates a disconnected-state action.
   const PairingDisconnectedAction();
@@ -215,12 +217,26 @@ class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
 /// [PairingAuthenticatedAction] presenting an already-trusted credential, or
 /// after a [PairingConfirmedAction] completing pairing for the first time.
 /// Carries no state of its own; middleware uses it only to start observing
-/// administrative session invalidation, per
+/// the bridge connection's status (ordinary loss and recovery, and
+/// administrative invalidation), per
 /// `ai/context/flutter/architecture.md`'s "To share handler logic, dispatch
 /// a dedicated action rather than calling a raw-parameter helper".
 class PairingSessionTrustedAction extends Equatable {
   /// Creates a session-trusted action.
   const PairingSessionTrustedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Marks that a previously trusted session's connection recovered after
+/// [PairingDisconnectedAction]. Distinct from [PairingConfirmedAction]: that
+/// action means the trust handshake just completed, not that an existing
+/// trusted session reconnected.
+class PairingConnectionRestoredAction extends Equatable {
+  /// Creates a connection-restored action.
+  const PairingConnectionRestoredAction();
 
   /// See [Equatable.props].
   @override
