@@ -12,12 +12,13 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 
 - Keep SDK-owned typed fixtures below the package-local
   `sdk/dart/dovahlink_client/test/fixtures/` directory. The package's discoverable catalog is
-  `test/fixtures/fixtures.dart`, with `Fixtures.build<Type>(...)` methods grouped by the owning
-  production area (`Request`, `Protocol`, `Persistence`, `Internal`, and so on). This catalog is
-  test-only in-memory construction; canonical cross-side JSON fixtures remain in
-  `protocol/fixtures/`.
+  `test/fixtures/fixtures.dart`, with named builders such as `Fixtures.buildEnvelope(...)` and
+  `Fixtures.buildPersistedClientState(...)` grouped by the owning production area (`Request`,
+  `Protocol`, `Persistence`, `Internal`, and so on). This catalog is test-only in-memory
+  construction; canonical cross-side JSON fixtures remain in `protocol/fixtures/`.
 - A representative DTO/value construction lives in exactly one catalog builder. Every other test
-  file calls `Fixtures.build<Type>(...)` rather than duplicating construction inline or creating a
+  file calls the relevant named catalog builder, such as `Fixtures.buildPendingOperation(...)` or
+  `Fixtures.buildRequestPolicy(...)`, rather than duplicating construction inline or creating a
   private builder. When one fixture's default value needs another fixture (`PendingOperation`'s
   default `policy` needs `RequestPolicy`'s representative shape), compose the other builder via a
   nullable parameter and `??`, because fixture-builder calls are not `const`-eligible.
