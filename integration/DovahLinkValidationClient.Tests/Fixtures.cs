@@ -32,4 +32,22 @@ public static class Fixtures
         string bridgeVersion = "0.3.2",
         string clientIdentityKind = "paired") =>
         new(bridgeVersion, clientIdentityKind);
+
+    // ---- Pairing ----
+
+    /// <summary>Builds a representative PairingStatusPayload.</summary>
+    /// <param name="state">The pairing state to use.</param>
+    /// <param name="expiresInSeconds">The remaining code validity to use.</param>
+    public static PairingStatusPayload BuildPairingStatusPayload(
+        string state = "available",
+        int? expiresInSeconds = 300) =>
+        new(state, expiresInSeconds);
+
+    /// <summary>Builds a representative PairingConfirmPayload.</summary>
+    /// <param name="code">The six-digit code to use.</param>
+    /// <param name="displayName">The display name to use.</param>
+    public static PairingConfirmPayload BuildPairingConfirmPayload(
+        string code = "123456",
+        string? displayName = "My PC") =>
+        new(code, displayName);
 }
