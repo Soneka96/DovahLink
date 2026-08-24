@@ -68,4 +68,17 @@ public static class Fixtures
         string? displayName = "My PC",
         int? retryAfterSeconds = null) =>
         new(outcome, credential, shortId, displayName, retryAfterSeconds);
+
+    // ---- Capabilities ----
+
+    /// <summary>Builds a representative Capability.</summary>
+    /// <param name="id">The capability identifier to use.</param>
+    /// <param name="version">The capability version to use.</param>
+    public static Capability BuildCapability(string id = "state.inventory", int version = 1) => new(id, version);
+
+    /// <summary>Builds a representative CapabilitiesPayload.</summary>
+    /// <param name="capabilities">The capabilities to use, or <see langword="null"/> for an empty
+    /// list -- the only currently registered shape.</param>
+    public static CapabilitiesPayload BuildCapabilitiesPayload(IReadOnlyList<Capability>? capabilities = null) =>
+        new(capabilities ?? []);
 }
