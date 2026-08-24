@@ -16,8 +16,14 @@ public sealed record SnapshotRequestPayload(string StateArea, int? KnownRevision
     /// Encodes this payload as a JSON object.
     /// </summary>
     /// <returns>The encoded <c>snapshot_request</c> payload.</returns>
+    /// <exception cref="FormatException">Thrown when <c>knownRevision</c> is negative.</exception>
     public JsonObject Encode()
     {
+        if (KnownRevision is < 0)
+        {
+            throw new FormatException("knownRevision must be a non-negative integer.");
+        }
+
         var obj = new JsonObject { ["stateArea"] = StateArea };
         if (KnownRevision is not null)
         {

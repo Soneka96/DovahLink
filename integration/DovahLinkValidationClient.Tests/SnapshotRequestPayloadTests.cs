@@ -34,4 +34,42 @@ public class SnapshotRequestPayloadTests
         JsonObject encoded = payload.Encode();
         Assert.Equal(5, encoded["knownRevision"]?.GetValue<int>());
     }
+
+    /// <summary>Verifies that Encode preserves the lowest valid known revision.</summary>
+    [Fact]
+    public void EncodeIncludesZeroKnownRevision()
+    {
+        SnapshotRequestPayload payload = Fixtures.BuildSnapshotRequestPayload(knownRevision: 0);
+
+        JsonObject encoded = payload.Encode();
+        Assert.Equal(0, encoded["knownRevision"]?.GetValue<int>());
+    }
+
+    /// <summary>Verifies that Encode preserves the largest supported known revision.</summary>
+    [Fact]
+    public void EncodeIncludesMaximumKnownRevision()
+    {
+        SnapshotRequestPayload payload = Fixtures.BuildSnapshotRequestPayload(knownRevision: int.MaxValue);
+
+        JsonObject encoded = payload.Encode();
+        Assert.Equal(int.MaxValue, encoded["knownRevision"]?.GetValue<int>());
+    }
+
+    /// <summary>Verifies that Encode rejects a negative known revision.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenKnownRevisionIsNegative()
+    {
+        SnapshotRequestPayload payload = Fixtures.BuildSnapshotRequestPayload(knownRevision: -1);
+
+        Assert.Throws<FormatException>(() => payload.Encode());
+    }
+
+    /// <summary>Verifies that Encode rejects the smallest representable known revision.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenKnownRevisionIsIntMinValue()
+    {
+        SnapshotRequestPayload payload = Fixtures.BuildSnapshotRequestPayload(knownRevision: int.MinValue);
+
+        Assert.Throws<FormatException>(() => payload.Encode());
+    }
 }
