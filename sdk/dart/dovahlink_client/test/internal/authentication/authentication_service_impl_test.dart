@@ -307,17 +307,13 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          const Envelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
-            messageId: 'reply-1',
             sessionId: null,
-            correlationId: 'req-1',
             payload: <String, dynamic>{
               'bridgeVersion': '1.0',
               'clientIdentityKind': 'unpaired',
             },
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
             clientId: 'client-1',
           ),
         );
@@ -349,15 +345,9 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          const Envelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{},
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -388,18 +378,12 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          const Envelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{
               'bridgeVersion': '',
               'clientIdentityKind': 'unpaired',
             },
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
@@ -430,18 +414,12 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          const Envelope(
+          Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
-            messageId: 'reply-1',
-            sessionId: 'session-1',
-            correlationId: 'req-1',
             payload: <String, dynamic>{
               'bridgeVersion': '1.0',
               'clientIdentityKind': 'not-a-real-kind',
             },
-            bridgeInstanceId: 'bridge-1',
-            playContextId: null,
-            clientId: null,
           ),
         );
 
