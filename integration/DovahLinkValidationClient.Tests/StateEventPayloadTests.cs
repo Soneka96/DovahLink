@@ -243,6 +243,86 @@ public class StateEventPayloadTests
         Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
     }
 
+    /// <summary>Verifies that Decode rejects a timestamp without an explicit UTC designator.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasNoTimezone()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-08-11T12:00:00",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a timestamp with a non-RFC 3339 separator.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtUsesASpaceSeparator()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-08-11 12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a lowercase UTC designator.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtUsesLowercaseUtcDesignator()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-08-11T12:00:00z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an invalid minute.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasAnInvalidMinute()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-08-11T12:60:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an invalid calendar date.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasAnInvalidCalendarDate()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["baseRevision"] = 1,
+            ["revision"] = 2,
+            ["occurredAt"] = "2026-02-30T12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateEventPayload.Decode(payload));
+    }
+
     /// <summary>Verifies that Decode throws FormatException when occurredAt is the wrong JSON type.</summary>
     [Fact]
     public void DecodeThrowsFormatExceptionWhenOccurredAtIsTheWrongType()

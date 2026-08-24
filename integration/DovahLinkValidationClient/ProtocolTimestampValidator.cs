@@ -18,10 +18,16 @@ public static class ProtocolTimestampValidator
     /// timestamp.</exception>
     public static void ValidateUtcRfc3339(string value)
     {
-        bool parsed = DateTimeOffset.TryParse(
+        string[] formats =
+        [
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFF'Z'",
+        ];
+        bool parsed = DateTimeOffset.TryParseExact(
             value,
+            formats,
             CultureInfo.InvariantCulture,
-            DateTimeStyles.RoundtripKind,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
             out DateTimeOffset result);
         if (!parsed || result.Offset != TimeSpan.Zero)
         {

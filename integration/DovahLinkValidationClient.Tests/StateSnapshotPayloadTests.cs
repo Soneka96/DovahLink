@@ -205,6 +205,96 @@ public class StateSnapshotPayloadTests
         Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
     }
 
+    /// <summary>Verifies that Decode rejects a timestamp without an explicit UTC designator.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasNoTimezone()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T12:00:00",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a timestamp with a non-RFC 3339 separator.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtUsesASpaceSeparator()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11 12:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a timestamp with a zero numeric offset.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtUsesNumericUtcOffset()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T12:00:00+00:00",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts the maximum supported fractional precision.</summary>
+    [Fact]
+    public void DecodeAcceptsSixFractionalSecondsDigits()
+    {
+        StateSnapshotPayload payload = StateSnapshotPayload.Decode(new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T12:00:00.123456Z",
+            ["data"] = new JsonObject(),
+        });
+
+        Assert.Equal("2026-08-11T12:00:00.123456Z", payload.OccurredAt);
+    }
+
+    /// <summary>Verifies that Decode rejects fractional precision beyond the supported maximum.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasSevenFractionalSecondsDigits()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T12:00:00.1234567Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an invalid hour.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOccurredAtHasAnInvalidHour()
+    {
+        var payload = new JsonObject
+        {
+            ["stateArea"] = "example_area",
+            ["revision"] = 1,
+            ["occurredAt"] = "2026-08-11T24:00:00Z",
+            ["data"] = new JsonObject(),
+        };
+
+        Assert.Throws<FormatException>(() => StateSnapshotPayload.Decode(payload));
+    }
+
     /// <summary>Verifies that Decode throws FormatException when data is not an object.</summary>
     [Fact]
     public void DecodeThrowsFormatExceptionWhenDataIsNotAnObject()
