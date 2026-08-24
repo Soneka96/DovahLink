@@ -14,9 +14,9 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../../fixtures/fixtures.dart';
 import '../../fixtures/persistence/persisted_client_state.fixture.dart';
 import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
 
 /// Mock session service used to isolate authentication service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -82,7 +82,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.hello);
     registerFallbackValue(
-      buildRequestPolicy(
+      Fixtures.buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,

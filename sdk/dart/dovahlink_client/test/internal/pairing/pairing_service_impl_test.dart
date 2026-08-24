@@ -14,9 +14,9 @@ import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../../fixtures/fixtures.dart';
 import '../../fixtures/persistence/persisted_client_state.fixture.dart';
 import '../../fixtures/protocol/envelope.fixture.dart';
-import '../../fixtures/request_policy.fixture.dart';
 
 /// Mock request service used to isolate pairing service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -95,7 +95,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.pairingRequest);
     registerFallbackValue(
-      buildRequestPolicy(
+      Fixtures.buildRequestPolicy(
         retrySafe: false,
         requiredTrustState: null,
         timeoutClass: TimeoutClass.normal,
@@ -146,7 +146,7 @@ void main() {
           messageType: ProtocolMessageType.pairingRequest,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingStatus,
-          policy: buildRequestPolicy(),
+          policy: Fixtures.buildRequestPolicy(),
         ),
       ).called(1);
       expect(status.availability, PairingAvailability.available);
@@ -373,7 +373,7 @@ void main() {
             messageType: ProtocolMessageType.pairingRenotify,
             payload: const <String, dynamic>{},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         expect(result.status, PairingRenotifyStatus.renotified);
@@ -529,7 +529,7 @@ void main() {
           messageType: ProtocolMessageType.pairingCancel,
           payload: const <String, dynamic>{},
           expectedType: ProtocolMessageType.pairingOutcome,
-          policy: buildRequestPolicy(),
+          policy: Fixtures.buildRequestPolicy(),
         ),
       ).called(1);
       expect(result.status, PairingCancelStatus.cancelled);
@@ -734,7 +734,7 @@ void main() {
                     messageType: ProtocolMessageType.pairingConfirm,
                     payload: captureAny(named: 'payload'),
                     expectedType: ProtocolMessageType.pairingOutcome,
-                    policy: buildRequestPolicy(
+                    policy: Fixtures.buildRequestPolicy(
                       retrySafe: false,
                       timeoutClass: TimeoutClass.normal,
                     ),
@@ -876,7 +876,7 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
@@ -1103,7 +1103,7 @@ void main() {
             messageType: ProtocolMessageType.pairingAck,
             payload: <String, dynamic>{'credential': 'stored-cred'},
             expectedType: ProtocolMessageType.pairingOutcome,
-            policy: buildRequestPolicy(),
+            policy: Fixtures.buildRequestPolicy(),
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
