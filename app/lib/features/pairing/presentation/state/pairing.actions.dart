@@ -210,3 +210,19 @@ class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
   @override
   List<Object?> get props => [message];
 }
+
+/// Marks that a trusted pairing session now exists -- dispatched after a
+/// [PairingAuthenticatedAction] presenting an already-trusted credential, or
+/// after a [PairingConfirmedAction] completing pairing for the first time.
+/// Carries no state of its own; middleware uses it only to start observing
+/// administrative session invalidation, per
+/// `ai/context/flutter/architecture.md`'s "To share handler logic, dispatch
+/// a dedicated action rather than calling a raw-parameter helper".
+class PairingSessionTrustedAction extends Equatable {
+  /// Creates a session-trusted action.
+  const PairingSessionTrustedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}

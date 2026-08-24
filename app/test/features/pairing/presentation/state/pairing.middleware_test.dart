@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -10,6 +12,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -40,6 +43,9 @@ class MockRequestPairingRenotifyUseCase extends Mock
 class MockCancelPairingUseCase extends Mock implements CancelPairingUseCase {}
 
 class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
+
+class MockObserveSessionInvalidationUseCase extends Mock
+    implements ObserveSessionInvalidationUseCase {}
 
 /// Mocktail double for [NavigatorService], matching this project's existing
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
@@ -75,6 +81,7 @@ void main() {
   late MockRequestPairingUseCase mockRequestPairing;
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
+  late MockObserveSessionInvalidationUseCase mockObserveSessionInvalidation;
   late MockNavigatorService mockNavigatorService;
   late MockStore store;
   late List<Object?> actionLog;
@@ -92,6 +99,7 @@ void main() {
     mockRequestPairing = MockRequestPairingUseCase();
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
     mockDisconnect = MockDisconnectUseCase();
+    mockObserveSessionInvalidation = MockObserveSessionInvalidationUseCase();
     mockNavigatorService = MockNavigatorService();
     sl.registerLazySingleton<AuthenticateUseCase>(() => mockAuthenticate);
     sl.registerLazySingleton<RequestPairingUseCase>(() => mockRequestPairing);
@@ -105,6 +113,9 @@ void main() {
       () => MockCancelPairingUseCase(),
     );
     sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
+    sl.registerLazySingleton<ObserveSessionInvalidationUseCase>(
+      () => mockObserveSessionInvalidation,
+    );
     sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
 
     actionLog = [];
@@ -125,6 +136,7 @@ void main() {
     reset(mockRequestPairing);
     reset(mockConfirmPairingCode);
     reset(mockDisconnect);
+    reset(mockObserveSessionInvalidation);
     reset(mockNavigatorService);
     reset(store);
   });
@@ -158,7 +170,35 @@ void main() {
               .credentialRejectedMessage,
           isNull,
         );
+        // An untrusted (unpaired) session must not start observing invalidation -- there is no
+        // trusted session yet to invalidate.
+        expect(actionLog, hasLength(2));
         verify(() => mockAuthenticate(any())).called(1);
+      },
+    );
+
+    test(
+      'PairingStartedAction also dispatches PairingSessionTrustedAction when authentication '
+      'presents an already-trusted credential',
+      () async {
+        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
+          trusted: true,
+        );
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => Right(handshake));
+        when(
+          () => mockObserveSessionInvalidation(any()),
+        ).thenAnswer((_) => const Stream<SessionInvalidatedFailure>.empty());
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          isA<PairingAuthenticatedAction>(),
+          const PairingSessionTrustedAction(),
+        ]);
       },
     );
 
@@ -426,6 +466,9 @@ void main() {
             ),
           ),
         ).thenAnswer((_) async => const Right(unit));
+        when(
+          () => mockObserveSessionInvalidation(any()),
+        ).thenAnswer((_) => const Stream<SessionInvalidatedFailure>.empty());
 
         middleware.call(
           store,
@@ -443,6 +486,7 @@ void main() {
             displayName: 'Desktop',
           ),
           const PairingConfirmedAction(),
+          const PairingSessionTrustedAction(),
         ]);
         verify(
           () => mockConfirmPairingCode(
@@ -541,6 +585,39 @@ void main() {
 
         expect(actionLog, [const PairingDisposedAction(wasTrusted: true)]);
         verifyNever(() => mockDisconnect(any()));
+      },
+    );
+
+    test(
+      'PairingDisposedAction does not cancel a running session-invalidation observation',
+      () async {
+        final StreamController<SessionInvalidatedFailure> controller =
+            StreamController<SessionInvalidatedFailure>.broadcast();
+        addTearDown(controller.close);
+        when(
+          () => mockObserveSessionInvalidation(any()),
+        ).thenAnswer((_) => controller.stream);
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: true),
+          next,
+        );
+        await pumpEventQueue();
+
+        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+          'disconnected by the bridge',
+        );
+        controller.add(failure);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          const PairingDisposedAction(wasTrusted: true),
+          PairingFailedAction(failure.message),
+        ]);
       },
     );
   });
@@ -678,5 +755,59 @@ void main() {
       expect(actionLog, [const PairingBackRequestedAction()]);
       verify(() => mockNavigatorService.go(AppRoutes.home)).called(1);
     });
+  });
+
+  group('PairingMiddleware processes PairingSessionTrustedAction correctly', () {
+    test(
+      'PairingSessionTrustedAction dispatches PairingFailedAction for each event the '
+      'observation stream emits',
+      () async {
+        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+          'disconnected by the bridge',
+        );
+        when(
+          () => mockObserveSessionInvalidation(any()),
+        ).thenAnswer((_) => Stream<SessionInvalidatedFailure>.value(failure));
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingSessionTrustedAction(),
+          PairingFailedAction(failure.message),
+        ]);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction does not start a second observation when dispatched again',
+      () async {
+        final StreamController<SessionInvalidatedFailure> controller =
+            StreamController<SessionInvalidatedFailure>.broadcast();
+        addTearDown(controller.close);
+        when(
+          () => mockObserveSessionInvalidation(any()),
+        ).thenAnswer((_) => controller.stream);
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+        await pumpEventQueue();
+
+        verify(() => mockObserveSessionInvalidation(any())).called(1);
+
+        // Proves the guard actually prevents a second listener attaching to the stream, not just
+        // a second use-case constructor call: exactly one PairingFailedAction reaches actionLog
+        // per event, never two.
+        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+          'disconnected by the bridge',
+        );
+        controller.add(failure);
+        await pumpEventQueue();
+
+        expect(actionLog.whereType<PairingFailedAction>(), [
+          PairingFailedAction(failure.message),
+        ]);
+      },
+    );
   });
 }

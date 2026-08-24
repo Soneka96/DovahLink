@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
@@ -5,6 +7,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -29,6 +32,14 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// Delay before automatically retrying after [PairingDisconnectedAction].
   final Duration reconnectDelay;
 
+  /// The active subscription started by [_pairingSessionTrusted], or `null` before the first
+  /// trusted session this middleware instance has observed. Never cancelled: this middleware
+  /// lives for the app's whole process, the same as the trusted session it watches for
+  /// administrative invalidation surviving navigation away from the pairing screen (see
+  /// [_pairingDisposed]'s `wasTrusted` handling).
+  StreamSubscription<SessionInvalidatedFailure>?
+  _sessionInvalidationSubscription;
+
   /// See [MiddlewareClass.call].
   @override
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
@@ -49,6 +60,8 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         _pairingDisposed(store, action);
       case PairingBackRequestedAction _:
         _pairingBackRequested(store, action);
+      case PairingSessionTrustedAction _:
+        _pairingSessionTrusted(store, action);
     }
   }
 
@@ -75,6 +88,9 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
             credentialRejectedMessage: handshake.credentialRejectedMessage,
           ),
         );
+        if (handshake.trusted) {
+          store.dispatch(const PairingSessionTrustedAction());
+        }
       },
     );
   }
@@ -183,6 +199,7 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       },
       (_) {
         store.dispatch(const PairingConfirmedAction());
+        store.dispatch(const PairingSessionTrustedAction());
       },
     );
   }
@@ -209,5 +226,23 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     PairingBackRequestedAction action,
   ) {
     sl<NavigatorService>().go(AppRoutes.home);
+  }
+
+  /// Handles [PairingSessionTrustedAction] by starting [_sessionInvalidationSubscription]
+  /// through [ObserveSessionInvalidationUseCase], unless one is already running -- a later
+  /// reconnect or re-pair dispatching this action again must not stack a second subscription
+  /// onto the same underlying SDK stream.
+  void _pairingSessionTrusted(
+    Store<AppState> store,
+    PairingSessionTrustedAction action,
+  ) {
+    if (_sessionInvalidationSubscription != null) {
+      return;
+    }
+    _sessionInvalidationSubscription =
+        sl<ObserveSessionInvalidationUseCase>()(NoParams()).listen(
+          (SessionInvalidatedFailure failure) =>
+              store.dispatch(PairingFailedAction(failure.message)),
+        );
   }
 }

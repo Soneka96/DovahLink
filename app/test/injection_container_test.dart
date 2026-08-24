@@ -10,6 +10,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.u
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/observe_session_invalidation.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
@@ -42,16 +43,13 @@ void main() {
       expect(identical(sl<GoRouter>(), sl<GoRouter>()), isTrue);
     });
 
-    test(
-      'calling initDependencies twice does not throw or re-register',
-      () {
-        initDependencies();
+    test('calling initDependencies twice does not throw or re-register', () {
+      initDependencies();
 
-        expect(initDependencies, returnsNormally);
-        expect(sl.isRegistered<GoRouter>(), isTrue);
-        expect(sl.isRegistered<NavigatorService>(), isTrue);
-      },
-    );
+      expect(initDependencies, returnsNormally);
+      expect(sl.isRegistered<GoRouter>(), isTrue);
+      expect(sl.isRegistered<NavigatorService>(), isTrue);
+    });
   });
 
   group('injection_container — connection registrations', () {
@@ -90,6 +88,7 @@ void main() {
       expect(sl.isRegistered<DisconnectUseCase>(), isTrue);
       expect(sl.isRegistered<RequestPairingRenotifyUseCase>(), isTrue);
       expect(sl.isRegistered<CancelPairingUseCase>(), isTrue);
+      expect(sl.isRegistered<ObserveSessionInvalidationUseCase>(), isTrue);
     });
 
     test('initDependencies registers the pairing ViewModel factory', () {
@@ -114,10 +113,7 @@ void main() {
       initDependencies();
 
       expect(
-        identical(
-          sl<CancelPairingUseCase>(),
-          sl<CancelPairingUseCase>(),
-        ),
+        identical(sl<CancelPairingUseCase>(), sl<CancelPairingUseCase>()),
         isTrue,
       );
     });
@@ -126,7 +122,10 @@ void main() {
       initDependencies();
 
       expect(sl<RequestPairingRenotifyUseCase>(), isNotNull);
-      expect(sl<RequestPairingRenotifyUseCase>(), isA<RequestPairingRenotifyUseCase>());
+      expect(
+        sl<RequestPairingRenotifyUseCase>(),
+        isA<RequestPairingRenotifyUseCase>(),
+      );
     });
 
     test('CancelPairingUseCase can be instantiated', () {
