@@ -95,7 +95,7 @@ std::string TrustAdminService::Help() const {
     return "DovahLink commands:\n"
            " list [all|trust|block]\n"
            " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n"
-           " reset trust | reset | reset -confirm <code> | help";
+           " reset-trust | reset | confirm-reset -confirm <code> | help";
 }
 
 std::string TrustAdminService::ListTrusted() const {
