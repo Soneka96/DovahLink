@@ -1,0 +1,154 @@
+using System.Text.Json.Nodes;
+
+namespace DovahLinkValidationClient.Tests;
+
+/// <summary>Exercises Capability's Encode and Decode behavior.</summary>
+public class CapabilityTests
+{
+    /// <summary>Verifies that Encode produces id and version.</summary>
+    [Fact]
+    public void EncodeProducesIdAndVersion()
+    {
+        Capability capability = Fixtures.BuildCapability();
+
+        JsonObject encoded = capability.Encode();
+        Assert.Equal("state.inventory", encoded["id"]?.GetValue<string>());
+        Assert.Equal(1, encoded["version"]?.GetValue<int>());
+    }
+
+    /// <summary>Verifies that Decode round-trips through Encode.</summary>
+    [Fact]
+    public void DecodeRoundTripsThroughEncode()
+    {
+        Capability original = Fixtures.BuildCapability();
+
+        Capability decoded = Capability.Decode(original.Encode());
+
+        Assert.Equal(original, decoded);
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when id is missing.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenIdIsMissing()
+    {
+        var entry = new JsonObject { ["version"] = 1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when version is missing.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenVersionIsMissing()
+    {
+        var entry = new JsonObject { ["id"] = "state.inventory" };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when id is the wrong JSON type.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenIdIsTheWrongType()
+    {
+        var entry = new JsonObject { ["id"] = 1, ["version"] = 1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when version is the wrong JSON type.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenVersionIsTheWrongType()
+    {
+        var entry = new JsonObject { ["id"] = "state.inventory", ["version"] = "one" };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when version is a non-integer number.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenVersionIsFractional()
+    {
+        var entry = new JsonObject { ["id"] = "state.inventory", ["version"] = 1.5 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when id is empty.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenIdIsEmpty()
+    {
+        var entry = new JsonObject { ["id"] = "", ["version"] = 1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode throws FormatException when version is negative.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenVersionIsNegative()
+    {
+        var entry = new JsonObject { ["id"] = "state.inventory", ["version"] = -1 };
+
+        Assert.Throws<FormatException>(() => Capability.Decode(entry));
+    }
+
+    /// <summary>Verifies that Decode accepts the lowest valid capability version.</summary>
+    [Fact]
+    public void DecodeAcceptsZeroVersion()
+    {
+        Capability capability = Capability.Decode(new JsonObject
+        {
+            ["id"] = "state.inventory",
+            ["version"] = 0,
+        });
+
+        Assert.Equal(0, capability.Version);
+    }
+
+    /// <summary>Verifies that Encode rejects an empty capability identifier.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenIdIsEmpty()
+    {
+        Capability capability = new("", 1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode rejects a null capability identifier.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenIdIsNull()
+    {
+        Capability capability = new(null!, 1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode rejects a negative capability version.</summary>
+    [Fact]
+    public void EncodeThrowsFormatExceptionWhenVersionIsNegative()
+    {
+        Capability capability = new("state.inventory", -1);
+
+        Assert.Throws<FormatException>(() => capability.Encode());
+    }
+
+    /// <summary>Verifies that Encode preserves the lowest valid capability version.</summary>
+    [Fact]
+    public void EncodeIncludesZeroVersion()
+    {
+        Capability capability = new("state.inventory", 0);
+
+        JsonObject encoded = capability.Encode();
+
+        Assert.Equal(0, encoded["version"]?.GetValue<int>());
+    }
+
+    /// <summary>Verifies that Encode preserves any non-empty capability identifier.</summary>
+    [Fact]
+    public void EncodePreservesWhitespaceIdentifier()
+    {
+        Capability capability = new(" ", 1);
+
+        JsonObject encoded = capability.Encode();
+
+        Assert.Equal(" ", encoded["id"]?.GetValue<string>());
+    }
+}
