@@ -57,6 +57,12 @@ void main() {
   });
 
   group('Property stream behaves correctly', () {
+    test('Property stream is broadcast', () {
+      final CurrentValueStream<int> stream = CurrentValueStream<int>(5);
+
+      expect(stream.stream.isBroadcast, isTrue);
+    });
+
     test(
       'Property stream replays the current value immediately to a new subscriber',
       () async {
@@ -86,27 +92,30 @@ void main() {
       'Property stream replays the latest value, not history, to a late subscriber',
       () async {
         final CurrentValueStream<int> stream = CurrentValueStream<int>(1);
+        final Stream<int> broadcast = stream.stream;
         stream.update(2);
         stream.update(3);
 
-        await expectLater(stream.stream, emits(3));
+        await expectLater(broadcast, emits(3));
       },
     );
 
     test(
-      'Property stream gives each independent subscriber its own replay',
+      'Property stream gives each subscriber its own replay on the same broadcast stream',
       () async {
         final CurrentValueStream<int> stream = CurrentValueStream<int>(1);
+        final Stream<int> broadcast = stream.stream;
 
         final Future<void> first = expectLater(
-          stream.stream,
-          emitsInOrder(<Object>[1, 2]),
+          broadcast,
+          emitsInOrder(<Object>[1, 2, 3]),
         );
         final Future<void> second = expectLater(
-          stream.stream,
-          emitsInOrder(<Object>[1, 2]),
+          broadcast,
+          emitsInOrder(<Object>[1, 2, 3]),
         );
         stream.update(2);
+        stream.update(3);
 
         await Future.wait(<Future<void>>[first, second]);
       },
@@ -115,16 +124,22 @@ void main() {
     test('Property stream keeps a still-listening subscriber unaffected when '
         'another subscriber cancels', () async {
       final CurrentValueStream<int> stream = CurrentValueStream<int>(1);
+      final Stream<int> broadcast = stream.stream;
 
       final Future<void> stillListening = expectLater(
-        stream.stream,
+        broadcast,
         emitsInOrder(<Object>[1, 2]),
       );
-      final StreamSubscription<int> cancelling = stream.stream.listen((_) {});
+      final List<int> cancelledValues = <int>[];
+      final StreamSubscription<int> cancelling = broadcast.listen(
+        cancelledValues.add,
+      );
+      await Future<void>.delayed(Duration.zero);
       await cancelling.cancel();
       stream.update(2);
 
       await stillListening;
+      expect(cancelledValues, <int>[1]);
     });
   });
 }

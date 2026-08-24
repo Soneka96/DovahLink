@@ -42,5 +42,5 @@ class CurrentValueStream<T> {
           controller.add,
         );
         controller.onCancel = subscription.cancel;
-      });
+      }, isBroadcast: true);
 }
