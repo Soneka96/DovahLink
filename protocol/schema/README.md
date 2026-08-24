@@ -43,14 +43,15 @@ independent protocol-generation number carried on every message — see
 
 ```json
 {
-  "stateArea": "character",
+  "stateArea": "example_area",
   "revision": 42,
   "occurredAt": "2026-08-10T12:00:00Z",
   "data": {}
 }
 ```
 
-- `stateArea` is a canonical identifier such as `character` or `location`.
+- `stateArea` is a canonical identifier assigned when a state area is registered. No state area is
+  currently registered; see "Registered state areas" below.
 - `revision` is a non-negative integer, monotonically increasing within one
   `(bridgeInstanceId, playContextId, stateArea)`.
 - A revision belongs to that authoritative bridge instance, play context, and state area rather
@@ -67,7 +68,7 @@ An event additionally contains `baseRevision`, the revision the event expects th
 
 ```json
 {
-  "stateArea": "character",
+  "stateArea": "example_area",
   "baseRevision": 41,
   "revision": 42,
   "occurredAt": "2026-08-10T12:00:00Z",
@@ -79,6 +80,14 @@ An event additionally contains `baseRevision`, the revision the event expects th
 
 An accepted snapshot becomes the baseline for its state area and supersedes older events for that
 area.
+
+## Registered state areas
+
+No state area is currently registered. The previous `character` aggregate (player level and three
+resource pools bundled into one state area) is retired: a future phase may register a composed
+character view, or focused progression-specific areas, without reviving this shape. Until a state
+area is registered, `subscribe` and `snapshot_request` reject every requested area explicitly (see
+their sections below) and both endpoints' `capabilities` list is empty.
 
 ## Message types
 
@@ -367,9 +376,7 @@ Declares supported features after `hello_ack`.
 
 ```json
 {
-  "capabilities": [
-    {"id": "state.character", "version": 1}
-  ]
+  "capabilities": []
 }
 ```
 
@@ -379,9 +386,9 @@ without it.
 
 Required payload field: `capabilities`. Each capability requires `id` and `version`.
 
-Both endpoints send `capabilities`. The only registered capability is `state.character` version
-`1`; unregistered capability IDs are rejected. The bridge may advertise `state.character`; the
-client sends an empty capability list because no client-side capability IDs are defined yet.
+Both endpoints send `capabilities`. No capability is currently registered (see "Registered state
+areas" above); both the bridge and the client send an empty list, and any non-empty list is
+rejected as `unsupported_capability`.
 
 ### `subscribe`
 
@@ -389,13 +396,17 @@ Requests state areas after capabilities are negotiated.
 
 ```json
 {
-  "stateAreas": ["character"]
+  "stateAreas": ["example_area"]
 }
 ```
 
-The bridge confirms the subscription and sends a `state_snapshot` before sending events for that state area.
+The bridge confirms the subscription and sends a `state_snapshot` before sending events only for a
+requested state area that is registered and accepted. When every requested area is rejected, the
+bridge sends only `subscription_ack` and no snapshot.
 
-Required payload field: `stateAreas`. The bridge responds with `subscription_ack`.
+Required payload field: `stateAreas`. The bridge responds with `subscription_ack`. No state area is
+currently registered (see "Registered state areas" above), so every requested area is rejected into
+`subscription_ack.rejectedStateAreas`.
 
 ### `subscription_ack`
 
@@ -403,27 +414,32 @@ Confirms accepted and rejected state areas:
 
 ```json
 {
-  "acceptedStateAreas": ["character"],
-  "rejectedStateAreas": []
+  "acceptedStateAreas": [],
+  "rejectedStateAreas": ["example_area"]
 }
 ```
 
-Both arrays are required. The bridge sends snapshots only for accepted areas.
+Both arrays are required. The bridge sends snapshots only for accepted areas. No state area is
+currently registered, so `acceptedStateAreas` is always empty and every requested area appears in
+`rejectedStateAreas`.
 
 `subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. Each initial snapshot also uses the `subscribe` message ID as its `correlationId`; later snapshots use the `snapshot_request` message ID that caused them.
 
 ### `snapshot_request`
 
-Requests a fresh baseline for one state area. The bridge responds with a `state_snapshot` at the current revision.
+Requests a fresh baseline for one registered state area. When the area is accepted, the bridge
+responds with a `state_snapshot` at the current revision; an unregistered area is rejected instead.
 
 ```json
 {
-  "stateArea": "character",
+  "stateArea": "example_area",
   "knownRevision": 41
 }
 ```
 
-Required payload field: `stateArea`. `knownRevision` is optional and advisory only.
+Required payload field: `stateArea`. `knownRevision` is optional and advisory only. A
+`state_snapshot` is returned only when the requested state area is registered and accepted;
+otherwise the request is rejected as `unsupported_capability`.
 
 ### `state_snapshot`
 
@@ -438,26 +454,6 @@ An initial snapshot correlates to `subscribe`; a recovery snapshot correlates to
 Contains one ordered update from `baseRevision` to `revision` for one subscribed state area.
 
 Required payload fields: `stateArea`, `baseRevision`, `revision`, `occurredAt`, `data`. Events contain complete post-change state, not partial patches.
-
-### `character` state area
-
-The `character` state area contains a complete read-only snapshot of the player's
-current level and three resource pools:
-
-```json
-{
-  "level": 12,
-  "health": {"current": 180.0, "maximum": 220.0},
-  "magicka": {"current": 90.0, "maximum": 120.0},
-  "stamina": {"current": 140.0, "maximum": 160.0}
-}
-```
-
-The `level`, `health`, `magicka`, and `stamina` fields are required in the
-payload and may be `null` when the bridge cannot provide a trustworthy value.
-When a resource is present, `current` and `maximum` are required finite JSON
-numbers. Values are game units; the protocol does not infer percentages or
-replace unavailable values with zeroes.
 
 ### `error`
 

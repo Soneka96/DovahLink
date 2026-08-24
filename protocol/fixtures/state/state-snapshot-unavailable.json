@@ -1,17 +1,14 @@
 {
   "messageType": "state_snapshot",
-  "messageId": "message-character-snapshot-2",
+  "messageId": "message-state-snapshot-unavailable-1",
   "sessionId": "session-1",
-  "correlationId": "subscribe-1",
+  "correlationId": "message-subscribe-1",
   "payload": {
-    "stateArea": "character",
+    "stateArea": "example_area",
     "revision": 2,
     "occurredAt": "2026-08-11T12:00:01Z",
     "data": {
-      "level": null,
-      "health": null,
-      "magicka": null,
-      "stamina": null
+      "value": null
     }
   },
   "bridgeInstanceId": "bridge-1",

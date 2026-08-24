@@ -1,0 +1,17 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-state-snapshot-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "example_area",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": 12
+    }
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

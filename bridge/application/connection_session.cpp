@@ -113,7 +113,6 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     ReplayGuard replayGuard;
     security::ViolationTracker violations;
     security::InboundMessageRateLimiter rateLimiter;
-    SubscriptionState subscriptionState;
     std::size_t receivedMessageCount = 0;
 
     while (true) {
@@ -124,8 +123,8 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
         auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager,
                                              replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                             subscriptionState, pairingSession, trustStore, pairingNotificationSink,
-                                             bridgeInstanceId, steadyNow(), std::chrono::system_clock::now());
+                                             pairingSession, trustStore, pairingNotificationSink, bridgeInstanceId,
+                                             steadyNow());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

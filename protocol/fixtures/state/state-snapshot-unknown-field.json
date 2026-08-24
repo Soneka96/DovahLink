@@ -1,18 +1,15 @@
 {
   "messageType": "state_snapshot",
-  "messageId": "message-character-snapshot-unknown-field-1",
+  "messageId": "message-state-snapshot-unknown-field-1",
   "sessionId": "session-1",
   "correlationId": "message-subscribe-1",
   "futureDiagnosticHint": "modeled future-compatible sender; unregistered field",
   "payload": {
-    "stateArea": "character",
+    "stateArea": "example_area",
     "revision": 1,
     "occurredAt": "2026-08-11T12:00:00Z",
     "data": {
-      "level": 12,
-      "health": {"current": 180.0, "maximum": 220.0},
-      "magicka": {"current": 90.0, "maximum": 120.0},
-      "stamina": {"current": 140.0, "maximum": 160.0}
+      "value": 12
     }
   },
   "bridgeInstanceId": "bridge-1",

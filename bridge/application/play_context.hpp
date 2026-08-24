@@ -14,8 +14,8 @@
 
 namespace dovahlink::application {
 
-/// One authoritative Skyrim play context: the character state and revision counters that belong
-/// to the currently loaded game, per `ARCHITECTURE.md`'s identity model. Never moved or copied --
+/// One authoritative Skyrim play context: the character state captured while the currently loaded
+/// game is active, per `ARCHITECTURE.md`'s identity model. Never moved or copied --
 /// `CharacterStateStore`'s internal mutex already forbids it -- and always held behind
 /// `std::shared_ptr` so a handler already using this context cannot be left with a dangling
 /// reference when a lifecycle callback invalidates or replaces the active context mid-handler.
@@ -30,7 +30,9 @@ struct PlayContext {
     /// Character state captured while this play context is active.
     CharacterStateStore characterState;
 
-    /// Revision counters for this play context's state areas.
+    /// Revisions for state areas belonging to this play context. Reconnects create new socket
+    /// sessions but do not replace this tracker; loading another game creates a new PlayContext and
+    /// therefore a fresh revision namespace.
     RevisionTracker revisions;
 };
 

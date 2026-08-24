@@ -4,7 +4,7 @@
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
-    "stateArea": "character",
+    "stateArea": "example_area",
     "knownRevision": 2
   },
   "bridgeInstanceId": "bridge-1",

@@ -8,12 +8,6 @@ using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::PlayContext;
 
-namespace {
-constexpr const char* kCharacter = "character";
-constexpr const char* kFingerprintA = "{\"level\":5}";
-constexpr const char* kFingerprintB = "{\"level\":6}";
-}  // namespace
-
 TEST_CASE("AcquireCurrent is nullptr before any context begins", "[application][play_context]") {
     ActivePlayContext active;
     CHECK_FALSE(active.AcquireCurrent());
@@ -55,16 +49,17 @@ TEST_CASE("a context handle acquired before Reset stays valid after the active c
     // Reset() only clears ActivePlayContext's own reference; a shared_ptr a
     // caller already holds keeps the context alive and usable.
     CHECK(acquired->id == "ctx-1");
-    acquired->revisions.StartSnapshot(kCharacter, kFingerprintA);
-    CHECK(acquired->revisions.CurrentRevision(kCharacter) == 1);
+    acquired->characterState.OnLevelCaptured(5);
+    REQUIRE(acquired->characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK(*acquired->characterState.CurrentCharacterSnapshot().level == 5);
 }
 
-TEST_CASE("a fresh PlayContext has the given id and empty character/revision state",
-          "[application][play_context]") {
+TEST_CASE("a fresh PlayContext has the given id and empty character state", "[application][play_context]") {
     PlayContext context("ctx-1");
     CHECK(context.id == "ctx-1");
     CHECK_FALSE(context.characterState.CurrentCharacterSnapshot().level.has_value());
-    CHECK_FALSE(context.revisions.CurrentRevision(kCharacter).has_value());
+    CHECK_FALSE(context.revisions.CurrentRevision("character_level").has_value());
+    CHECK(context.revisions.StartSnapshot("character_level", "level-1") == 1);
 }
 
 TEST_CASE("repeated AcquireCurrent calls with no intervening change return the identical instance",
@@ -74,21 +69,23 @@ TEST_CASE("repeated AcquireCurrent calls with no intervening change return the i
     CHECK(active.AcquireCurrent() == active.AcquireCurrent());
 }
 
-TEST_CASE("a new Begin discards the previous context's revision counter rather than resetting it "
+TEST_CASE("a new Begin discards the previous context's character state rather than resetting it "
           "in place",
           "[application][play_context]") {
     ActivePlayContext active;
     auto first = active.Begin("ctx-1");
-    first->revisions.StartSnapshot(kCharacter, kFingerprintA);
-    first->revisions.StartSnapshot(kCharacter, kFingerprintB);
-    REQUIRE(first->revisions.CurrentRevision(kCharacter) == 2);
+    first->characterState.OnLevelCaptured(5);
+    REQUIRE(first->characterState.CurrentCharacterSnapshot().level == 5);
+    REQUIRE(first->revisions.StartSnapshot("character_level", "level-5") == 1);
 
     auto second = active.Begin("ctx-2");
     CHECK(second != first);
-    // The new context starts a fresh sequence...
-    CHECK(second->revisions.StartSnapshot(kCharacter, kFingerprintA) == 1);
+    // The new context starts with no captured state...
+    CHECK_FALSE(second->characterState.CurrentCharacterSnapshot().level.has_value());
+    CHECK_FALSE(second->revisions.CurrentRevision("character_level").has_value());
     // ...while the handle a caller acquired before the swap keeps its own state untouched.
-    CHECK(first->revisions.CurrentRevision(kCharacter) == 2);
+    CHECK(first->characterState.CurrentCharacterSnapshot().level == 5);
+    CHECK(first->revisions.CurrentRevision("character_level") == 1);
 }
 
 TEST_CASE("ApplyLifecycleTransition resets the active context on invalidation with no new id",

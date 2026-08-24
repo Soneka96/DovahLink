@@ -9,8 +9,9 @@ fixtures/
   capabilities/
   subscriptions/
   state/
-    character/
   errors/
+  pairing/
+  rename/
 ```
 
 ## Rules

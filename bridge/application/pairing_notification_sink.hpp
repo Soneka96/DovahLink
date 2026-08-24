@@ -7,7 +7,7 @@ namespace dovahlink::application {
 /// Displays a newly issued pairing code to the user. The pairing handler owns when a code is
 /// generated and how long it stays valid; this seam owns only how it reaches the user -- a native
 /// Skyrim notification in the real implementation (a later phase), a recording double in tests and
-/// the Skyrim-independent test harness. Mirrors `CharacterStateProvider`'s existing seam pattern.
+/// the Skyrim-independent test harness.
 class PairingNotificationSink {
 public:
     /// Releases the interface without performing work.

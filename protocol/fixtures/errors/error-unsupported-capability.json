@@ -1,0 +1,15 @@
+{
+  "messageType": "error",
+  "messageId": "message-error-unsupported-capability-1",
+  "sessionId": "session-1",
+  "correlationId": "message-snapshot-request-1",
+  "payload": {
+    "code": "unsupported_capability",
+    "message": "Unknown state area: example_area",
+    "retryable": false,
+    "details": null
+  },
+  "bridgeInstanceId": "bridge-1",
+  "playContextId": null,
+  "clientId": null
+}

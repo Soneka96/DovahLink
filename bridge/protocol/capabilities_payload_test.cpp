@@ -9,14 +9,14 @@
 
 using dovahlink::protocol::test_support::DecodeFixtureEnvelope;
 
-TEST_CASE("capabilities-bridge fixture decodes to the expected CapabilitiesPayload",
+TEST_CASE("capabilities-bridge fixture decodes to an empty CapabilitiesPayload",
           "[protocol][capabilities_payload]") {
+    // No capability is currently registered (protocol/schema/README.md's "Registered state
+    // areas"), so both endpoints' fixtures advertise an empty list.
     auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-bridge.json");
     auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
     REQUIRE(capabilities.has_value());
-    REQUIRE(capabilities->capabilities.size() == 1);
-    CHECK(capabilities->capabilities[0].id == "state.character");
-    CHECK(capabilities->capabilities[0].version == 1);
+    CHECK(capabilities->capabilities.empty());
 }
 
 TEST_CASE("capabilities-client fixture decodes to an empty CapabilitiesPayload",
@@ -28,29 +28,29 @@ TEST_CASE("capabilities-client fixture decodes to an empty CapabilitiesPayload",
 }
 
 TEST_CASE("capabilities is rejected when an entry is missing version", "[protocol][capabilities_payload]") {
-    boost::json::object payload = boost::json::parse(R"({"capabilities": [{"id": "state.character"}]})").get_object();
+    boost::json::object payload = boost::json::parse(R"({"capabilities": [{"id": "state.inventory"}]})").get_object();
     auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(payload);
     REQUIRE_FALSE(capabilities.has_value());
 }
 
 TEST_CASE("capabilities is rejected when an entry is not an object", "[protocol][capabilities_payload]") {
-    boost::json::object payload = boost::json::parse(R"({"capabilities": ["state.character"]})").get_object();
+    boost::json::object payload = boost::json::parse(R"({"capabilities": ["state.inventory"]})").get_object();
     auto capabilities = dovahlink::protocol::DecodeCapabilitiesPayload(payload);
     REQUIRE_FALSE(capabilities.has_value());
 }
 
-TEST_CASE("EncodeCapabilitiesPayload round-trips the capabilities-bridge fixture's payload",
+TEST_CASE("EncodeCapabilitiesPayload round-trips a non-empty capabilities list",
           "[protocol][capabilities_payload]") {
-    auto envelope = DecodeFixtureEnvelope("capabilities/capabilities-bridge.json");
-    auto original = dovahlink::protocol::DecodeCapabilitiesPayload(envelope.payload);
-    REQUIRE(original.has_value());
+    dovahlink::protocol::CapabilitiesPayload original{
+        .capabilities = {dovahlink::protocol::Capability{.id = "state.inventory", .version = 1}},
+    };
 
-    boost::json::object encoded = dovahlink::protocol::EncodeCapabilitiesPayload(*original);
+    boost::json::object encoded = dovahlink::protocol::EncodeCapabilitiesPayload(original);
     auto roundTripped = dovahlink::protocol::DecodeCapabilitiesPayload(encoded);
 
     REQUIRE(roundTripped.has_value());
     REQUIRE(roundTripped->capabilities.size() == 1);
-    CHECK(roundTripped->capabilities[0].id == "state.character");
+    CHECK(roundTripped->capabilities[0].id == "state.inventory");
     CHECK(roundTripped->capabilities[0].version == 1);
 }
 

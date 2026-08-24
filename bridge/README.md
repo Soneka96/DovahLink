@@ -199,17 +199,18 @@ Evaluated directly against the pinned commit's source
 | Crash-handler installation (`SetUnhandledExceptionFilter`, minidump writing) gated on log level | **Exclude** | Crash-handler installation is outside the documented Phase 1 scope. |
 | Per-subscription polling at a client-declared frequency (minimum 50 ms) as the mechanism for delivering any field, including level | **Exclude** | DovahLink publishes level changes from `RE::LevelIncrease::Event` and does not use worker-side game polling. |
 | `directxtk`, `rapidcsv` dependencies | **Exclude** | Unrelated to DovahLink's Phase 1 scope (no rendering overlay, no CSV-driven data); not pulled in. |
-| `FieldRegistry` / per-field-key generic resolver system (`GameReader`, `InventoryReader`, `MagicReader`, `HotkeyReader`, `QuestReader`) | **Exclude** | A general key-addressable field API is exactly the "generic event framework or speculative service layer" `ai/context/skse/architecture.md` and `ARCHITECTURE.md` reject for Phase 1. DovahLink exposes one state area (`character`) through its own protocol mapping, not a generic field registry. |
+| `FieldRegistry` / per-field-key generic resolver system (`GameReader`, `InventoryReader`, `MagicReader`, `HotkeyReader`, `QuestReader`) | **Exclude** | A general key-addressable field API is exactly the "generic event framework or speculative service layer" `ai/context/skse/architecture.md` and `ARCHITECTURE.md` reject for Phase 1. DovahLink exposes registered state areas through their own protocol mappings, not a generic field registry. |
 
 All adapted code will carry the required MIT attribution for SkyrimWebSocket
 (`3d42b908b6060774f3da68f53ed7107b914c740d`) at the point it is introduced.
 
 ## Live event delivery is deferred to Phase 4
 
-Phase 1 does not implement an outbound event queue or coalescer. A connected and subscribed client
-sees a level change only by asking again -- a fresh `subscribe` or `snapshot_request` -- never as an
-unprompted `state_event`. `RunConnectionSession` stays purely request/response: it never writes to a
-socket except in direct reply to a message it just read.
+The current transitional contract does not register a state area, so `subscribe` and
+`snapshot_request` reject state requests and no state snapshot is produced. Phase 1 did not
+implement an outbound event queue or coalescer; registered progression domains and unprompted
+`state_event` delivery are Stage 4 work. `RunConnectionSession` remains purely request/response
+until that phase's full-duplex transport work lands.
 
 This is a deliberate, roadmap-tracked deferral, not an oversight. Delivering an unprompted push
 requires a connection to write independent of its own next read, which the current synchronous,
@@ -325,10 +326,9 @@ SKSE plugins loaded, verified via Steam; observed):
 Both toggles disabled via DovahLinkBridge.ini (expected: prior default Skyrim behavior for both;
 observed):
 
-Initial level snapshot result (expected vs. observed):
+Initial state snapshot result (not applicable while no state area is registered):
 
-Level-increase result, observed by requesting a fresh snapshot after a level-up
-(unprompted push delivery is Roadmap Phase 4, not part of this record):
+Registered-domain progression result (deferred until Stage 4 registers the first production domains):
 
 Disconnect result (expected vs. observed):
 Reconnect result for an attempt made BEFORE the one-time token was consumed
