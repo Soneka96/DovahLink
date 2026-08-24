@@ -57,6 +57,71 @@ void main() {
       expect(payload.revision, 1);
     });
 
+    test('Method fromJson rejects a negative baseRevision', () {
+      expect(
+        () => StateEventPayload.fromJson(<String, dynamic>{
+          'stateArea': 'example_area',
+          'baseRevision': -1,
+          'revision': 0,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{},
+        }),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test('Method fromJson rejects a negative revision', () {
+      expect(
+        () => StateEventPayload.fromJson(<String, dynamic>{
+          'stateArea': 'example_area',
+          'baseRevision': 0,
+          'revision': -1,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{},
+        }),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test('Method fromJson rejects fractional revision numbers instead of truncating them', () {
+      expect(
+        () => StateEventPayload.fromJson(<String, dynamic>{
+          'stateArea': 'example_area',
+          'baseRevision': 1.5,
+          'revision': 2,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{},
+        }),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test('Method fromJson rejects a fractional revision instead of truncating it', () {
+      expect(
+        () => StateEventPayload.fromJson(<String, dynamic>{
+          'stateArea': 'example_area',
+          'baseRevision': 1,
+          'revision': 2.5,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{},
+        }),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test('Method fromJson rejects a revision that does not follow baseRevision', () {
+      expect(
+        () => StateEventPayload.fromJson(<String, dynamic>{
+          'stateArea': 'example_area',
+          'baseRevision': 1,
+          'revision': 3,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{},
+        }),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
     test('Method fromJson throws ProtocolFormatException when baseRevision is missing', () {
       expect(
         () => StateEventPayload.fromJson(<String, dynamic>{
