@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dar
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -55,6 +56,14 @@ abstract final class Fixtures {
     playContextId: playContextId,
     clientId: clientId,
   );
+
+  // ---- Pairing ----
+
+  /// Builds a pairing-status payload with representative expiry defaults.
+  static PairingStatusPayload buildPairingStatusPayload({
+    PairingAvailability state = PairingAvailability.available,
+    int? expiresInSeconds = 300,
+  }) => PairingStatusPayload(state: state, expiresInSeconds: expiresInSeconds);
 
   // ---- Persistence ----
 

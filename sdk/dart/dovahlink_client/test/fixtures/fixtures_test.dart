@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'fixtures.dart';
@@ -120,6 +121,32 @@ void main() {
     test('Method buildEnvelope returns a fresh envelope per call', () {
       final Envelope first = Fixtures.buildEnvelope();
       final Envelope second = Fixtures.buildEnvelope();
+
+      expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildPairingStatusPayload behaves correctly', () {
+    test('Method buildPairingStatusPayload builds representative defaults', () {
+      final PairingStatusPayload payload = Fixtures.buildPairingStatusPayload();
+
+      expect(payload.state, PairingAvailability.available);
+      expect(payload.expiresInSeconds, 300);
+    });
+
+    test('Method buildPairingStatusPayload preserves named overrides', () {
+      final PairingStatusPayload payload = Fixtures.buildPairingStatusPayload(
+        state: PairingAvailability.otherDevicePairing,
+        expiresInSeconds: null,
+      );
+
+      expect(payload.state, PairingAvailability.otherDevicePairing);
+      expect(payload.expiresInSeconds, isNull);
+    });
+
+    test('Method buildPairingStatusPayload returns a fresh value per call', () {
+      final PairingStatusPayload first = Fixtures.buildPairingStatusPayload();
+      final PairingStatusPayload second = Fixtures.buildPairingStatusPayload();
 
       expect(identical(first, second), isFalse);
     });

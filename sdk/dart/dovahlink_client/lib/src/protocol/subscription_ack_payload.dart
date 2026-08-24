@@ -18,7 +18,10 @@ class SubscriptionAckPayload {
   final List<String> rejectedStateAreas;
 
   /// Creates a subscription-ack payload.
-  const SubscriptionAckPayload({required this.acceptedStateAreas, required this.rejectedStateAreas});
+  const SubscriptionAckPayload({
+    required this.acceptedStateAreas,
+    required this.rejectedStateAreas,
+  });
 
   /// Decodes and validates one subscription-ack payload.
   factory SubscriptionAckPayload.fromJson(JsonMap json) {

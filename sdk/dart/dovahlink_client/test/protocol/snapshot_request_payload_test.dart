@@ -22,11 +22,16 @@ void main() {
         knownRevision: 2,
       );
 
-      expect(payload.toJson(), _readPayload('subscriptions/snapshot-request.json'));
+      expect(
+        payload.toJson(),
+        _readPayload('subscriptions/snapshot-request.json'),
+      );
     });
 
     test('Method toJson omits knownRevision entirely when absent', () {
-      const SnapshotRequestPayload payload = SnapshotRequestPayload(stateArea: 'example_area');
+      const SnapshotRequestPayload payload = SnapshotRequestPayload(
+        stateArea: 'example_area',
+      );
 
       final JsonMap json = payload.toJson();
 

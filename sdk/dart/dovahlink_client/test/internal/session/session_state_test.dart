@@ -193,20 +193,17 @@ void main() {
       },
     );
 
-    test(
-      'Method admit leaves an ordinary connected session at connected',
-      () {
-        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
-        state.markConnected();
+    test('Method admit leaves an ordinary connected session at connected', () {
+      state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+      state.markConnected();
 
-        state.admit(
-          sessionId: 'session-1',
-          trustState: DovahLinkTrustState.trusted,
-        );
+      state.admit(
+        sessionId: 'session-1',
+        trustState: DovahLinkTrustState.trusted,
+      );
 
-        expect(state.connectionState, DovahLinkConnectionState.connected);
-      },
-    );
+      expect(state.connectionState, DovahLinkConnectionState.connected);
+    });
   });
 
   group('Method markTrusted behaves correctly', () {
@@ -513,28 +510,25 @@ void main() {
       },
     );
 
-    test(
-      'Property connectionStateChanges does not emit when markConnectFailed leaves '
-      'connectionState unchanged',
-      () async {
-        state.markReconnecting();
+    test('Property connectionStateChanges does not emit when markConnectFailed leaves '
+        'connectionState unchanged', () async {
+      state.markReconnecting();
 
-        // If the unchanged-value no-op were broken, the second element here would be a
-        // duplicate reconnecting instead of the real transition to reauthenticating.
-        final Future<void> expectation = expectLater(
-          state.connectionStateChanges,
-          emitsInOrder(<Object>[
-            DovahLinkConnectionState.reconnecting,
-            DovahLinkConnectionState.reauthenticating,
-          ]),
-        );
+      // If the unchanged-value no-op were broken, the second element here would be a
+      // duplicate reconnecting instead of the real transition to reauthenticating.
+      final Future<void> expectation = expectLater(
+        state.connectionStateChanges,
+        emitsInOrder(<Object>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+        ]),
+      );
 
-        state.markConnectFailed();
-        state.markConnected();
+      state.markConnectFailed();
+      state.markConnected();
 
-        await expectation;
-      },
-    );
+      await expectation;
+    });
 
     test(
       'Property connectionStateChanges does not emit when beginConnectAttempt leaves '
