@@ -178,4 +178,45 @@ public class ErrorPayloadTests
 
         Assert.Throws<FormatException>(() => ErrorPayload.Decode(payload));
     }
+
+    /// <summary>Verifies that Decode rejects an unknown error code.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenCodeIsUnknown()
+    {
+        var payload = new JsonObject
+        {
+            ["code"] = "unknown_error",
+            ["message"] = "Something failed",
+            ["retryable"] = false,
+            ["details"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => ErrorPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode accepts every registered error code not covered by fixtures.</summary>
+    /// <param name="code">The registered error code to decode.</param>
+    [Theory]
+    [InlineData("malformed_message")]
+    [InlineData("frame_too_large")]
+    [InlineData("unauthorized")]
+    [InlineData("revoked")]
+    [InlineData("blocked")]
+    [InlineData("replayed_message")]
+    [InlineData("stale_session")]
+    [InlineData("internal_error")]
+    public void DecodeAcceptsEveryUncoveredRegisteredCode(string code)
+    {
+        var payload = new JsonObject
+        {
+            ["code"] = code,
+            ["message"] = "Something failed",
+            ["retryable"] = false,
+            ["details"] = null,
+        };
+
+        ErrorPayload decoded = ErrorPayload.Decode(payload);
+
+        Assert.Equal(code, decoded.Code);
+    }
 }

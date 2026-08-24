@@ -64,4 +64,13 @@ public class SessionInvalidatedPayloadTests
 
         Assert.Throws<FormatException>(() => SessionInvalidatedPayload.Decode(payload));
     }
+
+    /// <summary>Verifies that Decode rejects an unknown invalidation reason.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenReasonIsUnknown()
+    {
+        var payload = new JsonObject { ["reason"] = "unknown" };
+
+        Assert.Throws<FormatException>(() => SessionInvalidatedPayload.Decode(payload));
+    }
 }

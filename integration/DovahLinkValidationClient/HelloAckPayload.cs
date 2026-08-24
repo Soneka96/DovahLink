@@ -17,8 +17,8 @@ public sealed record HelloAckPayload(string BridgeVersion, string ClientIdentity
     /// </summary>
     /// <param name="payload">The envelope's decoded payload object.</param>
     /// <returns>The decoded hello-ack payload.</returns>
-    /// <exception cref="FormatException">Thrown when a required field is missing or the wrong JSON
-    /// type.</exception>
+    /// <exception cref="FormatException">Thrown when a required field is missing, has the wrong JSON
+    /// type, or contains an unsupported value.</exception>
     public static HelloAckPayload Decode(JsonObject payload)
     {
         try
@@ -27,6 +27,14 @@ public sealed record HelloAckPayload(string BridgeVersion, string ClientIdentity
                 ?? throw new FormatException("Missing bridgeVersion.");
             string clientIdentityKind = payload["clientIdentityKind"]?.GetValue<string>()
                 ?? throw new FormatException("Missing clientIdentityKind.");
+            if (bridgeVersion.Length == 0)
+            {
+                throw new FormatException("bridgeVersion must be a non-empty string.");
+            }
+            if (clientIdentityKind is not ("unpaired" or "paired"))
+            {
+                throw new FormatException($"Unknown client identity kind: {clientIdentityKind}.");
+            }
             return new HelloAckPayload(bridgeVersion, clientIdentityKind);
         }
         catch (InvalidOperationException ex)

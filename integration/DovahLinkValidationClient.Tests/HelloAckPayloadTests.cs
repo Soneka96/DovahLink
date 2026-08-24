@@ -69,4 +69,30 @@ public class HelloAckPayloadTests
 
         Assert.Throws<FormatException>(() => HelloAckPayload.Decode(payload));
     }
+
+    /// <summary>Verifies that Decode rejects an empty bridge version.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenBridgeVersionIsEmpty()
+    {
+        var payload = new JsonObject
+        {
+            ["bridgeVersion"] = "",
+            ["clientIdentityKind"] = "paired",
+        };
+
+        Assert.Throws<FormatException>(() => HelloAckPayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects an unknown client identity kind.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenClientIdentityKindIsUnknown()
+    {
+        var payload = new JsonObject
+        {
+            ["bridgeVersion"] = "0.3.2",
+            ["clientIdentityKind"] = "unknown",
+        };
+
+        Assert.Throws<FormatException>(() => HelloAckPayload.Decode(payload));
+    }
 }

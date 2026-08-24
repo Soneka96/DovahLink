@@ -74,4 +74,56 @@ public class RenameOutcomePayloadTests
 
         Assert.Throws<FormatException>(() => RenameOutcomePayload.Decode(payload));
     }
+
+    /// <summary>Verifies that Decode accepts a renamed outcome with a cleared display name.</summary>
+    [Fact]
+    public void DecodeAcceptsRenamedOutcomeWithNullDisplayName()
+    {
+        RenameOutcomePayload payload = RenameOutcomePayload.Decode(new JsonObject
+        {
+            ["outcome"] = "renamed",
+            ["displayName"] = null,
+        });
+
+        Assert.Null(payload.DisplayName);
+    }
+
+    /// <summary>Verifies that Decode rejects an unknown rename outcome.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenOutcomeIsUnknown()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "unknown",
+            ["displayName"] = null,
+        };
+
+        Assert.Throws<FormatException>(() => RenameOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a display name on a non-renamed outcome.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenDisplayNameIsPresentForNotTrustedOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "not_trusted",
+            ["displayName"] = "My PC",
+        };
+
+        Assert.Throws<FormatException>(() => RenameOutcomePayload.Decode(payload));
+    }
+
+    /// <summary>Verifies that Decode rejects a display name on invalid_display_name.</summary>
+    [Fact]
+    public void DecodeThrowsFormatExceptionWhenDisplayNameIsPresentForInvalidDisplayNameOutcome()
+    {
+        var payload = new JsonObject
+        {
+            ["outcome"] = "invalid_display_name",
+            ["displayName"] = "My PC",
+        };
+
+        Assert.Throws<FormatException>(() => RenameOutcomePayload.Decode(payload));
+    }
 }

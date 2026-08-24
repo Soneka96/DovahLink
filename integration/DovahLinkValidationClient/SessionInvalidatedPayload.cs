@@ -16,12 +16,17 @@ public sealed record SessionInvalidatedPayload(string Reason)
     /// </summary>
     /// <param name="payload">The envelope's decoded payload object.</param>
     /// <returns>The decoded session-invalidated payload.</returns>
-    /// <exception cref="FormatException">Thrown when reason is missing or the wrong JSON type.</exception>
+    /// <exception cref="FormatException">Thrown when reason is missing, has the wrong JSON type, or
+    /// is not a registered invalidation reason.</exception>
     public static SessionInvalidatedPayload Decode(JsonObject payload)
     {
         try
         {
             string reason = payload["reason"]?.GetValue<string>() ?? throw new FormatException("Missing reason.");
+            if (reason is not ("revoked" or "blocked" or "trust_reset" or "factory_reset"))
+            {
+                throw new FormatException($"Unknown session invalidation reason: {reason}.");
+            }
             return new SessionInvalidatedPayload(reason);
         }
         catch (InvalidOperationException ex)

@@ -17,8 +17,8 @@ public sealed record RenameOutcomePayload(string Outcome, string? DisplayName)
     /// </summary>
     /// <param name="payload">The envelope's decoded payload object.</param>
     /// <returns>The decoded rename-outcome payload.</returns>
-    /// <exception cref="FormatException">Thrown when a required key is missing or a value has the
-    /// wrong JSON type.</exception>
+    /// <exception cref="FormatException">Thrown when a required key is missing, a value has the
+    /// wrong JSON type, or the outcome/display-name relationship is invalid.</exception>
     public static RenameOutcomePayload Decode(JsonObject payload)
     {
         try
@@ -29,6 +29,14 @@ public sealed record RenameOutcomePayload(string Outcome, string? DisplayName)
                 throw new FormatException("Missing displayName.");
             }
             string? displayName = payload["displayName"]?.GetValue<string>();
+            if (outcome is not ("renamed" or "invalid_display_name" or "not_trusted"))
+            {
+                throw new FormatException($"Unknown rename outcome: {outcome}.");
+            }
+            if (outcome != "renamed" && displayName is not null)
+            {
+                throw new FormatException($"displayName must be null for {outcome}.");
+            }
             return new RenameOutcomePayload(outcome, displayName);
         }
         catch (InvalidOperationException ex)
