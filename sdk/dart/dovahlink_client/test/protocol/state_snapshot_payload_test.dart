@@ -44,6 +44,19 @@ void main() {
       },
     );
 
+    test('Method fromJson accepts revision zero as a valid baseline', () {
+      final StateSnapshotPayload payload = StateSnapshotPayload.fromJson(
+        <String, dynamic>{
+          'stateArea': 'example_area',
+          'revision': 0,
+          'occurredAt': '2026-08-11T12:00:00Z',
+          'data': <String, dynamic>{'value': null},
+        },
+      );
+
+      expect(payload.revision, 0);
+    });
+
     test(
       'Method fromJson matches the canonical state-snapshot-unavailable fixture',
       () {
@@ -118,6 +131,36 @@ void main() {
           () => StateSnapshotPayload.fromJson(<String, dynamic>{
             'stateArea': 'example_area',
             'revision': 'one',
+            'occurredAt': '2026-08-11T12:00:00Z',
+            'data': <String, dynamic>{},
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when revision is negative',
+      () {
+        expect(
+          () => StateSnapshotPayload.fromJson(<String, dynamic>{
+            'stateArea': 'example_area',
+            'revision': -1,
+            'occurredAt': '2026-08-11T12:00:00Z',
+            'data': <String, dynamic>{},
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when revision is fractional',
+      () {
+        expect(
+          () => StateSnapshotPayload.fromJson(<String, dynamic>{
+            'stateArea': 'example_area',
+            'revision': 1.5,
             'occurredAt': '2026-08-11T12:00:00Z',
             'data': <String, dynamic>{},
           }),

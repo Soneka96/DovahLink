@@ -2,6 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_revision_validator.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_timestamp_validator.dart';
 
 part 'state_snapshot_payload.g.dart';
@@ -39,6 +40,10 @@ class StateSnapshotPayload {
   /// Decodes and validates one `state_snapshot` payload.
   factory StateSnapshotPayload.fromJson(JsonMap json) {
     try {
+      ProtocolRevisionValidator.validateNonNegativeInt(
+        json['revision'],
+        'revision',
+      );
       final StateSnapshotPayload payload = _$StateSnapshotPayloadFromJson(json);
       ProtocolTimestampValidator.validateUtcRfc3339(payload.occurredAt);
       return payload;

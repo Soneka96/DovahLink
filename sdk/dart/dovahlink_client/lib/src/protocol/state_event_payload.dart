@@ -2,6 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_revision_validator.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_timestamp_validator.dart';
 
 part 'state_event_payload.g.dart';
@@ -44,8 +45,14 @@ class StateEventPayload {
   /// Decodes and validates one `state_event` payload.
   factory StateEventPayload.fromJson(JsonMap json) {
     try {
-      _requireNonNegativeInt(json['baseRevision'], 'baseRevision');
-      _requireNonNegativeInt(json['revision'], 'revision');
+      ProtocolRevisionValidator.validateNonNegativeInt(
+        json['baseRevision'],
+        'baseRevision',
+      );
+      ProtocolRevisionValidator.validateNonNegativeInt(
+        json['revision'],
+        'revision',
+      );
 
       final StateEventPayload payload = _$StateEventPayloadFromJson(json);
       ProtocolTimestampValidator.validateUtcRfc3339(payload.occurredAt);
@@ -58,13 +65,5 @@ class StateEventPayload {
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid state_event payload: $error');
     }
-  }
-}
-
-/// Requires one state-event revision field to be an integer greater than or equal to zero before
-/// generated JSON conversion can coerce a numeric value to Dart's [int].
-void _requireNonNegativeInt(Object? value, String fieldName) {
-  if (value is! int || value < 0) {
-    throw ProtocolFormatException('$fieldName must be a non-negative integer.');
   }
 }
