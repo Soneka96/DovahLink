@@ -2,6 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_timestamp_validator.dart';
 
 part 'state_event_payload.g.dart';
 
@@ -47,6 +48,7 @@ class StateEventPayload {
       _requireNonNegativeInt(json['revision'], 'revision');
 
       final StateEventPayload payload = _$StateEventPayloadFromJson(json);
+      ProtocolTimestampValidator.validateUtcRfc3339(payload.occurredAt);
       if (payload.revision != payload.baseRevision + 1) {
         throw const ProtocolFormatException(
           'revision must equal baseRevision + 1.',
@@ -63,8 +65,6 @@ class StateEventPayload {
 /// generated JSON conversion can coerce a numeric value to Dart's [int].
 void _requireNonNegativeInt(Object? value, String fieldName) {
   if (value is! int || value < 0) {
-    throw ProtocolFormatException(
-      '$fieldName must be a non-negative integer.',
-    );
+    throw ProtocolFormatException('$fieldName must be a non-negative integer.');
   }
 }
