@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service_impl.dart';
@@ -285,6 +286,34 @@ void main() {
             retryable: false,
           ),
         );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verifyInOrder([
+          () => authenticationService.forgetCredential(),
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: false,
+            reason: any(named: 'reason'),
+          ),
+        ]);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss still reaches the final disconnect when credential cleanup fails',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.revoked,
+            message: 'rejected',
+            retryable: false,
+          ),
+        );
+        when(
+          () => authenticationService.forgetCredential(),
+        ).thenThrow(const DovahLinkStorageException('storage unavailable'));
         final ReconnectServiceImpl service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);

@@ -102,7 +102,12 @@ class ReconnectServiceImpl implements ReconnectService {
         if (ReconnectRejectionClassifier.isTerminal(error)) {
           if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
               null) {
-            await _authenticationService.forgetCredential();
+            try {
+              await _authenticationService.forgetCredential();
+            } on Object {
+              // Best-effort cleanup must not prevent the recovery cycle from finalizing with a
+              // disconnect. A later explicit authentication can retry this cleanup.
+            }
           }
           break;
         }
