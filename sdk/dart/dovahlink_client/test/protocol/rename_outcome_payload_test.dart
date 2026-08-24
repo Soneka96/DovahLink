@@ -18,72 +18,141 @@ JsonMap _readPayload(String relativePath) {
 /// Runs [RenameOutcomePayload.fromJson] behavior tests.
 void main() {
   group('Method fromJson behaves correctly', () {
-    test('Method fromJson matches the canonical rename-outcome-renamed fixture', () {
-      final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
-        _readPayload('rename/rename-outcome-renamed.json'),
-      );
+    test(
+      'Method fromJson matches the canonical rename-outcome-renamed fixture',
+      () {
+        final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
+          _readPayload('rename/rename-outcome-renamed.json'),
+        );
 
-      expect(payload.outcome, RenameOutcome.renamed);
-      expect(payload.displayName, 'New Name');
-    });
+        expect(payload.outcome, RenameOutcome.renamed);
+        expect(payload.displayName, 'New Name');
+      },
+    );
 
-    test('Method fromJson matches the canonical rename-outcome-invalid-display-name fixture', () {
-      final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
-        _readPayload('rename/rename-outcome-invalid-display-name.json'),
-      );
+    test(
+      'Method fromJson accepts renamed with a null displayName when clearing the name',
+      () {
+        final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
+          <String, dynamic>{'outcome': 'renamed', 'displayName': null},
+        );
 
-      expect(payload.outcome, RenameOutcome.invalidDisplayName);
-      expect(payload.displayName, isNull);
-    });
+        expect(payload.outcome, RenameOutcome.renamed);
+        expect(payload.displayName, isNull);
+      },
+    );
 
-    test('Method fromJson matches the canonical rename-outcome-not-trusted fixture', () {
-      final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
-        _readPayload('rename/rename-outcome-not-trusted.json'),
-      );
+    test(
+      'Method fromJson matches the canonical rename-outcome-invalid-display-name fixture',
+      () {
+        final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
+          _readPayload('rename/rename-outcome-invalid-display-name.json'),
+        );
 
-      expect(payload.outcome, RenameOutcome.notTrusted);
-      expect(payload.displayName, isNull);
-    });
+        expect(payload.outcome, RenameOutcome.invalidDisplayName);
+        expect(payload.displayName, isNull);
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when outcome is unrecognized', () {
-      expect(
-        () => RenameOutcomePayload.fromJson(<String, dynamic>{
-          'outcome': 'not_a_real_outcome',
-          'displayName': null,
-        }),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson matches the canonical rename-outcome-not-trusted fixture',
+      () {
+        final RenameOutcomePayload payload = RenameOutcomePayload.fromJson(
+          _readPayload('rename/rename-outcome-not-trusted.json'),
+        );
 
-    test('Method fromJson throws ProtocolFormatException when outcome is missing', () {
-      expect(
-        () => RenameOutcomePayload.fromJson(<String, dynamic>{'displayName': null}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+        expect(payload.outcome, RenameOutcome.notTrusted);
+        expect(payload.displayName, isNull);
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when displayName key is absent', () {
-      expect(
-        () => RenameOutcomePayload.fromJson(<String, dynamic>{'outcome': 'not_trusted'}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when outcome is unrecognized',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'not_a_real_outcome',
+            'displayName': null,
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when outcome is not a string', () {
-      expect(
-        () => RenameOutcomePayload.fromJson(<String, dynamic>{'outcome': 1, 'displayName': null}),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when outcome is missing',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'displayName': null,
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
 
-    test('Method fromJson throws ProtocolFormatException when displayName is not a string', () {
-      expect(
-        () => RenameOutcomePayload.fromJson(<String, dynamic>{
-          'outcome': 'not_trusted',
-          'displayName': 1,
-        }),
-        throwsA(isA<ProtocolFormatException>()),
-      );
-    });
+    test(
+      'Method fromJson throws ProtocolFormatException when displayName key is absent',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'not_trusted',
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when outcome is not a string',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 1,
+            'displayName': null,
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when displayName is not a string',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'not_trusted',
+            'displayName': 1,
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when invalidDisplayName has a name',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'invalid_display_name',
+            'displayName': 'New Name',
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Method fromJson throws ProtocolFormatException when notTrusted has a name',
+      () {
+        expect(
+          () => RenameOutcomePayload.fromJson(<String, dynamic>{
+            'outcome': 'not_trusted',
+            'displayName': 'New Name',
+          }),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
   });
 }

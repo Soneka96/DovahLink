@@ -19,12 +19,22 @@ class RenameOutcomePayload {
   final String? displayName;
 
   /// Creates a rename-outcome payload.
-  const RenameOutcomePayload({required this.outcome, required this.displayName});
+  const RenameOutcomePayload({
+    required this.outcome,
+    required this.displayName,
+  });
 
   /// Decodes and validates one `rename_outcome` payload.
   factory RenameOutcomePayload.fromJson(JsonMap json) {
     try {
-      return _$RenameOutcomePayloadFromJson(json);
+      final RenameOutcomePayload payload = _$RenameOutcomePayloadFromJson(json);
+      if (payload.outcome != RenameOutcome.renamed &&
+          payload.displayName != null) {
+        throw const ProtocolFormatException(
+          'displayName must be null unless outcome is renamed.',
+        );
+      }
+      return payload;
     } on Object catch (error) {
       throw ProtocolFormatException('Invalid rename_outcome payload: $error');
     }
