@@ -502,7 +502,7 @@ distinct operation alongside it.
   terminates them and preserves their configuration.
 ## 3.3 Client Trust-State Integration
 
-**Status:** Planned
+**Status:** Complete
 
 ### Outcome
 
