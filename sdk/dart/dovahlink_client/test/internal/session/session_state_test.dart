@@ -403,4 +403,144 @@ void main() {
       },
     );
   });
+
+  group('Property connectionStateChanges behaves correctly', () {
+    test(
+      'Property connectionStateChanges replays the current connectionState immediately to a '
+      'new subscriber',
+      () async {
+        await expectLater(
+          state.connectionStateChanges,
+          emits(DovahLinkConnectionState.disconnected),
+        );
+      },
+    );
+
+    test(
+      'Property connectionStateChanges emits in order across connect, admit, and invalidate',
+      () async {
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.disconnected,
+            DovahLinkConnectionState.connecting,
+            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.administrativelyInvalidated,
+          ]),
+        );
+
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+        state.invalidate(AdministrativeInvalidationReason.revoked);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges does not emit when markConnectFailed leaves '
+      'connectionState unchanged',
+      () async {
+        state.markReconnecting();
+
+        // If the unchanged-value no-op were broken, the second element here would be a
+        // duplicate reconnecting instead of the real transition to connected.
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+
+        state.markConnectFailed();
+        state.markConnected();
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges does not emit when beginConnectAttempt leaves '
+      'connectionState at reconnecting',
+      () async {
+        state.markReconnecting();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges does not emit when markReconnecting is called while '
+      'already reconnecting',
+      () async {
+        state.markReconnecting();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+
+        state.markReconnecting();
+        state.markConnected();
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges emits disconnected when resetAfterTeardown resolves out '
+      'of a connected session',
+      () async {
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.connected,
+            DovahLinkConnectionState.disconnected,
+          ]),
+        );
+
+        state.resetAfterTeardown(preserveReconnecting: false);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStateChanges does not emit when resetAfterTeardown stays reconnecting',
+      () async {
+        state.markReconnecting();
+
+        final Future<void> expectation = expectLater(
+          state.connectionStateChanges,
+          emitsInOrder(<Object>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+
+        state.resetAfterTeardown(preserveReconnecting: true);
+        state.markConnected();
+
+        await expectation;
+      },
+    );
+  });
 }

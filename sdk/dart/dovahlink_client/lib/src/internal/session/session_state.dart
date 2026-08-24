@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// The single authoritative owner of every session-scoped mutable fact this engine has, per
@@ -18,6 +19,15 @@ class SessionState {
   /// The current connection lifecycle phase.
   DovahLinkConnectionState _connectionState =
       DovahLinkConnectionState.disconnected;
+
+  /// Broadcasts every actual [connectionState] transition, per
+  /// `ai/context/sdk/api-design.md`'s "New-subscriber state replay". Fed at the end of every
+  /// method below that can change [_connectionState]; [CurrentValueStream.update] itself no-ops
+  /// when a method leaves the value unchanged, so every call site below updates unconditionally.
+  final CurrentValueStream<DovahLinkConnectionState> _connectionStateStream =
+      CurrentValueStream<DovahLinkConnectionState>(
+        DovahLinkConnectionState.disconnected,
+      );
 
   /// The server-issued session identifier, or `null` before [admit] is called.
   String? _sessionId;
@@ -44,6 +54,11 @@ class SessionState {
 
   /// The current connection lifecycle phase.
   DovahLinkConnectionState get connectionState => _connectionState;
+
+  /// A stream of every [connectionState] transition: the current value immediately on listen,
+  /// then each subsequent real change. See [_connectionStateStream].
+  Stream<DovahLinkConnectionState> get connectionStateChanges =>
+      _connectionStateStream.stream;
 
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.
@@ -82,11 +97,13 @@ class SessionState {
       _connectionState = DovahLinkConnectionState.connecting;
     }
     _lastConnectedUri = uri;
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Records a successful connect attempt.
   void markConnected() {
     _connectionState = DovahLinkConnectionState.connected;
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Records a failed connect attempt. Leaves [connectionState] untouched when a bounded-recovery
@@ -97,12 +114,14 @@ class SessionState {
     if (_connectionState != DovahLinkConnectionState.reconnecting) {
       _connectionState = DovahLinkConnectionState.disconnected;
     }
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Transitions to [DovahLinkConnectionState.reconnecting], entered only after ordinary transport
   /// loss tears down cleanly with a known endpoint and eligible bounded recovery.
   void markReconnecting() {
     _connectionState = DovahLinkConnectionState.reconnecting;
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Admits a newly authenticated session, recording [sessionId] and [trustState].
@@ -128,6 +147,7 @@ class SessionState {
     _sessionId = null;
     _trustState = null;
     _connectionGeneration++;
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Advances the connection generation so callbacks from an older connection become stale.
@@ -150,6 +170,7 @@ class SessionState {
         : DovahLinkConnectionState.disconnected;
     _trustState = null;
     _sessionId = null;
+    _connectionStateStream.update(_connectionState);
   }
 
   /// Records [subscription] as the one currently reading the transport's inbound message stream.
