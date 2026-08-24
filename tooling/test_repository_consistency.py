@@ -1099,9 +1099,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "dovahlink list block",
             "dovahlink help",
             "dovahlink revoke -id <shortId>",
-            "dovahlink reset trust",
+            "dovahlink reset-trust",
             "dovahlink reset",
-            "dovahlink reset -confirm <code>",
+            "dovahlink confirm-reset -confirm <code>",
             "dovahlink block -id <shortId>",
             "dovahlink unblock -id <shortId>",
             "dovahlink forget -id <shortId>",
@@ -1110,7 +1110,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertIn(command, console_readme)
             self.assertIn(f"`{command}`", security)
 
-        for retired_command in ("dovahlink devices", "dovahlink blocklist"):
+        for retired_command in (
+            "dovahlink devices",
+            "dovahlink blocklist",
+            "dovahlink reset trust",
+            "dovahlink reset -confirm <code>",
+        ):
             self.assertNotIn(retired_command, console_readme)
             self.assertNotIn(retired_command, security)
             self.assertNotIn(retired_command, bridge_readme)
@@ -1120,13 +1125,32 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("Function Devices", papyrus)
         self.assertNotIn("Function Blocked", papyrus)
 
+        command_blocks = {
+            name: body
+            for name, body in re.findall(
+                r"(?ms)^  - name: ([A-Za-z-]+)$\n(.*?)(?=^  - name: |\Z)", yaml
+            )
+        }
         self.assertEqual(
-            re.findall(r"(?m)^  - name: ([A-Za-z]+)$", yaml),
-            ["list", "help", "revoke", "block", "unblock", "forget", "reset", "reset"],
+            list(command_blocks),
+            ["list", "help", "revoke", "block", "unblock", "forget", "reset-trust", "reset", "confirm-reset"],
         )
+        self.assertIn("func: ResetTrust", command_blocks["reset-trust"])
+        self.assertIn("func: Reset", command_blocks["reset"])
+        self.assertIn("func: ConfirmReset", command_blocks["confirm-reset"])
+        for command in ("revoke", "block", "unblock", "forget"):
+            self.assertEqual(command_blocks[command].count("      - name: -id"), 1)
+            self.assertIn("        required: true", command_blocks[command])
+        self.assertNotIn("      - name:", command_blocks["reset"])
+        self.assertEqual(command_blocks["confirm-reset"].count("      - name: -confirm"), 1)
+        self.assertIn("        required: true", command_blocks["confirm-reset"])
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)
         self.assertIn("default: all", yaml)
+        self.assertNotIn("alias: id", yaml)
+        self.assertNotIn("alias: confirm", yaml)
+        self.assertNotIn("reset trust", yaml)
+        self.assertNotIn("dovahlink reset -confirm", yaml)
         self.assertNotIn("name: devices", yaml)
         self.assertNotIn("name: blocklist", yaml)
 
