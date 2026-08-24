@@ -56,6 +56,15 @@ Read supported Skyrim state through the approved runtime API and convert it into
 
 Coordinates snapshots, updates, connection-facing capabilities, and read-only behavior. It must be testable without a running Skyrim process.
 
+Behavior-bearing application services own one coherent responsibility and coordinate through
+explicit, DovahLink-owned capability ports supplied by constructor injection. They must not
+construct behavior-bearing collaborators internally or depend on concrete runtime classes merely
+because those classes are available.
+
+Domain state machines own their state transitions and invariants. Orchestration services own
+coordination across application, protocol, persistence, and transport boundaries; do not make a
+state machine imitate an orchestration service or move its invariants into a port.
+
 ### Protocol mapping
 
 Converts application values to the canonical protocol contract. It must not expose C++ runtime objects or make the Flutter client depend on native implementation details.
@@ -71,6 +80,19 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 - Application code depends on DovahLink-owned interfaces and values, never on CommonLib types.
 - Protocol mapping depends on DovahLink-owned application values, never on game objects.
 - Transport depends on protocol messages and transport abstractions, never on game adapters or Skyrim APIs.
+
+### Application ports and ownership
+
+- Define a narrow interface only at a behavior-bearing substitution boundary where a consumer needs
+  to isolate a collaborator. Do not add interfaces for DTOs, value objects, enums, pure functions,
+  or stateless leaf logic solely for testing.
+- A port contains only the capability required by its consumer; it must not mechanically mirror a
+  larger concrete class. Use the existing `I`-prefix convention for true injectable C++ ports.
+- Keep a small port declaration in the existing owning production header when that keeps the module
+  cohesive. The implementation remains in its existing implementation file; do not create one
+  header per tiny interface unless a separate file is required for clear ownership or reuse.
+- Testability changes must preserve the dependency edges above. Application ports must use
+  DovahLink-owned values and must never expose CommonLib or Skyrim runtime types.
 
 ## Threading and callbacks
 

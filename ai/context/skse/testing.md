@@ -10,6 +10,34 @@
 
 Use explicit seams for runtime-dependent code: a fake callback registry for registration and unregistration, a fake queue or controllable executor for handoff, and a fake transport for connection lifecycle. Lifecycle tests must not need Skyrim to prove ordering.
 
+## Service interaction tests
+
+- A service or orchestrator test uses mocks for its behavior-bearing dependencies and verifies the
+  service's own calls, arguments, failure handling, and contractually important ordering.
+- A stateful domain test uses the real domain class and proves its state transitions, persistence,
+  atomicity rules, and invariants. It may use a stateful fake for an external boundary when that
+  fake provides meaningful deterministic behavior.
+- Protocol, DTO, and value tests use the real DTOs and serialization or validation code. Do not
+  mock the object or codec whose behavior the test is intended to prove.
+- Small composition or integration tests use real implementations to prove that the production
+  graph is wired correctly; they do not duplicate every collaborator's unit tests.
+
+Use FakeIt as the first C++ mocking-framework candidate. It must pass a repository proof of concept
+through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference,
+`std::string_view`, and `std::optional` arguments, interface inheritance, and worker/thread tests.
+If it cannot satisfy those requirements, use GoogleMock as the fallback. Do not retain multiple
+production mocking frameworks or build a project-specific mock generator.
+
+Unexpected interactions must be detectable by default. Verify ordering only when it is part of the
+service contract; do not impose global ordering on incidental calls. Keep framework syntax visible
+in the test when that makes the interaction being proved clearer.
+
+Shared mock setup, reusable mock aliases, and common test values belong in module-level test-support
+headers when repetition justifies them. Follow the existing `<module>_test_support.hpp` shape and
+do not create a repository-wide `MockEverything` header or hide every expectation behind a private
+mini-framework. Keep stateful fakes for persistence failures, deterministic stores, clocks,
+queues, barriers, runtime adapters, and other tests where the fake's behavior is the subject.
+
 ## Test data construction
 
 - Build representative test values through the type's own aggregate/designated-initializer syntax
