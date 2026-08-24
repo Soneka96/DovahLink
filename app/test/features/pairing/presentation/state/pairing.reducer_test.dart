@@ -4,10 +4,11 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.reducer.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Exercises pairing lifecycle reducer transitions.
 void main() {
-  group('PairingReducer processes lifecycle actions correctly', () {
+  group('Action PairingStartedAction behaves correctly', () {
     test('PairingStartedAction changes the phase to connecting', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -34,7 +35,9 @@ void main() {
 
       expect(result.error, isNull);
     });
+  });
 
+  group('Action PairingAuthenticatedAction behaves correctly', () {
     test(
       'PairingAuthenticatedAction stores the bridge version and moves to trusted when already trusted',
       () {
@@ -108,7 +111,9 @@ void main() {
         expect(result.error, isNull);
       },
     );
+  });
 
+  group('Action PairingCodeRequestedAction behaves correctly', () {
     test('PairingCodeRequestedAction changes the phase to requestingCode', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -118,7 +123,9 @@ void main() {
       expect(result.phase, PairingPhase.requestingCode);
       expect(result.error, isNull);
     });
+  });
 
+  group('Action PairingCodeAvailableAction behaves correctly', () {
     test('PairingCodeAvailableAction changes the phase to awaitingCode', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -199,7 +206,9 @@ void main() {
         expect(result.renotifyAvailableAt, isNull);
       },
     );
+  });
 
+  group('Action PairingCodeSubmittedAction behaves correctly', () {
     test('PairingCodeSubmittedAction changes the phase to confirming', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -209,7 +218,9 @@ void main() {
       expect(result.phase, PairingPhase.confirming);
       expect(result.error, isNull);
     });
+  });
 
+  group('Action PairingConfirmedAction behaves correctly', () {
     test('PairingConfirmedAction changes the phase to trusted', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -219,7 +230,9 @@ void main() {
       expect(result.phase, PairingPhase.trusted);
       expect(result.error, isNull);
     });
+  });
 
+  group('Action PairingDisconnectedAction behaves correctly', () {
     test('PairingDisconnectedAction changes the phase to disconnected, clears '
         'error, and preserves bridgeVersion', () {
       const PairingState state = PairingState(
@@ -239,7 +252,9 @@ void main() {
       expect(result.error, isNull);
       expect(result.bridgeVersion, '1.2.3');
     });
+  });
 
+  group('Action PairingFailedAction behaves correctly', () {
     test('PairingFailedAction stores the message and phase', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
@@ -248,6 +263,25 @@ void main() {
 
       expect(result.phase, PairingPhase.failed);
       expect(result.error, "That code isn't correct.");
+    });
+
+    test('PairingFailedAction presents an administrative session invalidation the same as any '
+        'other failure', () {
+      // The reducer has no reason-specific branch: an administrative invalidation's real
+      // SessionInvalidatedFailure message reaches PairingPhase.failed exactly like any other
+      // PairingFailedAction, which is what makes all four administrative reasons present
+      // identically -- there is no code path here that could distinguish them.
+      const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+        'This device was disconnected by the bridge. Try again.',
+      );
+
+      final PairingState result = pairingReducer(
+        PairingState.initial(),
+        PairingFailedAction(failure.message),
+      );
+
+      expect(result.phase, PairingPhase.failed);
+      expect(result.error, failure.message);
     });
 
     test(
@@ -272,7 +306,9 @@ void main() {
         expect(result.renotifyAvailableAt, isNull);
       },
     );
+  });
 
+  group('Action PairingDisposedAction behaves correctly', () {
     test('PairingDisposedAction resets phase, bridge version, and error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
@@ -315,7 +351,7 @@ void main() {
     );
   });
 
-  group('PairingReducer processes new pairing actions correctly', () {
+  group('Action PairingRenotifyRequestedAction behaves correctly', () {
     test(
       'PairingRenotifyRequestedAction clears error, stays in awaitingCode',
       () {
@@ -361,7 +397,9 @@ void main() {
       expect(result.codeExpiresAt, expiresAt);
       expect(result.renotifyAvailableAt, availableAt);
     });
+  });
 
+  group('Action PairingRenotifySucceededAction behaves correctly', () {
     test(
       'PairingRenotifySucceededAction clears error, stays in awaitingCode',
       () {
@@ -401,7 +439,9 @@ void main() {
 
       expect(result.codeExpiresAt, expiresAt);
     });
+  });
 
+  group('Action PairingRenotifyCooldownAction behaves correctly', () {
     test('PairingRenotifyCooldownAction sets renotifyAvailableAt', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
@@ -439,7 +479,9 @@ void main() {
       expect(result.codeExpiresAt, expiresAt);
       expect(result.error, 'wrong code');
     });
+  });
 
+  group('Action PairingCancelSucceededAction behaves correctly', () {
     test(
       'PairingCancelSucceededAction clears timing and transitions to failed',
       () {
@@ -464,88 +506,97 @@ void main() {
         expect(result.bridgeVersion, '1.2.3');
       },
     );
-
-    test(
-      'PairingConfirmFailedWithAttemptsRemainingAction keeps awaitingCode with error',
-      () {
-        const PairingState state = PairingState(
-          phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
-          error: null,
-          codeExpiresAt: null,
-          renotifyAvailableAt: null,
-        );
-
-        final PairingState result = pairingReducer(
-          state,
-          const PairingConfirmFailedWithAttemptsRemainingAction(
-            message: "That code isn't correct.",
-          ),
-        );
-
-        expect(result.phase, PairingPhase.awaitingCode);
-        expect(result.error, "That code isn't correct.");
-        expect(result.bridgeVersion, '1.2.3');
-      },
-    );
-
-    test(
-      'PairingConfirmFailedWithAttemptsRemainingAction preserves timing fields',
-      () {
-        final DateTime expiresAt = DateTime.now();
-        final DateTime availableAt = DateTime.now().add(
-          const Duration(seconds: 5),
-        );
-        final PairingState state = PairingState(
-          phase: PairingPhase.awaitingCode,
-          bridgeVersion: '1.2.3',
-          error: null,
-          codeExpiresAt: expiresAt,
-          renotifyAvailableAt: availableAt,
-        );
-
-        final PairingState result = pairingReducer(
-          state,
-          const PairingConfirmFailedWithAttemptsRemainingAction(
-            message: 'invalid',
-          ),
-        );
-
-        expect(result.codeExpiresAt, expiresAt);
-        expect(result.renotifyAvailableAt, availableAt);
-      },
-    );
-
-    test(
-      'PairingConfirmFailedWithAttemptsRemainingAction returns to awaitingCode from its real '
-      'predecessor, confirming',
-      () {
-        const PairingState state = PairingState(
-          phase: PairingPhase.confirming,
-          bridgeVersion: '1.2.3',
-          error: null,
-          codeExpiresAt: null,
-          renotifyAvailableAt: null,
-        );
-
-        final PairingState result = pairingReducer(
-          state,
-          const PairingConfirmFailedWithAttemptsRemainingAction(
-            message: "That code isn't correct.",
-          ),
-        );
-
-        expect(result.phase, PairingPhase.awaitingCode);
-        expect(result.error, "That code isn't correct.");
-      },
-    );
   });
 
-  group('PairingReducer processes unhandled actions correctly', () {
-    test('Object modifies nothing', () {
-      final PairingState state = PairingState.initial();
+  group(
+    'Action PairingConfirmFailedWithAttemptsRemainingAction behaves correctly',
+    () {
+      test(
+        'PairingConfirmFailedWithAttemptsRemainingAction keeps awaitingCode with error',
+        () {
+          const PairingState state = PairingState(
+            phase: PairingPhase.awaitingCode,
+            bridgeVersion: '1.2.3',
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          );
 
-      expect(identical(pairingReducer(state, Object()), state), isTrue);
-    });
+          final PairingState result = pairingReducer(
+            state,
+            const PairingConfirmFailedWithAttemptsRemainingAction(
+              message: "That code isn't correct.",
+            ),
+          );
+
+          expect(result.phase, PairingPhase.awaitingCode);
+          expect(result.error, "That code isn't correct.");
+          expect(result.bridgeVersion, '1.2.3');
+        },
+      );
+
+      test(
+        'PairingConfirmFailedWithAttemptsRemainingAction preserves timing fields',
+        () {
+          final DateTime expiresAt = DateTime.now();
+          final DateTime availableAt = DateTime.now().add(
+            const Duration(seconds: 5),
+          );
+          final PairingState state = PairingState(
+            phase: PairingPhase.awaitingCode,
+            bridgeVersion: '1.2.3',
+            error: null,
+            codeExpiresAt: expiresAt,
+            renotifyAvailableAt: availableAt,
+          );
+
+          final PairingState result = pairingReducer(
+            state,
+            const PairingConfirmFailedWithAttemptsRemainingAction(
+              message: 'invalid',
+            ),
+          );
+
+          expect(result.codeExpiresAt, expiresAt);
+          expect(result.renotifyAvailableAt, availableAt);
+        },
+      );
+
+      test(
+        'PairingConfirmFailedWithAttemptsRemainingAction returns to awaitingCode from its real '
+        'predecessor, confirming',
+        () {
+          const PairingState state = PairingState(
+            phase: PairingPhase.confirming,
+            bridgeVersion: '1.2.3',
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          );
+
+          final PairingState result = pairingReducer(
+            state,
+            const PairingConfirmFailedWithAttemptsRemainingAction(
+              message: "That code isn't correct.",
+            ),
+          );
+
+          expect(result.phase, PairingPhase.awaitingCode);
+          expect(result.error, "That code isn't correct.");
+        },
+      );
+    },
+  );
+
+  group('Behavior unhandled-action pass-through behaves correctly', () {
+    test(
+      'Behavior unhandled-action pass-through leaves state unchanged for an action with no '
+      'registered reducer',
+      () {
+        final PairingState state = PairingState.initial();
+
+        expect(identical(pairingReducer(state, Object()), state), isTrue);
+      },
+    );
   });
 }

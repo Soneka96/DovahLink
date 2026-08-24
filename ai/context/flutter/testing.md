@@ -45,7 +45,13 @@
 - Repositories have one behavior group per method, including exact datasource calls and symmetric
   no-call branches.
 - Reducers have one group per action passed to the reducer, including a separate group for the
-  unhandled-action pass-through behavior.
+  unhandled-action pass-through behavior, named `Action <ActionType> behaves correctly` (for
+  example `Action PairingStartedAction behaves correctly`), mirroring `ai/context/dart/dart-style.md`'s
+  `Method`/`Property`/`Behavior` template with `Action` as the label for this Flutter/Redux-specific
+  case. Per that same doc's "Test organization", each test description repeats the action as its
+  subject: `<ActionType> <verb...>`, for example `'PairingStartedAction changes the phase to
+  connecting'`, never a bare `'changes the phase to connecting'` that only reads as a sentence once
+  paired with its group.
 - Middleware has one group per action passed to `middleware.call(store, action, next)`, rather than
   one group for the middleware class, named `<MiddlewareClass> processes <ActionType> correctly`
   (for example `PairingMiddleware processes PairingStartedAction correctly`) -- the middleware class
@@ -74,6 +80,13 @@
 - Use “in state” for values inside `AppState`; reserve “in the store” for the `Store` instance.
 - Add “with correct parameters” when the test verifies a configured state rather than bare
   presence.
+- Per `ai/context/dart/dart-style.md`'s "Test organization", a widget/screen test description
+  repeats its subject -- the widget or screen class name a `contains`/`displays`/`calls`/
+  `dispatches` group already names -- rather than reading as a bare fragment that only makes sense
+  paired with its group. Wrong: `group('PairingScreen contains widgets', () { testWidgets('contains
+  the request-code button when unpaired', ...) })`. Right: `testWidgets('PairingScreen contains the
+  request-code button when unpaired', ...)` -- identical grouping, but the test description repeats
+  `PairingScreen` as its subject.
 
 ## Widget tests
 
