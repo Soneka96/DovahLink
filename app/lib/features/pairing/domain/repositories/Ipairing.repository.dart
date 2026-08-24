@@ -33,4 +33,9 @@ abstract interface class IPairingRepository {
   /// Cancels the owned active pairing challenge or pending credential, or
   /// reports idle status.
   Future<Either<Failure, Unit>> cancelPairing();
+
+  /// Emits once for every administrative session invalidation the SDK
+  /// observes, including one that arrives with nothing pending. Never
+  /// completes and carries no request of its own.
+  Stream<SessionInvalidatedFailure> get sessionInvalidated;
 }

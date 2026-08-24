@@ -46,4 +46,9 @@ class PairingRepositoryImpl implements IPairingRepository {
   @override
   Future<Either<Failure, Unit>> cancelPairing() =>
       _remoteDataSource.cancelPairing();
+
+  /// See [IPairingRepository.sessionInvalidated].
+  @override
+  Stream<SessionInvalidatedFailure> get sessionInvalidated =>
+      _remoteDataSource.sessionInvalidated;
 }

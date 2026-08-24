@@ -31,6 +31,12 @@ abstract interface class PairingRemoteDataSource {
 
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
+
+  /// Emits once for every administrative session invalidation (revoked/blocked/trustReset/
+  /// factoryReset) the underlying SDK client observes, including one that arrives with nothing
+  /// pending -- unlike every method above, this never completes and carries no request of its
+  /// own.
+  Stream<SessionInvalidatedFailure> get sessionInvalidated;
 }
 
 /// The user-safe [Failure] reported for any exception this data source's typed catches don't
@@ -259,4 +265,14 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       return const Left(_unexpectedPairingFailure);
     }
   }
+
+  /// See [PairingRemoteDataSource.sessionInvalidated].
+  @override
+  Stream<SessionInvalidatedFailure> get sessionInvalidated => _client
+      .connectionStateChanges
+      .where(
+        (DovahLinkConnectionState state) =>
+            state == DovahLinkConnectionState.administrativelyInvalidated,
+      )
+      .map((DovahLinkConnectionState _) => _sessionInvalidatedFailure);
 }

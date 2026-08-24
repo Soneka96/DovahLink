@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
@@ -1047,6 +1049,93 @@ void main() {
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
+      },
+    );
+  });
+
+  group('Property sessionInvalidated behaves correctly', () {
+    test(
+      'Property sessionInvalidated emits SessionInvalidatedFailure when the client becomes '
+      'administratively invalidated',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.sessionInvalidated,
+          emits(
+            const SessionInvalidatedFailure(
+              'This device was disconnected by the bridge. Try again.',
+            ),
+          ),
+        );
+        connectionStates.add(
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property sessionInvalidated emits its own SessionInvalidatedFailure for each of several '
+      'administrative invalidations in a row',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+        const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
+          'This device was disconnected by the bridge. Try again.',
+        );
+
+        final Future<void> expectation = expectLater(
+          dataSource.sessionInvalidated,
+          emitsInOrder(<Object>[failure, failure]),
+        );
+        connectionStates.add(
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        connectionStates.add(DovahLinkConnectionState.disconnected);
+        connectionStates.add(
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property sessionInvalidated does not emit for a non-administrative connectionState '
+      'transition',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockClient.connectionStateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final List<SessionInvalidatedFailure> received =
+            <SessionInvalidatedFailure>[];
+        final StreamSubscription<SessionInvalidatedFailure> subscription =
+            dataSource.sessionInvalidated.listen(received.add);
+        addTearDown(subscription.cancel);
+
+        connectionStates
+          ..add(DovahLinkConnectionState.connecting)
+          ..add(DovahLinkConnectionState.connected)
+          ..add(DovahLinkConnectionState.reconnecting)
+          ..add(DovahLinkConnectionState.disconnected);
+        await pumpEventQueue();
+
+        expect(received, isEmpty);
       },
     );
   });
