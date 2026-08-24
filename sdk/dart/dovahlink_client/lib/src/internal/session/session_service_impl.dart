@@ -71,6 +71,11 @@ class SessionServiceImpl implements SessionService {
   @override
   DovahLinkConnectionState get connectionState => _state.connectionState;
 
+  /// Implements [SessionService.connectionStateChanges].
+  @override
+  Stream<DovahLinkConnectionState> get connectionStateChanges =>
+      _state.connectionStateChanges;
+
   /// Implements [SessionService.currentSessionId].
   @override
   String? get currentSessionId => _state.sessionId;

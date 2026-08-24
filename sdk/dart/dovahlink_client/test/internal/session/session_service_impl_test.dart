@@ -150,6 +150,28 @@ void main() {
     }
   });
 
+  group('Property connectionStateChanges behaves correctly', () {
+    test(
+      'Property connectionStateChanges delegates to the underlying SessionState stream',
+      () async {
+        final StreamController<DovahLinkConnectionState> underlying =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(underlying.close);
+        when(
+          () => state.connectionStateChanges,
+        ).thenAnswer((_) => underlying.stream);
+
+        final Future<void> expectation = expectLater(
+          service.connectionStateChanges,
+          emits(DovahLinkConnectionState.connected),
+        );
+        underlying.add(DovahLinkConnectionState.connected);
+
+        await expectation;
+      },
+    );
+  });
+
   group('Method connect behaves correctly', () {
     test(
       'Method connect calls beginConnectAttempt then markConnected and starts receiving on success',

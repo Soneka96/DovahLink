@@ -851,6 +851,36 @@ void main() {
       },
     );
 
+    test(
+      'Method disconnect is observable through connectionStateChanges for an ordinary, '
+      'non-administrative transition',
+      () async {
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription = client
+            .connectionStateChanges
+            .listen(observed.add);
+        addTearDown(subscription.cancel);
+
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-bridge.json'),
+        );
+        await client.hello();
+
+        await client.disconnect();
+        await pumpEventQueue();
+
+        expect(observed, [
+          DovahLinkConnectionState.disconnected,
+          DovahLinkConnectionState.connecting,
+          DovahLinkConnectionState.connected,
+          DovahLinkConnectionState.disconnected,
+        ]);
+      },
+    );
+
     test('Method disconnect preserves the persisted credential', () async {
       await storage.save(
         const PersistedClientState(
@@ -1024,6 +1054,33 @@ void main() {
         );
       },
     );
+
+    test('Behavior session_invalidated handling is observable through '
+        'connectionStateChanges without waiting for another request', () async {
+      final List<DovahLinkConnectionState> observed =
+          <DovahLinkConnectionState>[];
+      final StreamSubscription<DovahLinkConnectionState> subscription = client
+          .connectionStateChanges
+          .listen(observed.add);
+      addTearDown(subscription.cancel);
+
+      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-bridge.json'),
+      );
+      await client.hello();
+
+      transport.queueResponse(_rawSessionInvalidated('blocked'));
+      await pumpEventQueue();
+
+      expect(observed, [
+        DovahLinkConnectionState.disconnected,
+        DovahLinkConnectionState.connecting,
+        DovahLinkConnectionState.connected,
+        DovahLinkConnectionState.administrativelyInvalidated,
+      ]);
+    });
 
     for (final MapEntry<AdministrativeInvalidationReason, String> entry
         in _invalidationWireValues.entries) {

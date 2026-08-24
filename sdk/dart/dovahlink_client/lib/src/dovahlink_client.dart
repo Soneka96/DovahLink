@@ -154,22 +154,21 @@ class DovahLinkClient {
       storage: _storage,
       clientIdResolver: clientIdResolver,
     );
-    _sessionService.onTeardown = (
-      Exception reason, {
-      required bool orphanRetrySafeOperations,
-    }) {
+    _sessionService
+        .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
       _requestService.failAll(
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,
       );
       if (_sessionService.invalidationReason != null) {
         unawaited(
-          _authenticationService.forgetCredential().catchError(
-            (Object _, StackTrace __) {
-              // Invalidation is already terminal; a later explicit authentication can retry this
-              // best-effort cleanup when the persistence failure has been resolved.
-            },
-          ),
+          _authenticationService.forgetCredential().catchError((
+            Object _,
+            StackTrace __,
+          ) {
+            // Invalidation is already terminal; a later explicit authentication can retry this
+            // best-effort cleanup when the persistence failure has been resolved.
+          }),
         );
       }
     };
@@ -213,6 +212,12 @@ class DovahLinkClient {
   /// client is required to observe or drive that recovery.
   DovahLinkConnectionState get connectionState =>
       _sessionService.connectionState;
+
+  /// A stream of every [connectionState] transition: the current value immediately on listen,
+  /// then each subsequent real change -- including administrative invalidation, without waiting
+  /// for another request to notice it. See [SessionService.connectionStateChanges].
+  Stream<DovahLinkConnectionState> get connectionStateChanges =>
+      _sessionService.connectionStateChanges;
 
   /// The current trust standing, or `null` before [hello] succeeds.
   DovahLinkTrustState? get trustState => _sessionService.currentTrustState;
