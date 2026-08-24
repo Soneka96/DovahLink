@@ -54,6 +54,9 @@ void main() {
         reason: any(named: 'reason'),
       ),
     ).thenAnswer((_) async {});
+    when(
+      () => authenticationService.forgetCredential(),
+    ).thenAnswer((_) async {});
   });
 
   /// Builds a service over [sessionService] and [authenticationService], with short test delays.
@@ -188,6 +191,112 @@ void main() {
             reason: any(named: 'reason'),
           ),
         ).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss forgets the credential on a terminal revoked rejection '
+      'from hello(), so a later automatic attempt never presents it again',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.revoked,
+            message: 'rejected',
+            retryable: false,
+          ),
+        );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => authenticationService.forgetCredential()).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss forgets the credential on a terminal blocked rejection '
+      'from hello() the same way',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.blocked,
+            message: 'blocked',
+            retryable: false,
+          ),
+        );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => authenticationService.forgetCredential()).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss forgets the credential on a terminal unauthenticated '
+      'rejection from hello() the same way',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.unauthenticated,
+            message: 'invalid token',
+            retryable: false,
+          ),
+        );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => authenticationService.forgetCredential()).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss does not forget the credential on a terminal rejection '
+      'that is not about this credential specifically',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.unauthorized,
+            message: 'not authorized',
+            retryable: false,
+          ),
+        );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verifyNever(() => authenticationService.forgetCredential());
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss forgets the credential before the final disconnect on a '
+      'terminal credential rejection, not concurrently with or after it',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.revoked,
+            message: 'rejected',
+            retryable: false,
+          ),
+        );
+        final ReconnectServiceImpl service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verifyInOrder([
+          () => authenticationService.forgetCredential(),
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: false,
+            reason: any(named: 'reason'),
+          ),
+        ]);
       },
     );
 
