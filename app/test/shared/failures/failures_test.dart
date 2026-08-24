@@ -55,4 +55,17 @@ void main() {
       },
     );
   });
+
+  group('Property administrative behaves correctly', () {
+    test('Property administrative carries the canonical reason-agnostic message', () {
+      expect(
+        SessionInvalidatedFailure.administrative.message,
+        isA<String>(),
+      );
+      expect(
+        SessionInvalidatedFailure.administrative.message,
+        'This device was disconnected by the bridge. Try again.',
+      );
+    });
+  });
 }

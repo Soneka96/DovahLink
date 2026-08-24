@@ -55,6 +55,13 @@ class PairingRetriableFailure extends PairingFailure {
 /// transport loss eligible for automatic retry; recovery is always an
 /// explicit user action.
 class SessionInvalidatedFailure extends Failure {
+  /// The one canonical, reason-agnostic wording used for every administrative invalidation
+  /// (revoked, blocked, trust reset, or factory reset), per PLAN.md's Stage 3.
+  static const SessionInvalidatedFailure administrative =
+      SessionInvalidatedFailure(
+        'This device was disconnected by the bridge. Try again.',
+      );
+
   /// Creates a session-invalidated failure.
   const SessionInvalidatedFailure(super.message);
 }

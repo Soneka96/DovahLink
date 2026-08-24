@@ -93,3 +93,18 @@ enum PairingPhase {
     PairingPhase.failed => 'Failed',
   };
 }
+
+/// The bridge connection's status while a trusted pairing session is active, observed from the
+/// SDK's full `connectionStateChanges` feed rather than a narrower administrative-only slice.
+enum PairingConnectionStatus {
+  /// Ordinary transport loss; the SDK's own bounded recovery may still succeed without user
+  /// action.
+  lost,
+
+  /// The connection recovered after [lost].
+  restored,
+
+  /// The bridge administratively ended this session (revoked, blocked, trust reset, or factory
+  /// reset). Terminal for the current session; recovery is always an explicit user action.
+  invalidated,
+}
