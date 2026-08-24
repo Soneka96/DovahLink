@@ -20,6 +20,12 @@ void main() {
           ),
           CredentialRejectionReason.unrecognized,
         );
+        expect(
+          CredentialRejectionReason.fromProtocolErrorCode(
+            ProtocolErrorCode.blocked,
+          ),
+          CredentialRejectionReason.blocked,
+        );
       },
     );
 
@@ -29,6 +35,7 @@ void main() {
         const Set<ProtocolErrorCode> recoverable = <ProtocolErrorCode>{
           ProtocolErrorCode.revoked,
           ProtocolErrorCode.unauthenticated,
+          ProtocolErrorCode.blocked,
         };
         for (final ProtocolErrorCode code in ProtocolErrorCode.values) {
           if (!recoverable.contains(code)) {
