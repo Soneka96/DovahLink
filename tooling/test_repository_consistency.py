@@ -754,7 +754,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
         self.assertEqual(entry_versions[0], manifest["version-string"])
-        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2"):
+        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"):
             self.assertIn(known_version, entry_versions)
         self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")
 
@@ -824,7 +824,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 8)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 9)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
@@ -839,16 +839,21 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
             if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ", "3.2 ", "3.3 ")):
-                expected_status = "**Status:** Complete"
+                expected_statuses = ["**Status:** Complete"]
+            elif heading == "4. Live State Synchronization Foundation":
+                # Stage 4's own status stays Planned until every phase (4.1-4.5) is done; its span
+                # also carries Phase 4.1's own "**Status:** Complete" line, since 4.1-4.5 are
+                # subsections of this stage rather than independent headings the way 3.1-3.3 are.
+                expected_statuses = ["**Status:** Planned", "**Status:** Complete"]
             elif heading.startswith("5. "):
-                expected_status = phase_5_status
+                expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):
-                expected_status = "**Status:** Planned after read-only product validation"
+                expected_statuses = ["**Status:** Planned after read-only product validation"]
             else:
-                expected_status = "**Status:** Planned"
+                expected_statuses = ["**Status:** Planned"]
             self.assertEqual(
                 re.findall(r"(?m)^\*\*Status:\*\* .+$", phase),
-                [expected_status],
+                expected_statuses,
                 heading,
             )
 

@@ -9,6 +9,31 @@ Nexus Mods manually; see [`tooling/BridgeBuilder/README.md`](tooling/BridgeBuild
 This file is updated in the same change that bumps `bridge/vcpkg.json`'s `version-string` and flips
 the corresponding `ROADMAP.md` phase to Complete.
 
+## [0.3.3] - 2026-08-24
+
+### Added
+
+- Typed per-message protocol DTOs (structural JSON serialization plus handwritten semantic
+  validation) for every connection, pairing, capabilities, subscription-control, state, error, and
+  invalidation message, replacing raw hand-rolled JSON handling across the Bridge, Dart SDK, and
+  .NET validation client.
+- Canonical cross-side fixtures for every redesigned message family.
+
+### Removed
+
+- The `character` state area (level/health/magicka/stamina bundled into one nullable aggregate).
+  Every `subscribe`/`snapshot_request` is now explicitly rejected and both endpoints' `capabilities`
+  lists are empty until a future phase registers a real state domain.
+
+### Fixed
+
+- Pairing status, pairing outcome, and error payloads now validate their full field-presence and
+  value-vocabulary rules on decode instead of trusting individual fields in isolation.
+- State-event and state-snapshot payloads enforce strict UTC timestamps and reject negative or
+  backwards revisions.
+- Protocol revisions are validated against the contract's 64-bit range, and capability instances and
+  protocol identifier lists are validated before encoding.
+
 ## [0.3.2] - 2026-08-20
 
 ### Added

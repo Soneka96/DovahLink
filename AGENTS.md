@@ -72,6 +72,13 @@ DovahLink is a maintainer-owned project developed with AI assistance. The mainta
 12. Check the diff for unrelated changes before presenting the work.
 13. Before handoff, verify that intended changes are on the feature branch, no unintended working-tree or staged changes remain, and `main` was not modified.
 14. Summarize the branch, checks, and remaining limitations.
+15. For a substantial change spanning several source and test files (a new feature, a multi-file
+    refactor, a migration), build it incrementally rather than in one pass: one step at a time, each
+    step producing its own production code, its own tests, an independent fresh-eyes pass for
+    missed edge cases, and a check against this repository's own conventions, stopping for review
+    between steps instead of presenting the whole change at once. In Claude Code, invoke the
+    `/step-build` skill for this; another AI tool without an equivalent skill should still follow the
+    same step-by-step, review-gated shape by hand.
 
 ## Local convention authority
 

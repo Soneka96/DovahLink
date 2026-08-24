@@ -124,18 +124,19 @@ public class RedactionScenarioTests
             code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
             await pairing.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-                new JsonObject { ["code"] = code }));
+                new PairingConfirmPayload(code).Encode()));
             Envelope confirmOutcome = await pairing.ReceiveAsync();
-            if (confirmOutcome.Payload["outcome"]?.GetValue<string>() != "credential_issued")
+            PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+            if (confirmDecoded.Outcome != "credential_issued")
             {
                 throw new InvalidOperationException($"Expected credential_issued, got {confirmOutcome.Payload}.");
             }
-            credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+            credential = confirmDecoded.Credential!;
 
             await pairing.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-                new JsonObject { ["credential"] = credential }));
+                new PairingAckPayload(credential).Encode()));
             Envelope ackOutcome = await pairing.ReceiveAsync();
-            if (ackOutcome.Payload["outcome"]?.GetValue<string>() != "trusted")
+            if (PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome != "trusted")
             {
                 throw new InvalidOperationException($"Expected trusted, got {ackOutcome.Payload}.");
             }

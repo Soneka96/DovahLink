@@ -106,7 +106,7 @@ public class RestartScenarioTests
 
             await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
             Envelope status = await connection.ReceiveAsync();
-            if (status.Payload["state"]!.GetValue<string>() != "available")
+            if (PairingStatusPayload.Decode(status.Payload).State != "available")
             {
                 throw new InvalidOperationException($"Expected pairing to be available, got {status.Payload}.");
             }
@@ -114,18 +114,19 @@ public class RestartScenarioTests
             string code = await BridgeScenario.ReadPairingCodeReportAsync(firstHarness);
 
             await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-                new JsonObject { ["code"] = code }));
+                new PairingConfirmPayload(code).Encode()));
             Envelope confirmOutcome = await connection.ReceiveAsync();
-            if (confirmOutcome.Payload["outcome"]!.GetValue<string>() != "credential_issued")
+            PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+            if (confirmDecoded.Outcome != "credential_issued")
             {
                 throw new InvalidOperationException($"Expected credential_issued, got {confirmOutcome.Payload}.");
             }
-            credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+            credential = confirmDecoded.Credential!;
 
             await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-                new JsonObject { ["credential"] = credential }));
+                new PairingAckPayload(credential).Encode()));
             Envelope ackOutcome = await connection.ReceiveAsync();
-            if (ackOutcome.Payload["outcome"]!.GetValue<string>() != "trusted")
+            if (PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome != "trusted")
             {
                 throw new InvalidOperationException($"Expected trusted, got {ackOutcome.Payload}.");
             }
@@ -145,7 +146,7 @@ public class RestartScenarioTests
         Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
         // The credential issued by the first (now-dead) process is still trusted by the second:
         // proof the trust survived the process boundary, not merely the connection.
-        Assert.Equal("paired", reconnectHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("paired", HelloAckPayload.Decode(reconnectHelloAck.Payload).ClientIdentityKind);
         Assert.NotNull(reconnectHelloAck.SessionId);
         // Reconnect semantics apply across a restart exactly as they do within one process
         // (security.md's "Session and replay protection"): always a fresh sessionId.
@@ -196,12 +197,12 @@ public class RestartScenarioTests
             string code = await BridgeScenario.ReadPairingCodeReportAsync(firstHarness);
 
             await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-                new JsonObject { ["code"] = code }));
+                new PairingConfirmPayload(code).Encode()));
             Envelope confirmOutcome = await connection.ReceiveAsync();
-            credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+            credential = PairingOutcomePayload.Decode(confirmOutcome.Payload).Credential!;
 
             await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-                new JsonObject { ["credential"] = credential }));
+                new PairingAckPayload(credential).Encode()));
             await connection.ReceiveAsync();  // pairing_outcome: trusted
             await connection.CloseAsync();
 
@@ -219,7 +220,7 @@ public class RestartScenarioTests
         await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope error = await reconnect.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("revoked", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("revoked", ErrorPayload.Decode(error.Payload).Code);
 
         await reconnect.CloseAsync();
 

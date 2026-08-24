@@ -71,7 +71,7 @@ public class ReconnectScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-stale-1", error.CorrelationId);
-        Assert.Equal("stale_session", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("stale_session", ErrorPayload.Decode(error.Payload).Code);
         // The error still carries this connection's real, valid sessionId
         // (message_dispatcher.cpp's Reject() echoes the connection's own
         // session, not the foreign one that was rejected).
@@ -105,7 +105,7 @@ public class ReconnectScenarioTests
             // drop or crash while a request is outstanding, not a graceful
             // close.
             await connection.SendAsync(new Envelope("snapshot_request", "message-snap-abort", sessionId, null,
-                new JsonObject { ["stateArea"] = "character" }));
+                new SnapshotRequestPayload("character").Encode()));
             connection.Abort();
         }
 
@@ -125,7 +125,7 @@ public class ReconnectScenarioTests
         Envelope error = await second.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-hello-after-abort", error.CorrelationId);
-        Assert.Equal("unauthenticated", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(error.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => second.ReceiveAsync());
         await second.CloseAsync();

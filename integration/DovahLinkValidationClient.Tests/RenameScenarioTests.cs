@@ -33,9 +33,9 @@ public class RenameScenarioTests
         Envelope outcome = await SendRenameAsync(scenario.Connection, scenario.SessionId, "rename-clear", string.Empty);
 
         AssertBridgeResponse(outcome, scenario.Harness, "rename_outcome", scenario.SessionId, "rename-clear");
-        Assert.Equal("renamed", outcome.Payload["outcome"]!.GetValue<string>());
-        Assert.True(outcome.Payload.ContainsKey("displayName"));
-        Assert.Null(outcome.Payload["displayName"]);
+        RenameOutcomePayload decoded = RenameOutcomePayload.Decode(outcome.Payload);
+        Assert.Equal("renamed", decoded.Outcome);
+        Assert.Null(decoded.DisplayName);
         await BridgeScenario.CloseAndQuitAsync(scenario.Harness, scenario.Connection);
     }
 
@@ -51,9 +51,9 @@ public class RenameScenarioTests
         Envelope outcome = await SendRenameAsync(scenario.Connection, scenario.SessionId, "rename-invalid", new string('x', 65));
 
         AssertBridgeResponse(outcome, scenario.Harness, "rename_outcome", scenario.SessionId, "rename-invalid");
-        Assert.Equal("invalid_display_name", outcome.Payload["outcome"]!.GetValue<string>());
-        Assert.True(outcome.Payload.ContainsKey("displayName"));
-        Assert.Null(outcome.Payload["displayName"]);
+        RenameOutcomePayload decoded = RenameOutcomePayload.Decode(outcome.Payload);
+        Assert.Equal("invalid_display_name", decoded.Outcome);
+        Assert.Null(decoded.DisplayName);
         await BridgeScenario.CloseAndQuitAsync(scenario.Harness, scenario.Connection);
     }
 
@@ -68,11 +68,11 @@ public class RenameScenarioTests
         await using var disposeConnection = connection;
 
         await connection.SendAsync(new Envelope("rename_request", "rename-restricted", sessionId, null,
-            new JsonObject { ["displayName"] = "Should Fail" }));
+            new RenameRequestPayload("Should Fail").Encode()));
         Envelope error = await connection.ReceiveAsync();
 
         AssertBridgeResponse(error, harness, "error", sessionId, "rename-restricted");
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
 
@@ -98,21 +98,22 @@ public class RenameScenarioTests
                 new JsonObject()));
             Envelope status = await connection.ReceiveAsync();
             AssertBridgeResponse(status, setup.Harness, "pairing_status", setup.SessionId, "pairing-request");
-            Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+            Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
             string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
             await connection.SendAsync(new Envelope("pairing_confirm", "pairing-confirm", setup.SessionId, null,
-                new JsonObject { ["code"] = code, ["displayName"] = displayName }));
+                new PairingConfirmPayload(code, displayName).Encode()));
             Envelope confirmOutcome = await connection.ReceiveAsync();
             AssertBridgeResponse(confirmOutcome, setup.Harness, "pairing_outcome", setup.SessionId, "pairing-confirm");
-            Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-            string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+            PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+            Assert.Equal("credential_issued", confirmDecoded.Outcome);
+            string credential = confirmDecoded.Credential!;
 
             await connection.SendAsync(new Envelope("pairing_ack", "pairing-ack", setup.SessionId, null,
-                new JsonObject { ["credential"] = credential }));
+                new PairingAckPayload(credential).Encode()));
             Envelope ackOutcome = await connection.ReceiveAsync();
             AssertBridgeResponse(ackOutcome, setup.Harness, "pairing_outcome", setup.SessionId, "pairing-ack");
-            Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+            Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
             return (trustStore, harness, connection, setup.SessionId);
         }
@@ -138,7 +139,7 @@ public class RenameScenarioTests
                                                          string messageId, string displayName)
     {
         await connection.SendAsync(new Envelope("rename_request", messageId, sessionId, null,
-            new JsonObject { ["displayName"] = displayName }));
+            new RenameRequestPayload(displayName).Encode()));
         return await connection.ReceiveAsync();
     }
 
@@ -152,8 +153,9 @@ public class RenameScenarioTests
                                              string requestMessageId, string displayName)
     {
         AssertBridgeResponse(outcome, harness, "rename_outcome", sessionId, requestMessageId);
-        Assert.Equal("renamed", outcome.Payload["outcome"]!.GetValue<string>());
-        Assert.Equal(displayName, outcome.Payload["displayName"]!.GetValue<string>());
+        RenameOutcomePayload decoded = RenameOutcomePayload.Decode(outcome.Payload);
+        Assert.Equal("renamed", decoded.Outcome);
+        Assert.Equal(displayName, decoded.DisplayName);
     }
 
     /// <summary>Asserts the common response envelope fields for a post-handshake bridge message.</summary>

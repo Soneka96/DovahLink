@@ -16,14 +16,14 @@ public class PairingScenarioTests
         using var disposeHarness = harness;
         await using var disposeConnection = connection;
 
-        Assert.Equal("unpaired", helloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("unpaired", HelloAckPayload.Decode(helloAck.Payload).ClientIdentityKind);
 
         await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -41,28 +41,29 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code, ["displayName"] = "Integration Test" }));
+            new PairingConfirmPayload(code, "Integration Test").Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // The upgrade lands in place on the same connection: the subscription request is accepted
         // by the Full-session allowlist on the very next message, with no reconnect and no fresh
         // hello_ack; the currently unregistered state area is rejected in the acknowledgement.
         await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope subscriptionAck = await connection.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
         AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
@@ -75,7 +76,7 @@ public class PairingScenarioTests
         await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
         Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
-        Assert.Equal("paired", reconnectHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("paired", HelloAckPayload.Decode(reconnectHelloAck.Payload).ClientIdentityKind);
         // Reconnect semantics (security.md's "Session and replay protection"): a credentialed
         // reconnect always gets a fresh server-issued sessionId, never the pre-pairing one.
         Assert.NotNull(reconnectHelloAck.SessionId);
@@ -101,20 +102,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
         await connection.CloseAsync();
 
         // Revokes the just-paired clientId through the harness's test-only revoke command
@@ -127,8 +129,9 @@ public class PairingScenarioTests
         await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope error = await reconnect.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("revoked", error.Payload["code"]!.GetValue<string>());
-        Assert.False(error.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload errorDecoded = ErrorPayload.Decode(error.Payload);
+        Assert.Equal("revoked", errorDecoded.Code);
+        Assert.False(errorDecoded.Retryable);
 
         // A revoked outcome closes the connection immediately, matching every other non-retryable
         // handshake rejection (AuthScenarioTests.cs's invalid-token case).
@@ -164,20 +167,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Unlike RevokedCredentialReconnectReceivesARevokedOutcome, this connection stays open
         // through the revoke below -- proving the live session itself is force-closed, not merely
@@ -192,7 +196,7 @@ public class PairingScenarioTests
         Assert.Equal("session_invalidated", invalidated.MessageType);
         Assert.Equal(sessionId, invalidated.SessionId);
         Assert.Null(invalidated.CorrelationId);
-        Assert.Equal("revoked", invalidated.Payload["reason"]!.GetValue<string>());
+        Assert.Equal("revoked", SessionInvalidatedPayload.Decode(invalidated.Payload).Reason);
 
         // The connection then closes on its own. Asserts the specific message
         // BridgeConnection.ReceiveAsync's WebSocketException branch produces, distinct from its
@@ -234,20 +238,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Blocks the just-paired clientId through the harness's test-only block command
         // (bridge/harness/dovahlink_bridge_harness.cpp), mirroring RevokeWhileConnectedClosesTheLiveSessionImmediately.
@@ -263,7 +268,7 @@ public class PairingScenarioTests
         Assert.Equal("session_invalidated", invalidated.MessageType);
         Assert.Equal(sessionId, invalidated.SessionId);
         Assert.Null(invalidated.CorrelationId);
-        Assert.Equal("blocked", invalidated.Payload["reason"]!.GetValue<string>());
+        Assert.Equal("blocked", SessionInvalidatedPayload.Decode(invalidated.Payload).Reason);
 
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
@@ -276,8 +281,9 @@ public class PairingScenarioTests
         await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope blockedError = await reconnect.ReceiveAsync();
         Assert.Equal("error", blockedError.MessageType);
-        Assert.Equal("blocked", blockedError.Payload["code"]!.GetValue<string>());
-        Assert.False(blockedError.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload blockedErrorDecoded = ErrorPayload.Decode(blockedError.Payload);
+        Assert.Equal("blocked", blockedErrorDecoded.Code);
+        Assert.False(blockedErrorDecoded.Retryable);
         await Assert.ThrowsAsync<InvalidOperationException>(() => reconnect.ReceiveAsync());
         await reconnect.CloseAsync();
 
@@ -287,7 +293,7 @@ public class PairingScenarioTests
         await blockedPairingAttempt.SendAsync(BridgeScenario.UnpairedHelloEnvelope());
         Envelope blockedUnpairedError = await blockedPairingAttempt.ReceiveAsync();
         Assert.Equal("error", blockedUnpairedError.MessageType);
-        Assert.Equal("blocked", blockedUnpairedError.Payload["code"]!.GetValue<string>());
+        Assert.Equal("blocked", ErrorPayload.Decode(blockedUnpairedError.Payload).Code);
         await blockedPairingAttempt.CloseAsync();
 
         await harness.WriteLineAsync("unblock client-1");
@@ -305,20 +311,21 @@ public class PairingScenarioTests
 
         await rePair.SendAsync(new Envelope("pairing_request", "message-request-2", rePairSessionId, null, new JsonObject()));
         Envelope rePairStatus = await rePair.ReceiveAsync();
-        Assert.Equal("available", rePairStatus.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(rePairStatus.Payload).State);
 
         string rePairCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await rePair.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", rePairSessionId, null,
-            new JsonObject { ["code"] = rePairCode }));
+            new PairingConfirmPayload(rePairCode).Encode()));
         Envelope rePairConfirmOutcome = await rePair.ReceiveAsync();
-        Assert.Equal("credential_issued", rePairConfirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string rePairCredential = rePairConfirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload rePairConfirmDecoded = PairingOutcomePayload.Decode(rePairConfirmOutcome.Payload);
+        Assert.Equal("credential_issued", rePairConfirmDecoded.Outcome);
+        string rePairCredential = rePairConfirmDecoded.Credential!;
 
         await rePair.SendAsync(new Envelope("pairing_ack", "message-ack-2", rePairSessionId, null,
-            new JsonObject { ["credential"] = rePairCredential }));
+            new PairingAckPayload(rePairCredential).Encode()));
         Envelope rePairAckOutcome = await rePair.ReceiveAsync();
-        Assert.Equal("trusted", rePairAckOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(rePairAckOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, rePair);
     }
@@ -342,20 +349,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // A crash, not a graceful close: no close frame, just an immediate abrupt teardown --
         // the previous connection's slot release races the very next accept below.
@@ -369,7 +377,7 @@ public class PairingScenarioTests
         await reconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope reconnectHelloAck = await reconnect.ReceiveAsync();
         Assert.Equal("hello_ack", reconnectHelloAck.MessageType);
-        Assert.Equal("paired", reconnectHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("paired", HelloAckPayload.Decode(reconnectHelloAck.Payload).ClientIdentityKind);
         Assert.NotNull(reconnectHelloAck.SessionId);
         Assert.NotEqual(sessionId, reconnectHelloAck.SessionId);
 
@@ -388,24 +396,24 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string realCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         string wrongCode = DifferentCode(realCode);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = wrongCode }));
+            new PairingConfirmPayload(wrongCode).Encode()));
         Envelope outcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", outcome.MessageType);
-        Assert.Equal("invalid", outcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("invalid", PairingOutcomePayload.Decode(outcome.Payload).Outcome);
 
         // An invalid code must not upgrade the session -- still Restricted, symmetric with the
         // first scenario's rejection.
         await connection.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope subscribeError = await connection.ReceiveAsync();
         Assert.Equal("error", subscribeError.MessageType);
-        Assert.Equal("malformed_message", subscribeError.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(subscribeError.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -427,8 +435,9 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
-        int? expiresInSecondsFirst = status.Payload["expiresInSeconds"]?.GetValue<int>();
+        PairingStatusPayload statusDecoded = PairingStatusPayload.Decode(status.Payload);
+        Assert.Equal("available", statusDecoded.State);
+        int? expiresInSecondsFirst = statusDecoded.ExpiresInSeconds;
         Assert.NotNull(expiresInSecondsFirst);
         Assert.True(expiresInSecondsFirst > 0);
 
@@ -451,8 +460,9 @@ public class PairingScenarioTests
         Envelope resumeStatus = await reconnect.ReceiveAsync();
         Assert.Equal("pairing_status", resumeStatus.MessageType);
         // "in_progress" means same client already owns an active challenge; no new code, same code re-displayed.
-        Assert.Equal("in_progress", resumeStatus.Payload["state"]!.GetValue<string>());
-        int? expiresInSecondsResumed = resumeStatus.Payload["expiresInSeconds"]?.GetValue<int>();
+        PairingStatusPayload resumeStatusDecoded = PairingStatusPayload.Decode(resumeStatus.Payload);
+        Assert.Equal("in_progress", resumeStatusDecoded.State);
+        int? expiresInSecondsResumed = resumeStatusDecoded.ExpiresInSeconds;
         Assert.NotNull(expiresInSecondsResumed);
         Assert.True(expiresInSecondsResumed > 0);
         // Never larger than the original (the same challenge's countdown keeps running through the
@@ -465,23 +475,24 @@ public class PairingScenarioTests
 
         // Confirm with the original code on the reconnected session: should succeed.
         await reconnect.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", newSessionId, null,
-            new JsonObject { ["code"] = code, ["displayName"] = "Resume Test" }));
+            new PairingConfirmPayload(code, "Resume Test").Encode()));
         Envelope confirmOutcome = await reconnect.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         // Complete the pairing handshake on the reconnected socket.
         await reconnect.SendAsync(new Envelope("pairing_ack", "message-ack-1", newSessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await reconnect.ReceiveAsync();
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Session upgrade lands on the reconnected socket; the subscription request is accepted
         // immediately without a fresh reconnect, while the unregistered area is rejected.
         await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", newSessionId, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope subscriptionAck = await reconnect.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
         AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
@@ -493,7 +504,7 @@ public class PairingScenarioTests
         await credentialVerify.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential, clientId: "client-1"));
         Envelope verifyHelloAck = await credentialVerify.ReceiveAsync();
         Assert.Equal("hello_ack", verifyHelloAck.MessageType);
-        Assert.Equal("paired", verifyHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("paired", HelloAckPayload.Decode(verifyHelloAck.Payload).ClientIdentityKind);
 
         await BridgeScenario.CloseAndQuitAsync(harness, credentialVerify);
     }
@@ -525,7 +536,7 @@ public class PairingScenarioTests
         Envelope status1 = await connection1.ReceiveAsync();
         Assert.Equal("pairing_status", status1.MessageType);
         Assert.Equal("message-request-1", status1.CorrelationId);
-        Assert.Equal("available", status1.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status1.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
@@ -550,17 +561,20 @@ public class PairingScenarioTests
         Envelope status2 = await connection2.ReceiveAsync();
         Assert.Equal("pairing_status", status2.MessageType);
         Assert.Equal("message-request-2", status2.CorrelationId);
-        // "other_device_pairing" means a different clientId owns the active challenge; expiresInSeconds is never present.
-        Assert.Equal("other_device_pairing", status2.Payload["state"]!.GetValue<string>());
-        Assert.False(status2.Payload.ContainsKey("expiresInSeconds"), "expiresInSeconds must not be present for other_device_pairing state");
+        // "other_device_pairing" means a different clientId owns the active challenge; expiresInSeconds
+        // is never present -- PairingStatusPayload.Decode itself rejects a present expiresInSeconds
+        // for this state, so a successful decode already proves the key's absence.
+        PairingStatusPayload status2Decoded = PairingStatusPayload.Decode(status2.Payload);
+        Assert.Equal("other_device_pairing", status2Decoded.State);
+        Assert.Null(status2Decoded.ExpiresInSeconds);
 
         // Client-2's own session is still Restricted (unpaired): subscription is rejected, proving
         // "other_device_pairing" grants it no capability the wire contract wouldn't already deny.
         await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope error2 = await connection2.ReceiveAsync();
         Assert.Equal("error", error2.MessageType);
-        Assert.Equal("malformed_message", error2.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error2.Payload).Code);
 
         // Client-2 cannot proceed without the code (it was never disclosed) -- rather than
         // speculate on a fake-code confirm attempt, it simply disconnects, freeing the slot so the
@@ -577,22 +591,23 @@ public class PairingScenarioTests
         await reconnect.ReceiveAsync(); // capabilities (ignored)
 
         await reconnect.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId1Reconnected, null,
-            new JsonObject { ["code"] = code, ["displayName"] = "Device 1" }));
+            new PairingConfirmPayload(code, "Device 1").Encode()));
         Envelope confirmOutcome = await reconnect.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await reconnect.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId1Reconnected, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await reconnect.ReceiveAsync();
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Client-1's session is now Full (paired); the subscription request is allowed, but no state
         // area is currently registered so the acknowledgement rejects the requested area.
         await reconnect.SendAsync(new Envelope("subscribe", "message-sub-1", sessionId1Reconnected, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope subscriptionAck = await reconnect.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
         AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-1", "character");
@@ -619,8 +634,9 @@ public class PairingScenarioTests
         Envelope status1 = await connection1.ReceiveAsync();
         Assert.Equal("pairing_status", status1.MessageType);
         Assert.Equal("message-request-1", status1.CorrelationId);
-        Assert.Equal("available", status1.Payload["state"]!.GetValue<string>());
-        Assert.True(status1.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+        PairingStatusPayload status1Decoded = PairingStatusPayload.Decode(status1.Payload);
+        Assert.Equal("available", status1Decoded.State);
+        Assert.True(status1Decoded.ExpiresInSeconds > 0);
 
         string code1 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
@@ -653,8 +669,9 @@ public class PairingScenarioTests
         Assert.Equal("pairing_status", status2.MessageType);
         Assert.Equal("message-request-2", status2.CorrelationId);
         // Slot is freed: client-2 gets "available" (not "other_device_pairing") with fresh expiry.
-        Assert.Equal("available", status2.Payload["state"]!.GetValue<string>());
-        Assert.True(status2.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+        PairingStatusPayload status2Decoded = PairingStatusPayload.Decode(status2.Payload);
+        Assert.Equal("available", status2Decoded.State);
+        Assert.True(status2Decoded.ExpiresInSeconds > 0);
 
         string code2 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
@@ -663,22 +680,23 @@ public class PairingScenarioTests
 
         // Client-2 can complete pairing with the fresh code.
         await connection2.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", sessionId2, null,
-            new JsonObject { ["code"] = code2, ["displayName"] = "Device 2" }));
+            new PairingConfirmPayload(code2, "Device 2").Encode()));
         Envelope confirmOutcome = await connection2.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection2.SendAsync(new Envelope("pairing_ack", "message-ack-2", sessionId2, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection2.ReceiveAsync();
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Session upgrade lands on the same connection; the subscription request is allowed, but
         // the currently unregistered state area is rejected.
         await connection2.SendAsync(new Envelope("subscribe", "message-sub-2", sessionId2, null,
-            new JsonObject { ["stateAreas"] = new JsonArray("character") }));
+            new SubscribePayload(["character"]).Encode()));
         Envelope subscriptionAck = await connection2.ReceiveAsync();
         Assert.Equal("subscription_ack", subscriptionAck.MessageType);
         AssertUnregisteredSubscriptionAcknowledged(subscriptionAck, "message-sub-2", "character");
@@ -693,9 +711,9 @@ public class PairingScenarioTests
         string stateArea)
     {
         Assert.Equal(correlationId, acknowledgement.CorrelationId);
-        Assert.Empty(acknowledgement.Payload["acceptedStateAreas"]!.AsArray());
-        Assert.Equal([stateArea],
-            acknowledgement.Payload["rejectedStateAreas"]!.AsArray().Select(value => value!.GetValue<string>()));
+        SubscriptionAckPayload decoded = SubscriptionAckPayload.Decode(acknowledgement.Payload);
+        Assert.Empty(decoded.AcceptedStateAreas);
+        Assert.Equal([stateArea], decoded.RejectedStateAreas);
     }
 
     /// <summary>
@@ -717,8 +735,9 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
-        int initialExpiry = status.Payload["expiresInSeconds"]!.GetValue<int>();
+        PairingStatusPayload statusDecoded = PairingStatusPayload.Decode(status.Payload);
+        Assert.Equal("available", statusDecoded.State);
+        int initialExpiry = statusDecoded.ExpiresInSeconds!.Value;
         Assert.True(initialExpiry > 0);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
@@ -729,9 +748,10 @@ public class PairingScenarioTests
         Envelope renotifyOutcome1 = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", renotifyOutcome1.MessageType);
         Assert.Equal("message-renotify-1", renotifyOutcome1.CorrelationId);
-        Assert.Equal("renotified", renotifyOutcome1.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload renotify1Decoded = PairingOutcomePayload.Decode(renotifyOutcome1.Payload);
+        Assert.Equal("renotified", renotify1Decoded.Outcome);
         // renotified outcome carries no expiry, code, or error info (code is redisplayed in-game, not over wire).
-        Assert.Null(renotifyOutcome1.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(renotify1Decoded.RetryAfterSeconds);
         Assert.False(renotifyOutcome1.Payload.ContainsKey("expiresInSeconds"));
         // The wire outcome alone doesn't prove the code was actually redisplayed in-game -- confirm
         // the harness actually observed a second PAIRING_CODE line (the first was the original
@@ -745,8 +765,9 @@ public class PairingScenarioTests
         Envelope renotifyCooldown = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", renotifyCooldown.MessageType);
         Assert.Equal("message-renotify-2", renotifyCooldown.CorrelationId);
-        Assert.Equal("renotify_cooldown", renotifyCooldown.Payload["outcome"]!.GetValue<string>());
-        int retryAfter = renotifyCooldown.Payload["retryAfterSeconds"]!.GetValue<int>();
+        PairingOutcomePayload renotifyCooldownDecoded = PairingOutcomePayload.Decode(renotifyCooldown.Payload);
+        Assert.Equal("renotify_cooldown", renotifyCooldownDecoded.Outcome);
+        int retryAfter = renotifyCooldownDecoded.RetryAfterSeconds!.Value;
         Assert.True(retryAfter > 0);
         Assert.True(retryAfter <= 5, $"Cooldown {retryAfter}s should not exceed kPairingRenotifyCooldown (5s)");
         Assert.False(renotifyCooldown.Payload.ContainsKey("expiresInSeconds"), "expiresInSeconds should not be in renotify_cooldown outcome");
@@ -759,18 +780,19 @@ public class PairingScenarioTests
         Envelope renotifyOutcome3 = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", renotifyOutcome3.MessageType);
         Assert.Equal("message-renotify-3", renotifyOutcome3.CorrelationId);
-        Assert.Equal("renotified", renotifyOutcome3.Payload["outcome"]!.GetValue<string>());
-        Assert.Null(renotifyOutcome3.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        PairingOutcomePayload renotify3Decoded = PairingOutcomePayload.Decode(renotifyOutcome3.Payload);
+        Assert.Equal("renotified", renotify3Decoded.Outcome);
+        Assert.Null(renotify3Decoded.RetryAfterSeconds);
         Assert.False(renotifyOutcome3.Payload.ContainsKey("expiresInSeconds"));
         string renotifiedCode3 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         Assert.Equal(code, renotifiedCode3);
 
         // Confirm the original code: should succeed (code remained valid through renotifies).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("credential_issued", PairingOutcomePayload.Decode(confirmOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -794,22 +816,24 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
-        int initialExpiry = status.Payload["expiresInSeconds"]!.GetValue<int>();
+        PairingStatusPayload statusDecoded = PairingStatusPayload.Decode(status.Payload);
+        Assert.Equal("available", statusDecoded.State);
+        int initialExpiry = statusDecoded.ExpiresInSeconds!.Value;
 
         string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         string wrongCode = DifferentCode(correctCode);
 
         // Send wrong code: challenge persists (not hard-limit yet), returns "invalid" outcome.
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-wrong", sessionId, null,
-            new JsonObject { ["code"] = wrongCode }));
+            new PairingConfirmPayload(wrongCode).Encode()));
         Envelope invalidOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", invalidOutcome.MessageType);
         Assert.Equal("message-confirm-wrong", invalidOutcome.CorrelationId);
-        Assert.Equal("invalid", invalidOutcome.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload invalidDecoded = PairingOutcomePayload.Decode(invalidOutcome.Payload);
+        Assert.Equal("invalid", invalidDecoded.Outcome);
         // Invalid outcome carries no credential or error info (challenge is still active).
-        Assert.Null(invalidOutcome.Payload["credential"]?.GetValue<string>());
-        Assert.Null(invalidOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(invalidDecoded.Credential);
+        Assert.Null(invalidDecoded.RetryAfterSeconds);
 
         // Bridge auto-renotifies the code via in-game notification; harness signals this.
         string? autoRenotifySignal = await harness.ReadLineAsync();
@@ -827,8 +851,9 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope statusAfterWrongCode = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", statusAfterWrongCode.MessageType);
-        Assert.Equal("in_progress", statusAfterWrongCode.Payload["state"]!.GetValue<string>());
-        int refreshedExpiry = statusAfterWrongCode.Payload["expiresInSeconds"]!.GetValue<int>();
+        PairingStatusPayload statusAfterWrongCodeDecoded = PairingStatusPayload.Decode(statusAfterWrongCode.Payload);
+        Assert.Equal("in_progress", statusAfterWrongCodeDecoded.State);
+        int refreshedExpiry = statusAfterWrongCodeDecoded.ExpiresInSeconds!.Value;
         Assert.True(refreshedExpiry > 0);
         // Never larger than the original (a wrong attempt must not extend it), and not further
         // below it than plausible round-trip latency (proving it wasn't reset to a fresh full
@@ -845,10 +870,10 @@ public class PairingScenarioTests
 
         // Confirm with the original correct code: should succeed (wrong attempt didn't consume it).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-correct", sessionId, null,
-            new JsonObject { ["code"] = correctCode }));
+            new PairingConfirmPayload(correctCode).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("credential_issued", PairingOutcomePayload.Decode(confirmOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -872,38 +897,39 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         string wrongCode = DifferentCode(correctCode);
 
         // First attempt (wrong): genuinely evaluated, starts the pacing clock.
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = wrongCode }));
+            new PairingConfirmPayload(wrongCode).Encode()));
         Envelope firstOutcome = await connection.ReceiveAsync();
-        Assert.Equal("invalid", firstOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("invalid", PairingOutcomePayload.Decode(firstOutcome.Payload).Outcome);
         Assert.StartsWith("PAIRING_CODE_INCORRECT ", await harness.ReadLineAsync());
 
         // Second attempt, immediately after: too soon to be evaluated, even with the correct code.
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-2", sessionId, null,
-            new JsonObject { ["code"] = correctCode }));
+            new PairingConfirmPayload(correctCode).Encode()));
         Envelope pacedOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", pacedOutcome.MessageType);
         Assert.Equal("message-confirm-2", pacedOutcome.CorrelationId);
-        Assert.Equal("pacing_limited", pacedOutcome.Payload["outcome"]!.GetValue<string>());
-        int retryAfter = pacedOutcome.Payload["retryAfterSeconds"]!.GetValue<int>();
+        PairingOutcomePayload pacedDecoded = PairingOutcomePayload.Decode(pacedOutcome.Payload);
+        Assert.Equal("pacing_limited", pacedDecoded.Outcome);
+        int retryAfter = pacedDecoded.RetryAfterSeconds!.Value;
         // A positive fractional wait rounds up to the minimum safe whole-second wait.
         Assert.Equal(1, retryAfter);
         // pacing_limited carries no credential (never evaluated, so nothing was issued or consumed).
-        Assert.Null(pacedOutcome.Payload["credential"]?.GetValue<string>());
+        Assert.Null(pacedDecoded.Credential);
 
         // Once the pacing interval elapses, the correct code is genuinely evaluated and succeeds.
         await Task.Delay(TimeSpan.FromSeconds(1.1));
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-3", sessionId, null,
-            new JsonObject { ["code"] = correctCode }));
+            new PairingConfirmPayload(correctCode).Encode()));
         Envelope finalOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", finalOutcome.MessageType);
-        Assert.Equal("credential_issued", finalOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("credential_issued", PairingOutcomePayload.Decode(finalOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -927,7 +953,7 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string correctCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
@@ -945,11 +971,11 @@ public class PairingScenarioTests
             }
             string wrongCode = DifferentCode(correctCode);
             await connection.SendAsync(new Envelope("pairing_confirm", $"message-confirm-wrong-{attempt}", sessionId, null,
-                new JsonObject { ["code"] = wrongCode }));
+                new PairingConfirmPayload(wrongCode).Encode()));
             Envelope outcome = await connection.ReceiveAsync();
             Assert.Equal("pairing_outcome", outcome.MessageType);
             Assert.Equal($"message-confirm-wrong-{attempt}", outcome.CorrelationId);
-            Assert.Equal("invalid", outcome.Payload["outcome"]!.GetValue<string>());
+            Assert.Equal("invalid", PairingOutcomePayload.Decode(outcome.Payload).Outcome);
 
             // Each wrong attempt triggers auto-renotify: harness signals with PAIRING_CODE_INCORRECT.
             string? signal = await harness.ReadLineAsync();
@@ -965,21 +991,22 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-boundary", sessionId, null, new JsonObject()));
         Envelope boundaryStatus = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", boundaryStatus.MessageType);
-        Assert.Equal("in_progress", boundaryStatus.Payload["state"]!.GetValue<string>());
+        Assert.Equal("in_progress", PairingStatusPayload.Decode(boundaryStatus.Payload).State);
 
         // 5th wrong attempt: hits hard limit, challenge is cancelled. Spaced out from the 4th
         // attempt's own evaluated confirm, same pacing reason as the loop above.
         await Task.Delay(TimeSpan.FromSeconds(1.1));
         string fifthWrongCode = DifferentCode(correctCode);
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-wrong-5", sessionId, null,
-            new JsonObject { ["code"] = fifthWrongCode }));
+            new PairingConfirmPayload(fifthWrongCode).Encode()));
         Envelope hardLimitOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", hardLimitOutcome.MessageType);
         Assert.Equal("message-confirm-wrong-5", hardLimitOutcome.CorrelationId);
-        Assert.Equal("hard_limit_reached", hardLimitOutcome.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload hardLimitDecoded = PairingOutcomePayload.Decode(hardLimitOutcome.Payload);
+        Assert.Equal("hard_limit_reached", hardLimitDecoded.Outcome);
         // hard_limit_reached carries no credential or retry info (challenge is immediately cancelled, not retryable).
-        Assert.Null(hardLimitOutcome.Payload["credential"]?.GetValue<string>());
-        Assert.Null(hardLimitOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(hardLimitDecoded.Credential);
+        Assert.Null(hardLimitDecoded.RetryAfterSeconds);
 
         // Hard limit is signalled distinctly from per-attempt auto-renotify: harness prints PAIRING_ATTEMPTS_EXHAUSTED.
         string? exhaustedSignal = await harness.ReadLineAsync();
@@ -994,8 +1021,9 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope freshStatus = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", freshStatus.MessageType);
-        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
-        Assert.True(freshStatus.Payload["expiresInSeconds"]!.GetValue<int>() > 0, "Fresh challenge must carry expiresInSeconds");
+        PairingStatusPayload freshStatusDecoded = PairingStatusPayload.Decode(freshStatus.Payload);
+        Assert.Equal("available", freshStatusDecoded.State);
+        Assert.True(freshStatusDecoded.ExpiresInSeconds!.Value > 0, "Fresh challenge must carry expiresInSeconds");
 
         string freshCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         // The new challenge has a different code (fresh attempt, not retry of the exhausted one).
@@ -1003,10 +1031,10 @@ public class PairingScenarioTests
 
         // Fresh code works (confirms the challenge was genuinely cleared and restarted).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
-            new JsonObject { ["code"] = freshCode }));
+            new PairingConfirmPayload(freshCode).Encode()));
         Envelope freshConfirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", freshConfirmOutcome.MessageType);
-        Assert.Equal("credential_issued", freshConfirmOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("credential_issued", PairingOutcomePayload.Decode(freshConfirmOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -1029,7 +1057,7 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code1 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
@@ -1038,17 +1066,19 @@ public class PairingScenarioTests
         Envelope cancelOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", cancelOutcome.MessageType);
         Assert.Equal("message-cancel-1", cancelOutcome.CorrelationId);
-        Assert.Equal("cancelled", cancelOutcome.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload cancelDecoded = PairingOutcomePayload.Decode(cancelOutcome.Payload);
+        Assert.Equal("cancelled", cancelDecoded.Outcome);
         // cancelled outcome carries no credential or retry info (challenge is cleared, not retryable).
-        Assert.Null(cancelOutcome.Payload["credential"]?.GetValue<string>());
-        Assert.Null(cancelOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(cancelDecoded.Credential);
+        Assert.Null(cancelDecoded.RetryAfterSeconds);
 
         // Fresh pairing_request: should start a new challenge with a fresh code.
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope freshStatus = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", freshStatus.MessageType);
-        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
-        Assert.True(freshStatus.Payload["expiresInSeconds"]!.GetValue<int>() > 0);
+        PairingStatusPayload freshStatusDecoded = PairingStatusPayload.Decode(freshStatus.Payload);
+        Assert.Equal("available", freshStatusDecoded.State);
+        Assert.True(freshStatusDecoded.ExpiresInSeconds!.Value > 0);
 
         string code2 = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         // Fresh challenge must have a new code, not the cancelled one.
@@ -1056,10 +1086,10 @@ public class PairingScenarioTests
 
         // Fresh code works (proves challenge was genuinely cleared).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
-            new JsonObject { ["code"] = code2 }));
+            new PairingConfirmPayload(code2).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("credential_issued", PairingOutcomePayload.Decode(confirmOutcome.Payload).Outcome);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -1082,53 +1112,56 @@ public class PairingScenarioTests
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", confirmOutcome.MessageType);
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string pendingCredential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string pendingCredential = confirmDecoded.Credential!;
 
         // Before ack: cancel the pending credential.
         await connection.SendAsync(BridgeScenario.CancelEnvelope(sessionId, "message-cancel-pending"));
         Envelope cancelOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", cancelOutcome.MessageType);
         Assert.Equal("message-cancel-pending", cancelOutcome.CorrelationId);
-        Assert.Equal("cancelled", cancelOutcome.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload cancelDecoded = PairingOutcomePayload.Decode(cancelOutcome.Payload);
+        Assert.Equal("cancelled", cancelDecoded.Outcome);
         // cancelled outcome carries no credential or retry info.
-        Assert.Null(cancelOutcome.Payload["credential"]?.GetValue<string>());
-        Assert.Null(cancelOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(cancelDecoded.Credential);
+        Assert.Null(cancelDecoded.RetryAfterSeconds);
 
         // The pending credential is not persisted: fresh pairing_request starts a new challenge
         // (not a resume of the cancelled pending state).
         await connection.SendAsync(new Envelope("pairing_request", "message-request-2", sessionId, null, new JsonObject()));
         Envelope freshStatus = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", freshStatus.MessageType);
-        Assert.Equal("available", freshStatus.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(freshStatus.Payload).State);
 
         string freshCode = await BridgeScenario.ReadPairingCodeReportAsync(harness);
         Assert.NotEqual(code, freshCode);
 
         // Fresh code works (proves the cancelled credential was not persisted and challenge was cleared).
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-fresh", sessionId, null,
-            new JsonObject { ["code"] = freshCode }));
+            new PairingConfirmPayload(freshCode).Encode()));
         Envelope freshConfirmOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", freshConfirmOutcome.MessageType);
-        Assert.Equal("credential_issued", freshConfirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string freshCredential = freshConfirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload freshConfirmDecoded = PairingOutcomePayload.Decode(freshConfirmOutcome.Payload);
+        Assert.Equal("credential_issued", freshConfirmDecoded.Outcome);
+        string freshCredential = freshConfirmDecoded.Credential!;
         // Fresh pairing must issue a new credential, not re-use the cancelled pending one.
         Assert.NotEqual(pendingCredential, freshCredential);
 
         // Complete fresh pairing to confirm it works.
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-fresh", sessionId, null,
-            new JsonObject { ["credential"] = freshCredential }));
+            new PairingAckPayload(freshCredential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", ackOutcome.MessageType);
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Verify the cancelled credential was truly not persisted: attempting to reconnect with it fails.
         await connection.CloseAsync();
@@ -1137,7 +1170,7 @@ public class PairingScenarioTests
         Envelope rejectionError = await reconnectWithCancelled.ReceiveAsync();
         Assert.Equal("error", rejectionError.MessageType);
         // Cancelled pending credential must be rejected as unauthenticated, not persisted.
-        Assert.Equal("unauthenticated", rejectionError.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(rejectionError.Payload).Code);
 
         // Fresh credential works on a new connection (contrasting proof).
         await reconnectWithCancelled.CloseAsync();
@@ -1145,7 +1178,7 @@ public class PairingScenarioTests
         await reconnectWithFresh.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(freshCredential));
         Envelope freshHelloAck = await reconnectWithFresh.ReceiveAsync();
         Assert.Equal("hello_ack", freshHelloAck.MessageType);
-        Assert.Equal("paired", freshHelloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("paired", HelloAckPayload.Decode(freshHelloAck.Payload).ClientIdentityKind);
 
         await BridgeScenario.CloseAndQuitAsync(harness, reconnectWithFresh);
     }
@@ -1170,10 +1203,11 @@ public class PairingScenarioTests
         Envelope alreadyIdleOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", alreadyIdleOutcome.MessageType);
         Assert.Equal("message-cancel-idle", alreadyIdleOutcome.CorrelationId);
-        Assert.Equal("already_idle", alreadyIdleOutcome.Payload["outcome"]!.GetValue<string>());
+        PairingOutcomePayload alreadyIdleDecoded = PairingOutcomePayload.Decode(alreadyIdleOutcome.Payload);
+        Assert.Equal("already_idle", alreadyIdleDecoded.Outcome);
         // already_idle carries no credential, expiry, or retry info (idempotent, no state change).
-        Assert.Null(alreadyIdleOutcome.Payload["credential"]?.GetValue<string>());
-        Assert.Null(alreadyIdleOutcome.Payload["retryAfterSeconds"]?.GetValue<int?>());
+        Assert.Null(alreadyIdleDecoded.Credential);
+        Assert.Null(alreadyIdleDecoded.RetryAfterSeconds);
         Assert.False(alreadyIdleOutcome.Payload.ContainsKey("expiresInSeconds"));
 
         // Idempotent: send cancel again, should still return "already_idle".
@@ -1181,13 +1215,13 @@ public class PairingScenarioTests
         Envelope secondIdleOutcome = await connection.ReceiveAsync();
         Assert.Equal("pairing_outcome", secondIdleOutcome.MessageType);
         Assert.Equal("message-cancel-idle-2", secondIdleOutcome.CorrelationId);
-        Assert.Equal("already_idle", secondIdleOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("already_idle", PairingOutcomePayload.Decode(secondIdleOutcome.Payload).Outcome);
 
         // Session remains functional: pairing_request works normally.
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
         Assert.Equal("pairing_status", status.MessageType);
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -1211,20 +1245,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Unlike a bare reconnect-only proof, this connection stays open through the reset below --
         // proving the live session itself is force-closed, not merely that a later reconnect
@@ -1239,7 +1274,7 @@ public class PairingScenarioTests
         Assert.Equal("session_invalidated", invalidated.MessageType);
         Assert.Equal(sessionId, invalidated.SessionId);
         Assert.Null(invalidated.CorrelationId);
-        Assert.Equal("trust_reset", invalidated.Payload["reason"]!.GetValue<string>());
+        Assert.Equal("trust_reset", SessionInvalidatedPayload.Decode(invalidated.Payload).Reason);
 
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
@@ -1283,20 +1318,21 @@ public class PairingScenarioTests
 
         await connection.SendAsync(new Envelope("pairing_request", "message-request-1", sessionId, null, new JsonObject()));
         Envelope status = await connection.ReceiveAsync();
-        Assert.Equal("available", status.Payload["state"]!.GetValue<string>());
+        Assert.Equal("available", PairingStatusPayload.Decode(status.Payload).State);
 
         string code = await BridgeScenario.ReadPairingCodeReportAsync(harness);
 
         await connection.SendAsync(new Envelope("pairing_confirm", "message-confirm-1", sessionId, null,
-            new JsonObject { ["code"] = code }));
+            new PairingConfirmPayload(code).Encode()));
         Envelope confirmOutcome = await connection.ReceiveAsync();
-        Assert.Equal("credential_issued", confirmOutcome.Payload["outcome"]!.GetValue<string>());
-        string credential = confirmOutcome.Payload["credential"]!.GetValue<string>();
+        PairingOutcomePayload confirmDecoded = PairingOutcomePayload.Decode(confirmOutcome.Payload);
+        Assert.Equal("credential_issued", confirmDecoded.Outcome);
+        string credential = confirmDecoded.Credential!;
 
         await connection.SendAsync(new Envelope("pairing_ack", "message-ack-1", sessionId, null,
-            new JsonObject { ["credential"] = credential }));
+            new PairingAckPayload(credential).Encode()));
         Envelope ackOutcome = await connection.ReceiveAsync();
-        Assert.Equal("trusted", ackOutcome.Payload["outcome"]!.GetValue<string>());
+        Assert.Equal("trusted", PairingOutcomePayload.Decode(ackOutcome.Payload).Outcome);
 
         // Unlike a bare reconnect-only proof, this connection stays open through the reset below --
         // proving the live session itself is force-closed, not merely that a later reconnect
@@ -1311,7 +1347,7 @@ public class PairingScenarioTests
         Assert.Equal("session_invalidated", invalidated.MessageType);
         Assert.Equal(sessionId, invalidated.SessionId);
         Assert.Null(invalidated.CorrelationId);
-        Assert.Equal("factory_reset", invalidated.Payload["reason"]!.GetValue<string>());
+        Assert.Equal("factory_reset", SessionInvalidatedPayload.Decode(invalidated.Payload).Reason);
 
         InvalidOperationException closeException =
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
@@ -1327,7 +1363,7 @@ public class PairingScenarioTests
         await staleReconnect.SendAsync(BridgeScenario.TrustedDeviceHelloEnvelope(credential));
         Envelope staleError = await staleReconnect.ReceiveAsync();
         Assert.Equal("error", staleError.MessageType);
-        Assert.Equal("unauthenticated", staleError.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(staleError.Payload).Code);
         await Assert.ThrowsAsync<InvalidOperationException>(() => staleReconnect.ReceiveAsync());
         await staleReconnect.CloseAsync();
 

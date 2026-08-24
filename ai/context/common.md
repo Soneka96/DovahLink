@@ -8,11 +8,29 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 
 - Roadmap phase numbers and application versions are separate; completing a phase does not require
   matching the application version to that phase number.
-- A release is cut by building the versioned Bridge ZIP with `tooling/BridgeBuilder` and uploading
-  it to Nexus Mods manually. `CHANGELOG.md` at the repository root is the developer-facing record of
-  what changed in each release; update it in the same change that bumps `bridge/vcpkg.json`'s
-  `version-string` and flips the corresponding `ROADMAP.md` phase to Complete. Do not add any other
-  changelog, release artifact, or release automation beyond this without a maintainer decision.
+- Flipping a completed phase's `**Status:**` line to Complete in `ROADMAP.md`/`roadmap/*.md` is part
+  of the pull request that completes that phase's work, in the same branch, since it's small and
+  tied directly to what that PR did. Fix any repository-consistency check
+  (`tooling/test_repository_consistency.py`) that a hardcoded expectation now needs updating for as
+  part of that same PR.
+- The version bump, its `CHANGELOG.md` entry, and syncing every hand-maintained version literal
+  (`bridge/vcpkg.json`, the Bridge/.NET/Dart literals and fixtures `tooling/test_repository_consistency.py`'s
+  `test_bridge_version_literals_match_the_published_release` enumerates, and that same file's
+  `CHANGELOG.md`-version bookkeeping) are their own dedicated release branch and release-only pull
+  request, never bundled into a feature/phase branch: that sync already touches over a dozen files
+  across every language in the repo on its own, and folding it into an already-large feature PR
+  makes that PR harder to review for no benefit. Cut the release branch from `main` once the
+  phase(s) it covers are merged; it can cover one phase's completion or several unreleased ones at
+  once.
+- Cutting a release is a distinct, later, manual step performed after a version-bumped release
+  branch has merged into `main`: building the versioned Bridge ZIP with `tooling/BridgeBuilder` and
+  uploading it to Nexus Mods (see that tool's own README). `CHANGELOG.md` entries are written at
+  release-branch merge time as described above, independent of when the corresponding release is
+  actually cut. A merged, version-bumped change can sit unreleased for an arbitrary time -- for
+  example while `main` is blocked from publishing at all, per "Pre-release compatibility" below --
+  without that blocking further phase or version-bump merges.
+- Do not add any other changelog, release artifact, or release automation beyond this without a
+  maintainer decision.
 
 ## Repository boundaries
 

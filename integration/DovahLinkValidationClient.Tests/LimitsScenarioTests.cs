@@ -39,8 +39,9 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
-        Assert.False(error.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload errorDecoded = ErrorPayload.Decode(error.Payload);
+        Assert.Equal("malformed_message", errorDecoded.Code);
+        Assert.False(errorDecoded.Retryable);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -90,7 +91,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -110,7 +111,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -133,7 +134,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -153,7 +154,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -173,7 +174,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -241,7 +242,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-hello-again", error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -263,7 +264,7 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Null(error.CorrelationId);
-        Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
 
         await BridgeScenario.CloseAndQuitAsync(harness, connection);
     }
@@ -283,18 +284,18 @@ public class LimitsScenarioTests
 
         await connection.SendRawTextAsync("not json {{{");
         Envelope first = await connection.ReceiveAsync();
-        Assert.Equal("malformed_message", first.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(first.Payload).Code);
 
         var ping = new Envelope("ping", "message-mixed-dup", sessionId, null, new JsonObject());
         await connection.SendAsync(ping);
         await connection.ReceiveAsync();  // pong
         await connection.SendAsync(ping);  // same messageId again
         Envelope second = await connection.ReceiveAsync();
-        Assert.Equal("replayed_message", second.Payload["code"]!.GetValue<string>());
+        Assert.Equal("replayed_message", ErrorPayload.Decode(second.Payload).Code);
 
         await connection.SendRawTextAsync("not json {{{");
         Envelope third = await connection.ReceiveAsync();
-        Assert.Equal("malformed_message", third.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(third.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
         await connection.CloseAsync();
@@ -321,8 +322,9 @@ public class LimitsScenarioTests
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
         Assert.Equal("message-dup-1", error.CorrelationId);
-        Assert.Equal("replayed_message", error.Payload["code"]!.GetValue<string>());
-        Assert.False(error.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload errorDecoded = ErrorPayload.Decode(error.Payload);
+        Assert.Equal("replayed_message", errorDecoded.Code);
+        Assert.False(errorDecoded.Retryable);
 
         // One violation does not close the connection -- proven the same
         // way as the other scenario files, with a ping/pong right after.
@@ -346,7 +348,7 @@ public class LimitsScenarioTests
         {
             await connection.SendRawTextAsync("not json {{{");
             Envelope error = await connection.ReceiveAsync();
-            Assert.Equal("malformed_message", error.Payload["code"]!.GetValue<string>());
+            Assert.Equal("malformed_message", ErrorPayload.Decode(error.Payload).Code);
         }
 
         // The 3rd violation still gets its own error response (unlike an
@@ -354,7 +356,7 @@ public class LimitsScenarioTests
         // alongside it, not instead of it (application/message_dispatcher.cpp's Reject()).
         await connection.SendRawTextAsync("not json {{{");
         Envelope thirdError = await connection.ReceiveAsync();
-        Assert.Equal("malformed_message", thirdError.Payload["code"]!.GetValue<string>());
+        Assert.Equal("malformed_message", ErrorPayload.Decode(thirdError.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
         await connection.CloseAsync();
@@ -400,7 +402,7 @@ public class LimitsScenarioTests
         for (int i = 0; i <= 100; i++)
         {
             Envelope response = await connection.ReceiveAsync();
-            if (response.Payload["code"]?.GetValue<string>() == "rate_limited")
+            if (response.MessageType == "error" && ErrorPayload.Decode(response.Payload).Code == "rate_limited")
             {
                 rateLimited = response;
                 break;
@@ -413,8 +415,9 @@ public class LimitsScenarioTests
         Assert.Equal(100, pongCount);
         Assert.Equal("error", rateLimited.MessageType);
         Assert.Equal("message-rate-100", rateLimited.CorrelationId);
-        Assert.Equal("rate_limited", rateLimited.Payload["code"]!.GetValue<string>());
-        Assert.True(rateLimited.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload rateLimitedDecoded = ErrorPayload.Decode(rateLimited.Payload);
+        Assert.Equal("rate_limited", rateLimitedDecoded.Code);
+        Assert.True(rateLimitedDecoded.Retryable);
 
         // Deliberately not asserting the connection stays open with a
         // follow-up ping/pong here (unlike the other single-violation

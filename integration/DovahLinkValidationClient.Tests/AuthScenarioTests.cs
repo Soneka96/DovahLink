@@ -1,5 +1,4 @@
 using System.Net.WebSockets;
-using System.Text.Json.Nodes;
 using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
@@ -21,7 +20,7 @@ public class AuthScenarioTests
 
             Envelope error = await connection.ReceiveAsync();
             Assert.Equal("error", error.MessageType);
-            Assert.Equal("unauthenticated", error.Payload["code"]!.GetValue<string>());
+            Assert.Equal("unauthenticated", ErrorPayload.Decode(error.Payload).Code);
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
             await connection.CloseAsync();
@@ -60,7 +59,7 @@ public class AuthScenarioTests
 
         Envelope error = await second.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("unauthenticated", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(error.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => second.ReceiveAsync());
         await second.CloseAsync();
@@ -90,7 +89,7 @@ public class AuthScenarioTests
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("unauthenticated", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(error.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
         await connection.CloseAsync();
@@ -115,7 +114,7 @@ public class AuthScenarioTests
 
         Envelope error = await connection.ReceiveAsync();
         Assert.Equal("error", error.MessageType);
-        Assert.Equal("unauthenticated", error.Payload["code"]!.GetValue<string>());
+        Assert.Equal("unauthenticated", ErrorPayload.Decode(error.Payload).Code);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => connection.ReceiveAsync());
         await connection.CloseAsync();
@@ -143,8 +142,9 @@ public class AuthScenarioTests
 
         Envelope rateLimited = await sixth.ReceiveAsync();
         Assert.Equal("error", rateLimited.MessageType);
-        Assert.Equal("rate_limited", rateLimited.Payload["code"]!.GetValue<string>());
-        Assert.True(rateLimited.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload rateLimitedError = ErrorPayload.Decode(rateLimited.Payload);
+        Assert.Equal("rate_limited", rateLimitedError.Code);
+        Assert.True(rateLimitedError.Retryable);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => sixth.ReceiveAsync());
         await sixth.CloseAsync();
@@ -167,8 +167,9 @@ public class AuthScenarioTests
         await sixth.SendAsync(BridgeScenario.HelloEnvelope(BridgeScenario.ValidHexToken, "message-hello-correct-after-failures"));
         Envelope rateLimited = await sixth.ReceiveAsync();
         Assert.Equal("error", rateLimited.MessageType);
-        Assert.Equal("rate_limited", rateLimited.Payload["code"]!.GetValue<string>());
-        Assert.True(rateLimited.Payload["retryable"]!.GetValue<bool>());
+        ErrorPayload rateLimitedError = ErrorPayload.Decode(rateLimited.Payload);
+        Assert.Equal("rate_limited", rateLimitedError.Code);
+        Assert.True(rateLimitedError.Retryable);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => sixth.ReceiveAsync());
         await sixth.CloseAsync();

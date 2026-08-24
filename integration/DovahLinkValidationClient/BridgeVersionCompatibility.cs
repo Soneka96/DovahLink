@@ -31,13 +31,13 @@ public static class BridgeVersionCompatibility
     /// The oldest Bridge release this client understands. Currently equal to
     /// <see cref="MaximumSupportedVersion"/>: this project has not yet built multi-release
     /// compatibility, so the declared range is a single supported release rather than an inferred
-    /// or speculative span (see <c>bridge/README.md</c>: "Bridge version `0.3.2` supports exactly
+    /// or speculative span (see <c>bridge/README.md</c>: "Bridge version supports exactly
     /// one runtime").
     /// </summary>
-    public static readonly Version MinimumSupportedVersion = new(0, 3, 2);
+    public static readonly Version MinimumSupportedVersion = new(0, 3, 3);
 
     /// <summary>The newest Bridge release this client understands.</summary>
-    public static readonly Version MaximumSupportedVersion = new(0, 3, 2);
+    public static readonly Version MaximumSupportedVersion = new(0, 3, 3);
 
     /// <summary>
     /// Evaluates a Bridge-reported version string against the declared supported range.

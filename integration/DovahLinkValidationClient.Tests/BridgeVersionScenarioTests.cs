@@ -4,7 +4,14 @@ using DovahLinkValidationClient;
 
 namespace DovahLinkValidationClient.Tests;
 
-/// <summary>Exercises the hello/hello_ack bootstrap and its Bridge-version compatibility fields.</summary>
+/// <summary>Exercises the hello/hello_ack bootstrap and its Bridge-version compatibility fields.
+/// Most fixtures here build the Bridge's side of the exchange (hello_ack, error, capabilities,
+/// subscription_ack, state_snapshot) for a <see cref="FakeWebSocket"/> to feed into
+/// <see cref="ValidationRun.ExecuteAsync"/>, or read back the client's own already-sent hello. The
+/// corresponding payload DTOs are one-directional to match this client's real usage (e.g.
+/// <c>HelloAckPayload</c> is decode-only because the real client never sends one, and
+/// <c>HelloPayload</c> is encode-only because it never decodes its own), so they cover neither the
+/// fake side nor the sent-message readback and those sites stay as raw JsonObject.</summary>
 public class BridgeVersionScenarioTests
 {
     /// <summary>A valid one-time token for the bootstrap harness.</summary>
@@ -23,17 +30,8 @@ public class BridgeVersionScenarioTests
         Envelope helloAck;
         await using (BridgeConnection connection = await BridgeConnection.ConnectWithRetryAsync(BridgeUri))
         {
-            var helloPayload = new JsonObject
-            {
-                ["endpoint"] = "client",
-                ["clientId"] = "client-1",
-                ["auth"] = new JsonObject
-                {
-                    ["method"] = "one_time_local_token",
-                    ["token"] = ValidHexToken,
-                },
-            };
-            await connection.SendAsync(new Envelope("hello", "message-hello-1", null, null, helloPayload));
+            var helloPayload = new HelloPayload("client-1", new HelloAuthPayload("one_time_local_token", ValidHexToken));
+            await connection.SendAsync(new Envelope("hello", "message-hello-1", null, null, helloPayload.Encode()));
 
             helloAck = await connection.ReceiveAsync();
             // Closed here, before "quit": Coordinator::Shutdown() waits for
@@ -44,7 +42,7 @@ public class BridgeVersionScenarioTests
         Assert.Equal("hello_ack", helloAck.MessageType);
         Assert.False(string.IsNullOrEmpty(helloAck.SessionId));
         Assert.Equal("message-hello-1", helloAck.CorrelationId);
-        Assert.False(string.IsNullOrEmpty(helloAck.Payload["bridgeVersion"]!.GetValue<string>()));
+        Assert.False(string.IsNullOrEmpty(HelloAckPayload.Decode(helloAck.Payload).BridgeVersion));
 
         await harness.WriteLineAsync("quit");
         Assert.True(await harness.WaitForExitAsync(TimeSpan.FromSeconds(5)));
@@ -67,7 +65,7 @@ public class BridgeVersionScenarioTests
         }
 
         Assert.Equal("hello_ack", helloAck.MessageType);
-        Assert.Equal("unpaired", helloAck.Payload["clientIdentityKind"]!.GetValue<string>());
+        Assert.Equal("unpaired", HelloAckPayload.Decode(helloAck.Payload).ClientIdentityKind);
         Assert.Equal(bridgeInstanceId, helloAck.BridgeInstanceId);
         Assert.Equal(clientId, helloAck.ClientId);
 
@@ -336,7 +334,7 @@ public class BridgeVersionScenarioTests
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
                 new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
                 ClientId: ClientIdentity.Current.ToString()).Encode(),
-            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new CapabilitiesPayload([]).Encode()).Encode(),
             new Envelope("error", "message-error-1", sessionId, null,
                 new JsonObject { ["code"] = "rate_limited", ["message"] = "Too many requests", ["retryable"] = true })
                 .Encode(),
@@ -371,7 +369,7 @@ public class BridgeVersionScenarioTests
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
                 new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
                 ClientId: ClientIdentity.Current.ToString()).Encode(),
-            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new CapabilitiesPayload([]).Encode()).Encode(),
             new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
                 new JsonObject { ["acceptedStateAreas"] = new JsonArray(), ["rejectedStateAreas"] = new JsonArray("character") })
                 .Encode(),
@@ -404,7 +402,7 @@ public class BridgeVersionScenarioTests
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
                 new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
                 ClientId: ClientIdentity.Current.ToString()).Encode(),
-            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new CapabilitiesPayload([]).Encode()).Encode(),
             new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null, new JsonObject()).Encode(),
         ];
         var socket = new FakeWebSocket(responses);
@@ -432,7 +430,7 @@ public class BridgeVersionScenarioTests
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
                 new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
                 ClientId: ClientIdentity.Current.ToString()).Encode(),
-            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new CapabilitiesPayload([]).Encode()).Encode(),
             new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
                 new JsonObject { ["acceptedStateAreas"] = new JsonArray("character"), ["rejectedStateAreas"] = new JsonArray() })
                 .Encode(),
@@ -464,7 +462,7 @@ public class BridgeVersionScenarioTests
             new Envelope("hello_ack", "message-ack-1", sessionId, "message-hello-1",
                 new JsonObject { ["bridgeVersion"] = supportedVersion, ["clientIdentityKind"] = "unpaired" },
                 ClientId: ClientIdentity.Current.ToString()).Encode(),
-            new Envelope("capabilities", "message-cap-1", sessionId, null, new JsonObject()).Encode(),
+            new Envelope("capabilities", "message-cap-1", sessionId, null, new CapabilitiesPayload([]).Encode()).Encode(),
             new Envelope("subscription_ack", "message-sub-ack-1", sessionId, null,
                 new JsonObject { ["acceptedStateAreas"] = new JsonArray("character"), ["rejectedStateAreas"] = new JsonArray() })
                 .Encode(),
