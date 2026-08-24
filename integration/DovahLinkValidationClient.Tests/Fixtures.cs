@@ -81,4 +81,30 @@ public static class Fixtures
     /// list -- the only currently registered shape.</param>
     public static CapabilitiesPayload BuildCapabilitiesPayload(IReadOnlyList<Capability>? capabilities = null) =>
         new(capabilities ?? []);
+
+    // ---- Subscription control ----
+
+    /// <summary>Builds a representative SubscribePayload.</summary>
+    /// <param name="stateAreas">The state areas to request, or <see langword="null"/> for one
+    /// representative area.</param>
+    public static SubscribePayload BuildSubscribePayload(IReadOnlyList<string>? stateAreas = null) =>
+        new(stateAreas ?? ["example_area"]);
+
+    /// <summary>Builds a representative SnapshotRequestPayload.</summary>
+    /// <param name="stateArea">The state area to use.</param>
+    /// <param name="knownRevision">The known revision to use, or <see langword="null"/> to omit it.</param>
+    public static SnapshotRequestPayload BuildSnapshotRequestPayload(
+        string stateArea = "example_area",
+        int? knownRevision = 2) =>
+        new(stateArea, knownRevision);
+
+    /// <summary>Builds a representative SubscriptionAckPayload.</summary>
+    /// <param name="acceptedStateAreas">The accepted state areas to use, or <see langword="null"/>
+    /// for an empty list -- the only currently reachable shape.</param>
+    /// <param name="rejectedStateAreas">The rejected state areas to use, or <see langword="null"/>
+    /// for one representative rejected area.</param>
+    public static SubscriptionAckPayload BuildSubscriptionAckPayload(
+        IReadOnlyList<string>? acceptedStateAreas = null,
+        IReadOnlyList<string>? rejectedStateAreas = null) =>
+        new(acceptedStateAreas ?? [], rejectedStateAreas ?? ["example_area"]);
 }
