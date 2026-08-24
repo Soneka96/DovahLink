@@ -91,10 +91,13 @@ class SessionServiceImpl implements SessionService {
 
   /// Implements [SessionService.connect]. One attempt within a bounded-reconnect cycle (entered
   /// while [connectionState] is already `reconnecting`) keeps [connectionState] at `reconnecting`
-  /// for the whole attempt instead of passing through `connecting`/`disconnected`, so recovery
-  /// stays outwardly visible as one continuous `reconnecting` phase rather than flickering between
-  /// attempts; an ordinary, non-recovery call still shows the normal
-  /// `connecting` -> `connected`/`disconnected` transition. See [SessionState.beginConnectAttempt].
+  /// while the socket itself is being established, instead of passing through
+  /// `connecting`/`disconnected`, so recovery stays outwardly visible as one continuous
+  /// `reconnecting` phase rather than flickering between attempts; once the socket actually
+  /// connects, [SessionState.markConnected] moves such an attempt to `reauthenticating` rather than
+  /// `connected` -- trust is not yet confirmed until the caller's own `hello` following this method
+  /// admits a session. An ordinary, non-recovery call still shows the normal `connecting` ->
+  /// `connected`/`disconnected` transition. See [SessionState.beginConnectAttempt].
   @override
   Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
     _state.beginConnectAttempt(uri);

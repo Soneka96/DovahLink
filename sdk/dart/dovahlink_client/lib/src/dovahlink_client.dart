@@ -206,10 +206,12 @@ class DovahLinkClient {
 
   /// The current connection lifecycle phase. Reaches
   /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never
-  /// after [disconnect] or an administrative invalidation), resolving on its own back to
-  /// [DovahLinkConnectionState.connected] on successful bounded automatic recovery or to
-  /// [DovahLinkConnectionState.disconnected] once that recovery is exhausted; no action from this
-  /// client is required to observe or drive that recovery.
+  /// after [disconnect] or an administrative invalidation), moving to
+  /// [DovahLinkConnectionState.reauthenticating] once that recovery attempt's transport reconnects
+  /// -- trust not yet confirmed -- and resolving on its own to
+  /// [DovahLinkConnectionState.connected] once that attempt's `hello` actually admits a session, or
+  /// to [DovahLinkConnectionState.disconnected] once the recovery cycle is exhausted first; no
+  /// action from this client is required to observe or drive that recovery.
   DovahLinkConnectionState get connectionState =>
       _sessionService.connectionState;
 
