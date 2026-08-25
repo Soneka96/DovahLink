@@ -41,43 +41,44 @@ void main() {
       expect(find.byType(Text), findsNothing);
     });
 
-    testWidgets('PairingCountdown displays formatted countdown when seconds remain', (
-      WidgetTester tester,
-    ) async {
-      final now = DateTime.now();
-      // A small margin absorbs the wall-clock time pumpWidget takes, so the
-      // truncating-to-whole-seconds selector doesn't flake across a second boundary.
-      final expiresIn125Seconds = now.add(
-        const Duration(seconds: 125, milliseconds: 500),
-      );
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
-            error: null,
-            codeExpiresAt: expiresIn125Seconds,
-            renotifyAvailableAt: null,
+    testWidgets(
+      'PairingCountdown displays formatted countdown when seconds remain',
+      (WidgetTester tester) async {
+        final now = DateTime.now();
+        // A small margin absorbs the wall-clock time pumpWidget takes, so the
+        // truncating-to-whole-seconds selector doesn't flake across a second boundary.
+        final expiresIn125Seconds = now.add(
+          const Duration(seconds: 125, milliseconds: 500),
+        );
+        final store = Store<AppState>(
+          (AppState state, dynamic action) => state,
+          initialState: AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              bridgeVersion: null,
+              error: null,
+              codeExpiresAt: expiresIn125Seconds,
+              renotifyAvailableAt: null,
+            ),
           ),
-        ),
-      );
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCountdown()),
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const Scaffold(body: PairingCountdown()),
+            ),
           ),
-        ),
-      );
+        );
 
-      final textFinder = find.byType(Text);
-      expect(textFinder, findsOneWidget);
-      final Text textWidget = tester.widget<Text>(textFinder);
-      expect(textWidget.data, '2:05');
-    });
+        final textFinder = find.byType(Text);
+        expect(textFinder, findsOneWidget);
+        final Text textWidget = tester.widget<Text>(textFinder);
+        expect(textWidget.data, '2:05');
+      },
+    );
 
     testWidgets('PairingCountdown displays zero when countdown has expired', (
       WidgetTester tester,

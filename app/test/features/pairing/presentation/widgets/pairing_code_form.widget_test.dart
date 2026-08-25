@@ -25,38 +25,39 @@ void main() {
       },
     );
 
-    testWidgets('PairingCodeForm submitting the form calls onSubmit with the entered values', (
-      WidgetTester tester,
-    ) async {
-      String? submittedCode;
-      String? submittedDisplayName;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: PairingCodeForm(
-              onSubmit: (code, displayName) {
-                submittedCode = code;
-                submittedDisplayName = displayName;
-              },
+    testWidgets(
+      'PairingCodeForm submitting the form calls onSubmit with the entered values',
+      (WidgetTester tester) async {
+        String? submittedCode;
+        String? submittedDisplayName;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: PairingCodeForm(
+                onSubmit: (code, displayName) {
+                  submittedCode = code;
+                  submittedDisplayName = displayName;
+                },
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      await tester.enterText(
-        find.byKey(const Key('pairing-code-field')),
-        '123456',
-      );
-      await tester.enterText(
-        find.byKey(const Key('pairing-display-name-field')),
-        'Desktop',
-      );
-      await tester.tap(find.byKey(const Key('pairing-confirm-button')));
-      await tester.pump();
+        await tester.enterText(
+          find.byKey(const Key('pairing-code-field')),
+          '123456',
+        );
+        await tester.enterText(
+          find.byKey(const Key('pairing-display-name-field')),
+          'Desktop',
+        );
+        await tester.tap(find.byKey(const Key('pairing-confirm-button')));
+        await tester.pump();
 
-      expect(submittedCode, '123456');
-      expect(submittedDisplayName, 'Desktop');
-    });
+        expect(submittedCode, '123456');
+        expect(submittedDisplayName, 'Desktop');
+      },
+    );
 
     testWidgets(
       'PairingCodeForm submitting the form with no display name calls onSubmit with a null displayName',
@@ -84,7 +85,9 @@ void main() {
       },
     );
 
-    testWidgets('PairingCodeForm disposes cleanly when unmounted', (WidgetTester tester) async {
+    testWidgets('PairingCodeForm disposes cleanly when unmounted', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
@@ -150,22 +153,23 @@ void main() {
       },
     );
 
-    testWidgets('PairingCodeForm lays out without overflow at a large text scale', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MediaQuery(
-          data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
-          child: MaterialApp(
-            home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
+    testWidgets(
+      'PairingCodeForm lays out without overflow at a large text scale',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+            child: MaterialApp(
+              home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
+            ),
           ),
-        ),
-      );
+        );
 
-      expect(tester.takeException(), isNull);
-      expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
-      expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
-    });
+        expect(tester.takeException(), isNull);
+        expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
+        expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'PairingCodeForm traverses focus from the code field to the display-name field in order',

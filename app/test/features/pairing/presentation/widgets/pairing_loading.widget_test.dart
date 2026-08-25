@@ -6,15 +6,16 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_l
 /// Exercises PairingLoadingIndicator rendering.
 void main() {
   group('PairingLoadingIndicator', () {
-    testWidgets('PairingLoadingIndicator renders a progress indicator keyed pairing-loading', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: PairingLoadingIndicator()),
-      );
+    testWidgets(
+      'PairingLoadingIndicator renders a progress indicator keyed pairing-loading',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: PairingLoadingIndicator()),
+        );
 
-      expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    });
+        expect(find.byKey(const Key('pairing-loading')), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
   });
 }

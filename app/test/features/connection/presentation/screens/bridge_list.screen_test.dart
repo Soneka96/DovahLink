@@ -71,45 +71,50 @@ void main() {
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
     });
 
-    testWidgets('BridgeListScreen tapping the second tile passes that Bridge, not the first', (
-      WidgetTester tester,
-    ) async {
-      final BridgeEntity first = Fixtures.buildBridgeEntity(
-        displayName: 'First Bridge',
-        uri: Uri.parse('ws://127.0.0.1:1/'),
-      );
-      final BridgeEntity second = Fixtures.buildBridgeEntity(
-        displayName: 'Second Bridge',
-        uri: Uri.parse('ws://127.0.0.1:2/'),
-      );
-      BridgeEntity? selected;
-      sl.unregister<BridgeListScreenViewModel>();
-      sl.registerFactoryParam<BridgeListScreenViewModel, Store<AppState>, void>(
-        (Store<AppState> store, void _) => BridgeListScreenViewModel(
-          bridges: [first, second],
-          onSelectBridge: (BridgeEntity bridge) => selected = bridge,
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: const CreateStore()(),
-            child: const BridgeListScreen(),
+    testWidgets(
+      'BridgeListScreen tapping the second tile passes that Bridge, not the first',
+      (WidgetTester tester) async {
+        final BridgeEntity first = Fixtures.buildBridgeEntity(
+          displayName: 'First Bridge',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final BridgeEntity second = Fixtures.buildBridgeEntity(
+          displayName: 'Second Bridge',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        BridgeEntity? selected;
+        sl.unregister<BridgeListScreenViewModel>();
+        sl.registerFactoryParam<
+          BridgeListScreenViewModel,
+          Store<AppState>,
+          void
+        >(
+          (Store<AppState> store, void _) => BridgeListScreenViewModel(
+            bridges: [first, second],
+            onSelectBridge: (BridgeEntity bridge) => selected = bridge,
           ),
-        ),
-      );
+        );
 
-      await tester.tap(find.byKey(const Key('bridge-tile-Second Bridge')));
-      await tester.pump();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: StoreProvider<AppState>(
+              store: const CreateStore()(),
+              child: const BridgeListScreen(),
+            ),
+          ),
+        );
 
-      expect(selected, second);
-    });
+        await tester.tap(find.byKey(const Key('bridge-tile-Second Bridge')));
+        await tester.pump();
+
+        expect(selected, second);
+      },
+    );
   });
 
   group('BridgeListScreen meets accessibility recommended guidelines', () {
     testWidgets(
-        'BridgeListScreen labels the Bridge tile and meets its minimum tap-target size',
+      'BridgeListScreen labels the Bridge tile and meets its minimum tap-target size',
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {

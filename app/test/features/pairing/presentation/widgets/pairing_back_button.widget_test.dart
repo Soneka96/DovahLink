@@ -16,7 +16,9 @@ void main() {
       expect(find.byKey(const Key('pairing-back-button')), findsOneWidget);
     });
 
-    testWidgets('PairingBackButton calls onBack when tapped', (WidgetTester tester) async {
+    testWidgets('PairingBackButton calls onBack when tapped', (
+      WidgetTester tester,
+    ) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(home: PairingBackButton(onBack: () => callCount++)),
@@ -28,29 +30,30 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('PairingBackButton labels the button and meets its minimum interactive size', (
-      WidgetTester tester,
-    ) async {
-      // See the equivalent check on PairingRequestCodeButton for why this
-      // checks labeledTapTargetGuideline + kMinInteractiveDimension
-      // directly rather than the mobile-specific tap-target guidelines.
-      final SemanticsHandle handle = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(
-          MaterialApp(home: PairingBackButton(onBack: () {})),
-        );
+    testWidgets(
+      'PairingBackButton labels the button and meets its minimum interactive size',
+      (WidgetTester tester) async {
+        // See the equivalent check on PairingRequestCodeButton for why this
+        // checks labeledTapTargetGuideline + kMinInteractiveDimension
+        // directly rather than the mobile-specific tap-target guidelines.
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            MaterialApp(home: PairingBackButton(onBack: () {})),
+          );
 
-        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-        final Size buttonSize = tester.getSize(
-          find.byKey(const Key('pairing-back-button')),
-        );
-        expect(
-          buttonSize.height,
-          greaterThanOrEqualTo(kMinInteractiveDimension),
-        );
-      } finally {
-        handle.dispose();
-      }
-    });
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+          final Size buttonSize = tester.getSize(
+            find.byKey(const Key('pairing-back-button')),
+          );
+          expect(
+            buttonSize.height,
+            greaterThanOrEqualTo(kMinInteractiveDimension),
+          );
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
   });
 }

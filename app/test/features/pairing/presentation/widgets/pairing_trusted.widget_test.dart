@@ -6,15 +6,16 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_t
 /// Exercises PairingTrustedIndicator rendering.
 void main() {
   group('PairingTrustedIndicator', () {
-    testWidgets('PairingTrustedIndicator displays Paired keyed pairing-trusted', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: PairingTrustedIndicator()),
-      );
+    testWidgets(
+      'PairingTrustedIndicator displays Paired keyed pairing-trusted',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: PairingTrustedIndicator()),
+        );
 
-      expect(find.text('Paired'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-trusted')), findsOneWidget);
-    });
+        expect(find.text('Paired'), findsOneWidget);
+        expect(find.byKey(const Key('pairing-trusted')), findsOneWidget);
+      },
+    );
   });
 }
