@@ -4,6 +4,7 @@
 #include "security/renotify_result.hpp"
 #include "security/start_challenge_result.hpp"
 #include "security/token_store.hpp"
+#include "security/trust_mutation_generation.hpp"
 #include "shared/enums.hpp"
 
 #include <chrono>
@@ -40,6 +41,9 @@ struct PendingCredential {
     std::vector<std::uint8_t> credential;
     ///  The optional presentation-only label the client supplied with its code.
     std::optional<std::string> displayName;
+    ///  Trust-store mutation generation captured when this credential became
+    ///  pending.
+    TrustMutationGeneration mutationGeneration = 0;
     ///  When this credential entered `PENDING_CREDENTIAL`, for
     ///  `kPairingPendingCredentialTtl`'s lazy-expiry check in
     ///  `PeekPending`/`CommitPending`/`TryStartChallenge`/`TryCancel`.
@@ -157,11 +161,14 @@ class PairingSession : public IPairingCancellation {
     ///  @param credential The credential the caller generated for this attempt, to
     ///  hold pending.
     ///  @param displayName The client-supplied optional label, to hold pending.
+    ///  @param mutationGeneration Trust-store generation captured when this
+    ///  credential becomes pending.
     [[nodiscard]] ConfirmCodeResult
     TryConfirmCode(const std::string& presentedCode,
                    std::chrono::steady_clock::time_point now,
                    std::string clientId, std::vector<std::uint8_t> credential,
-                   std::optional<std::string> displayName);
+                   std::optional<std::string> displayName,
+                   TrustMutationGeneration mutationGeneration = 0);
 
     ///  Matches `clientId` and `credential` against the pending credential without
     ///  consuming it, so a caller can attempt `TrustStore::Persist` before
@@ -192,6 +199,10 @@ class PairingSession : public IPairingCancellation {
     [[nodiscard]] bool CommitPending(const std::string& clientId,
                                      const std::vector<std::uint8_t>& credential,
                                      std::chrono::steady_clock::time_point now);
+
+    ///  Restores a pending credential consumed before a transient persistence
+    ///  failure. Returns false if another pending credential already exists.
+    [[nodiscard]] bool RestorePending(PendingCredential pending);
 
     ///  "Show code again": if `clientId` owns the active challenge and its own
     ///  `kPairingRenotifyCooldown` has elapsed, starts a fresh cooldown and

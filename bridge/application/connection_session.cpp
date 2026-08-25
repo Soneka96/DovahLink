@@ -34,6 +34,7 @@ void RunConnectionSession(transport::WebSocketSession& ws,
                           ConnectionId connection,
                           const ActivePlayContext& activePlayContext,
                           security::PairingSession& pairingSession,
+                          ITrustMutationCoordinator& mutationCoordinator,
                           PairingNotificationSink& pairingNotificationSink,
                           const std::optional<std::string>& bridgeInstanceId,
                           const std::string& bridgeVersion,
@@ -134,8 +135,8 @@ void RunConnectionSession(transport::WebSocketSession& ws,
         auto dispatch = ProcessInboundMessage(
             *raw, receivedMessageCount, sessionId, connection, sessionManager,
             replayGuard, violations, rateLimiter, timeout, activePlayContext,
-            pairingSession, trustStore, pairingNotificationSink, bridgeInstanceId,
-            steadyNow());
+            pairingSession, trustStore, mutationCoordinator,
+            pairingNotificationSink, bridgeInstanceId, steadyNow());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

@@ -4,6 +4,7 @@
 #include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
@@ -57,6 +58,7 @@ void RunConnectionSession(
     SessionManager& sessionManager, ConnectionId connection,
     const ActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession,
+    ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     const std::string& bridgeVersion, SteadyNowProvider steadyNow = [] {

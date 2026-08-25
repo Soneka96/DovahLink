@@ -308,11 +308,13 @@ SKSEPluginInfo(
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
+    static dovahlink::application::TrustMutationCoordinator
+        trustMutationCoordinator(trustStore, pairingSession);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,
-        pairingSession, pairingNotificationSink, bridgeInstanceId,
-        kBridgeVersion);
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        bridgeInstanceId, kBridgeVersion);
 
     //  Registers the optional trust-administration console adapter
     //  (ai/context/protocol/security.md's "Trust administration surface").

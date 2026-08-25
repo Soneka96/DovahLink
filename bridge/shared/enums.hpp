@@ -171,6 +171,20 @@ enum class CancelOutcome {
     kAlreadyIdle,
 };
 
+///  Outcome of the coordinator's pending-pairing commit. The persistence
+///  failure case is kept distinct so the caller can preserve a retryable pending
+///  credential instead of reporting it as an administrative cancellation.
+enum class PairingCommitOutcome {
+    ///  The pending credential was persisted and consumed.
+    kCommitted,
+    ///  No matching pending credential remained, including after an
+    ///  administrative generation invalidated it.
+    kPendingNotFound,
+    ///  Trust persistence failed while the pending credential remained
+    ///  retryable.
+    kPersistenceFailed,
+};
+
 //  ---- Known device ----
 
 ///  The four durable states one persistent `KnownDeviceRecord` can occupy. A

@@ -20,6 +20,7 @@ BridgeWorkerPool::BridgeWorkerPool(
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, const ActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession,
+    ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot),
@@ -27,6 +28,7 @@ BridgeWorkerPool::BridgeWorkerPool(
       trustStore_(trustStore), credentialThrottle_(credentialThrottle),
       sessionManager_(sessionManager), activePlayContext_(activePlayContext),
       pairingSession_(pairingSession),
+      mutationCoordinator_(mutationCoordinator),
       pairingNotificationSink_(pairingNotificationSink),
       bridgeInstanceId_(std::move(bridgeInstanceId)),
       bridgeVersion_(std::move(bridgeVersion)) {}
@@ -108,7 +110,8 @@ void BridgeWorkerPool::RunSessionOnOwnThread(
                 RunConnectionSession(session, tokenStore_, tokenThrottle_,
                                      trustStore_, credentialThrottle_,
                                      sessionManager_, connection, activePlayContext_,
-                                     pairingSession_, pairingNotificationSink_,
+                                     pairingSession_, mutationCoordinator_,
+                                     pairingNotificationSink_,
                                      bridgeInstanceId_, bridgeVersion_);
             });
         });

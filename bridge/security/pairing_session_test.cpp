@@ -15,6 +15,7 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::PendingCredential;
 using dovahlink::security::RenotifyOutcome;
 using dovahlink::security::StartChallengeOutcome;
+using dovahlink::security::TrustMutationGeneration;
 
 namespace {
 
@@ -72,6 +73,70 @@ TEST_CASE(
     //  Back to NONE: a fresh challenge can start again.
     CHECK(session.TryStartChallenge("client-1", now).outcome ==
           StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("pending credentials retain their captured trust mutation generation",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    constexpr TrustMutationGeneration generation = 7;
+
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt, generation)
+                .outcome == ConfirmResult::kConfirmed);
+
+    auto pending = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(pending.has_value());
+    CHECK(pending->mutationGeneration == generation);
+}
+
+TEST_CASE("RestorePending makes a consumed credential retryable",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt)
+                .outcome == ConfirmResult::kConfirmed);
+
+    auto pending = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(pending.has_value());
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1), now));
+    REQUIRE(session.RestorePending(std::move(*pending)));
+
+    CHECK(session.PeekPending("client-1", MakeCredential(1), now).has_value());
+}
+
+TEST_CASE("RestorePending refuses to replace an occupied pending credential",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt)
+                .outcome == ConfirmResult::kConfirmed);
+    auto original = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(original.has_value());
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1), now));
+
+    REQUIRE(session.TryStartChallenge("client-2", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-2", MakeCredential(2),
+                                std::nullopt)
+                .outcome == ConfirmResult::kConfirmed);
+
+    CHECK_FALSE(session.RestorePending(std::move(*original)));
+    auto occupied = session.PeekPending("client-2", MakeCredential(2), now);
+    REQUIRE(occupied.has_value());
+    CHECK(occupied->clientId == "client-2");
 }
 
 TEST_CASE("a second TryStartChallenge from the owning client resumes without a "

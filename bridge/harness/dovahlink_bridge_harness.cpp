@@ -278,11 +278,13 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                             listenerV6);
+    dovahlink::application::TrustMutationCoordinator trustMutationCoordinator(
+        trustStore, pairingSession);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,
-        pairingSession, pairingNotificationSink, bridgeInstanceId,
-        kBridgeVersion);
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);
 

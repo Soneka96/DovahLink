@@ -2,7 +2,9 @@
 
 #include "application/application_test_support.hpp"
 #include "application/handshake_handler.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "protocol/messages.hpp"
+#include "security/hex.hpp"
 #include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -26,6 +28,7 @@ using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::TrustMutationCoordinator;
 using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildPairingAckEnvelope;
 using dovahlink::application::test_support::BuildPairingCancelEnvelope;
@@ -33,6 +36,7 @@ using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
 using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
 using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::application::test_support::BuildRenameRequestEnvelope;
+using dovahlink::security::DecodeHex;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::PairingSession;
@@ -117,6 +121,8 @@ struct Fixture {
     TrustStore trustStore = TrustStore::Load(persistence);
     ///  Pairing challenge/pending-credential state machine.
     PairingSession pairingSession;
+    ///  Coordinates pairing finalization with administrative trust mutations.
+    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession};
     ///  Records pairing codes displayed to the user.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  This bridge process's identity, stamped onto every response envelope.
@@ -145,8 +151,8 @@ struct Fixture {
         return ProcessInboundMessage(
             rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
             replayGuard, violations, rateLimiter, timeout, activePlayContext,
-            pairingSession, trustStore, pairingNotificationSink, bridgeInstanceId,
-            steadyNow);
+            pairingSession, trustStore, mutationCoordinator,
+            pairingNotificationSink, bridgeInstanceId, steadyNow);
     }
 };
 
@@ -790,22 +796,31 @@ TEST_CASE("ProcessInboundMessage lets a session upgraded to full trust by a "
           "subscribe on its very next message, with no reconnect",
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
+    REQUIRE(fixture.trustStore.ResetTrust());
+    const auto now = SteadyClock::now();
 
-    auto pairingRequest = fixture.Process(PairingRequestMessage());
+    auto pairingRequest = fixture.Process(PairingRequestMessage(), now);
     REQUIRE(pairingRequest.responses.size() == 1);
     REQUIRE(fixture.pairingNotificationSink.codes.size() == 1);
     std::string code = fixture.pairingNotificationSink.codes[0];
 
-    auto pairingConfirm = fixture.Process(PairingConfirmMessage(code));
+    auto pairingConfirm = fixture.Process(PairingConfirmMessage(code), now);
     REQUIRE(pairingConfirm.responses.size() == 1);
     auto confirmOutcome = dovahlink::protocol::DecodePairingOutcomePayload(
         pairingConfirm.responses[0].payload);
     REQUIRE(confirmOutcome.has_value());
     REQUIRE(confirmOutcome->outcome == "credential_issued");
     REQUIRE(confirmOutcome->credential.has_value());
+    auto credential = DecodeHex(*confirmOutcome->credential);
+    REQUIRE(credential.has_value());
+    auto pending =
+        fixture.pairingSession.PeekPending(kClientId, *credential, now);
+    REQUIRE(pending.has_value());
+    CHECK(pending->mutationGeneration ==
+          fixture.mutationCoordinator.CurrentMutationGeneration());
 
     auto pairingAck =
-        fixture.Process(PairingAckMessage(*confirmOutcome->credential));
+        fixture.Process(PairingAckMessage(*confirmOutcome->credential), now);
     REQUIRE(pairingAck.responses.size() == 1);
     auto ackOutcome = dovahlink::protocol::DecodePairingOutcomePayload(
         pairingAck.responses[0].payload);

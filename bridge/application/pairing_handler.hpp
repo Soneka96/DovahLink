@@ -2,6 +2,7 @@
 
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/pairing_session.hpp"
 #include "security/trust_store.hpp"
@@ -57,6 +58,8 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 ///      `kPacingLimited`.
 ///  @param now Current monotonic time, for the lazy-expiry checks and
 ///  pacing/attempt accounting.
+///  @param mutationGeneration Trust-store generation captured when this pairing
+///  becomes pending.
 ///  @return `pairing_outcome` envelope: `"credential_issued"` on success, or
 ///      `"expired"`/`"invalid"`/`"pacing_limited"`/`"hard_limit_reached"`; a
 ///      generic `error` envelope for a malformed payload or an internal failure
@@ -66,7 +69,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
                      security::PairingSession& pairingSession,
                      PairingNotificationSink& notificationSink,
-                     std::chrono::steady_clock::time_point now);
+                     std::chrono::steady_clock::time_point now,
+                     security::TrustMutationGeneration mutationGeneration = 0);
 
 ///  Handles a `pairing_ack`: idempotently checks whether `clientId` is already
 ///  trusted before touching `pairingSession` at all (a lost-response retry
@@ -79,10 +83,9 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  presented at `hello`.
 ///  @param connection Transport connection identifier, for the trust-tier
 ///  upgrade.
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
-///  @param trustStore Persistent trust store, queried for idempotency and
-///  committed to on success.
+///  @param trustStore Persistent trust store, queried for idempotency.
+///  @param mutationCoordinator Serializes pending-pairing finalization with
+///  administrative trust mutations.
 ///  @param sessionManager Session registry, upgraded to full trust on success.
 ///  @param now Current monotonic time, for the pending-credential lazy-expiry
 ///  check.
@@ -93,7 +96,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 [[nodiscard]] protocol::Envelope HandlePairingAck(
     const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
     const std::string& clientId, ConnectionId connection,
-    security::PairingSession& pairingSession, security::TrustStore& trustStore,
+    security::TrustStore& trustStore,
+    ITrustMutationCoordinator& mutationCoordinator,
     SessionManager& sessionManager, std::chrono::steady_clock::time_point now);
 
 ///  Handles a `pairing_renotify`: "show my code again". Redisplays `clientId`'s
@@ -107,8 +111,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`
 ///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
+///  @param mutationCoordinator Serializes cancellation with pending-pairing
+///  finalization and administrative trust mutations.
 ///  @param notificationSink Redisplays the code on success; never called for a
 ///  cooldown or an idle
 ///      requester.
@@ -148,7 +152,7 @@ HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
 [[nodiscard]] protocol::Envelope
 HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope,
                     const std::string& sessionId, const std::string& clientId,
-                    security::PairingSession& pairingSession,
+                    ITrustMutationCoordinator& mutationCoordinator,
                     std::chrono::steady_clock::time_point now);
 
 } //  namespace dovahlink::application

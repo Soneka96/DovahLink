@@ -38,6 +38,7 @@ using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::TrustMutationCoordinator;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -135,6 +136,8 @@ struct Fixture {
     FailedTokenThrottle credentialThrottle;
     ///  Pairing challenge/pending-credential state machine; unused by these tests.
     PairingSession pairingSession;
+    ///  Coordinates pairing finalization with administrative trust mutations.
+    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession};
     ///  Records pairing codes displayed to the user; unused by these tests.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  Tracks the authenticated test session.
@@ -152,6 +155,7 @@ struct Fixture {
                           sessionManager,
                           activePlayContext,
                           pairingSession,
+                          mutationCoordinator,
                           pairingNotificationSink,
                           /*bridgeInstanceId=*/std::nullopt,
                           /*bridgeVersion=*/kBridgeVersion};
