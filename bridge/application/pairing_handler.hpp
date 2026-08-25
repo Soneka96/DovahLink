@@ -24,8 +24,6 @@ namespace dovahlink::application {
 ///      (session-owned state).
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine, used for code redisplay after a wrong attempt.
-///  @param mutationCoordinator Captures the trust mutation fence and creates the
-///  pending credential under the same coordination boundary as admin mutations.
 ///  @param notificationSink Displays a freshly generated code to the user.
 ///  @param now Current monotonic time, for the lazy-expiry checks and
 ///  `expiresInSeconds`.
@@ -54,6 +52,8 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 ///      (session-owned state).
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine.
+///  @param mutationCoordinator Captures the trust mutation fence and creates the
+///  pending credential under the same coordination boundary as admin mutations.
 ///  @param notificationSink Redisplays the code after a wrong attempt or reports
 ///  attempts
 ///      exhausted; never called for `kConfirmed`, `kExpired`, or
@@ -112,8 +112,6 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`
 ///      (session-owned state).
-///  @param mutationCoordinator Serializes cancellation with pending-pairing
-///  finalization and administrative trust mutations.
 ///  @param notificationSink Redisplays the code on success; never called for a
 ///  cooldown or an idle
 ///      requester.
@@ -143,8 +141,8 @@ HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`
 ///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
+///  @param mutationCoordinator Serializes cancellation with pending-pairing
+///  finalization and administrative trust mutations.
 ///  @param now Current monotonic time, for the lazy-expiry checks.
 ///  @return `pairing_outcome` envelope: `"cancelled"` when `clientId` owned
 ///  something and it was

@@ -55,6 +55,8 @@ struct DispatchResult {
 ///      the three pairing message types.
 ///  @param trustStore Persistent trust store, for `pairing_ack`'s
 ///  idempotent-retry check and commit.
+///  @param mutationCoordinator Serializes pairing finalization and administrative
+///  trust mutations.
 ///  @param pairingNotificationSink Displays a freshly generated pairing code to
 ///  the user.
 ///  @param bridgeInstanceId This bridge process's identity, stamped onto every
