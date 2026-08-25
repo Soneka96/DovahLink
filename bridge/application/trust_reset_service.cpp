@@ -1,5 +1,6 @@
 #include "application/trust_reset_service.hpp"
 
+#include <chrono>
 #include <string>
 
 namespace dovahlink::application {
@@ -19,8 +20,14 @@ std::string TrustResetService::StartFactoryReset() const {
         return "Failed to start Factory Reset: could not generate a confirmation "
                "code.";
     }
-    return "Factory Reset requested. Confirm with code " + *code +
-           " within 60 seconds to permanently erase all trust.";
+    auto ttlSeconds = std::chrono::ceil<std::chrono::seconds>(
+        factoryResetChallenge_.CodeTimeToLive());
+    if (ttlSeconds.count() < 0) {
+        ttlSeconds = std::chrono::seconds(0);
+    }
+    return "Factory Reset requested. Confirm with code " + *code + " within " +
+           std::to_string(ttlSeconds.count()) +
+           " seconds to permanently erase all trust.";
 }
 
 std::string

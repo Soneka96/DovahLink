@@ -50,6 +50,8 @@ TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
 
     When(Method(factoryResetChallenge, TryStart))
         .Return(std::optional<std::string>{"654321"});
+    When(Method(factoryResetChallenge, CodeTimeToLive))
+        .Return(std::chrono::seconds(60));
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
                               mutationCoordinator.get(),
@@ -59,6 +61,97 @@ TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
           "Factory Reset requested. Confirm with code 654321 within 60 "
           "seconds to permanently erase all trust.");
     Verify(Method(factoryResetChallenge, TryStart)).Once();
+    Verify(Method(factoryResetChallenge, CodeTimeToLive)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService formats a custom Factory Reset TTL",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+    When(Method(factoryResetChallenge, TryStart))
+        .Return(std::optional<std::string>{"654321"});
+    When(Method(factoryResetChallenge, CodeTimeToLive))
+        .Return(std::chrono::milliseconds(1500));
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.StartFactoryReset() ==
+          "Factory Reset requested. Confirm with code 654321 within 2 seconds "
+          "to permanently erase all trust.");
+    Verify(Method(factoryResetChallenge, TryStart)).Once();
+    Verify(Method(factoryResetChallenge, CodeTimeToLive)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService clamps a negative Factory Reset TTL to zero",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+    When(Method(factoryResetChallenge, TryStart))
+        .Return(std::optional<std::string>{"654321"});
+    When(Method(factoryResetChallenge, CodeTimeToLive))
+        .Return(std::chrono::milliseconds(-1));
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.StartFactoryReset() ==
+          "Factory Reset requested. Confirm with code 654321 within 0 seconds "
+          "to permanently erase all trust.");
+    Verify(Method(factoryResetChallenge, TryStart)).Once();
+    Verify(Method(factoryResetChallenge, CodeTimeToLive)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService reads the TTL after each Factory Reset start",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+    std::vector<std::string> interactions;
+    int ttlCall = 0;
+    When(Method(factoryResetChallenge, TryStart)).AlwaysDo([&]() {
+        interactions.push_back("start");
+        return std::optional<std::string>{ttlCall == 0 ? "111111" : "222222"};
+    });
+    When(Method(factoryResetChallenge, CodeTimeToLive)).AlwaysDo([&]() {
+        interactions.push_back("ttl");
+        return ++ttlCall == 1 ? std::chrono::seconds(60)
+                              : std::chrono::seconds(90);
+    });
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.StartFactoryReset() ==
+          "Factory Reset requested. Confirm with code 111111 within 60 seconds "
+          "to permanently erase all trust.");
+    CHECK(service.StartFactoryReset() ==
+          "Factory Reset requested. Confirm with code 222222 within 90 seconds "
+          "to permanently erase all trust.");
+    CHECK(interactions ==
+          std::vector<std::string>{"start", "ttl", "start", "ttl"});
+    Verify(Method(factoryResetChallenge, TryStart)).Exactly(2);
+    Verify(Method(factoryResetChallenge, CodeTimeToLive)).Exactly(2);
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
     VerifyNoOtherInvocations(mutationCoordinator);

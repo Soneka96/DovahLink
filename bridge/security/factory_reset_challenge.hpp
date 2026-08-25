@@ -22,6 +22,10 @@ class IFactoryResetChallenge {
     ///  Starts and returns a fresh confirmation code, if generation succeeds.
     [[nodiscard]] virtual std::optional<std::string> TryStart() = 0;
 
+    ///  Returns the configured lifetime of a newly started confirmation code.
+    [[nodiscard]] virtual std::chrono::steady_clock::duration
+    CodeTimeToLive() const = 0;
+
     ///  Validates and consumes the presented confirmation code.
     [[nodiscard]] virtual FactoryResetConfirmOutcome
     TryConfirm(const std::string& presentedCode) = 0;
@@ -69,6 +73,10 @@ class FactoryResetChallenge : public IFactoryResetChallenge {
     ///  underlying random source
     ///      fails.
     [[nodiscard]] std::optional<std::string> TryStart() override;
+
+    ///  @copydoc IFactoryResetChallenge::CodeTimeToLive
+    [[nodiscard]] std::chrono::steady_clock::duration
+    CodeTimeToLive() const override;
 
     ///  Validates `presentedCode` against the active challenge (constant-time,
     ///  single-use).
