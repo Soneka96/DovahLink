@@ -104,6 +104,22 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     int attemptsExhaustedCount = 0;
 };
 
+///  Supplies the production coordinator boundary to direct confirm-handler tests
+///  without repeating trust-store composition in every case.
+Envelope HandlePairingConfirm(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, PairingSession& pairingSession,
+    RecordingPairingNotificationSink& notificationSink,
+    std::chrono::steady_clock::time_point now) {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession);
+    return dovahlink::application::HandlePairingConfirm(
+        envelope, sessionId, clientId, pairingSession, coordinator,
+        notificationSink, now);
+}
+
 ///  Keeps existing direct handler tests focused on protocol behavior while
 ///  supplying the production coordinator boundary used by pairing acknowledgements.
 Envelope HandlePairingAck(

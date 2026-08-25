@@ -4,8 +4,20 @@
 
 namespace dovahlink::security {
 
-///  Monotonic generation for administrative trust mutations that invalidate
-///  pending pairing commits.
-using TrustMutationGeneration = std::uint64_t;
+///  Mutation fence captured by a pending pairing before it can become trusted.
+///  `global` advances after Reset Trust or Factory Reset; `client` advances
+///  after a successful Block for the pending pairing's client. A pairing is
+///  stale when either component no longer matches the trust store.
+struct TrustMutationGeneration {
+    ///  Generation shared by mutations that invalidate every pending pairing.
+    std::uint64_t global = 0;
+
+    ///  Generation for mutations that invalidate this client's pending pairing.
+    std::uint64_t client = 0;
+
+    ///  Compares both invalidation scopes.
+    friend bool operator==(const TrustMutationGeneration&,
+                           const TrustMutationGeneration&) = default;
+};
 
 } //  namespace dovahlink::security

@@ -97,9 +97,9 @@ protocol::Envelope
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
                      security::PairingSession& pairingSession,
+                     ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
-                     std::chrono::steady_clock::time_point now,
-                     security::TrustMutationGeneration mutationGeneration) {
+                     std::chrono::steady_clock::time_point now) {
     auto confirm =
         protocol::DecodePairingConfirmPayload(pairingConfirmEnvelope.payload);
     if (!confirm.has_value()) {
@@ -119,9 +119,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
             "Unable to generate a credential", false);
     }
 
-    auto result = pairingSession.TryConfirmCode(
-        confirm->code, now, clientId, *credentialBytes, confirm->displayName,
-        mutationGeneration);
+    auto result = mutationCoordinator.ConfirmPairing(
+        confirm->code, now, clientId, *credentialBytes, confirm->displayName);
 
     if (result.outcome == security::ConfirmResult::kConfirmed) {
         return BuildPairingOutcome(

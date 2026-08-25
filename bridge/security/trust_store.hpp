@@ -96,10 +96,12 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  inaccessible and fell back to an empty store.
     [[nodiscard]] bool WasCorruptOnLoad() const noexcept;
 
-    ///  Returns the current generation of successful administrative trust
-    ///  mutations. Pairing code captures this generation when it becomes
-    ///  pending and supplies it to `PersistIfGeneration` before trust is saved.
-    [[nodiscard]] TrustMutationGeneration CurrentMutationGeneration();
+    ///  Returns the current global and client-scoped generations for `clientId`.
+    ///  @param clientId Client identity whose block generation is included.
+    ///  Pairing code captures this fence when it becomes pending and supplies it
+    ///  to `PersistIfGeneration` before trust is saved.
+    [[nodiscard]] TrustMutationGeneration
+    CurrentMutationGeneration(const std::string& clientId);
 
     ///  Returns the known device record for `clientId`, if it is currently in the
     ///  `kTrusted` state.
@@ -159,9 +161,10 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     Persist(std::string clientId, std::vector<std::uint8_t> credential,
             std::optional<std::string> displayName);
 
-    ///  Persists a pairing result only when no successful administrative trust
-    ///  mutation has occurred since `expectedGeneration` was captured. The
-    ///  generation check and persistence occur under the same trust-store lock.
+    ///  Persists a pairing result only when neither a global nor a client-scoped
+    ///  administrative trust mutation has occurred since `expectedGeneration`
+    ///  was captured. The fence check and persistence occur under the same
+    ///  trust-store lock.
     ///  @return The trusted record, or `std::nullopt` when the generation is
     ///  stale, validation fails, or persistence fails.
     [[nodiscard]] std::optional<KnownDeviceRecord>
@@ -267,6 +270,11 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  control characters.
     [[nodiscard]] static bool IsValidDisplayName(const std::string& displayName);
 
+    ///  Returns the current mutation fence while the caller already holds
+    ///  `mutex_`.
+    [[nodiscard]] TrustMutationGeneration
+    CurrentMutationGenerationLocked(const std::string& clientId) const;
+
     ///  Builds the current in-memory state into a snapshot suitable for `Save`.
     [[nodiscard]] TrustStoreSnapshot BuildSnapshot() const;
 
@@ -279,8 +287,12 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  Serializes access to in-memory trust state.
     std::mutex mutex_;
 
-    ///  Advances after each successful Block, Reset Trust, or Factory Reset.
-    TrustMutationGeneration mutationGeneration_ = 0;
+    ///  Advances after each successful Reset Trust or Factory Reset.
+    std::uint64_t globalMutationGeneration_ = 0;
+
+    ///  Advances for each client after a successful Block of that client.
+    std::unordered_map<std::string, std::uint64_t>
+        clientMutationGenerations_;
 
     ///  Every known device, keyed by `clientId`, regardless of state.
     std::unordered_map<std::string, KnownDeviceRecord> devices_;

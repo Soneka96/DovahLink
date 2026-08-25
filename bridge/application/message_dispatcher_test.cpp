@@ -817,7 +817,7 @@ TEST_CASE("ProcessInboundMessage lets a session upgraded to full trust by a "
         fixture.pairingSession.PeekPending(kClientId, *credential, now);
     REQUIRE(pending.has_value());
     CHECK(pending->mutationGeneration ==
-          fixture.mutationCoordinator.CurrentMutationGeneration());
+          fixture.trustStore.CurrentMutationGeneration(kClientId));
 
     auto pairingAck =
         fixture.Process(PairingAckMessage(*confirmOutcome->credential), now);

@@ -43,7 +43,7 @@ struct PendingCredential {
     std::optional<std::string> displayName;
     ///  Trust-store mutation generation captured when this credential became
     ///  pending.
-    TrustMutationGeneration mutationGeneration = 0;
+    TrustMutationGeneration mutationGeneration{};
     ///  When this credential entered `PENDING_CREDENTIAL`, for
     ///  `kPairingPendingCredentialTtl`'s lazy-expiry check in
     ///  `PeekPending`/`CommitPending`/`TryStartChallenge`/`TryCancel`.
@@ -168,7 +168,7 @@ class PairingSession : public IPairingCancellation {
                    std::chrono::steady_clock::time_point now,
                    std::string clientId, std::vector<std::uint8_t> credential,
                    std::optional<std::string> displayName,
-                   TrustMutationGeneration mutationGeneration = 0);
+                   TrustMutationGeneration mutationGeneration);
 
     ///  Matches `clientId` and `credential` against the pending credential without
     ///  consuming it, so a caller can attempt `TrustStore::Persist` before

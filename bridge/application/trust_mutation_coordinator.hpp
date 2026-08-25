@@ -6,7 +6,9 @@
 #include "security/trust_store.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,9 +21,14 @@ class ITrustMutationCoordinator {
     ///  Releases the interface without performing work.
     virtual ~ITrustMutationCoordinator() = default;
 
-    ///  Returns the generation to capture when a pairing becomes pending.
-    [[nodiscard]] virtual security::TrustMutationGeneration
-    CurrentMutationGeneration() = 0;
+    ///  Validates the code and creates a pending credential while capturing its
+    ///  mutation fence under the same coordination boundary as admin mutations.
+    [[nodiscard]] virtual security::ConfirmCodeResult
+    ConfirmPairing(const std::string& presentedCode,
+                   std::chrono::steady_clock::time_point now,
+                   std::string clientId,
+                   std::vector<std::uint8_t> credential,
+                   std::optional<std::string> displayName) = 0;
 
     ///  Atomically finalizes the matching pending pairing or preserves it when
     ///  persistence fails.
@@ -60,9 +67,13 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
     TrustMutationCoordinator(security::TrustStore& trustStore,
                              security::PairingSession& pairingSession);
 
-    ///  @copydoc ITrustMutationCoordinator::CurrentMutationGeneration
-    [[nodiscard]] security::TrustMutationGeneration
-    CurrentMutationGeneration() override;
+    ///  @copydoc ITrustMutationCoordinator::ConfirmPairing
+    [[nodiscard]] security::ConfirmCodeResult
+    ConfirmPairing(const std::string& presentedCode,
+                   std::chrono::steady_clock::time_point now,
+                   std::string clientId,
+                   std::vector<std::uint8_t> credential,
+                   std::optional<std::string> displayName) override;
 
     ///  @copydoc ITrustMutationCoordinator::CommitPairing
     [[nodiscard]] PairingCommitResult

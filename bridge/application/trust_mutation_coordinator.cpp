@@ -8,9 +8,17 @@ TrustMutationCoordinator::TrustMutationCoordinator(
     security::TrustStore& trustStore, security::PairingSession& pairingSession)
     : trustStore_(trustStore), pairingSession_(pairingSession) {}
 
-security::TrustMutationGeneration
-TrustMutationCoordinator::CurrentMutationGeneration() {
-    return trustStore_.CurrentMutationGeneration();
+security::ConfirmCodeResult TrustMutationCoordinator::ConfirmPairing(
+    const std::string& presentedCode,
+    std::chrono::steady_clock::time_point now, std::string clientId,
+    std::vector<std::uint8_t> credential,
+    std::optional<std::string> displayName) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto mutationGeneration =
+        trustStore_.CurrentMutationGeneration(clientId);
+    return pairingSession_.TryConfirmCode(
+        presentedCode, now, std::move(clientId), std::move(credential),
+        std::move(displayName), mutationGeneration);
 }
 
 PairingCommitResult TrustMutationCoordinator::CommitPairing(
@@ -36,10 +44,9 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
     }
 
     //  A generation change means an administrative operation invalidated this
-    //  pending pairing; its coordinator will cancel all pairing state. If the
-    //  generation is unchanged, restore the consumed credential so a transient
-    //  persistence failure remains retryable.
-    if (trustStore_.CurrentMutationGeneration() ==
+    //  pending pairing. If the generation is unchanged, restore the consumed
+    //  credential so a transient persistence failure remains retryable.
+    if (trustStore_.CurrentMutationGeneration(pending->clientId) ==
         pending->mutationGeneration) {
         //  Pairing cancellation is coordinated by this same mutex in production,
         //  so restoration cannot race an administrative cancellation.

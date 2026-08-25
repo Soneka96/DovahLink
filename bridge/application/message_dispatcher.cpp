@@ -280,8 +280,8 @@ DispatchResult ProcessInboundMessage(
         assert(clientId.has_value());
         result = FromHandlerResponse(
             HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession,
-                                 pairingNotificationSink, steadyNow,
-                                 mutationCoordinator.CurrentMutationGeneration()),
+                                 mutationCoordinator, pairingNotificationSink,
+                                 steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kPairingAck) {
         auto clientId = sessionManager.ClientIdForConnection(connection);

@@ -23,7 +23,9 @@ namespace dovahlink::application {
 ///  presented at `hello`
 ///      (session-owned state).
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
+///  state machine, used for code redisplay after a wrong attempt.
+///  @param mutationCoordinator Captures the trust mutation fence and creates the
+///  pending credential under the same coordination boundary as admin mutations.
 ///  @param notificationSink Displays a freshly generated code to the user.
 ///  @param now Current monotonic time, for the lazy-expiry checks and
 ///  `expiresInSeconds`.
@@ -58,8 +60,6 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 ///      `kPacingLimited`.
 ///  @param now Current monotonic time, for the lazy-expiry checks and
 ///  pacing/attempt accounting.
-///  @param mutationGeneration Trust-store generation captured when this pairing
-///  becomes pending.
 ///  @return `pairing_outcome` envelope: `"credential_issued"` on success, or
 ///      `"expired"`/`"invalid"`/`"pacing_limited"`/`"hard_limit_reached"`; a
 ///      generic `error` envelope for a malformed payload or an internal failure
@@ -68,9 +68,9 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
                      security::PairingSession& pairingSession,
+                     ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
-                     std::chrono::steady_clock::time_point now,
-                     security::TrustMutationGeneration mutationGeneration = 0);
+                     std::chrono::steady_clock::time_point now);
 
 ///  Handles a `pairing_ack`: idempotently checks whether `clientId` is already
 ///  trusted before touching `pairingSession` at all (a lost-response retry
