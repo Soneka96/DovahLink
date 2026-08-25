@@ -124,4 +124,14 @@ void main() {
       },
     );
   });
+
+  test(
+    'PairingOutcome includes pairing_invalidated as a registered ACK outcome',
+    () {
+      expect(
+        PairingOutcome.values,
+        contains(PairingOutcome.pairingInvalidated),
+      );
+    },
+  );
 }

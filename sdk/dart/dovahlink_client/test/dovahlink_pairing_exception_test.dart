@@ -23,6 +23,14 @@ void main() {
       );
     });
 
+    test('Method constructor preserves pairing_invalidated outcome', () {
+      const DovahLinkPairingException exception = DovahLinkPairingException(
+        PairingOutcome.pairingInvalidated,
+      );
+
+      expect(exception.outcome, PairingOutcome.pairingInvalidated);
+    });
+
     test('Method constructor defaults retryAfterSeconds to null', () {
       const DovahLinkPairingException exception = DovahLinkPairingException(
         PairingOutcome.expired,

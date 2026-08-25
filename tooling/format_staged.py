@@ -223,16 +223,21 @@ def execute_commands(
     commands: list[list[str]],
 ) -> int:
     """Run formatter commands and return the first non-zero exit code."""
-    missing = sorted(
-        {command[0] for command in commands if shutil.which(command[0]) is None}
-    )
+    resolved_commands: list[list[str]] = []
+    missing: set[str] = set()
+    for command in commands:
+        executable = shutil.which(command[0])
+        if executable is None:
+            missing.add(command[0])
+            continue
+        resolved_commands.append([executable, *command[1:]])
     if missing:
         print(
-            "Required formatter(s) unavailable: " + ", ".join(missing),
+            "Required formatter(s) unavailable: " + ", ".join(sorted(missing)),
             file=sys.stderr,
         )
         return 127
-    for command in commands:
+    for command in resolved_commands:
         try:
             result = subprocess.run(command, cwd=repository_root, check=False)
         except OSError as error:

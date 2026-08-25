@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr
 from io import StringIO
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,6 +64,28 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(result, 127)
         run.assert_not_called()
+
+    def test_execute_commands_runs_the_resolved_batch_wrapper_path(self) -> None:
+        """Launch a Windows batch formatter through the path found by `which`."""
+        resolved_dart = r"C:\Dart\flutter\bin\dart.BAT"
+        with (
+            patch.object(format_staged.shutil, "which", return_value=resolved_dart),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ) as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."), [["dart", "format", "file.dart"]]
+            )
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(
+            [resolved_dart, "format", "file.dart"],
+            cwd=Path("."),
+            check=False,
+        )
 
     def test_powershell_command_fails_closed_when_no_shell_exists(self) -> None:
         """Reject PowerShell formatting when neither supported shell executable exists."""

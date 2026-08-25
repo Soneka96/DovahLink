@@ -7,7 +7,8 @@ class DovahLinkPairingException implements Exception {
 
   /// The bridge's reported outcome: [PairingOutcome.expired], [PairingOutcome.invalid],
   /// [PairingOutcome.pacingLimited], or [PairingOutcome.hardLimitReached] (from
-  /// `pairing_confirm`), [PairingOutcome.pendingNotFound] (from `pairing_ack`).
+  /// `pairing_confirm`), [PairingOutcome.pendingNotFound] or
+  /// [PairingOutcome.pairingInvalidated] (from `pairing_ack`).
   final PairingOutcome outcome;
 
   /// The minimum whole-second wait before retrying, present for `pacing_limited`.

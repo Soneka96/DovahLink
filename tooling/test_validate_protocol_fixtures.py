@@ -261,6 +261,7 @@ class ValidateAllTests(unittest.TestCase):
             "pairing/pairing-outcome-invalid.json",
             "pairing/pairing-outcome-pacing-limited.json",
             "pairing/pairing-outcome-pending-not-found.json",
+            "pairing/pairing-outcome-invalidated.json",
             "pairing/pairing-outcome-renotified.json",
             "pairing/pairing-outcome-renotify-cooldown.json",
             "pairing/pairing-outcome-cancelled.json",

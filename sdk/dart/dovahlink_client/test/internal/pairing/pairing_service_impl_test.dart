@@ -63,6 +63,7 @@ String _wirePairingOutcome(PairingOutcome outcome) => switch (outcome) {
   PairingOutcome.renotifyCooldown => 'renotify_cooldown',
   PairingOutcome.cancelled => 'cancelled',
   PairingOutcome.alreadyIdle => 'already_idle',
+  PairingOutcome.pairingInvalidated => 'pairing_invalidated',
 };
 
 /// Stubs `sendAndAwait` to answer with [envelope], matching any call.
@@ -911,6 +912,31 @@ void main() {
     );
 
     test(
+      'Method acknowledgeTrustedCredential exposes pairing_invalidated without marking trust',
+      () async {
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.pairingInvalidated,
+          ),
+        );
+
+        await expectLater(
+          service.acknowledgeTrustedCredential('cred'),
+          throwsA(
+            isA<DovahLinkPairingException>().having(
+              (DovahLinkPairingException e) => e.outcome,
+              'outcome',
+              PairingOutcome.pairingInvalidated,
+            ),
+          ),
+        );
+        verifyNever(() => sessionTrustService.markTrusted());
+        verifyNoStorageCalls(storage);
+      },
+    );
+
+    test(
       'Method acknowledgeTrustedCredential throws malformed_message for an outcome from another exchange',
       () async {
         stubSendAndAwait(
@@ -1086,6 +1112,36 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
+        );
+
+        final DovahLinkTrustState result = await service
+            .recoverPendingPairing();
+
+        expect(result, DovahLinkTrustState.unpaired);
+        verify(
+          () => storage.save(
+            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method recoverPendingPairing discards the credential and resets to unpaired when the bridge '
+      'reports pairing_invalidated',
+      () async {
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'stored-cred',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.pairingInvalidated,
+          ),
         );
 
         final DovahLinkTrustState result = await service
