@@ -72,9 +72,9 @@ FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> records,
 TrustDeviceAdminService::TrustDeviceAdminService(
     security::ITrustDeviceStore& deviceStore,
     ActiveSessionDisconnector& sessionDisconnector,
-    security::IPairingCancellation& pairingCancellation)
+    ITrustMutationCoordinator& mutationCoordinator)
     : deviceStore_(deviceStore), sessionDisconnector_(sessionDisconnector),
-      pairingCancellation_(pairingCancellation) {}
+      mutationCoordinator_(mutationCoordinator) {}
 
 std::string TrustDeviceAdminService::List(std::string_view scope) const {
     std::string normalizedScope(scope);
@@ -152,9 +152,8 @@ std::string TrustDeviceAdminService::BlockByShortId(
     }
     std::string displayName = device->displayName.value_or("(no display name)");
 
-    switch (deviceStore_.Block(device->clientId)) {
+    switch (mutationCoordinator_.Block(device->clientId, now)) {
     case security::BlockOutcome::kBlocked:
-        (void)pairingCancellation_.TryCancel(device->clientId, now);
         sessionDisconnector_.DisconnectIfClientActive(device->clientId,
                                                       "blocked");
         return "Blocked device " + std::string(shortId) + " (" + displayName + ").";

@@ -11,10 +11,10 @@
 #include <vector>
 
 using dovahlink::application::ActiveSessionDisconnector;
+using dovahlink::application::ITrustMutationCoordinator;
 using dovahlink::application::TrustDeviceAdminService;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::ForgetOutcome;
-using dovahlink::security::IPairingCancellation;
 using dovahlink::security::ITrustDeviceStore;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
@@ -49,7 +49,7 @@ TEST_CASE("TrustDeviceAdminService lists trusted devices through its port",
           "[application][trust_device_admin_service]") {
     Mock<ITrustDeviceStore> deviceStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
 
     auto device = MakeDevice("client-1", "11111", std::string("Phone"),
                              KnownDeviceState::kTrusted, 1);
@@ -57,20 +57,20 @@ TEST_CASE("TrustDeviceAdminService lists trusted devices through its port",
         .Return(std::vector<KnownDeviceRecord>{device});
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
-                                    pairingCancellation.get());
+                                    mutationCoordinator.get());
 
     CHECK(service.List("trust") == "1 trusted client:\n11111  Phone");
     Verify(Method(deviceStore, ListTrusted)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
 }
 
 TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",
           "[application][trust_device_admin_service]") {
     Mock<ITrustDeviceStore> deviceStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
 
     auto device = MakeDevice("client-1", "11111", std::string("Phone"),
                              KnownDeviceState::kTrusted, 1);
@@ -90,7 +90,7 @@ TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",
         });
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
-                                    pairingCancellation.get());
+                                    mutationCoordinator.get());
 
     CHECK(service.RevokeByShortId("11111") ==
           "Revoked client 11111 (Phone).");
@@ -100,14 +100,14 @@ TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",
     Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
 }
 
 TEST_CASE("TrustDeviceAdminService blocks, cancels pairing, and disconnects",
           "[application][trust_device_admin_service]") {
     Mock<ITrustDeviceStore> deviceStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
 
     auto device = MakeDevice("client-1", "11111", std::nullopt,
                              KnownDeviceState::kRevoked, 1);
@@ -118,16 +118,11 @@ TEST_CASE("TrustDeviceAdminService blocks, cancels pairing, and disconnects",
         CHECK(shortId == "11111");
         return std::optional<KnownDeviceRecord>{device};
     });
-    When(Method(deviceStore, Block)).Do([&](const std::string& clientId) {
-        CHECK(clientId == "client-1");
-        interactions.push_back("block");
-        return BlockOutcome::kBlocked;
-    });
-    When(Method(pairingCancellation, TryCancel)).Do([&](const std::string& clientId, std::chrono::steady_clock::time_point cancelledAt) {
+    When(Method(mutationCoordinator, Block)).Do([&](const std::string& clientId, std::chrono::steady_clock::time_point cancelledAt) {
         CHECK(clientId == "client-1");
         CHECK(cancelledAt == now);
-        interactions.push_back("cancel");
-        return dovahlink::security::CancelOutcome::kCancelled;
+        interactions.push_back("block");
+        return BlockOutcome::kBlocked;
     });
     When(Method(sessionDisconnector, DisconnectIfClientActive))
         .Do([&](std::string_view clientId, std::string_view reason) {
@@ -137,50 +132,95 @@ TEST_CASE("TrustDeviceAdminService blocks, cancels pairing, and disconnects",
         });
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
-                                    pairingCancellation.get());
+                                    mutationCoordinator.get());
 
     CHECK(service.BlockByShortId("11111", now) ==
           "Blocked device 11111 ((no display name)).");
     CHECK(interactions ==
-          std::vector<std::string>{"block", "cancel", "disconnect"});
+          std::vector<std::string>{"block", "disconnect"});
     Verify(Method(deviceStore, FindByShortId)).Once();
-    Verify(Method(deviceStore, Block)).Once();
-    Verify(Method(pairingCancellation, TryCancel)).Once();
+    Verify(Method(mutationCoordinator, Block)).Once();
     Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
 }
 
 TEST_CASE("TrustDeviceAdminService leaves collaborators untouched on block failure",
           "[application][trust_device_admin_service]") {
     Mock<ITrustDeviceStore> deviceStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
 
     auto device = MakeDevice("client-1", "11111", std::nullopt,
                              KnownDeviceState::kTrusted, 1);
     When(Method(deviceStore, FindByShortId))
         .Return(std::optional<KnownDeviceRecord>{device});
-    When(Method(deviceStore, Block)).Return(BlockOutcome::kSaveFailed);
+    When(Method(mutationCoordinator, Block)).Return(BlockOutcome::kSaveFailed);
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
-                                    pairingCancellation.get());
+                                    mutationCoordinator.get());
 
     CHECK(service.BlockByShortId("11111", {}) ==
           "Failed to block device 11111: trust-store save failed.");
     Verify(Method(deviceStore, FindByShortId)).Once();
-    Verify(Method(deviceStore, Block)).Once();
+    Verify(Method(mutationCoordinator, Block)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
+}
+
+TEST_CASE("TrustDeviceAdminService does not disconnect when revoke persistence fails",
+          "[application][trust_device_admin_service]") {
+    Mock<ITrustDeviceStore> deviceStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    auto device = MakeDevice("client-1", "11111", std::string("Phone"),
+                             KnownDeviceState::kTrusted, 1);
+    When(Method(deviceStore, ListTrusted))
+        .Return(std::vector<KnownDeviceRecord>{device});
+    When(Method(deviceStore, Revoke)).Return(false);
+
+    TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
+                                    mutationCoordinator.get());
+
+    CHECK(service.RevokeByShortId("11111") ==
+          "Failed to revoke client 11111: trust-store save failed.");
+    Verify(Method(deviceStore, ListTrusted)).Once();
+    Verify(Method(deviceStore, Revoke)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
+}
+
+TEST_CASE("TrustDeviceAdminService maps non-mutating Block outcomes without disconnecting",
+          "[application][trust_device_admin_service]") {
+    Mock<ITrustDeviceStore> deviceStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    auto device = MakeDevice("client-1", "11111", std::nullopt,
+                             KnownDeviceState::kBlocked, 1);
+    When(Method(deviceStore, FindByShortId))
+        .AlwaysReturn(std::optional<KnownDeviceRecord>{device});
+    When(Method(mutationCoordinator, Block))
+        .Return(BlockOutcome::kAlreadyBlocked);
+
+    TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
+                                    mutationCoordinator.get());
+
+    CHECK(service.BlockByShortId("11111", {}) ==
+          "Device 11111 is already blocked.");
+    Verify(Method(deviceStore, FindByShortId)).Once();
+    Verify(Method(mutationCoordinator, Block)).Once();
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
 }
 
 TEST_CASE("TrustDeviceAdminService delegates unblock and forget mutations",
           "[application][trust_device_admin_service]") {
     Mock<ITrustDeviceStore> deviceStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
 
     auto device = MakeDevice("client-1", "11111", std::nullopt,
                              KnownDeviceState::kBlocked, 1);
@@ -190,7 +230,7 @@ TEST_CASE("TrustDeviceAdminService delegates unblock and forget mutations",
     When(Method(deviceStore, Forget)).Return(ForgetOutcome::kForgotten);
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
-                                    pairingCancellation.get());
+                                    mutationCoordinator.get());
 
     CHECK(service.UnblockByShortId("11111") ==
           "Unblocked device 11111 ((no display name)).");
@@ -201,5 +241,5 @@ TEST_CASE("TrustDeviceAdminService delegates unblock and forget mutations",
     Verify(Method(deviceStore, Forget)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
 }

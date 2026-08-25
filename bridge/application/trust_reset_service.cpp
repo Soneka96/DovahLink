@@ -7,10 +7,10 @@ namespace dovahlink::application {
 TrustResetService::TrustResetService(
     security::ITrustResetStore& resetStore,
     ActiveSessionDisconnector& sessionDisconnector,
-    security::IPairingCancellation& pairingCancellation,
+    ITrustMutationCoordinator& mutationCoordinator,
     security::IFactoryResetChallenge& factoryResetChallenge)
     : resetStore_(resetStore), sessionDisconnector_(sessionDisconnector),
-      pairingCancellation_(pairingCancellation),
+      mutationCoordinator_(mutationCoordinator),
       factoryResetChallenge_(factoryResetChallenge) {}
 
 std::string TrustResetService::StartFactoryReset() const {
@@ -28,10 +28,9 @@ TrustResetService::ConfirmFactoryReset(std::string_view presentedCode) const {
     switch (factoryResetChallenge_.TryConfirm(std::string(presentedCode))) {
     case security::FactoryResetConfirmOutcome::kConfirmed: {
         std::size_t previousCount = resetStore_.ListTrusted().size();
-        if (!resetStore_.Reset()) {
+        if (!mutationCoordinator_.FactoryReset()) {
             return "Failed to complete Factory Reset: trust-store save failed.";
         }
-        pairingCancellation_.CancelAll();
         sessionDisconnector_.DisconnectActive("factory_reset");
         return "Factory Reset complete (" + std::to_string(previousCount) +
                (previousCount == 1 ? " trusted device erased)."
@@ -49,10 +48,9 @@ TrustResetService::ConfirmFactoryReset(std::string_view presentedCode) const {
 
 std::string TrustResetService::ResetTrust() const {
     auto previouslyTrusted = resetStore_.ListTrusted();
-    if (!resetStore_.ResetTrust()) {
+    if (!mutationCoordinator_.ResetTrust()) {
         return "Failed to reset trust: trust-store save failed.";
     }
-    pairingCancellation_.CancelAll();
     for (const auto& record : previouslyTrusted) {
         sessionDisconnector_.DisconnectIfClientActive(record.clientId,
                                                       "trust_reset");

@@ -327,9 +327,11 @@ SKSEPluginInfo(
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
     static dovahlink::application::TrustDeviceAdminService
-        trustDeviceAdminService(trustStore, bridgeWorkerPool, pairingSession);
+        trustDeviceAdminService(trustStore, bridgeWorkerPool,
+                                trustMutationCoordinator);
     static dovahlink::application::TrustResetService trustResetService(
-        trustStore, bridgeWorkerPool, pairingSession, factoryResetChallenge);
+        trustStore, bridgeWorkerPool, trustMutationCoordinator,
+        factoryResetChallenge);
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
         trustDeviceAdminService, trustResetService);
 

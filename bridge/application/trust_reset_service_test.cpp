@@ -11,10 +11,10 @@
 #include <vector>
 
 using dovahlink::application::ActiveSessionDisconnector;
+using dovahlink::application::ITrustMutationCoordinator;
 using dovahlink::application::TrustResetService;
 using dovahlink::security::FactoryResetConfirmOutcome;
 using dovahlink::security::IFactoryResetChallenge;
-using dovahlink::security::IPairingCancellation;
 using dovahlink::security::ITrustResetStore;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
@@ -45,14 +45,14 @@ TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
           "[application][trust_reset_service]") {
     Mock<ITrustResetStore> resetStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
     When(Method(factoryResetChallenge, TryStart))
         .Return(std::optional<std::string>{"654321"});
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
-                              pairingCancellation.get(),
+                              mutationCoordinator.get(),
                               factoryResetChallenge.get());
 
     CHECK(service.StartFactoryReset() ==
@@ -61,7 +61,29 @@ TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
     Verify(Method(factoryResetChallenge, TryStart)).Once();
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService reports Factory Reset code-generation failure",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+    When(Method(factoryResetChallenge, TryStart))
+        .Return(std::optional<std::string>{});
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.StartFactoryReset() ==
+          "Failed to start Factory Reset: could not generate a confirmation code.");
+    Verify(Method(factoryResetChallenge, TryStart)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
     VerifyNoOtherInvocations(factoryResetChallenge);
 }
 
@@ -69,14 +91,14 @@ TEST_CASE("TrustResetService does not mutate trust after an invalid code",
           "[application][trust_reset_service]") {
     Mock<ITrustResetStore> resetStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
     When(Method(factoryResetChallenge, TryConfirm))
         .Return(FactoryResetConfirmOutcome::kInvalid);
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
-                              pairingCancellation.get(),
+                              mutationCoordinator.get(),
                               factoryResetChallenge.get());
 
     CHECK(service.ConfirmFactoryReset("000000") ==
@@ -85,7 +107,29 @@ TEST_CASE("TrustResetService does not mutate trust after an invalid code",
     Verify(Method(factoryResetChallenge, TryConfirm)).Once();
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService reports an expired Factory Reset challenge",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+    When(Method(factoryResetChallenge, TryConfirm))
+        .Return(FactoryResetConfirmOutcome::kExpired);
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.ConfirmFactoryReset("000000") ==
+          "No Factory Reset confirmation is pending; start one with 'reset' first.");
+    Verify(Method(factoryResetChallenge, TryConfirm)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
     VerifyNoOtherInvocations(factoryResetChallenge);
 }
 
@@ -93,7 +137,7 @@ TEST_CASE("TrustResetService confirmed Factory Reset performs cleanup",
           "[application][trust_reset_service]") {
     Mock<ITrustResetStore> resetStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
     When(Method(factoryResetChallenge, TryConfirm))
@@ -101,16 +145,15 @@ TEST_CASE("TrustResetService confirmed Factory Reset performs cleanup",
             CHECK(presentedCode == "654321");
             return FactoryResetConfirmOutcome::kConfirmed;
         });
-    When(Method(resetStore, ListTrusted))
-        .Return(std::vector<KnownDeviceRecord>{
-            MakeTrustedDevice("client-1", "11111", 1)});
     std::vector<std::string> interactions;
-    When(Method(resetStore, Reset)).Do([&]() {
+    When(Method(resetStore, ListTrusted)).Do([&]() {
+        interactions.push_back("list");
+        return std::vector<KnownDeviceRecord>{
+            MakeTrustedDevice("client-1", "11111", 1)};
+    });
+    When(Method(mutationCoordinator, FactoryReset)).Do([&]() {
         interactions.push_back("reset");
         return true;
-    });
-    When(Method(pairingCancellation, CancelAll)).Do([&]() {
-        interactions.push_back("cancel");
     });
     When(Method(sessionDisconnector, DisconnectActive)).Do([&](std::string_view reason) {
         CHECK(reason == "factory_reset");
@@ -118,21 +161,20 @@ TEST_CASE("TrustResetService confirmed Factory Reset performs cleanup",
     });
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
-                              pairingCancellation.get(),
+                              mutationCoordinator.get(),
                               factoryResetChallenge.get());
 
     CHECK(service.ConfirmFactoryReset("654321") ==
           "Factory Reset complete (1 trusted device erased).");
     CHECK(interactions ==
-          std::vector<std::string>{"reset", "cancel", "disconnect"});
+          std::vector<std::string>{"list", "reset", "disconnect"});
     Verify(Method(factoryResetChallenge, TryConfirm)).Once();
     Verify(Method(resetStore, ListTrusted)).Once();
-    Verify(Method(resetStore, Reset)).Once();
-    Verify(Method(pairingCancellation, CancelAll)).Once();
+    Verify(Method(mutationCoordinator, FactoryReset)).Once();
     Verify(Method(sessionDisconnector, DisconnectActive)).Once();
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
     VerifyNoOtherInvocations(factoryResetChallenge);
 }
 
@@ -140,20 +182,19 @@ TEST_CASE("TrustResetService Reset Trust cancels and disconnects trusted clients
           "[application][trust_reset_service]") {
     Mock<ITrustResetStore> resetStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
-    When(Method(resetStore, ListTrusted))
-        .Return(std::vector<KnownDeviceRecord>{
-            MakeTrustedDevice("client-1", "11111", 1),
-            MakeTrustedDevice("client-2", "22222", 2)});
     std::vector<std::string> interactions;
-    When(Method(resetStore, ResetTrust)).Do([&]() {
+    When(Method(resetStore, ListTrusted)).Do([&]() {
+        interactions.push_back("list");
+        return std::vector<KnownDeviceRecord>{
+            MakeTrustedDevice("client-1", "11111", 1),
+            MakeTrustedDevice("client-2", "22222", 2)};
+    });
+    When(Method(mutationCoordinator, ResetTrust)).Do([&]() {
         interactions.push_back("reset");
         return true;
-    });
-    When(Method(pairingCancellation, CancelAll)).Do([&]() {
-        interactions.push_back("cancel");
     });
     When(Method(sessionDisconnector, DisconnectIfClientActive))
         .AlwaysDo([&](std::string_view clientId, std::string_view reason) {
@@ -163,21 +204,20 @@ TEST_CASE("TrustResetService Reset Trust cancels and disconnects trusted clients
         });
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
-                              pairingCancellation.get(),
+                              mutationCoordinator.get(),
                               factoryResetChallenge.get());
 
     CHECK(service.ResetTrust() ==
           "Reset Trust complete (2 devices revoked).");
     CHECK(interactions == std::vector<std::string>{
-                              "reset", "cancel", "disconnect:client-1",
+                              "list", "reset", "disconnect:client-1",
                               "disconnect:client-2"});
     Verify(Method(resetStore, ListTrusted)).Once();
-    Verify(Method(resetStore, ResetTrust)).Once();
-    Verify(Method(pairingCancellation, CancelAll)).Once();
+    Verify(Method(mutationCoordinator, ResetTrust)).Once();
     Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Exactly(2);
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
     VerifyNoOtherInvocations(factoryResetChallenge);
 }
 
@@ -185,23 +225,23 @@ TEST_CASE("TrustResetService Reset Trust failure skips cleanup",
           "[application][trust_reset_service]") {
     Mock<ITrustResetStore> resetStore;
     Mock<ActiveSessionDisconnector> sessionDisconnector;
-    Mock<IPairingCancellation> pairingCancellation;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
     When(Method(resetStore, ListTrusted))
         .Return(std::vector<KnownDeviceRecord>{});
-    When(Method(resetStore, ResetTrust)).Return(false);
+    When(Method(mutationCoordinator, ResetTrust)).Return(false);
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
-                              pairingCancellation.get(),
+                              mutationCoordinator.get(),
                               factoryResetChallenge.get());
 
     CHECK(service.ResetTrust() ==
           "Failed to reset trust: trust-store save failed.");
     Verify(Method(resetStore, ListTrusted)).Once();
-    Verify(Method(resetStore, ResetTrust)).Once();
+    Verify(Method(mutationCoordinator, ResetTrust)).Once();
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);
-    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(mutationCoordinator);
     VerifyNoOtherInvocations(factoryResetChallenge);
 }

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "application/active_session_disconnector.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "security/factory_reset_challenge.hpp"
-#include "security/pairing_session.hpp"
 #include "security/trust_store.hpp"
 
 #include <string>
@@ -13,16 +13,16 @@ namespace dovahlink::application {
 ///  Coordinates recoverable and destructive trust reset workflows.
 class TrustResetService {
   public:
-    ///  Binds bulk trust-store operations to pairing cancellation, session
-    ///  invalidation, and the local Factory Reset challenge.
+    ///  Binds bulk trust operations to coordinated pairing cancellation,
+    ///  session invalidation, and the local Factory Reset challenge.
     ///  @param resetStore Bulk trust-store operations.
     ///  @param sessionDisconnector Disconnects sessions affected by a reset.
-    ///  @param pairingCancellation Cancels active pairing state after a reset.
+    ///  @param mutationCoordinator Serializes reset mutations with pairing.
     ///  @param factoryResetChallenge Starts and confirms the local reset code.
     TrustResetService(
         security::ITrustResetStore& resetStore,
         ActiveSessionDisconnector& sessionDisconnector,
-        security::IPairingCancellation& pairingCancellation,
+        ITrustMutationCoordinator& mutationCoordinator,
         security::IFactoryResetChallenge& factoryResetChallenge);
 
     ///  Starts a Factory Reset confirmation challenge.
@@ -42,8 +42,8 @@ class TrustResetService {
     ///  Disconnects targeted or all active sessions after reset.
     ActiveSessionDisconnector& sessionDisconnector_;
 
-    ///  Cancels active pairing state after reset.
-    security::IPairingCancellation& pairingCancellation_;
+    ///  Coordinates reset mutations with active pairing state.
+    ITrustMutationCoordinator& mutationCoordinator_;
 
     ///  Local confirmation challenge for destructive reset.
     security::IFactoryResetChallenge& factoryResetChallenge_;

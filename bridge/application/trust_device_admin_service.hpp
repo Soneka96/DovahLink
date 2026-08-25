@@ -1,7 +1,7 @@
 #pragma once
 
 #include "application/active_session_disconnector.hpp"
-#include "security/pairing_session.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "security/trust_store.hpp"
 
 #include <chrono>
@@ -14,15 +14,15 @@ namespace dovahlink::application {
 ///  owning trust persistence or transport state.
 class TrustDeviceAdminService {
   public:
-    ///  Binds per-device trust operations to the session and pairing effects
-    ///  required after successful administration mutations.
+    ///  Binds per-device trust operations to session invalidation and the
+    ///  shared trust-mutation coordination boundary.
     ///  @param deviceStore Per-device trust-store operations.
     ///  @param sessionDisconnector Disconnects the affected client session.
-    ///  @param pairingCancellation Cancels a blocked client's pairing state.
+    ///  @param mutationCoordinator Serializes blocking with pairing finalization.
     TrustDeviceAdminService(
         security::ITrustDeviceStore& deviceStore,
         ActiveSessionDisconnector& sessionDisconnector,
-        security::IPairingCancellation& pairingCancellation);
+        ITrustMutationCoordinator& mutationCoordinator);
 
     ///  Lists known devices according to the console-facing scope.
     [[nodiscard]] std::string List(std::string_view scope) const;
@@ -61,8 +61,8 @@ class TrustDeviceAdminService {
     ///  Disconnects a session after a successful revoke or block.
     ActiveSessionDisconnector& sessionDisconnector_;
 
-    ///  Cancels pairing state owned by a successfully blocked device.
-    security::IPairingCancellation& pairingCancellation_;
+    ///  Coordinates blocking with pairing finalization.
+    ITrustMutationCoordinator& mutationCoordinator_;
 };
 
 } //  namespace dovahlink::application

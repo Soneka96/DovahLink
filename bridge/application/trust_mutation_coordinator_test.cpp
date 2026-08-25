@@ -283,3 +283,20 @@ TEST_CASE("TrustMutationCoordinator rejects a commit after reset cancels first",
     CHECK(result.outcome == PairingCommitOutcome::kPendingNotFound);
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
+
+TEST_CASE("TrustMutationCoordinator owns individual and bulk pairing cancellation",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    StartPending(pairingSession, coordinator.CurrentMutationGeneration(), now);
+
+    CHECK(coordinator.TryCancel("client-1", now) ==
+          dovahlink::security::CancelOutcome::kCancelled);
+    StartPending(pairingSession, coordinator.CurrentMutationGeneration(), now);
+    coordinator.CancelAll();
+    CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+                    .has_value());
+}
