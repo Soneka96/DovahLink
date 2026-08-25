@@ -56,7 +56,7 @@ class PairingRetriableFailure extends PairingFailure {
 /// explicit user action.
 class SessionInvalidatedFailure extends Failure {
   /// The one canonical, reason-agnostic wording used for every administrative invalidation
-  /// (revoked, blocked, trust reset, or factory reset), per PLAN.md's Stage 3.
+  /// (revoked, blocked, trust reset, or factory reset).
   static const SessionInvalidatedFailure administrative =
       SessionInvalidatedFailure(
         'This device was disconnected by the bridge. Try again.',

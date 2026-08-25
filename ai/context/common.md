@@ -56,9 +56,28 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 
 ## Behavioral boundaries and test isolation
 
-- A behavior-bearing consumer uses explicit dependency boundaries for the collaborators whose
-  behavior it coordinates; it must not construct those collaborators internally when substitution
-  is useful for isolation.
+- Every behavior-bearing class or equivalent type has an explicit interface, port, protocol,
+  abstract base, or other language-appropriate contract, even when it has only one implementation
+  today. Every consumer depends on that contract rather than the concrete implementation.
+- Every behavior-bearing implementation receives every collaborator through constructor injection
+  or the language's direct equivalent. Production code must not construct or resolve a collaborator
+  internally through a service locator, hidden singleton, or private dependency factory.
+- This rule is phased: it applies to the language or area when its approved implementation work
+  begins. A
+  later convention change does not reopen a completed phase or enlarge an already-open pull request;
+  a future phase must not introduce new behavior-bearing concrete boundaries without their contract.
+- A phase begins when its approved implementation work starts, not when the phase is merely listed
+  or discussed in a plan. A later phase that consumes a grandfathered concrete type must introduce
+  the contract at its own boundary; it must not reopen the completed phase solely to retrofit it.
+- Behavior-bearing means a type that owns decisions, validation, state transitions, I/O, side
+  effects, lifecycle, or coordination. A state machine, adapter, validator, codec, or leaf policy
+  is not exempt merely because it has one caller or no current collaborator.
+- Pure functions, DTOs, protocol/value objects, enums, and other data-only types do not receive
+  artificial interfaces merely to satisfy this rule.
+- Composition roots may construct concrete implementations in order to pass them into contracts;
+  framework-required callback registration is boundary wiring, not a substitute for constructor
+  injection inside ordinary classes. Any other exemption or grandfathering must be recorded at the
+  relevant phase boundary.
 - Consumer tests prove the consumer's behavior through test doubles for behavior-bearing
   collaborators, including calls, arguments, failure handling, and contractually important
   ordering.
@@ -158,13 +177,11 @@ style guide.
   code. State the same tradeoff in plain language instead -- what was simplified, why it is
   accepted, and what would change the answer (a neutral lead-in such as "Known limitation:" reads
   the same to every future reader).
-- Do not cite a roadmap file, stage file, or a planning document such as `PLAN.md` as the
-  justification for a comment (for example "per PLAN.md's Stage 3" or "matching roadmap/03-...md's
-  acceptance criteria"). Roadmap and stage files record delivery status and are renamed,
-  restructured, or deleted once a phase completes, so a comment anchored to one goes stale or
-  dangling. State the invariant, behavior, or constraint itself in plain language instead -- what
-  must hold and why -- so the comment stays true independent of any planning document's current
-  name or existence.
+- Do not cross-reference a roadmap, stage, planning, or other documentation file from
+  implementation code, tests, or implementation comments as the authority for behavior. State the
+  invariant, behavior, or constraint itself in plain language instead. Documentation may link to
+  another document for navigation, but durable implementation rules belong in the relevant context
+  file and code comments must remain valid if planning documents are renamed or removed.
 
 ## Quality floor
 
