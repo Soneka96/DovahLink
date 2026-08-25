@@ -10,6 +10,8 @@ import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+import '../../../../fixtures/fixtures.dart';
+
 /// Mocktail double for [NavigatorService], matching this project's existing
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
 class MockNavigatorService extends Mock implements NavigatorService {}
@@ -52,10 +54,7 @@ void main() {
 
   group('ConnectionMiddleware — ConnectionBridgeSelectedAction', () {
     test('navigates to the pairing route', () {
-      final BridgeEntity bridge = BridgeEntity(
-        displayName: 'Local Bridge',
-        uri: Uri.parse('ws://127.0.0.1:58231/'),
-      );
+      final BridgeEntity bridge = Fixtures.buildBridgeEntity();
 
       middleware.call(store, ConnectionBridgeSelectedAction(bridge), next);
 

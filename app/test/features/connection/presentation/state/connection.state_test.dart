@@ -2,7 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
+
+import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection-state initialization and copying.
 void main() {
@@ -10,9 +11,7 @@ void main() {
     test('creates a state with the static default Bridge', () {
       final ConnectionState state = ConnectionState.initial();
 
-      expect(state.bridges, [
-        BridgeEntity(displayName: 'Local Bridge', uri: defaultBridgeUri),
-      ]);
+      expect(state.bridges, [Fixtures.buildBridgeEntity()]);
     });
   });
 
@@ -28,7 +27,7 @@ void main() {
     test('replaces bridges when supplied', () {
       final ConnectionState state = ConnectionState.initial();
       final List<BridgeEntity> replacement = [
-        BridgeEntity(displayName: 'Other Bridge', uri: defaultBridgeUri),
+        Fixtures.buildBridgeEntity(displayName: 'Other Bridge'),
       ];
 
       final ConnectionState result = state.copyWith(bridges: replacement);
