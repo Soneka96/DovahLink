@@ -6,7 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from validate_protocol_fixtures import FIXTURES_DIR, FixtureError, main, validate_all, validate_envelope
+from validate_protocol_fixtures import (
+    FIXTURES_DIR,
+    FixtureError,
+    main,
+    validate_all,
+    validate_envelope,
+)
 
 
 def _valid_hello() -> dict:
@@ -51,7 +57,12 @@ def _valid_error(session_id: str | None) -> dict:
         "messageId": "m-3",
         "sessionId": session_id,
         "correlationId": "m-1",
-        "payload": {"code": "unauthenticated", "message": "boom", "retryable": False, "details": None},
+        "payload": {
+            "code": "unauthenticated",
+            "message": "boom",
+            "retryable": False,
+            "details": None,
+        },
         "bridgeInstanceId": None,
         "playContextId": None,
         "clientId": None,
@@ -293,7 +304,9 @@ class ValidateAllTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_text(json.dumps(_valid_snapshot()), encoding="utf-8")
 
-            self.assertEqual(validate_all(Path(tmp)), ["state/example_area/snapshot.json"])
+            self.assertEqual(
+                validate_all(Path(tmp)), ["state/example_area/snapshot.json"]
+            )
 
     def test_empty_directory_raises(self) -> None:
         """Reject a fixture directory that contains no JSON files."""
@@ -329,7 +342,9 @@ class MainTests(unittest.TestCase):
 
     def test_main_returns_one_on_failure(self) -> None:
         """Return one when fixture validation fails."""
-        with patch("validate_protocol_fixtures.validate_all", side_effect=FixtureError("boom")):
+        with patch(
+            "validate_protocol_fixtures.validate_all", side_effect=FixtureError("boom")
+        ):
             self.assertEqual(main(), 1)
 
     def test_main_returns_one_on_malformed_json(self) -> None:

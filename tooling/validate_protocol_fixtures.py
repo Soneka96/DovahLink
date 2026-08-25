@@ -69,12 +69,20 @@ def validate_envelope(name: str, message: object) -> None:
     session_id = message["sessionId"]
     if message_type == "hello":
         if session_id is not None:
-            raise FixtureError(f"{name}: sessionId must be null for hello, since it precedes authentication")
+            raise FixtureError(
+                f"{name}: sessionId must be null for hello, since it precedes authentication"
+            )
     elif message_type == "error":
-        if session_id is not None and (not isinstance(session_id, str) or not session_id):
-            raise FixtureError(f"{name}: sessionId must be null or a non-empty string for 'error'")
+        if session_id is not None and (
+            not isinstance(session_id, str) or not session_id
+        ):
+            raise FixtureError(
+                f"{name}: sessionId must be null or a non-empty string for 'error'"
+            )
     elif not isinstance(session_id, str) or not session_id:
-        raise FixtureError(f"{name}: sessionId must be a non-empty string for '{message_type}'")
+        raise FixtureError(
+            f"{name}: sessionId must be a non-empty string for '{message_type}'"
+        )
 
     payload = message["payload"]
     if not isinstance(payload, dict):

@@ -26,12 +26,16 @@ class FormatStagedTests(unittest.TestCase):
         self.assertEqual(format_staged.formatter_group("app/main.dart"), "dart")
         self.assertEqual(format_staged.formatter_group("bridge/main.cpp"), "cpp")
         self.assertEqual(format_staged.formatter_group("tooling/check.py"), "python")
-        self.assertEqual(format_staged.formatter_group("tooling/check.ps1"), "powershell")
+        self.assertEqual(
+            format_staged.formatter_group("tooling/check.ps1"), "powershell"
+        )
         self.assertIsNone(format_staged.formatter_group("protocol/schema.json"))
 
     def test_parse_git_paths_preserves_non_utf8_bytes(self) -> None:
         """Decode Git paths without crashing on bytes outside UTF-8."""
-        self.assertEqual(format_staged.parse_git_paths(b"tooling/\xff.py\0"), ["tooling/\udcff.py"])
+        self.assertEqual(
+            format_staged.parse_git_paths(b"tooling/\xff.py\0"), ["tooling/\udcff.py"]
+        )
 
     def test_execute_commands_preflights_all_formatters(self) -> None:
         """Find a missing later formatter before an earlier formatter can modify files."""
@@ -61,7 +65,12 @@ class FormatStagedTests(unittest.TestCase):
         """Build fail-closed check commands for Dart, C++, Python, and PowerShell."""
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
-            paths = ["app/main.dart", "bridge/main.cpp", "tooling/check.py", "tooling/check.ps1"]
+            paths = [
+                "app/main.dart",
+                "bridge/main.cpp",
+                "tooling/check.py",
+                "tooling/check.ps1",
+            ]
 
             commands = format_staged.formatter_commands(root, paths, check=True)
 
@@ -109,7 +118,9 @@ class FormatStagedTests(unittest.TestCase):
         """Stop before invoking any formatter when a supported file is partially staged."""
         with (
             patch.object(format_staged, "staged_paths", return_value=["app/main.dart"]),
-            patch.object(format_staged, "unstaged_paths", return_value=["app/main.dart"]),
+            patch.object(
+                format_staged, "unstaged_paths", return_value=["app/main.dart"]
+            ),
             patch.object(format_staged, "format_paths") as format_paths,
         ):
             result = format_staged.main([])

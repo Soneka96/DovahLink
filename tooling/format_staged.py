@@ -27,11 +27,15 @@ SUPPORTED_SUFFIXES = {
 def parse_git_paths(output: bytes) -> list[str]:
     """Decode NUL-delimited repository-relative paths from Git output."""
     return [
-        path for path in output.decode("utf-8", errors="surrogateescape").split("\0") if path
+        path
+        for path in output.decode("utf-8", errors="surrogateescape").split("\0")
+        if path
     ]
 
 
-def run_git(repository_root: Path, arguments: list[str]) -> subprocess.CompletedProcess[bytes]:
+def run_git(
+    repository_root: Path, arguments: list[str]
+) -> subprocess.CompletedProcess[bytes]:
     """Run a Git command in the repository and return its completed process."""
     return subprocess.run(
         ["git", *arguments],
@@ -202,7 +206,11 @@ def formatter_commands(
                     *(["--verify-no-changes"] if check else []),
                     "--include",
                     *[
-                        str((repository_root / path).resolve().relative_to(project.parent))
+                        str(
+                            (repository_root / path)
+                            .resolve()
+                            .relative_to(project.parent)
+                        )
                         for path in project_paths
                     ],
                 ]
@@ -215,7 +223,9 @@ def execute_commands(
     commands: list[list[str]],
 ) -> int:
     """Run formatter commands and return the first non-zero exit code."""
-    missing = sorted({command[0] for command in commands if shutil.which(command[0]) is None})
+    missing = sorted(
+        {command[0] for command in commands if shutil.which(command[0]) is None}
+    )
     if missing:
         print(
             "Required formatter(s) unavailable: " + ", ".join(missing),
@@ -237,7 +247,9 @@ def index_snapshot(repository_root: Path) -> bytes:
     """Capture the staged index diff so concurrent index changes can be rejected."""
     result = run_git(repository_root, ["diff", "--cached", "--binary"])
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.decode("utf-8", errors="surrogateescape").strip())
+        raise RuntimeError(
+            result.stderr.decode("utf-8", errors="surrogateescape").strip()
+        )
     return result.stdout
 
 
@@ -251,11 +263,16 @@ def format_paths(
     if not selected:
         return 0
     before_index = index_snapshot(repository_root) if not check else None
-    result = execute_commands(repository_root, formatter_commands(repository_root, selected, check))
+    result = execute_commands(
+        repository_root, formatter_commands(repository_root, selected, check)
+    )
     if result != 0 or check:
         return result
     if index_snapshot(repository_root) != before_index:
-        print("The Git index changed while formatting; review and stage manually.", file=sys.stderr)
+        print(
+            "The Git index changed while formatting; review and stage manually.",
+            file=sys.stderr,
+        )
         return 1
     restage = run_git(repository_root, ["add", "--", *selected])
     if restage.returncode != 0:
@@ -267,8 +284,12 @@ def format_paths(
 def parse_arguments(arguments: list[str] | None) -> argparse.Namespace:
     """Parse command-line options for staged or explicit-path formatting."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="fail when formatting is needed")
-    parser.add_argument("--paths", nargs="*", help="format these repository-relative paths")
+    parser.add_argument(
+        "--check", action="store_true", help="fail when formatting is needed"
+    )
+    parser.add_argument(
+        "--paths", nargs="*", help="format these repository-relative paths"
+    )
     return parser.parse_args(arguments)
 
 
@@ -277,7 +298,11 @@ def main(arguments: list[str] | None = None) -> int:
     options = parse_arguments(arguments)
     repository_root = REPOSITORY_ROOT
     try:
-        paths = options.paths if options.paths is not None else staged_paths(repository_root)
+        paths = (
+            options.paths
+            if options.paths is not None
+            else staged_paths(repository_root)
+        )
         if options.paths is None:
             partial = partial_staged_paths(paths, unstaged_paths(repository_root))
             if partial:
