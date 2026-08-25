@@ -10,6 +10,16 @@
 - Transport completion callbacks must use an in-flight counter or a lifetime token owned independently of the coordinator so no callback can access destroyed coordinator or transport state. The token remains valid until every callback has returned.
 - Catch all exceptions at callback, worker-thread, and transport-completion boundaries. Convert them into controlled component failure and diagnostics; never allow an exception to escape a callback or thread entry point.
 
+## Behavior-bearing boundaries
+
+- Every behavior-bearing C++ class or equivalent type has an explicit narrow interface or
+  pure-virtual contract, even when it currently has one implementation. Consumers depend on that
+  interface rather than the concrete type.
+- Every collaborator is supplied through the constructor. Do not construct or resolve a
+  behavior-bearing collaborator inside another class.
+- DTOs, protocol/value types, enums, pure functions, and other data-only types are not wrapped in
+  artificial interfaces. This rule is adopted phase-forward and does not reopen completed phases.
+
 ## Files and types
 
 - Keep one primary class or component per file unless the types are inseparable declarations and definitions.

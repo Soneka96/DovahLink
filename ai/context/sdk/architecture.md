@@ -108,7 +108,8 @@ separate.
 ## Internal composition
 
 The client engine described above is implemented as seven major Services, each an
-independently-testable behavioral subsystem, plus a small set of plain supporting collaborators.
+independently-testable behavioral subsystem, plus supporting collaborators. Every supporting
+collaborator that owns behavior has its own explicit contract; data-only helpers remain concrete.
 **A concrete production Service implementation implements exactly one architectural Service
 interface.** One concrete class never carries multiple architectural identities through multiple
 `implements` clauses of Service-shaped interfaces — a consumer's constructor should never need to
@@ -119,17 +120,15 @@ apply to the pre-existing, orthogonal platform-port category — `DovahLinkTrans
 This rule allows no exception, including the case where a `ServiceImpl` is the sole genuine owner
 of some state a collaborator needs — "it's the only real owner, no other object could stand in" is
 not by itself grounds for the `ServiceImpl` to implement that collaborator's dependency port itself
-and pass `this`. `ConnectionTeardownCoordinator`, `MessageRouter`, and `PendingOperationTransmitter`
-— plain, privately-owned collaborators, per "Not everything is a Service" below — depend directly on
-the concrete plain/Service types that actually own what they need: `ConnectionTeardownCoordinator`
-on `SessionState`; `MessageRouter` and `PendingOperationTransmitter` on `SessionService` and
-`PendingOperationBookkeeping`. None of the three implements a `ServiceImpl`'s own interface, and no
-`ServiceImpl` implements one of their dependency shapes on itself.
+and pass `this`. `ConnectionTeardownCoordinator`, `MessageRouter`, and
+`PendingOperationTransmitter` are behavior-bearing supporting collaborators, so each has its own
+contract and consumers depend on that contract. None of them implements a `ServiceImpl`'s own
+interface, and no `ServiceImpl` implements one of their dependency shapes on itself.
 
-When a privately-owned collaborator's dependency shape does not already match a real object a
-`ServiceImpl` holds, extract the owning state and logic into a plain, no-interface supporting object
-(per "Not everything is a Service" below) and depend on that object directly. Never let a
-`ServiceImpl` implement the collaborator's own dependency port and pass `this`.
+When a supporting collaborator's dependency shape does not already match a real object a
+`ServiceImpl` holds, extract the owning state and logic into a behavior-bearing supporting object
+with its own contract and depend on that contract. Never let a `ServiceImpl` implement the
+collaborator's own dependency port and pass `this`.
 
 The seven Services:
 
@@ -164,15 +163,16 @@ A Service split corresponds to a meaningful behavioral responsibility or a real 
 (who is allowed to do what) — never merely to a field or method count. Do not create a micro-service
 such as `SessionIdService` or `ConnectionStateService` that only exposes one mechanical operation or
 mirrors one field; that recreates the discoverability problem this design displaced, under a
-different naming scheme. Supporting/mechanical behavior stays a plain, direct-noun class with no
-artificial interface: `SessionState`, `ConnectionTeardownCoordinator`, `LifecycleOperationQueue`,
-`MessageRouter`, `PendingOperationTransmitter`, `PendingOperation`, the DTO/protocol validators and
-decoders, and small value/policy types such as `RequestPolicy`.
+different naming scheme. Supporting/mechanical behavior keeps a plain, direct-noun name, but any
+behavior-bearing class still follows `ai/context/common.md`'s mandatory abstraction rule. DTOs and
+other data-only types remain without artificial service interfaces; validators, codecs, and leaf
+policies are behavior-bearing when they make decisions and therefore require their own contracts.
 
 ### Naming
 
 Major capability: `XService` (interface) / `XServiceImpl` (implementation). Supporting object:
-direct domain/mechanical noun, no artificial interface/`Impl` pair. Avoid arbitrary `Manager`,
+direct domain/mechanical noun; if behavior-bearing, it still has an explicit contract and concrete
+implementation without requiring the `Service`/`Impl` name pair. Avoid arbitrary `Manager`,
 `Handler`, `Controller`, `Provider`, `Port`, `Gateway`, `Facade` unless the word communicates a
 genuinely distinct role; `Coordinator` remains acceptable for a real sequencing collaborator
 (`ConnectionTeardownCoordinator`) because ordered, generation-checked sequencing is a genuinely
@@ -191,17 +191,27 @@ No exceptions for privately-owned collaborators. A class never constructs its ow
 however small, however single-consumer, however free of its own dependencies (a plain queue, a
 one-line delegating adapter) — inside its own constructor body. Every collaborator a class needs,
 without exception, is a constructor parameter the caller supplies already built. This is what
-"privately owned" means throughout this document: sole-consumer and untyped-by-a-Service-interface,
-never internally self-assembled. The payoff is that exactly one place ever calls a constructor with
+"privately owned" means throughout this document: sole-consumer by ownership, not exempt from an
+explicit contract when behavior-bearing, and never internally self-assembled. The payoff is that
+exactly one place ever calls a constructor with
 `new`-shaped intent for the whole graph — today `DovahLinkClient`, later a generated or hand-rolled
 injection container — and every test can substitute any single collaborator, at any depth, without
 the class under test needing a special test-only constructor to make that possible.
+
+Every behavior-bearing SDK class or equivalent type has an explicit interface, and every consumer
+depends on that interface even when only one implementation exists. This rule is adopted
+phase-forward and does not reopen completed phases. The callback exceptions below are lifecycle
+inversion points, not permission to bypass the rule for ordinary collaborators.
 
 ### Callbacks
 
 Exactly three late-bound, function-typed, nullable fields exist on `SessionServiceImpl`, each
 because a named constructor dependency in that direction would create a genuine construction-order
 cycle:
+
+These are the SDK's explicitly enumerated lifecycle-inversion exceptions to ordinary constructor
+injection. They are typed, assigned once by the composition root, and do not construct or resolve
+implementations.
 
 1. **Teardown notification** → `RequestService.failAll`. `SessionServiceImpl` can detect a
    connection failure entirely internally (its own transport subscription's `onError`/`onDone`) and
@@ -279,8 +289,8 @@ single authoritative owner of every session-scoped mutable fact this engine has:
 last-connected URI, and the transport's message subscription. Direct `SessionState` access is
 limited to the session subsystem's own internal components that legitimately participate in
 maintaining it: `SessionServiceImpl`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`, and
-`ConnectionTeardownCoordinator` (`SessionServiceImpl`'s own privately-owned collaborator, per
-"Internal composition", depending on `SessionState` directly). The composition root itself also
+`ConnectionTeardownCoordinator` (`SessionServiceImpl`'s own supporting collaborator, per
+"Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `RequestService`,
 `AuthenticationService`, `PairingService`, `ReconnectService` — depends on the appropriate Service

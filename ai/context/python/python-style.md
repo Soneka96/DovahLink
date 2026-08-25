@@ -15,6 +15,17 @@ A small result/outcome class used by only one other type is not a third exceptio
 its own module rather than being defined inside the module of the type that returns it, per
 `ai/context/common.md`'s file-organization rule.
 
+## Behavior-bearing boundaries
+
+- Every behavior-bearing Python class or equivalent type has an explicit `typing.Protocol` or
+  abstract-base contract, even when it currently has one implementation. Consumers depend on that
+  contract rather than a concrete implementation.
+- Every collaborator is supplied through constructor injection. Do not construct or resolve a
+  behavior-bearing collaborator inside another class.
+- DTOs, dataclasses used as values, enums, pure functions, and other data-only types are not
+  wrapped in artificial interfaces. This rule is adopted phase-forward and does not reopen
+  completed phases.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md` and PEP 257 placement.

@@ -18,6 +18,16 @@ area; only genuinely language-wide conventions live here.
   fail-closed protocol-format failure. A compatible Bridge/SDK pair must never rely on raw wire
   strings for branching.
 
+## Behavior-bearing boundaries
+
+- Every behavior-bearing Dart class or equivalent type has an explicit abstract contract, even when
+  it currently has one implementation. Consumers type against that contract, never the concrete
+  implementation.
+- Every collaborator is supplied through the constructor. Do not construct or resolve a
+  behavior-bearing collaborator inside another class.
+- DTOs, entities, enums, pure functions, and other data-only types are not wrapped in artificial
+  interfaces. This rule is adopted phase-forward and does not reopen completed phases.
+
 ## File organization
 
 One primary public class, mixin, or extension type per file, per `ai/context/common.md`'s shared

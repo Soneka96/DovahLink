@@ -75,9 +75,14 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - Pure functions, DTOs, protocol/value objects, enums, and other data-only types do not receive
   artificial interfaces merely to satisfy this rule.
 - Composition roots may construct concrete implementations in order to pass them into contracts;
-  framework-required callback registration is boundary wiring, not a substitute for constructor
-  injection inside ordinary classes. Any other exemption or grandfathering must be recorded at the
-  relevant phase boundary.
+  framework-managed entry points may resolve already-registered contracts from the framework
+  container, and framework-required callback registration is boundary wiring. Neither is a
+  substitute for constructor injection inside ordinary behavior-bearing classes; implementations
+  must never be constructed by those lookups or callbacks. Any other exemption or grandfathering
+  must be recorded at the relevant phase boundary.
+- A language or area convention may enumerate a typed lifecycle-inversion callback as a narrow
+  exception only when a real construction cycle prevents constructor injection. The composition
+  root assigns it explicitly, and the callback must not construct or resolve implementations.
 - Consumer tests prove the consumer's behavior through test doubles for behavior-bearing
   collaborators, including calls, arguments, failure handling, and contractually important
   ordering.
