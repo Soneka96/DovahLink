@@ -173,7 +173,8 @@ void RunConnectionSession(
         return std::chrono::steady_clock::now();
     }) {
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
-                                                                 pairingSession);
+                                                                 pairingSession,
+                                                                 sessionManager);
     dovahlink::application::RunConnectionSession(
         ws, tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, connection, activePlayContext, pairingSession,

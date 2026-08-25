@@ -288,8 +288,7 @@ DispatchResult ProcessInboundMessage(
         assert(clientId.has_value());
         result = FromHandlerResponse(
             HandlePairingAck(*envelope, sessionId, *clientId, connection,
-                             trustStore, mutationCoordinator, sessionManager,
-                             steadyNow),
+                             mutationCoordinator, steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType ==
                protocol::message_type::kPairingRenotify) {

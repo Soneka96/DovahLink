@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/pairing_commit_result.hpp"
+#include "application/session_promotion.hpp"
 #include "security/pairing_session.hpp"
 #include "security/trust_mutation_generation.hpp"
 #include "security/trust_store.hpp"
@@ -31,12 +32,22 @@ class ITrustMutationCoordinator {
                    std::vector<std::uint8_t> credential,
                    std::optional<std::string> displayName) = 0;
 
-    ///  Atomically finalizes the matching pending pairing or preserves it when
-    ///  persistence fails.
+    ///  Atomically finalizes and promotes the matching pending pairing, or
+    ///  preserves it when persistence fails.
     [[nodiscard]] virtual PairingCommitResult
     CommitPairing(const std::string& clientId,
                   const std::vector<std::uint8_t>& credential,
-                  std::chrono::steady_clock::time_point now) = 0;
+                  std::chrono::steady_clock::time_point now,
+                  ConnectionId connection,
+                  const std::string& sessionId) = 0;
+
+    ///  Promotes a matching already-trusted credential under the same
+    ///  coordination boundary as pairing finalization.
+    [[nodiscard]] virtual std::optional<security::KnownDeviceRecord>
+    PromoteAlreadyTrusted(const std::string& clientId,
+                          const std::vector<std::uint8_t>& credential,
+                          ConnectionId connection,
+                          const std::string& sessionId) = 0;
 
     ///  Cancels one pairing under the same coordination boundary as commits.
     [[nodiscard]] virtual security::CancelOutcome
@@ -72,9 +83,10 @@ class ITrustMutationCoordinator {
 ///  Real trust-mutation coordinator used by the Bridge composition root.
 class TrustMutationCoordinator final : public ITrustMutationCoordinator {
   public:
-    ///  Binds the durable trust store and in-memory pairing state machine.
+    ///  Binds durable trust, pairing, and session-promotion capabilities.
     TrustMutationCoordinator(security::TrustStore& trustStore,
-                             security::PairingSession& pairingSession);
+                             security::PairingSession& pairingSession,
+                             ISessionPromotion& sessionPromotion);
 
     ///  @copydoc ITrustMutationCoordinator::ConfirmPairing
     [[nodiscard]] security::ConfirmCodeResult
@@ -88,7 +100,16 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
     [[nodiscard]] PairingCommitResult
     CommitPairing(const std::string& clientId,
                   const std::vector<std::uint8_t>& credential,
-                  std::chrono::steady_clock::time_point now) override;
+                  std::chrono::steady_clock::time_point now,
+                  ConnectionId connection,
+                  const std::string& sessionId) override;
+
+    ///  @copydoc ITrustMutationCoordinator::PromoteAlreadyTrusted
+    [[nodiscard]] std::optional<security::KnownDeviceRecord>
+    PromoteAlreadyTrusted(const std::string& clientId,
+                          const std::vector<std::uint8_t>& credential,
+                          ConnectionId connection,
+                          const std::string& sessionId) override;
 
     ///  @copydoc ITrustMutationCoordinator::TryCancel
     [[nodiscard]] security::CancelOutcome
@@ -121,6 +142,9 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
 
     ///  In-memory pairing state owned by the Bridge lifetime.
     security::PairingSession& pairingSession_;
+
+    ///  Promotes sessions after trust finalization.
+    ISessionPromotion& sessionPromotion_;
 
     ///  Serializes all coordinator operations that can consume or invalidate
     ///  pending pairing state.

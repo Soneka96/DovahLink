@@ -279,7 +279,7 @@ int main() {
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                             listenerV6);
     dovahlink::application::TrustMutationCoordinator trustMutationCoordinator(
-        trustStore, pairingSession);
+        trustStore, pairingSession, sessionManager);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,

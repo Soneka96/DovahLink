@@ -136,12 +136,13 @@ struct Fixture {
     FailedTokenThrottle credentialThrottle;
     ///  Pairing challenge/pending-credential state machine; unused by these tests.
     PairingSession pairingSession;
-    ///  Coordinates pairing finalization with administrative trust mutations.
-    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession};
-    ///  Records pairing codes displayed to the user; unused by these tests.
-    RecordingPairingNotificationSink pairingNotificationSink;
     ///  Tracks the authenticated test session.
     SessionManager sessionManager;
+    ///  Coordinates pairing finalization with administrative trust mutations.
+    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession,
+                                                 sessionManager};
+    ///  Records pairing codes displayed to the user; unused by these tests.
+    RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
     ActivePlayContext activePlayContext;
     ///  Runs the production worker-pool/session path under test.

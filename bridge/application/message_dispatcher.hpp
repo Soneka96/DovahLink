@@ -53,8 +53,8 @@ struct DispatchResult {
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine, for
 ///      the three pairing message types.
-///  @param trustStore Persistent trust store, for `pairing_ack`'s
-///  idempotent-retry check and commit.
+///  @param trustStore Persistent trust store, for full-session trust-store
+///  operations such as `rename_request`.
 ///  @param mutationCoordinator Serializes pairing finalization and administrative
 ///  trust mutations.
 ///  @param pairingNotificationSink Displays a freshly generated pairing code to

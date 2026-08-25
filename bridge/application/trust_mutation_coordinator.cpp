@@ -5,8 +5,10 @@
 namespace dovahlink::application {
 
 TrustMutationCoordinator::TrustMutationCoordinator(
-    security::TrustStore& trustStore, security::PairingSession& pairingSession)
-    : trustStore_(trustStore), pairingSession_(pairingSession) {}
+    security::TrustStore& trustStore, security::PairingSession& pairingSession,
+    ISessionPromotion& sessionPromotion)
+    : trustStore_(trustStore), pairingSession_(pairingSession),
+      sessionPromotion_(sessionPromotion) {}
 
 security::ConfirmCodeResult TrustMutationCoordinator::ConfirmPairing(
     const std::string& presentedCode,
@@ -24,7 +26,8 @@ security::ConfirmCodeResult TrustMutationCoordinator::ConfirmPairing(
 PairingCommitResult TrustMutationCoordinator::CommitPairing(
     const std::string& clientId,
     const std::vector<std::uint8_t>& credential,
-    std::chrono::steady_clock::time_point now) {
+    std::chrono::steady_clock::time_point now, ConnectionId connection,
+    const std::string& sessionId) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto pending = pairingSession_.PeekPending(clientId, credential, now);
     if (!pending.has_value()) {
@@ -39,6 +42,7 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
         pending->mutationGeneration, pending->clientId,
         pending->credential, pending->displayName);
     if (persisted.has_value()) {
+        sessionPromotion_.UpgradeToFullTrust(connection, sessionId);
         return PairingCommitResult::Committed(std::move(*persisted));
     }
 
@@ -53,6 +57,22 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
         return PairingCommitResult::PersistenceFailed();
     }
     return PairingCommitResult::Invalidated();
+}
+
+std::optional<security::KnownDeviceRecord>
+TrustMutationCoordinator::PromoteAlreadyTrusted(
+    const std::string& clientId, const std::vector<std::uint8_t>& credential,
+    ConnectionId connection, const std::string& sessionId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!trustStore_.Authenticate(clientId, credential)) {
+        return std::nullopt;
+    }
+    auto existing = trustStore_.Query(clientId);
+    if (!existing.has_value()) {
+        return std::nullopt;
+    }
+    sessionPromotion_.UpgradeToFullTrust(connection, sessionId);
+    return existing;
 }
 
 security::CancelOutcome TrustMutationCoordinator::TryCancel(

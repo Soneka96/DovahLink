@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <mutex>
@@ -13,6 +14,8 @@
 #include <type_traits>
 #include <vector>
 
+using dovahlink::application::ConnectionId;
+using dovahlink::application::ISessionPromotion;
 using dovahlink::application::PairingCommitResult;
 using dovahlink::application::TrustMutationCoordinator;
 using dovahlink::security::BlockOutcome;
@@ -48,6 +51,26 @@ class FakePersistence : public ITrustStorePersistence {
 
   private:
     bool failNextSave_ = false;
+};
+
+class RecordingSessionPromotion final : public ISessionPromotion {
+  public:
+    ///  Records one coordinator-owned promotion request.
+    void UpgradeToFullTrust(ConnectionId connection,
+                            const std::string& sessionId) override {
+        ++promotionCount;
+        lastConnection = connection;
+        lastSessionId = sessionId;
+    }
+
+    ///  Number of promotion requests received.
+    std::size_t promotionCount = 0;
+
+    ///  Most recent connection promoted by the coordinator.
+    ConnectionId lastConnection = 0;
+
+    ///  Most recent session promoted by the coordinator.
+    std::string lastSessionId;
 };
 
 class BlockingPersistence : public ITrustStorePersistence {
@@ -162,12 +185,14 @@ TEST_CASE("TrustMutationCoordinator commits pending pairing atomically",
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
-    PairingCommitResult result =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    PairingCommitResult result = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
 
     REQUIRE(result.Outcome() == PairingCommitOutcome::kCommitted);
     REQUIRE(result.Record().has_value());
@@ -175,6 +200,36 @@ TEST_CASE("TrustMutationCoordinator commits pending pairing atomically",
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
     CHECK(trustStore.Query("client-1").has_value());
+    CHECK(sessionPromotion.promotionCount == 1);
+    CHECK(sessionPromotion.lastConnection == 1);
+    CHECK(sessionPromotion.lastSessionId == "session-1");
+}
+
+TEST_CASE("TrustMutationCoordinator promotes an already-trusted retry under its lock",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    const auto credential = MakeCredential(9);
+    REQUIRE(trustStore.Persist("client-1", credential, std::nullopt)
+                .has_value());
+    PairingSession pairingSession(FixedCode("123456"));
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
+
+    auto existing = coordinator.PromoteAlreadyTrusted(
+        "client-1", credential, 7, "session-retry");
+
+    REQUIRE(existing.has_value());
+    CHECK(existing->clientId == "client-1");
+    CHECK(sessionPromotion.promotionCount == 1);
+    CHECK(sessionPromotion.lastConnection == 7);
+    CHECK(sessionPromotion.lastSessionId == "session-retry");
+
+    auto mismatch = coordinator.PromoteAlreadyTrusted(
+        "client-1", MakeCredential(1), 7, "session-mismatch");
+    CHECK_FALSE(mismatch.has_value());
+    CHECK(sessionPromotion.promotionCount == 1);
 }
 
 TEST_CASE("TrustMutationCoordinator captures the client-scoped fence while confirming",
@@ -187,7 +242,9 @@ TEST_CASE("TrustMutationCoordinator captures the client-scoped fence while confi
     REQUIRE(trustStore.Unblock("client-1") ==
             dovahlink::security::UnblockOutcome::kUnblocked);
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
 
     REQUIRE(pairingSession.TryStartChallenge("client-1", now).code.has_value());
@@ -207,22 +264,26 @@ TEST_CASE("TrustMutationCoordinator restores pending pairing after Save failure"
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
     persistence.FailNextSave();
 
-    auto failed =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto failed = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
 
     CHECK(failed.Outcome() == PairingCommitOutcome::kPersistenceFailed);
     CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
               .has_value());
     CHECK_FALSE(trustStore.Query("client-1").has_value());
+    CHECK(sessionPromotion.promotionCount == 0);
 
-    auto retried =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto retried = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
     CHECK(retried.Outcome() == PairingCommitOutcome::kCommitted);
+    CHECK(sessionPromotion.promotionCount == 1);
 }
 
 TEST_CASE("TrustMutationCoordinator reports an invalidated pending pairing after generation changes",
@@ -230,16 +291,19 @@ TEST_CASE("TrustMutationCoordinator reports an invalidated pending pairing after
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
     REQUIRE(trustStore.ResetTrust());
 
-    auto result =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto result = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
 
     CHECK(result.Outcome() == PairingCommitOutcome::kInvalidated);
     CHECK_FALSE(result.Record().has_value());
+    CHECK(sessionPromotion.promotionCount == 0);
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
     CHECK_FALSE(trustStore.Query("client-1").has_value());
@@ -252,7 +316,9 @@ TEST_CASE("TrustMutationCoordinator blocks and cancels the matching pairing",
     REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
                 .has_value());
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
@@ -269,7 +335,9 @@ TEST_CASE("TrustMutationCoordinator preserves a different client's pairing when 
     REQUIRE(trustStore.Persist("client-2", MakeCredential(9), std::nullopt)
                 .has_value());
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
@@ -277,8 +345,8 @@ TEST_CASE("TrustMutationCoordinator preserves a different client's pairing when 
     CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
               .has_value());
 
-    auto result =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto result = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
     CHECK(result.Outcome() == PairingCommitOutcome::kCommitted);
     CHECK(trustStore.Query("client-1").has_value());
 }
@@ -288,16 +356,19 @@ TEST_CASE("TrustMutationCoordinator reports invalidation after a direct Factory 
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
     REQUIRE(trustStore.Reset());
-    auto result =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto result = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
 
     CHECK(result.Outcome() == PairingCommitOutcome::kInvalidated);
     CHECK_FALSE(result.Record().has_value());
+    CHECK(sessionPromotion.promotionCount == 0);
 }
 
 TEST_CASE("TrustMutationCoordinator preserves pairing when Block fails",
@@ -307,7 +378,9 @@ TEST_CASE("TrustMutationCoordinator preserves pairing when Block fails",
     REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
                 .has_value());
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
     persistence.FailNextSave();
@@ -322,7 +395,9 @@ TEST_CASE("TrustMutationCoordinator does not cancel for non-mutating Block outco
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
@@ -338,7 +413,9 @@ TEST_CASE("TrustMutationCoordinator revokes and cancels the matching pairing",
     REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
                 .has_value());
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     const auto beforeMutation =
         trustStore.CurrentMutationGeneration("client-1");
@@ -359,7 +436,9 @@ TEST_CASE("TrustMutationCoordinator preserves pairing when Revoke fails",
     REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
                 .has_value());
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     const auto beforeMutation =
         trustStore.CurrentMutationGeneration("client-1");
@@ -379,7 +458,9 @@ TEST_CASE("TrustMutationCoordinator does not cancel for a non-mutating Revoke",
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     const auto beforeMutation =
         trustStore.CurrentMutationGeneration("client-1");
@@ -401,7 +482,9 @@ TEST_CASE("TrustMutationCoordinator cancels pairing before a concurrent commit w
                 .has_value());
     persistence.BlockNextSave();
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession,
                  trustStore.CurrentMutationGeneration("client-1"), now);
@@ -414,8 +497,8 @@ TEST_CASE("TrustMutationCoordinator cancels pairing before a concurrent commit w
 
     PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
-        commitResult =
-            coordinator.CommitPairing("client-1", MakeCredential(1), now);
+        commitResult = coordinator.CommitPairing(
+            "client-1", MakeCredential(1), now, 1, "session-1");
     });
 
     persistence.Release();
@@ -433,7 +516,9 @@ TEST_CASE("TrustMutationCoordinator reset operations cancel only after Save succ
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
 
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
@@ -463,7 +548,9 @@ TEST_CASE("TrustMutationCoordinator keeps pairing pending until reset persistenc
     BlockingPersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
@@ -488,14 +575,16 @@ TEST_CASE("TrustMutationCoordinator serializes pairing commit before reset",
     BlockingPersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
     PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
-        commitResult =
-            coordinator.CommitPairing("client-1", MakeCredential(1), now);
+        commitResult = coordinator.CommitPairing(
+            "client-1", MakeCredential(1), now, 1, "session-1");
     });
     persistence.WaitUntilEntered();
 
@@ -516,16 +605,19 @@ TEST_CASE("TrustMutationCoordinator rejects a commit after reset cancels first",
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
     REQUIRE(coordinator.ResetTrust().has_value());
-    auto result =
-        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    auto result = coordinator.CommitPairing(
+        "client-1", MakeCredential(1), now, 1, "session-1");
 
     CHECK(result.Outcome() == PairingCommitOutcome::kPendingNotFound);
     CHECK_FALSE(trustStore.Query("client-1").has_value());
+    CHECK(sessionPromotion.promotionCount == 0);
 }
 
 TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acquires first",
@@ -533,7 +625,9 @@ TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acqui
     BlockingPersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
@@ -543,8 +637,8 @@ TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acqui
 
     PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
-        commitResult =
-            coordinator.CommitPairing("client-1", MakeCredential(1), now);
+        commitResult = coordinator.CommitPairing(
+            "client-1", MakeCredential(1), now, 1, "session-1");
     });
 
     persistence.Release();
@@ -562,7 +656,9 @@ TEST_CASE("TrustMutationCoordinator owns individual and bulk pairing cancellatio
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
     PairingSession pairingSession(FixedCode("123456"));
-    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    RecordingSessionPromotion sessionPromotion;
+    TrustMutationCoordinator coordinator(trustStore, pairingSession,
+                                         sessionPromotion);
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 

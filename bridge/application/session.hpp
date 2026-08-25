@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/active_session.hpp"
+#include "application/session_promotion.hpp"
 #include "shared/enums.hpp"
 
 #include <mutex>
@@ -11,7 +12,7 @@ namespace dovahlink::application {
 
 ///  Binds one authenticated session to one connection.
 ///  The manager is thread-safe and enforces the one-client limit.
-class SessionManager {
+class SessionManager : public ISessionPromotion {
   public:
     ///  Move-only ownership of one active authenticated session.
     ///
@@ -116,7 +117,7 @@ class SessionManager {
     ///  @param sessionId Session identifier the caller validated its request
     ///  against.
     void UpgradeToFullTrust(ConnectionId connection,
-                            const std::string& sessionId);
+                            const std::string& sessionId) override;
 
     ///  Invalidates the active session regardless of its connection.
     void InvalidateAll();

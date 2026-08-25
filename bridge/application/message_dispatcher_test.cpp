@@ -122,7 +122,8 @@ struct Fixture {
     ///  Pairing challenge/pending-credential state machine.
     PairingSession pairingSession;
     ///  Coordinates pairing finalization with administrative trust mutations.
-    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession};
+    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession,
+                                                 sessions};
     ///  Records pairing codes displayed to the user.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  This bridge process's identity, stamped onto every response envelope.

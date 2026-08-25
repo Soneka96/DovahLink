@@ -165,9 +165,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 protocol::Envelope HandlePairingAck(
     const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
     const std::string& clientId, ConnectionId connection,
-    security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
-    SessionManager& sessionManager, std::chrono::steady_clock::time_point now) {
+    std::chrono::steady_clock::time_point now) {
     auto ack = protocol::DecodePairingAckPayload(pairingAckEnvelope.payload);
     if (!ack.has_value()) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId,
@@ -193,23 +192,21 @@ protocol::Envelope HandlePairingAck(
     //  merely collides with someone else's already-trusted identity cannot be
     //  upgraded to full trust without actually presenting that identity's real
     //  credential.
-    if (trustStore.Authenticate(clientId, *credentialBytes)) {
-        auto existing = trustStore.Query(clientId);
-        if (existing.has_value()) {
-            sessionManager.UpgradeToFullTrust(connection, sessionId);
-            return BuildPairingOutcome(
-                sessionId, pairingAckEnvelope.messageId,
-                protocol::PairingOutcomePayload{
-                    .outcome = "already_trusted",
-                    .credential = security::EncodeHex(existing->credential),
-                    .shortId = existing->shortId,
-                    .displayName = existing->displayName,
-                });
-        }
+    auto existing = mutationCoordinator.PromoteAlreadyTrusted(
+        clientId, *credentialBytes, connection, sessionId);
+    if (existing.has_value()) {
+        return BuildPairingOutcome(
+            sessionId, pairingAckEnvelope.messageId,
+            protocol::PairingOutcomePayload{
+                .outcome = "already_trusted",
+                .credential = security::EncodeHex(existing->credential),
+                .shortId = existing->shortId,
+                .displayName = existing->displayName,
+            });
     }
 
-    auto commit =
-        mutationCoordinator.CommitPairing(clientId, *credentialBytes, now);
+    auto commit = mutationCoordinator.CommitPairing(
+        clientId, *credentialBytes, now, connection, sessionId);
     if (commit.Outcome() == security::PairingCommitOutcome::kPendingNotFound) {
         return BuildPairingOutcome(
             sessionId, pairingAckEnvelope.messageId,
@@ -227,7 +224,6 @@ protocol::Envelope HandlePairingAck(
     }
 
     const auto& persisted = *commit.Record();
-    sessionManager.UpgradeToFullTrust(connection, sessionId);
 
     return BuildPairingOutcome(
         sessionId, pairingAckEnvelope.messageId,

@@ -120,8 +120,10 @@ Envelope HandlePairingConfirm(
     std::chrono::steady_clock::time_point now) {
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
-                                                                 pairingSession);
+                                                                 pairingSession,
+                                                                 sessionManager);
     return dovahlink::application::HandlePairingConfirm(
         envelope, sessionId, clientId, pairingSession, coordinator,
         notificationSink, now);
@@ -136,10 +138,10 @@ Envelope HandlePairingAck(
     SessionManager& sessionManager,
     std::chrono::steady_clock::time_point now) {
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
-                                                                 pairingSession);
+                                                                 pairingSession,
+                                                                 sessionManager);
     return dovahlink::application::HandlePairingAck(
-        envelope, sessionId, clientId, connection, trustStore, coordinator,
-        sessionManager, now);
+        envelope, sessionId, clientId, connection, coordinator, now);
 }
 
 ///  Supplies a coordinator to direct pairing-cancel tests without duplicating
@@ -150,8 +152,10 @@ Envelope HandlePairingCancel(
     std::chrono::steady_clock::time_point now) {
     EmptyPersistence persistence;
     auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
-                                                                 pairingSession);
+                                                                 pairingSession,
+                                                                 sessionManager);
     return dovahlink::application::HandlePairingCancel(
         envelope, sessionId, clientId, coordinator, now);
 }
@@ -717,7 +721,8 @@ TEST_CASE("HandlePairingAck reports pairing_invalidated after the pending "
                                            kSessionId, kClientId, pairingSession,
                                            sink, now));
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
-                                                                 pairingSession);
+                                                                 pairingSession,
+                                                                 sessions);
     auto confirmResponse = dovahlink::application::HandlePairingConfirm(
         BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
         pairingSession, coordinator, sink, now);
@@ -732,7 +737,7 @@ TEST_CASE("HandlePairingAck reports pairing_invalidated after the pending "
             dovahlink::security::BlockOutcome::kBlocked);
     auto ackResponse = dovahlink::application::HandlePairingAck(
         BuildPairingAckEnvelope(*confirmOutcome->credential), kSessionId,
-        kClientId, kConnection, trustStore, coordinator, sessions, now);
+        kClientId, kConnection, coordinator, now);
     auto ackOutcome =
         dovahlink::protocol::DecodePairingOutcomePayload(ackResponse.payload);
     REQUIRE(ackOutcome.has_value());

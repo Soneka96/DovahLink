@@ -309,7 +309,7 @@ SKSEPluginInfo(
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
     static dovahlink::application::TrustMutationCoordinator
-        trustMutationCoordinator(trustStore, pairingSession);
+        trustMutationCoordinator(trustStore, pairingSession, sessionManager);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,

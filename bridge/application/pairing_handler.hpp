@@ -76,17 +76,15 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  trusted before touching `pairingSession` at all (a lost-response retry
 ///  resolves to `"already_trusted"`, not an error); otherwise matches the echoed
 ///  credential against the pending record and, on success, commits it to
-///  `trustStore` and upgrades the session to full trust.
+///  `trustStore` and upgrades the session to full trust through the coordinator.
 ///  @param pairingAckEnvelope Decoded client `pairing_ack`.
 ///  @param sessionId Authenticated session identifier.
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`.
 ///  @param connection Transport connection identifier, for the trust-tier
 ///  upgrade.
-///  @param trustStore Persistent trust store, queried for idempotency.
 ///  @param mutationCoordinator Serializes pending-pairing finalization with
 ///  administrative trust mutations.
-///  @param sessionManager Session registry, upgraded to full trust on success.
 ///  @param now Current monotonic time, for the pending-credential lazy-expiry
 ///  check.
 ///  @return `pairing_outcome` envelope: `"trusted"`, `"already_trusted"`,
@@ -97,9 +95,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 [[nodiscard]] protocol::Envelope HandlePairingAck(
     const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
     const std::string& clientId, ConnectionId connection,
-    security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
-    SessionManager& sessionManager, std::chrono::steady_clock::time_point now);
+    std::chrono::steady_clock::time_point now);
 
 ///  Handles a `pairing_renotify`: "show my code again". Redisplays `clientId`'s
 ///  owned active challenge's existing code via `notificationSink` when its
