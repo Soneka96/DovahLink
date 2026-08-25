@@ -15,6 +15,8 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 
+import '../../../../fixtures/fixtures.dart';
+
 /// Mocktail double for [NavigatorService], matching this project's existing
 /// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
 class MockNavigatorService extends Mock implements NavigatorService {}
@@ -72,11 +74,11 @@ void main() {
     testWidgets('tapping the second tile passes that Bridge, not the first', (
       WidgetTester tester,
     ) async {
-      final BridgeEntity first = BridgeEntity(
+      final BridgeEntity first = Fixtures.buildBridgeEntity(
         displayName: 'First Bridge',
         uri: Uri.parse('ws://127.0.0.1:1/'),
       );
-      final BridgeEntity second = BridgeEntity(
+      final BridgeEntity second = Fixtures.buildBridgeEntity(
         displayName: 'Second Bridge',
         uri: Uri.parse('ws://127.0.0.1:2/'),
       );
@@ -106,25 +108,26 @@ void main() {
   });
 
   group('BridgeListScreen meets accessibility recommended guidelines', () {
-    testWidgets('labels the Bridge tile and meets its minimum tap-target size', (
-      WidgetTester tester,
-    ) async {
-      final SemanticsHandle handle = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: const CreateStore()(),
-              child: const BridgeListScreen(),
+    testWidgets(
+      'labels the Bridge tile and meets its minimum tap-target size',
+      (WidgetTester tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: StoreProvider<AppState>(
+                store: const CreateStore()(),
+                child: const BridgeListScreen(),
+              ),
             ),
-          ),
-        );
+          );
 
-        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-      } finally {
-        handle.dispose();
-      }
-    });
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
 
     testWidgets('exposes the Bridge tile label as semantics', (
       WidgetTester tester,
