@@ -54,8 +54,8 @@ RE::BSFixedString Revoke(RE::StaticFunctionTag*, RE::BSFixedString akId) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(
-            g_trustDeviceAdminService->RevokeByShortId(std::string_view(akId)));
+        return RE::BSFixedString(g_trustDeviceAdminService->RevokeByShortId(
+            std::string_view(akId), std::chrono::steady_clock::now()));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }

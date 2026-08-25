@@ -74,11 +74,14 @@ TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",
 
     auto device = MakeDevice("client-1", "11111", std::string("Phone"),
                              KnownDeviceState::kTrusted, 1);
+    const auto now = std::chrono::steady_clock::time_point(
+        std::chrono::seconds(42));
     std::vector<std::string> interactions;
     When(Method(deviceStore, ListTrusted))
         .Return(std::vector<KnownDeviceRecord>{device});
-    When(Method(deviceStore, Revoke)).Do([&](const std::string& clientId) {
+    When(Method(mutationCoordinator, Revoke)).Do([&](const std::string& clientId, std::chrono::steady_clock::time_point revokedAt) {
         CHECK(clientId == "client-1");
+        CHECK(revokedAt == now);
         interactions.push_back("revoke");
         return true;
     });
@@ -92,11 +95,11 @@ TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
                                     mutationCoordinator.get());
 
-    CHECK(service.RevokeByShortId("11111") ==
+    CHECK(service.RevokeByShortId("11111", now) ==
           "Revoked client 11111 (Phone).");
     CHECK(interactions == std::vector<std::string>{"revoke", "disconnect"});
     Verify(Method(deviceStore, ListTrusted)).Once();
-    Verify(Method(deviceStore, Revoke)).Once();
+    Verify(Method(mutationCoordinator, Revoke)).Once();
     Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
@@ -177,17 +180,19 @@ TEST_CASE("TrustDeviceAdminService does not disconnect when revoke persistence f
     Mock<ITrustMutationCoordinator> mutationCoordinator;
     auto device = MakeDevice("client-1", "11111", std::string("Phone"),
                              KnownDeviceState::kTrusted, 1);
+    const auto now = std::chrono::steady_clock::time_point(
+        std::chrono::seconds(42));
     When(Method(deviceStore, ListTrusted))
         .Return(std::vector<KnownDeviceRecord>{device});
-    When(Method(deviceStore, Revoke)).Return(false);
+    When(Method(mutationCoordinator, Revoke)).Return(false);
 
     TrustDeviceAdminService service(deviceStore.get(), sessionDisconnector.get(),
                                     mutationCoordinator.get());
 
-    CHECK(service.RevokeByShortId("11111") ==
+    CHECK(service.RevokeByShortId("11111", now) ==
           "Failed to revoke client 11111: trust-store save failed.");
     Verify(Method(deviceStore, ListTrusted)).Once();
-    Verify(Method(deviceStore, Revoke)).Once();
+    Verify(Method(mutationCoordinator, Revoke)).Once();
     VerifyNoOtherInvocations(deviceStore);
     VerifyNoOtherInvocations(sessionDisconnector);
     VerifyNoOtherInvocations(mutationCoordinator);

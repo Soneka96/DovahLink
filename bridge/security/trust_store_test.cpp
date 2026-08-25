@@ -270,6 +270,36 @@ TEST_CASE("Block advances only the blocked client's mutation fence",
               .has_value());
 }
 
+TEST_CASE("Revoke advances only the revoked client's mutation fence",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(
+        persistence, QueuedShortIds({"11111", "22222", "33333"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt)
+                .has_value());
+    REQUIRE(store.Persist("client-2", MakeCredential(2), std::nullopt)
+                .has_value());
+
+    const auto clientOneGeneration =
+        store.CurrentMutationGeneration("client-1");
+    const auto clientTwoGeneration =
+        store.CurrentMutationGeneration("client-2");
+
+    REQUIRE(store.Revoke("client-2"));
+
+    const auto afterClientTwoRevoke =
+        store.CurrentMutationGeneration("client-2");
+    CHECK(store.CurrentMutationGeneration("client-1") == clientOneGeneration);
+    CHECK(afterClientTwoRevoke.global == clientTwoGeneration.global);
+    CHECK(afterClientTwoRevoke.client == clientTwoGeneration.client + 1);
+    CHECK_FALSE(store.PersistIfGeneration(clientTwoGeneration, "client-2",
+                                          MakeCredential(4), std::nullopt)
+                    .has_value());
+    CHECK(store.PersistIfGeneration(clientOneGeneration, "client-1",
+                                    MakeCredential(3), std::nullopt)
+              .has_value());
+}
+
 TEST_CASE("Persist sets state to kTrusted and stamps createdAt",
           "[security][trust_store]") {
     FakePersistence persistence;

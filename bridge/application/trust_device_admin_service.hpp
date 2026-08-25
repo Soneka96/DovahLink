@@ -18,7 +18,8 @@ class TrustDeviceAdminService {
     ///  shared trust-mutation coordination boundary.
     ///  @param deviceStore Per-device trust-store operations.
     ///  @param sessionDisconnector Disconnects the affected client session.
-    ///  @param mutationCoordinator Serializes blocking with pairing finalization.
+    ///  @param mutationCoordinator Serializes blocking and revocation with pairing
+    ///  finalization.
     TrustDeviceAdminService(
         security::ITrustDeviceStore& deviceStore,
         ActiveSessionDisconnector& sessionDisconnector,
@@ -40,7 +41,9 @@ class TrustDeviceAdminService {
     [[nodiscard]] std::string ListBlocked() const;
 
     ///  Revokes the trusted client identified by its administration short ID.
-    [[nodiscard]] std::string RevokeByShortId(std::string_view shortId) const;
+    [[nodiscard]] std::string
+    RevokeByShortId(std::string_view shortId,
+                    std::chrono::steady_clock::time_point now) const;
 
     ///  Blocks the known device identified by its administration short ID.
     [[nodiscard]] std::string
@@ -61,7 +64,7 @@ class TrustDeviceAdminService {
     ///  Disconnects a session after a successful revoke or block.
     ActiveSessionDisconnector& sessionDisconnector_;
 
-    ///  Coordinates blocking with pairing finalization.
+    ///  Coordinates blocking and revocation with pairing finalization.
     ITrustMutationCoordinator& mutationCoordinator_;
 };
 

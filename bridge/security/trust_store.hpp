@@ -290,7 +290,8 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  Advances after each successful Reset Trust or Factory Reset.
     std::uint64_t globalMutationGeneration_ = 0;
 
-    ///  Advances for each client after a successful Block of that client.
+    ///  Advances for each client after a successful Revoke or Block of that
+    ///  client.
     std::unordered_map<std::string, std::uint64_t>
         clientMutationGenerations_;
 

@@ -125,7 +125,8 @@ std::string TrustDeviceAdminService::ListBlocked() const {
 }
 
 std::string
-TrustDeviceAdminService::RevokeByShortId(std::string_view shortId) const {
+TrustDeviceAdminService::RevokeByShortId(
+    std::string_view shortId, std::chrono::steady_clock::time_point now) const {
     auto records = deviceStore_.ListTrusted();
     auto it = std::find_if(records.begin(), records.end(),
                            [&](const security::KnownDeviceRecord& record) {
@@ -136,7 +137,7 @@ TrustDeviceAdminService::RevokeByShortId(std::string_view shortId) const {
     }
 
     std::string displayName = it->displayName.value_or("(no display name)");
-    if (!deviceStore_.Revoke(it->clientId)) {
+    if (!mutationCoordinator_.Revoke(it->clientId, now)) {
         return "Failed to revoke client " + std::string(shortId) +
                ": trust-store save failed.";
     }

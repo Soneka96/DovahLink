@@ -47,8 +47,8 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   challenge expires. A client that saves the credential but crashes before confirming retries
   confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
-  credential and returns to unpaired. If a pending record survives while Block, Reset Trust, or
-  Factory Reset changes its mutation fence, the bridge returns the distinct `pairing_invalidated`
+  credential and returns to unpaired. If a pending record survives while Revoke, Block, Reset Trust,
+  or Factory Reset changes its mutation fence, the bridge returns the distinct `pairing_invalidated`
   pairing outcome so the client can distinguish administrative invalidation from a missing pending
   record while taking the same safe discard-and-restart action. The normal coordinated
   administration path cancels pending state before the ACK is processed, so that path truthfully

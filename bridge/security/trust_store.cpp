@@ -301,6 +301,7 @@ bool TrustStore::Revoke(const std::string& clientId) {
         return false;
     }
     SecureClear(previousDevice.credential);
+    ++clientMutationGenerations_[clientId];
     return true;
 }
 

@@ -6,8 +6,8 @@ namespace dovahlink::security {
 
 ///  Mutation fence captured by a pending pairing before it can become trusted.
 ///  `global` advances after Reset Trust or Factory Reset; `client` advances
-///  after a successful Block for the pending pairing's client. A pairing is
-///  stale when either component no longer matches the trust store.
+///  after a successful Revoke or Block for the pending pairing's client. A
+///  pairing is stale when either component no longer matches the trust store.
 struct TrustMutationGeneration {
     ///  Generation shared by mutations that invalidate every pending pairing.
     std::uint64_t global = 0;

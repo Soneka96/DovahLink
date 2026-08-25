@@ -15,7 +15,8 @@
 namespace dovahlink::application {
 
 ///  Coordinates pending pairing finalization with administrative trust
-///  mutations so a stale pairing cannot recreate trust after Block or reset.
+///  mutations so a stale pairing cannot recreate trust after Revoke, Block, or
+///  reset.
 class ITrustMutationCoordinator {
   public:
     ///  Releases the interface without performing work.
@@ -50,6 +51,12 @@ class ITrustMutationCoordinator {
     [[nodiscard]] virtual security::BlockOutcome
     Block(const std::string& clientId,
           std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Revokes a trusted device and cancels its pairing only after persistence
+    ///  succeeds.
+    [[nodiscard]] virtual bool
+    Revoke(const std::string& clientId,
+           std::chrono::steady_clock::time_point now) = 0;
 
     ///  Performs Reset Trust, returns the affected client IDs, and cancels all
     ///  pairing only after persistence succeeds. An empty optional means the
@@ -95,6 +102,11 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
     [[nodiscard]] security::BlockOutcome
     Block(const std::string& clientId,
           std::chrono::steady_clock::time_point now) override;
+
+    ///  @copydoc ITrustMutationCoordinator::Revoke
+    [[nodiscard]] bool
+    Revoke(const std::string& clientId,
+           std::chrono::steady_clock::time_point now) override;
 
     ///  @copydoc ITrustMutationCoordinator::ResetTrust
     [[nodiscard]] std::optional<std::vector<std::string>>

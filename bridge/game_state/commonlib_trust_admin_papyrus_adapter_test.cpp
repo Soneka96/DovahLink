@@ -41,7 +41,10 @@ TEST_CASE(
     CHECK(source.find("g_trustDeviceAdminService->Help()") !=
           std::string::npos);
     CHECK(source.find(
-              "g_trustDeviceAdminService->RevokeByShortId(std::string_view(akId))") !=
+              "g_trustDeviceAdminService->RevokeByShortId(") !=
+          std::string::npos);
+    CHECK(source.find(
+              "std::string_view(akId), std::chrono::steady_clock::now())") !=
           std::string::npos);
     CHECK(dovahlink::test_support::ContainsSourceText(
         source,

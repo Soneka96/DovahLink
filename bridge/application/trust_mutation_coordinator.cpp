@@ -77,6 +77,19 @@ security::BlockOutcome TrustMutationCoordinator::Block(
     return outcome;
 }
 
+bool TrustMutationCoordinator::Revoke(
+    const std::string& clientId, std::chrono::steady_clock::time_point now) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!trustStore_.Query(clientId).has_value()) {
+        return true;
+    }
+    if (!trustStore_.Revoke(clientId)) {
+        return false;
+    }
+    (void)pairingSession_.TryCancel(clientId, now);
+    return true;
+}
+
 std::optional<std::vector<std::string>> TrustMutationCoordinator::ResetTrust() {
     std::lock_guard<std::mutex> lock(mutex_);
     const auto trustedDevices = trustStore_.ListTrusted();

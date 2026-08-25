@@ -69,6 +69,13 @@ class BlockingPersistence : public ITrustStorePersistence {
         releaseCondition_.notify_one();
     }
 
+    ///  Re-arms the next save to block until @ref Release is called.
+    void BlockNextSave() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        entered_ = false;
+        released_ = false;
+    }
+
   private:
     std::mutex mutex_;
     std::condition_variable enteredCondition_;
@@ -288,6 +295,104 @@ TEST_CASE("TrustMutationCoordinator does not cancel for non-mutating Block outco
     CHECK(coordinator.Block("unknown", now) == BlockOutcome::kNotFound);
     CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
               .has_value());
+}
+
+TEST_CASE("TrustMutationCoordinator revokes and cancels the matching pairing",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
+                .has_value());
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    const auto beforeMutation =
+        trustStore.CurrentMutationGeneration("client-1");
+    StartPending(pairingSession, beforeMutation, now);
+
+    CHECK(coordinator.Revoke("client-1", now));
+    CHECK(trustStore.IsRevoked("client-1"));
+    CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+                    .has_value());
+    CHECK(trustStore.CurrentMutationGeneration("client-1") !=
+          beforeMutation);
+}
+
+TEST_CASE("TrustMutationCoordinator preserves pairing when Revoke fails",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
+                .has_value());
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    const auto beforeMutation =
+        trustStore.CurrentMutationGeneration("client-1");
+    StartPending(pairingSession, beforeMutation, now);
+    persistence.FailNextSave();
+
+    CHECK_FALSE(coordinator.Revoke("client-1", now));
+    CHECK(trustStore.Query("client-1").has_value());
+    CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+              .has_value());
+    CHECK(trustStore.CurrentMutationGeneration("client-1") ==
+          beforeMutation);
+}
+
+TEST_CASE("TrustMutationCoordinator does not cancel for a non-mutating Revoke",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    const auto beforeMutation =
+        trustStore.CurrentMutationGeneration("client-1");
+    StartPending(pairingSession, beforeMutation, now);
+
+    CHECK(coordinator.Revoke("client-1", now));
+    CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+              .has_value());
+    CHECK(trustStore.CurrentMutationGeneration("client-1") ==
+          beforeMutation);
+}
+
+TEST_CASE("TrustMutationCoordinator cancels pairing before a concurrent commit when Revoke acquires first",
+          "[application][trust_mutation_coordinator]") {
+    BlockingPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    persistence.Release();
+    REQUIRE(trustStore.Persist("client-1", MakeCredential(9), std::nullopt)
+                .has_value());
+    persistence.BlockNextSave();
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    StartPending(pairingSession,
+                 trustStore.CurrentMutationGeneration("client-1"), now);
+
+    bool revokeResult = false;
+    std::thread revokeThread([&] {
+        revokeResult = coordinator.Revoke("client-1", now);
+    });
+    persistence.WaitUntilEntered();
+
+    PairingCommitResult commitResult{
+        .outcome = PairingCommitOutcome::kPendingNotFound};
+    std::thread commitThread([&] {
+        commitResult =
+            coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    });
+
+    persistence.Release();
+    revokeThread.join();
+    commitThread.join();
+
+    CHECK(revokeResult);
+    CHECK(commitResult.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK(trustStore.IsRevoked("client-1"));
+    CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
 
 TEST_CASE("TrustMutationCoordinator reset operations cancel only after Save succeeds",
