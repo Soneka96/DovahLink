@@ -325,7 +325,7 @@ void main() {
     );
 
     testWidgets(
-      'PairingRenotifyButton becomes enabled once the cooldown elapses with no Redux dispatch at all',
+      'PairingRenotifyButton becomes enabled after cooldown without a follow-up Redux dispatch',
       (WidgetTester tester) async {
         final store = Store<AppState>(
           (AppState state, dynamic action) {
