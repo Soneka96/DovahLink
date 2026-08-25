@@ -521,6 +521,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("runs-on: ubuntu-latest", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
         self.assertIn("        shell: bash", workflow)
+        self.assertEqual(
+            self._yaml_block(workflow, "    env:"),
+            "    env:\n      EnableWindowsTargeting: true",
+        )
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
             "  group: tooling-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",

@@ -36,6 +36,8 @@ jobs:
     name: Repository Tooling Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      EnableWindowsTargeting: true
     defaults:
       run:
         shell: bash
