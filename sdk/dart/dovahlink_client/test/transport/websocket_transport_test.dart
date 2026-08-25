@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
+import '../fixtures/fixtures.dart';
 import '../harness_process.dart';
 
 /// A valid 64-character hex-encoded developer token, matching the fixed value the `.NET`
@@ -45,7 +46,7 @@ void main() {
         addTearDown(transport.close);
         await transport.connect(harness.bridgeUri).timeout(_socketTimeout);
 
-        final Envelope helloEnvelope = Envelope(
+        final Envelope helloEnvelope = Fixtures.buildEnvelope(
           messageType: ProtocolMessageType.hello,
           messageId: 'test-hello-1',
           sessionId: null,
@@ -210,7 +211,7 @@ void main() {
       );
       addTearDown(subscription.cancel);
 
-      final Envelope helloEnvelope = Envelope(
+      final Envelope helloEnvelope = Fixtures.buildEnvelope(
         messageType: ProtocolMessageType.hello,
         messageId: 'test-hello-1',
         sessionId: null,
@@ -338,7 +339,7 @@ void main() {
       final StreamSubscription<String> secondSubscription = secondMessages
           .listen(received.add);
       addTearDown(secondSubscription.cancel);
-      final Envelope helloEnvelope = Envelope(
+      final Envelope helloEnvelope = Fixtures.buildEnvelope(
         messageType: ProtocolMessageType.hello,
         messageId: 'test-hello-2',
         sessionId: null,

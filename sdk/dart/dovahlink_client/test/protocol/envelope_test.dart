@@ -7,6 +7,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../fixtures/fixtures.dart';
 
 /// Reads one canonical protocol fixture, relative to `protocol/fixtures/`.
 JsonMap _readFixture(String relativePath) {
@@ -482,7 +483,7 @@ void main() {
 
   group('Method toJson behaves correctly', () {
     test('Method toJson always includes the identity keys, value or null', () {
-      const Envelope envelope = Envelope(
+      final Envelope envelope = Fixtures.buildEnvelope(
         messageType: ProtocolMessageType.pong,
         messageId: 'message-1',
         sessionId: 'session-1',
