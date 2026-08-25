@@ -10,8 +10,6 @@ MessageIdCheckResult ReplayGuard::RecordMessage(const std::string& messageId) {
     return MessageIdCheckResult::kAccepted;
 }
 
-std::size_t ReplayGuard::Count() const {
-    return seenIds_.size();
-}
+std::size_t ReplayGuard::Count() const { return seenIds_.size(); }
 
-}  // namespace dovahlink::application
+} //  namespace dovahlink::application

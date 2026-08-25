@@ -18,8 +18,8 @@ TEST_CASE("FakeIt verifies string-view arguments on an existing Bridge port",
 
     disconnector.get().DisconnectIfClientActive("client-1", "revoked");
 
-    Verify(Method(disconnector, DisconnectIfClientActive).Using(
-               std::string_view{"client-1"}, std::string_view{"revoked"}))
+    Verify(Method(disconnector, DisconnectIfClientActive)
+               .Using(std::string_view{"client-1"}, std::string_view{"revoked"}))
         .Once();
     VerifyNoOtherInvocations(disconnector);
 }

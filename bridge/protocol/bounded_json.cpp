@@ -12,49 +12,51 @@ namespace dovahlink::protocol {
 
 namespace {
 
-/// Finds the first configured size-limit violation in a JSON value tree.
-std::optional<BoundedJsonError> FindLimitViolation(const boost::json::value& value) {
+///  Finds the first configured size-limit violation in a JSON value tree.
+std::optional<BoundedJsonError>
+FindLimitViolation(const boost::json::value& value) {
     switch (value.kind()) {
-        case boost::json::kind::string: {
-            if (value.get_string().size() > security::kMaxStringLengthBytes) {
+    case boost::json::kind::string: {
+        if (value.get_string().size() > security::kMaxStringLengthBytes) {
+            return BoundedJsonError::kStringTooLong;
+        }
+        return std::nullopt;
+    }
+    case boost::json::kind::array: {
+        const auto& arr = value.get_array();
+        if (arr.size() > security::kMaxArrayItems) {
+            return BoundedJsonError::kArrayTooLong;
+        }
+        for (const auto& item : arr) {
+            if (auto violation = FindLimitViolation(item)) {
+                return violation;
+            }
+        }
+        return std::nullopt;
+    }
+    case boost::json::kind::object: {
+        const auto& obj = value.get_object();
+        if (obj.size() > security::kMaxObjectMembers) {
+            return BoundedJsonError::kTooManyObjectMembers;
+        }
+        for (const auto& member : obj) {
+            if (member.key().size() > security::kMaxStringLengthBytes) {
                 return BoundedJsonError::kStringTooLong;
             }
-            return std::nullopt;
+            if (auto violation = FindLimitViolation(member.value())) {
+                return violation;
+            }
         }
-        case boost::json::kind::array: {
-            const auto& arr = value.get_array();
-            if (arr.size() > security::kMaxArrayItems) {
-                return BoundedJsonError::kArrayTooLong;
-            }
-            for (const auto& item : arr) {
-                if (auto violation = FindLimitViolation(item)) {
-                    return violation;
-                }
-            }
-            return std::nullopt;
-        }
-        case boost::json::kind::object: {
-            const auto& obj = value.get_object();
-            if (obj.size() > security::kMaxObjectMembers) {
-                return BoundedJsonError::kTooManyObjectMembers;
-            }
-            for (const auto& member : obj) {
-                if (member.key().size() > security::kMaxStringLengthBytes) {
-                    return BoundedJsonError::kStringTooLong;
-                }
-                if (auto violation = FindLimitViolation(member.value())) {
-                    return violation;
-                }
-            }
-            return std::nullopt;
-        }
-        default:
-            return std::nullopt;
+        return std::nullopt;
+    }
+    default:
+        return std::nullopt;
     }
 }
 
-}
-std::expected<boost::json::value, BoundedJsonError> ParseBoundedJson(std::string_view text) {
+} //  namespace
+std::expected<boost::json::value, BoundedJsonError>
+ParseBoundedJson(std::string_view text) {
     if (text.size() > security::kMaxInboundFrameBytes) {
         return std::unexpected(BoundedJsonError::kFrameTooLarge);
     }
@@ -75,4 +77,4 @@ std::expected<boost::json::value, BoundedJsonError> ParseBoundedJson(std::string
     return parsed;
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

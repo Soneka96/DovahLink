@@ -58,9 +58,7 @@ void main() {
 
       await service.push<String>('/pairing', extra: 'payload');
 
-      verify(
-        () => router.push<String>('/pairing', extra: 'payload'),
-      ).called(1);
+      verify(() => router.push<String>('/pairing', extra: 'payload')).called(1);
     });
   });
 

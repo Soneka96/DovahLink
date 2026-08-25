@@ -25,5 +25,9 @@ class PairingHandshakeEntity extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [bridgeVersion, trusted, credentialRejectedMessage];
+  List<Object?> get props => [
+    bridgeVersion,
+    trusted,
+    credentialRejectedMessage,
+  ];
 }

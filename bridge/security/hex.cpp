@@ -4,7 +4,7 @@ namespace dovahlink::security {
 
 namespace {
 
-/// Converts one hexadecimal digit to its numeric nibble value.
+///  Converts one hexadecimal digit to its numeric nibble value.
 std::optional<std::uint8_t> HexNibble(char c) {
     if (c >= '0' && c <= '9') {
         return static_cast<std::uint8_t>(c - '0');
@@ -18,7 +18,7 @@ std::optional<std::uint8_t> HexNibble(char c) {
     return std::nullopt;
 }
 
-}
+} //  namespace
 std::string EncodeHex(const std::vector<std::uint8_t>& bytes) {
     static constexpr char kDigits[] = "0123456789abcdef";
     std::string hex;
@@ -47,4 +47,4 @@ std::optional<std::vector<std::uint8_t>> DecodeHex(std::string_view hex) {
     return bytes;
 }
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

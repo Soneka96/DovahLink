@@ -5,17 +5,18 @@
 
 namespace dovahlink::game_state {
 
-/// Reads the player's current level without exposing the runtime adapter.
+///  Reads the player's current level without exposing the runtime adapter.
 class LevelAccessor {
-public:
-    /// Allows destruction through the interface.
+  public:
+    ///  Allows destruction through the interface.
     virtual ~LevelAccessor() = default;
 
-    /// Returns the raw current level, or `std::nullopt` when unavailable.
+    ///  Returns the raw current level, or `std::nullopt` when unavailable.
     [[nodiscard]] virtual std::optional<std::int64_t> ReadLevel() const = 0;
 };
 
-/// Converts a raw level reading into a positive level or an unavailable value.
-[[nodiscard]] std::optional<std::int64_t> CaptureLevel(const LevelAccessor& accessor);
+///  Converts a raw level reading into a positive level or an unavailable value.
+[[nodiscard]] std::optional<std::int64_t>
+CaptureLevel(const LevelAccessor& accessor);
 
-}  // namespace dovahlink::game_state
+} //  namespace dovahlink::game_state

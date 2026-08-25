@@ -11,7 +11,7 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
-import '../../fixtures/pairing.fixture.dart';
+import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the wrapped SDK client for [PairingRemoteDataSourceImpl] tests.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
@@ -46,7 +46,9 @@ void main() {
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(buildPairingHandshakeEntity()),
+          Right<Failure, PairingHandshakeEntity>(
+            Fixtures.buildPairingHandshakeEntity(),
+          ),
         );
         verify(() => mockClient.authenticate(defaultBridgeUri)).called(1);
         verifyNever(() => mockClient.recoverPendingPairing());
@@ -71,7 +73,9 @@ void main() {
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(buildPairingHandshakeEntity()),
+          Right<Failure, PairingHandshakeEntity>(
+            Fixtures.buildPairingHandshakeEntity(),
+          ),
         );
         verify(() => mockClient.recoverPendingPairing()).called(1);
       },
@@ -96,7 +100,7 @@ void main() {
         expect(
           result,
           Right<Failure, PairingHandshakeEntity>(
-            buildPairingHandshakeEntity(trusted: false),
+            Fixtures.buildPairingHandshakeEntity(trusted: false),
           ),
         );
       },
@@ -122,7 +126,7 @@ void main() {
         expect(
           result,
           Right<Failure, PairingHandshakeEntity>(
-            buildPairingHandshakeEntity(
+            Fixtures.buildPairingHandshakeEntity(
               trusted: false,
               credentialRejectedMessage:
                   "This device's trust was revoked. Requesting a new pairing code.",
@@ -152,7 +156,7 @@ void main() {
         expect(
           result,
           Right<Failure, PairingHandshakeEntity>(
-            buildPairingHandshakeEntity(
+            Fixtures.buildPairingHandshakeEntity(
               trusted: false,
               credentialRejectedMessage:
                   'This device is blocked by the bridge and cannot be paired again until an '
@@ -184,7 +188,7 @@ void main() {
         expect(
           result,
           Right<Failure, PairingHandshakeEntity>(
-            buildPairingHandshakeEntity(
+            Fixtures.buildPairingHandshakeEntity(
               trusted: false,
               credentialRejectedMessage:
                   "This device isn't recognized by this bridge. Requesting a new pairing code.",

@@ -16,10 +16,12 @@ constexpr std::array<std::string_view, 3> kValidAuthMethods = {
     "trusted_device_credential",
 };
 
-}  // namespace
+} //  namespace
 
-std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::object& payload) {
-    auto endpoint = DecodeNonEmptyString(RequireField(payload, "endpoint"), "endpoint");
+std::expected<HelloPayload, MessageError>
+DecodeHelloPayload(const boost::json::object& payload) {
+    auto endpoint =
+        DecodeNonEmptyString(RequireField(payload, "endpoint"), "endpoint");
     if (!endpoint) {
         return std::unexpected(endpoint.error());
     }
@@ -33,30 +35,36 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     }
     const boost::json::object& authObj = authValue->get_object();
 
-    auto authMethod = DecodeNonEmptyString(RequireField(authObj, "method"), "auth.method");
+    auto authMethod =
+        DecodeNonEmptyString(RequireField(authObj, "method"), "auth.method");
     if (!authMethod) {
         return std::unexpected(authMethod.error());
     }
-    if (std::ranges::find(kValidAuthMethods, *authMethod) == kValidAuthMethods.end()) {
-        return Fail("auth.method must be one of the registered authentication methods");
+    if (std::ranges::find(kValidAuthMethods, *authMethod) ==
+        kValidAuthMethods.end()) {
+        return Fail(
+            "auth.method must be one of the registered authentication methods");
     }
 
-    // "unpaired" bootstraps a session with no credential to present yet; the other two methods
-    // both require one (security.md's "Hello authentication and session trust tiers").
+    //  "unpaired" bootstraps a session with no credential to present yet; the
+    //  other two methods both require one (security.md's "Hello authentication and
+    //  session trust tiers").
     std::optional<std::string> authToken;
     if (*authMethod == "unpaired") {
         if (RequireField(authObj, "token")) {
             return Fail("auth.token must be absent for auth.method 'unpaired'");
         }
     } else {
-        auto decodedToken = DecodeNonEmptyString(RequireField(authObj, "token"), "auth.token");
+        auto decodedToken =
+            DecodeNonEmptyString(RequireField(authObj, "token"), "auth.token");
         if (!decodedToken) {
             return std::unexpected(decodedToken.error());
         }
         authToken = std::move(*decodedToken);
     }
 
-    auto clientId = DecodeNonEmptyString(RequireField(payload, "clientId"), "clientId");
+    auto clientId =
+        DecodeNonEmptyString(RequireField(payload, "clientId"), "clientId");
     if (!clientId) {
         return std::unexpected(clientId.error());
     }
@@ -69,4 +77,4 @@ std::expected<HelloPayload, MessageError> DecodeHelloPayload(const boost::json::
     };
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

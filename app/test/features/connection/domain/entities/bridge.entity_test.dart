@@ -2,12 +2,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/bridge.entity.dart';
 
+import '../../../../fixtures/fixtures.dart';
+
 /// Exercises Bridge entity value preservation.
 void main() {
   group('BridgeEntity', () {
     test('stores the display name and endpoint', () {
-      final BridgeEntity bridge = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity bridge = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 
@@ -16,12 +17,10 @@ void main() {
     });
 
     test('treats bridges with different endpoints as unequal', () {
-      final BridgeEntity first = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity first = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final BridgeEntity second = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity second = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:9999/'),
       );
 
@@ -29,11 +28,10 @@ void main() {
     });
 
     test('treats bridges with different display names as unequal', () {
-      final BridgeEntity first = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity first = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final BridgeEntity second = BridgeEntity(
+      final BridgeEntity second = Fixtures.buildBridgeEntity(
         displayName: 'Other Bridge',
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
@@ -42,12 +40,10 @@ void main() {
     });
 
     test('treats bridges with the same display name and endpoint as equal', () {
-      final BridgeEntity first = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity first = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final BridgeEntity second = BridgeEntity(
-        displayName: 'Local Bridge',
+      final BridgeEntity second = Fixtures.buildBridgeEntity(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 

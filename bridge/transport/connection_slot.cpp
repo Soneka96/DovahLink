@@ -8,7 +8,8 @@ ConnectionSlot::Lease::Lease(Lease&& other) noexcept : slot_(other.slot_) {
     other.slot_ = nullptr;
 }
 
-ConnectionSlot::Lease& ConnectionSlot::Lease::operator=(Lease&& other) noexcept {
+ConnectionSlot::Lease&
+ConnectionSlot::Lease::operator=(Lease&& other) noexcept {
     if (this != &other) {
         Reset();
         slot_ = other.slot_;
@@ -17,9 +18,7 @@ ConnectionSlot::Lease& ConnectionSlot::Lease::operator=(Lease&& other) noexcept 
     return *this;
 }
 
-ConnectionSlot::Lease::~Lease() {
-    Reset();
-}
+ConnectionSlot::Lease::~Lease() { Reset(); }
 
 void ConnectionSlot::Lease::Reset() noexcept {
     if (slot_ != nullptr) {
@@ -30,7 +29,8 @@ void ConnectionSlot::Lease::Reset() noexcept {
 
 std::optional<ConnectionSlot::Lease> ConnectionSlot::TryAcquire() {
     bool expected = false;
-    if (!occupied_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+    if (!occupied_.compare_exchange_strong(expected, true,
+                                           std::memory_order_acq_rel)) {
         return std::nullopt;
     }
     return Lease(*this);
@@ -44,4 +44,4 @@ bool ConnectionSlot::IsOccupied() const {
     return occupied_.load(std::memory_order_acquire);
 }
 
-}  // namespace dovahlink::transport
+} //  namespace dovahlink::transport

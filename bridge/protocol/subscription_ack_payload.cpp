@@ -8,13 +8,15 @@
 
 namespace dovahlink::protocol {
 
-std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload(
-    const boost::json::object& payload) {
-    auto accepted = DecodeStringArray(RequireField(payload, "acceptedStateAreas"), "acceptedStateAreas");
+std::expected<SubscriptionAckPayload, MessageError>
+DecodeSubscriptionAckPayload(const boost::json::object& payload) {
+    auto accepted = DecodeStringArray(RequireField(payload, "acceptedStateAreas"),
+                                      "acceptedStateAreas");
     if (!accepted) {
         return std::unexpected(accepted.error());
     }
-    auto rejected = DecodeStringArray(RequireField(payload, "rejectedStateAreas"), "rejectedStateAreas");
+    auto rejected = DecodeStringArray(RequireField(payload, "rejectedStateAreas"),
+                                      "rejectedStateAreas");
     if (!rejected) {
         return std::unexpected(rejected.error());
     }
@@ -24,7 +26,8 @@ std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload
     };
 }
 
-boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload) {
+boost::json::object
+EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload) {
     boost::json::array accepted;
     accepted.reserve(payload.acceptedStateAreas.size());
     for (const std::string& area : payload.acceptedStateAreas) {
@@ -41,4 +44,4 @@ boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& p
     return obj;
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

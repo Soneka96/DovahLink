@@ -66,5 +66,11 @@ class PairingState extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [phase, bridgeVersion, error, codeExpiresAt, renotifyAvailableAt];
+  List<Object?> get props => [
+    phase,
+    bridgeVersion,
+    error,
+    codeExpiresAt,
+    renotifyAvailableAt,
+  ];
 }

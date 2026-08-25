@@ -19,7 +19,8 @@ TEST_CASE("state-event fixture decodes to the expected StateEventPayload",
     CHECK(event->revision == 2);
 }
 
-TEST_CASE("state-event-revision-gap fixture decodes with revision higher than baseRevision + 1 "
+TEST_CASE("state-event-revision-gap fixture decodes with revision higher than "
+          "baseRevision + 1 "
           "from the prior event",
           "[protocol][state_event_payload]") {
     auto envelope = DecodeFixtureEnvelope("state/state-event-revision-gap.json");
@@ -29,8 +30,9 @@ TEST_CASE("state-event-revision-gap fixture decodes with revision higher than ba
     CHECK(event->revision == 6);
 }
 
-TEST_CASE("state-event-duplicate fixture decodes to the same revision as state-event",
-          "[protocol][state_event_payload]") {
+TEST_CASE(
+    "state-event-duplicate fixture decodes to the same revision as state-event",
+    "[protocol][state_event_payload]") {
     auto envelope = DecodeFixtureEnvelope("state/state-event-duplicate.json");
     auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
     REQUIRE(event.has_value());
@@ -38,7 +40,8 @@ TEST_CASE("state-event-duplicate fixture decodes to the same revision as state-e
     CHECK(event->revision == 2);
 }
 
-TEST_CASE("state-event-stale fixture decodes to a revision below a later current revision",
+TEST_CASE("state-event-stale fixture decodes to a revision below a later "
+          "current revision",
           "[protocol][state_event_payload]") {
     auto envelope = DecodeFixtureEnvelope("state/state-event-stale.json");
     auto event = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
@@ -47,7 +50,8 @@ TEST_CASE("state-event-stale fixture decodes to a revision below a later current
     CHECK(event->revision == 1);
 }
 
-TEST_CASE("state_event is rejected when baseRevision is missing", "[protocol][state_event_payload]") {
+TEST_CASE("state_event is rejected when baseRevision is missing",
+          "[protocol][state_event_payload]") {
     boost::json::object payload =
         boost::json::parse(
             R"({"stateArea": "example_area", "revision": 2, "occurredAt": "2026-08-11T12:00:00Z", "data": {}})")

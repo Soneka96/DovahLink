@@ -8,19 +8,22 @@
 
 namespace {
 
-/// Captures pushed level values without exposing a polling accessor.
+///  Captures pushed level values without exposing a polling accessor.
 class FakeLevelEventSink : public dovahlink::application::LevelEventSink {
-public:
-    /// @copydoc dovahlink::application::LevelEventSink::OnLevelCaptured
-    void OnLevelCaptured(std::optional<std::int64_t> level) override { received.push_back(level); }
+  public:
+    ///  @copydoc dovahlink::application::LevelEventSink::OnLevelCaptured
+    void OnLevelCaptured(std::optional<std::int64_t> level) override {
+        received.push_back(level);
+    }
 
-    /// Values received from the production push seam, in arrival order.
+    ///  Values received from the production push seam, in arrival order.
     std::vector<std::optional<std::int64_t>> received;
 };
 
-}  // namespace
+} //  namespace
 
-TEST_CASE("OnLevelCaptured delivers a pushed level value", "[application][level_event_sink]") {
+TEST_CASE("OnLevelCaptured delivers a pushed level value",
+          "[application][level_event_sink]") {
     FakeLevelEventSink sink;
     sink.OnLevelCaptured(12);
 
@@ -29,7 +32,8 @@ TEST_CASE("OnLevelCaptured delivers a pushed level value", "[application][level_
     CHECK(*sink.received[0] == 12);
 }
 
-TEST_CASE("OnLevelCaptured delivers an unavailable level as nullopt", "[application][level_event_sink]") {
+TEST_CASE("OnLevelCaptured delivers an unavailable level as nullopt",
+          "[application][level_event_sink]") {
     FakeLevelEventSink sink;
     sink.OnLevelCaptured(std::nullopt);
 
@@ -37,7 +41,8 @@ TEST_CASE("OnLevelCaptured delivers an unavailable level as nullopt", "[applicat
     CHECK_FALSE(sink.received[0].has_value());
 }
 
-TEST_CASE("multiple pushed captures are delivered in order", "[application][level_event_sink]") {
+TEST_CASE("multiple pushed captures are delivered in order",
+          "[application][level_event_sink]") {
     FakeLevelEventSink sink;
     sink.OnLevelCaptured(10);
     sink.OnLevelCaptured(11);
@@ -53,8 +58,8 @@ TEST_CASE("multiple pushed captures are delivered in order", "[application][leve
 
 TEST_CASE("a fresh sink has received nothing until something is pushed to it",
           "[application][level_event_sink]") {
-    // There is no accessor to query a "current" level independent of a push;
-    // the only observable state is what has actually been pushed so far.
+    //  There is no accessor to query a "current" level independent of a push;
+    //  the only observable state is what has actually been pushed so far.
     FakeLevelEventSink sink;
     CHECK(sink.received.empty());
 }

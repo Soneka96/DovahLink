@@ -22,26 +22,27 @@ using dovahlink::application::WorkerPool;
 
 namespace {
 
-/// Identifies one lifecycle stage configured to fail during a shutdown test.
+///  Identifies one lifecycle stage configured to fail during a shutdown test.
 enum class ShutdownFailureStage {
-    /// No lifecycle stage throws.
+    ///  No lifecycle stage throws.
     kNone,
-    /// Callback unregistration throws.
+    ///  Callback unregistration throws.
     kUnregisterCallbacks,
-    /// Worker stopping throws.
+    ///  Worker stopping throws.
     kStopWorkers,
-    /// Worker joining throws.
+    ///  Worker joining throws.
     kJoinWorkers,
-    /// Transport completion cancellation throws.
+    ///  Transport completion cancellation throws.
     kCancelTransportCompletions,
-    /// Transport closure throws a non-standard value.
+    ///  Transport closure throws a non-standard value.
     kCloseTransport,
 };
 
-/// Throws when the current lifecycle stage is the configured failure point.
-/// @param configuredStage Stage selected by the test.
-/// @param currentStage Stage being executed.
-void ThrowAtStage(ShutdownFailureStage configuredStage, ShutdownFailureStage currentStage) {
+///  Throws when the current lifecycle stage is the configured failure point.
+///  @param configuredStage Stage selected by the test.
+///  @param currentStage Stage being executed.
+void ThrowAtStage(ShutdownFailureStage configuredStage,
+                  ShutdownFailureStage currentStage) {
     if (configuredStage != currentStage) {
         return;
     }
@@ -51,10 +52,10 @@ void ThrowAtStage(ShutdownFailureStage configuredStage, ShutdownFailureStage cur
     throw std::runtime_error("configured shutdown failure");
 }
 
-/// Provides a callback registry with configurable shutdown behavior.
+///  Provides a callback registry with configurable shutdown behavior.
 class NoopCallbackRegistry : public CallbackRegistry {
-public:
-    /// @copydoc CallbackRegistry::RegisterAll
+  public:
+    ///  @copydoc CallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner callbackRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -62,7 +63,7 @@ public:
         }
         callbackRunner_ = std::move(callbackRunner);
     }
-    /// @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc CallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("callbacks.UnregisterAll");
@@ -73,29 +74,30 @@ public:
         ThrowAtStage(failureStage_, ShutdownFailureStage::kUnregisterCallbacks);
     }
 
-    /// Callback boundary received during coordinator startup.
+    ///  Callback boundary received during coordinator startup.
     ContainedWorkRunner callbackRunner_;
 
-    /// Number of callback startup attempts received.
+    ///  Number of callback startup attempts received.
     int startCalls_ = 0;
 
-    /// Whether callback startup should throw.
+    ///  Whether callback startup should throw.
     bool throwOnStart_ = false;
 
-    /// Optional synchronization point released when shutdown unregisters callbacks.
+    ///  Optional synchronization point released when shutdown unregisters
+    ///  callbacks.
     std::binary_semaphore* unregisterSignal_ = nullptr;
 
-    /// Optional log receiving shutdown stage names.
+    ///  Optional log receiving shutdown stage names.
     std::vector<std::string>* shutdownLog_ = nullptr;
 
-    /// Lifecycle stage configured to throw.
+    ///  Lifecycle stage configured to throw.
     ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 };
 
-/// Provides a worker pool with configurable shutdown behavior.
+///  Provides a worker pool with configurable shutdown behavior.
 class NoopWorkerPool : public WorkerPool {
-public:
-    /// @copydoc WorkerPool::Start
+  public:
+    ///  @copydoc WorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -103,17 +105,18 @@ public:
         }
         workerRunner_ = std::move(workerRunner);
     }
-    /// @copydoc WorkerPool::Stop
+    ///  @copydoc WorkerPool::Stop
     void Stop() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Stop");
         }
         if (completionOrder_ != nullptr) {
-            stopOrder_ = completionOrder_->fetch_add(1, std::memory_order_relaxed) + 1;
+            stopOrder_ =
+                completionOrder_->fetch_add(1, std::memory_order_relaxed) + 1;
         }
         ThrowAtStage(failureStage_, ShutdownFailureStage::kStopWorkers);
     }
-    /// @copydoc WorkerPool::Join
+    ///  @copydoc WorkerPool::Join
     void Join() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Join");
@@ -121,46 +124,48 @@ public:
         ThrowAtStage(failureStage_, ShutdownFailureStage::kJoinWorkers);
     }
 
-    /// Worker boundary received during coordinator startup.
+    ///  Worker boundary received during coordinator startup.
     ContainedWorkRunner workerRunner_;
 
-    /// Number of worker startup attempts received.
+    ///  Number of worker startup attempts received.
     int startCalls_ = 0;
 
-    /// Whether worker startup should throw.
+    ///  Whether worker startup should throw.
     bool throwOnStart_ = false;
 
-    /// Optional shared sequence used to order callback completion and worker stopping.
+    ///  Optional shared sequence used to order callback completion and worker
+    ///  stopping.
     std::atomic<int>* completionOrder_ = nullptr;
 
-    /// Sequence assigned when worker stopping begins.
+    ///  Sequence assigned when worker stopping begins.
     int stopOrder_ = 0;
 
-    /// Optional log receiving shutdown stage names.
+    ///  Optional log receiving shutdown stage names.
     std::vector<std::string>* shutdownLog_ = nullptr;
 
-    /// Lifecycle stage configured to throw.
+    ///  Lifecycle stage configured to throw.
     ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 };
 
-/// Provides a transport lifecycle with configurable shutdown behavior.
+///  Provides a transport lifecycle with configurable shutdown behavior.
 class NoopTransportLifecycle : public TransportLifecycle {
-public:
-    /// @copydoc TransportLifecycle::Start
+  public:
+    ///  @copydoc TransportLifecycle::Start
     void Start() override {
         ++startCalls_;
         if (throwOnStart_) {
             throw std::runtime_error("configured transport startup failure");
         }
     }
-    /// @copydoc TransportLifecycle::CancelCompletions
+    ///  @copydoc TransportLifecycle::CancelCompletions
     void CancelCompletions() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.CancelCompletions");
         }
-        ThrowAtStage(failureStage_, ShutdownFailureStage::kCancelTransportCompletions);
+        ThrowAtStage(failureStage_,
+                     ShutdownFailureStage::kCancelTransportCompletions);
     }
-    /// @copydoc TransportLifecycle::Close
+    ///  @copydoc TransportLifecycle::Close
     void Close() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.Close");
@@ -174,38 +179,38 @@ public:
         ThrowAtStage(failureStage_, ShutdownFailureStage::kCloseTransport);
     }
 
-    /// Optional log receiving shutdown stage names.
+    ///  Optional log receiving shutdown stage names.
     std::vector<std::string>* shutdownLog_ = nullptr;
 
-    /// Number of transport startup attempts received.
+    ///  Number of transport startup attempts received.
     int startCalls_ = 0;
 
-    /// Whether transport startup should throw.
+    ///  Whether transport startup should throw.
     bool throwOnStart_ = false;
 
-    /// Lifecycle stage configured to throw.
+    ///  Lifecycle stage configured to throw.
     ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
 
-    /// Optional synchronization point released when transport closure begins.
+    ///  Optional synchronization point released when transport closure begins.
     std::binary_semaphore* closeEntered_ = nullptr;
 
-    /// Optional synchronization point blocking transport closure until released.
+    ///  Optional synchronization point blocking transport closure until released.
     std::binary_semaphore* releaseClose_ = nullptr;
 };
 
-/// Bundles configurable coordinator dependencies for each failure-path test.
+///  Bundles configurable coordinator dependencies for each failure-path test.
 struct Fixture {
-    /// Provides callback lifecycle behavior.
+    ///  Provides callback lifecycle behavior.
     NoopCallbackRegistry callbacks;
-    /// Provides worker-pool lifecycle behavior.
+    ///  Provides worker-pool lifecycle behavior.
     NoopWorkerPool workers;
-    /// Provides transport lifecycle behavior.
+    ///  Provides transport lifecycle behavior.
     NoopTransportLifecycle transport;
-    /// Coordinator under test.
+    ///  Coordinator under test.
     Coordinator coordinator{callbacks, workers, transport};
 };
 
-}  // namespace
+} //  namespace
 
 TEST_CASE("a callback startup failure latches startup and prevents a retry",
           "[application][coordinator][failure]") {
@@ -255,13 +260,15 @@ TEST_CASE("a transport startup failure latches startup and prevents a retry",
     CHECK(f.transport.startCalls_ == 1);
 }
 
-TEST_CASE("a fresh coordinator is available", "[application][coordinator][failure]") {
+TEST_CASE("a fresh coordinator is available",
+          "[application][coordinator][failure]") {
     Fixture f;
     CHECK(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained returns true and stays available when work does not throw",
-          "[application][coordinator][failure]") {
+TEST_CASE(
+    "RunContained returns true and stays available when work does not throw",
+    "[application][coordinator][failure]") {
     Fixture f;
     bool ran = false;
     bool result = f.coordinator.RunContained([&ran] { ran = true; });
@@ -271,36 +278,43 @@ TEST_CASE("RunContained returns true and stays available when work does not thro
     CHECK(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained catches a std::exception thrown from a callback boundary and marks unavailable",
+TEST_CASE("RunContained catches a std::exception thrown from a callback "
+          "boundary and marks unavailable",
           "[application][coordinator][failure]") {
     Fixture f;
-    bool result = f.coordinator.RunContained([] { throw std::runtime_error("callback failure"); });
+    bool result = f.coordinator.RunContained(
+        [] { throw std::runtime_error("callback failure"); });
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained catches an exception thrown from a worker-thread boundary",
-          "[application][coordinator][failure]") {
+TEST_CASE(
+    "RunContained catches an exception thrown from a worker-thread boundary",
+    "[application][coordinator][failure]") {
     Fixture f;
-    bool result = f.coordinator.RunContained([] { throw std::runtime_error("worker loop failure"); });
+    bool result = f.coordinator.RunContained(
+        [] { throw std::runtime_error("worker loop failure"); });
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained catches an exception thrown from a transport-completion boundary",
+TEST_CASE("RunContained catches an exception thrown from a "
+          "transport-completion boundary",
           "[application][coordinator][failure]") {
     Fixture f;
-    bool result = f.coordinator.RunContained([] { throw std::runtime_error("transport completion failure"); });
+    bool result = f.coordinator.RunContained(
+        [] { throw std::runtime_error("transport completion failure"); });
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained catches a non-std::exception throwable", "[application][coordinator][failure]") {
-    // The "never allow an exception to escape" rule applies to anything
-    // throwable, not only std::exception subclasses.
+TEST_CASE("RunContained catches a non-std::exception throwable",
+          "[application][coordinator][failure]") {
+    //  The "never allow an exception to escape" rule applies to anything
+    //  throwable, not only std::exception subclasses.
     Fixture f;
     bool result = f.coordinator.RunContained([] { throw 42; });
 
@@ -314,7 +328,8 @@ TEST_CASE("Start gives workers a catch-all coordinator boundary",
     f.coordinator.Start();
     REQUIRE(f.workers.workerRunner_);
 
-    bool result = f.workers.workerRunner_([] { throw std::runtime_error("session failure"); });
+    bool result = f.workers.workerRunner_(
+        [] { throw std::runtime_error("session failure"); });
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
@@ -365,7 +380,8 @@ TEST_CASE("the callback boundary keeps shutdown behind admitted work",
         callbackResult = f.callbacks.callbackRunner_([&] {
             callbackEntered.release();
             releaseCallback.acquire();
-            callbackCompletionOrder = completionOrder.fetch_add(1, std::memory_order_relaxed) + 1;
+            callbackCompletionOrder =
+                completionOrder.fetch_add(1, std::memory_order_relaxed) + 1;
         });
     });
     callbackEntered.acquire();
@@ -392,19 +408,22 @@ TEST_CASE("ResetAvailability restores availability after a failure",
     CHECK(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("a second failure after ResetAvailability marks the coordinator unavailable again",
+TEST_CASE("a second failure after ResetAvailability marks the coordinator "
+          "unavailable again",
           "[application][coordinator][failure]") {
     Fixture f;
     f.coordinator.RunContained([] { throw std::runtime_error("first failure"); });
     f.coordinator.ResetAvailability();
     REQUIRE(f.coordinator.IsAvailable());
 
-    f.coordinator.RunContained([] { throw std::runtime_error("second failure"); });
+    f.coordinator.RunContained(
+        [] { throw std::runtime_error("second failure"); });
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("multiple RegisterFailure calls without a reset between them are safe",
-          "[application][coordinator][failure]") {
+TEST_CASE(
+    "multiple RegisterFailure calls without a reset between them are safe",
+    "[application][coordinator][failure]") {
     Fixture f;
     f.coordinator.RegisterFailure();
     f.coordinator.RegisterFailure();
@@ -413,12 +432,13 @@ TEST_CASE("multiple RegisterFailure calls without a reset between them are safe"
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("a later successful RunContained call does not restore availability on its own",
+TEST_CASE("a later successful RunContained call does not restore availability "
+          "on its own",
           "[application][coordinator][failure]") {
-    // Availability is only restored by an explicit ResetAvailability call once
-    // a fresh snapshot is published on a reconnected session -- a merely
-    // successful, unrelated piece of contained work must not silently clear
-    // an existing failure.
+    //  Availability is only restored by an explicit ResetAvailability call once
+    //  a fresh snapshot is published on a reconnected session -- a merely
+    //  successful, unrelated piece of contained work must not silently clear
+    //  an existing failure.
     Fixture f;
     f.coordinator.RunContained([] { throw std::runtime_error("boom"); });
     REQUIRE_FALSE(f.coordinator.IsAvailable());
@@ -429,21 +449,23 @@ TEST_CASE("a later successful RunContained call does not restore availability on
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("a failure registered before shutdown does not block or alter the shutdown barrier",
+TEST_CASE("a failure registered before shutdown does not block or alter the "
+          "shutdown barrier",
           "[application][coordinator][failure]") {
     Fixture f;
     f.coordinator.RunContained([] { throw std::runtime_error("boom"); });
     REQUIRE_FALSE(f.coordinator.IsAvailable());
 
-    f.coordinator.Shutdown();  // must complete normally, not hang.
+    f.coordinator.Shutdown(); //  must complete normally, not hang.
 
     CHECK(f.coordinator.IsStopping());
-    // Shutdown does not itself restore availability; that stays an explicit,
-    // reconnect-driven decision (ResetAvailability).
+    //  Shutdown does not itself restore availability; that stays an explicit,
+    //  reconnect-driven decision (ResetAvailability).
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("Shutdown contains every lifecycle failure and attempts every later cleanup stage",
+TEST_CASE("Shutdown contains every lifecycle failure and attempts every later "
+          "cleanup stage",
           "[application][coordinator][failure]") {
     constexpr std::array kFailureStages{
         ShutdownFailureStage::kUnregisterCallbacks,
@@ -484,7 +506,8 @@ TEST_CASE("Shutdown contains every lifecycle failure and attempts every later cl
     }
 }
 
-TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes completion",
+TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes "
+          "completion",
           "[application][coordinator][failure]") {
     using namespace std::chrono_literals;
 
@@ -499,11 +522,12 @@ TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes co
     std::thread owner([fixture] { fixture->coordinator.Shutdown(); });
     closeEntered->acquire();
 
-    auto waiter = std::async(std::launch::async, [fixture, waiterCalling, releaseClose] {
-        (void)releaseClose;
-        waiterCalling->release();
-        fixture->coordinator.Shutdown();
-    }).share();
+    auto waiter =
+        std::async(std::launch::async, [fixture, waiterCalling, releaseClose] {
+            (void)releaseClose;
+            waiterCalling->release();
+            fixture->coordinator.Shutdown();
+        }).share();
     waiterCalling->acquire();
 
     CHECK(waiter.wait_for(50ms) == std::future_status::timeout);
@@ -515,32 +539,38 @@ TEST_CASE("a concurrent Shutdown caller waits until a failing owner publishes co
     CHECK_FALSE(fixture->coordinator.IsAvailable());
 }
 
-TEST_CASE("RunContained after shutdown still contains the exception without hanging or crashing",
+TEST_CASE("RunContained after shutdown still contains the exception without "
+          "hanging or crashing",
           "[application][coordinator][failure]") {
     Fixture f;
     f.coordinator.Shutdown();
     REQUIRE(f.coordinator.IsStopping());
 
-    bool result = f.coordinator.RunContained([] { throw std::runtime_error("late failure"); });
+    bool result = f.coordinator.RunContained(
+        [] { throw std::runtime_error("late failure"); });
 
     CHECK_FALSE(result);
     CHECK_FALSE(f.coordinator.IsAvailable());
 }
 
-TEST_CASE("ResetAvailability after shutdown does not affect the already-completed shutdown state",
+TEST_CASE("ResetAvailability after shutdown does not affect the "
+          "already-completed shutdown state",
           "[application][coordinator][failure]") {
     Fixture f;
     f.coordinator.Shutdown();
     f.coordinator.ResetAvailability();
 
     CHECK(f.coordinator.IsAvailable());
-    CHECK(f.coordinator.IsStopping());  // shutdown remains in effect regardless.
+    CHECK(f.coordinator.IsStopping()); //  shutdown remains in effect regardless.
 }
 
-TEST_CASE("RunContained does not let an exception propagate past it", "[application][coordinator][failure]") {
-    // If this were not caught, the test itself would fail with an unhandled
-    // exception rather than reaching the checks below.
+TEST_CASE("RunContained does not let an exception propagate past it",
+          "[application][coordinator][failure]") {
+    //  If this were not caught, the test itself would fail with an unhandled
+    //  exception rather than reaching the checks below.
     Fixture f;
-    f.coordinator.RunContained([] { throw std::runtime_error("must not escape"); });
-    SUCCEED("RunContained returned normally instead of propagating the exception");
+    f.coordinator.RunContained(
+        [] { throw std::runtime_error("must not escape"); });
+    SUCCEED(
+        "RunContained returned normally instead of propagating the exception");
 }

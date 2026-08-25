@@ -164,9 +164,9 @@ try {
 
     $missingPathCases = [ordered]@{
         Vcvarsall = "VC\Auxiliary\Build\vcvarsall.bat"
-        Vcpkg = "VC\vcpkg"
-        CMake = "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-        Ninja = "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+        Vcpkg     = "VC\vcpkg"
+        CMake     = "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+        Ninja     = "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
     }
     foreach ($missingPathCase in $missingPathCases.GetEnumerator()) {
         $incompleteInstallation = New-TestVisualStudioInstallation -Root (Join-Path $testRoot "Incomplete $($missingPathCase.Key)") -Edition "Professional"

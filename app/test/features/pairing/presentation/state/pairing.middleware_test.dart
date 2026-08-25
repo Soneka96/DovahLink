@@ -27,7 +27,7 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
-import '../../fixtures/pairing.fixture.dart';
+import '../../../../fixtures/fixtures.dart';
 
 /// Mocks for the use cases [PairingMiddleware] resolves through [sl].
 class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
@@ -145,9 +145,8 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds',
       () async {
-        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
-          trusted: false,
-        );
+        final PairingHandshakeEntity handshake =
+            Fixtures.buildPairingHandshakeEntity(trusted: false);
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
@@ -181,9 +180,8 @@ void main() {
       'PairingStartedAction also dispatches PairingSessionTrustedAction when authentication '
       'presents an already-trusted credential',
       () async {
-        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
-          trusted: true,
-        );
+        final PairingHandshakeEntity handshake =
+            Fixtures.buildPairingHandshakeEntity(trusted: true);
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
@@ -205,10 +203,11 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
-        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity(
-          trusted: false,
-          credentialRejectedMessage: "This device's trust was revoked.",
-        );
+        final PairingHandshakeEntity handshake =
+            Fixtures.buildPairingHandshakeEntity(
+              trusted: false,
+              credentialRejectedMessage: "This device's trust was revoked.",
+            );
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));

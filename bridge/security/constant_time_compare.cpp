@@ -2,7 +2,8 @@
 
 namespace dovahlink::security {
 
-bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<std::uint8_t>& b) {
+bool ConstantTimeEquals(const std::vector<std::uint8_t>& a,
+                        const std::vector<std::uint8_t>& b) {
     if (a.size() != b.size()) {
         return false;
     }
@@ -13,4 +14,4 @@ bool ConstantTimeEquals(const std::vector<std::uint8_t>& a, const std::vector<st
     return diff == 0;
 }
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

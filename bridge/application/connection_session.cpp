@@ -14,22 +14,29 @@ namespace dovahlink::application {
 
 namespace {
 
-// A write failure here is handled uniformly by the next ReadMessage() call,
-// which ends the session loop.
-/// Sends an encoded envelope and leaves write failures to the read-loop
-/// cleanup.
-void SendIfPossible(transport::WebSocketSession& ws, const protocol::Envelope& envelope) {
+//  A write failure here is handled uniformly by the next ReadMessage() call,
+//  which ends the session loop.
+///  Sends an encoded envelope and leaves write failures to the read-loop
+///  cleanup.
+void SendIfPossible(transport::WebSocketSession& ws,
+                    const protocol::Envelope& envelope) {
     (void)ws.WriteMessage(protocol::EncodeEnvelope(envelope));
 }
 
-}  // namespace
+} //  namespace
 
-void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore& tokenStore,
-                          security::FailedTokenThrottle& tokenThrottle, security::TrustStore& trustStore,
-                          security::FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
-                          ConnectionId connection, const ActivePlayContext& activePlayContext,
-                          security::PairingSession& pairingSession, PairingNotificationSink& pairingNotificationSink,
-                          const std::optional<std::string>& bridgeInstanceId, const std::string& bridgeVersion,
+void RunConnectionSession(transport::WebSocketSession& ws,
+                          security::TokenStore& tokenStore,
+                          security::FailedTokenThrottle& tokenThrottle,
+                          security::TrustStore& trustStore,
+                          security::FailedTokenThrottle& credentialThrottle,
+                          SessionManager& sessionManager,
+                          ConnectionId connection,
+                          const ActivePlayContext& activePlayContext,
+                          security::PairingSession& pairingSession,
+                          PairingNotificationSink& pairingNotificationSink,
+                          const std::optional<std::string>& bridgeInstanceId,
+                          const std::string& bridgeVersion,
                           SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
         return;
@@ -56,36 +63,38 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
 
     auto postReadNow = steadyNow();
     if (timeout.IsTimedOut(postReadNow)) {
-        // The hello itself arrived, but only after trickling in slowly
-        // enough to keep the WebSocket operation's inactivity timeout from
-        // firing on its own. This is the message-layer backstop HandleHello's
-        // own doc comment expects "whatever owns the read loop" to provide.
+        //  The hello itself arrived, but only after trickling in slowly
+        //  enough to keep the WebSocket operation's inactivity timeout from
+        //  firing on its own. This is the message-layer backstop HandleHello's
+        //  own doc comment expects "whatever owns the read loop" to provide.
         ws.Close();
         return;
     }
 
-    auto handshake = HandleHello(*helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-                                 sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
-                                 activePlayContext, bridgeVersion);
+    auto handshake = HandleHello(
+        *helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
+        activePlayContext, bridgeVersion);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
         return;
     }
 
-    if (!handshake.sessionLease.has_value() || !handshake.response.sessionId.has_value()) {
+    if (!handshake.sessionLease.has_value() ||
+        !handshake.response.sessionId.has_value()) {
         ws.Close();
         return;
     }
 
-    // The lease keeps the authenticated session valid for exactly this
-    // connection scope and invalidates it on every exit path.
+    //  The lease keeps the authenticated session valid for exactly this
+    //  connection scope and invalidates it on every exit path.
     auto sessionLease = std::move(handshake.sessionLease);
 
     std::string sessionId = *handshake.response.sessionId;
-    // Always present on this success path (echoed from the decoded hello's own required field);
-    // guarded defensively so a hypothetically absent value degrades to skipping notification
-    // rather than dereferencing nothing.
+    //  Always present on this success path (echoed from the decoded hello's own
+    //  required field); guarded defensively so a hypothetically absent value
+    //  degrades to skipping notification rather than dereferencing nothing.
     std::optional<std::string> clientId = handshake.response.clientId;
     if (clientId.has_value()) {
         pairingSession.NotifyReconnected(*clientId, postReadNow);
@@ -97,18 +106,19 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     if (capabilities.has_value()) {
         auto context = activePlayContext.AcquireCurrent();
         capabilities->bridgeInstanceId = bridgeInstanceId;
-        capabilities->playContextId = context ? std::optional<std::string>(context->id) : std::nullopt;
+        capabilities->playContextId =
+            context ? std::optional<std::string>(context->id) : std::nullopt;
         SendIfPossible(ws, *capabilities);
     }
-    // If BuildBridgeCapabilities itself failed (the same unreachable-in-
-    // practice CSPRNG failure every envelope-building path in this
-    // codebase shares), there is no safe fallback message to send in its
-    // place. The connection continues without ever having advertised its
-    // capabilities -- a fixed, extremely unlikely degradation, not a
-    // security concern: subscribe/snapshot_request do not depend on the
-    // client having received it (protocol/schema/README.md: "A missing
-    // capability means the feature is unavailable and the client must
-    // remain usable without it").
+    //  If BuildBridgeCapabilities itself failed (the same unreachable-in-
+    //  practice CSPRNG failure every envelope-building path in this
+    //  codebase shares), there is no safe fallback message to send in its
+    //  place. The connection continues without ever having advertised its
+    //  capabilities -- a fixed, extremely unlikely degradation, not a
+    //  security concern: subscribe/snapshot_request do not depend on the
+    //  client having received it (protocol/schema/README.md: "A missing
+    //  capability means the feature is unavailable and the client must
+    //  remain usable without it").
 
     ReplayGuard replayGuard;
     security::ViolationTracker violations;
@@ -121,10 +131,11 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
             break;
         }
 
-        auto dispatch = ProcessInboundMessage(*raw, receivedMessageCount, sessionId, connection, sessionManager,
-                                             replayGuard, violations, rateLimiter, timeout, activePlayContext,
-                                             pairingSession, trustStore, pairingNotificationSink, bridgeInstanceId,
-                                             steadyNow());
+        auto dispatch = ProcessInboundMessage(
+            *raw, receivedMessageCount, sessionId, connection, sessionManager,
+            replayGuard, violations, rateLimiter, timeout, activePlayContext,
+            pairingSession, trustStore, pairingNotificationSink, bridgeInstanceId,
+            steadyNow());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }
@@ -140,4 +151,4 @@ void RunConnectionSession(transport::WebSocketSession& ws, security::TokenStore&
     ws.Close();
 }
 
-}  // namespace dovahlink::application
+} //  namespace dovahlink::application

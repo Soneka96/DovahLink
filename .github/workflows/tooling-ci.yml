@@ -36,6 +36,8 @@ jobs:
     name: Repository Tooling Checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      EnableWindowsTargeting: true
     defaults:
       run:
         shell: bash
@@ -43,11 +45,74 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
 
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Restore Dart SDK dependencies
+        working-directory: sdk/dart/dovahlink_client
+        run: dart pub get
+
+      - name: Restore Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install formatter tools
+        run: |
+          llvm_version="19.1.5"
+          llvm_archive="LLVM-$llvm_version-Linux-X64.tar.xz"
+          llvm_sha256="13e9975b026d431c945927960e5f8c0a47a155a2f600f57e85f4d1482620c65f"
+          llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version/$llvm_archive"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$llvm_archive" "$llvm_url"
+          echo "$llvm_sha256  $RUNNER_TEMP/$llvm_archive" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/$llvm_archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin:$PATH"
+          clang-format --version
+          python -m pip install ruff
+          pwsh -NoProfile -NonInteractive -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
+          while IFS= read -r -d '' project; do
+            dotnet restore "$project"
+          done < <(find . -name '*.csproj' -not -path '*/bin/*' -not -path '*/obj/*' -print0)
+
       - name: Run repository checks
         run: python -m unittest discover -s tooling -p "test_*.py"
+
+      - name: Check formatting of changed source files
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          base_sha="$PR_BASE_SHA"
+          if [[ -z "$base_sha" ]]; then
+            base_sha="$PUSH_BASE_SHA"
+          fi
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse "$HEAD_SHA^")"
+          fi
+          changed_file="$(mktemp)"
+          trap 'rm -f "$changed_file"' EXIT
+          if ! git diff --name-only -z --diff-filter=ACMR "$base_sha...$HEAD_SHA" > "$changed_file"; then
+            echo "Unable to determine changed files for formatter verification." >&2
+            exit 1
+          fi
+          mapfile -d '' changed_paths < "$changed_file"
+          if ((${#changed_paths[@]} > 0)); then
+            python tooling/format_staged.py --check --paths "${changed_paths[@]}"
+          fi

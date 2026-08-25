@@ -6,20 +6,25 @@
 
 namespace dovahlink::protocol {
 
-std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boost::json::object& payload) {
-    auto stateArea = DecodeNonEmptyString(RequireField(payload, "stateArea"), "stateArea");
+std::expected<StateEventPayload, MessageError>
+DecodeStateEventPayload(const boost::json::object& payload) {
+    auto stateArea =
+        DecodeNonEmptyString(RequireField(payload, "stateArea"), "stateArea");
     if (!stateArea) {
         return std::unexpected(stateArea.error());
     }
-    auto baseRevision = DecodeNonNegativeInt(RequireField(payload, "baseRevision"), "baseRevision");
+    auto baseRevision = DecodeNonNegativeInt(
+        RequireField(payload, "baseRevision"), "baseRevision");
     if (!baseRevision) {
         return std::unexpected(baseRevision.error());
     }
-    auto revision = DecodeNonNegativeInt(RequireField(payload, "revision"), "revision");
+    auto revision =
+        DecodeNonNegativeInt(RequireField(payload, "revision"), "revision");
     if (!revision) {
         return std::unexpected(revision.error());
     }
-    auto occurredAt = DecodeNonEmptyString(RequireField(payload, "occurredAt"), "occurredAt");
+    auto occurredAt =
+        DecodeNonEmptyString(RequireField(payload, "occurredAt"), "occurredAt");
     if (!occurredAt) {
         return std::unexpected(occurredAt.error());
     }
@@ -37,4 +42,4 @@ std::expected<StateEventPayload, MessageError> DecodeStateEventPayload(const boo
     };
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

@@ -111,6 +111,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
 
+    def test_bridge_clang_format_uses_the_established_source_style(self) -> None:
+        """Keep Bridge formatting explicit instead of relying on clang-format defaults."""
+        style = self._read("bridge/.clang-format")
+
+        for setting in (
+            "BasedOnStyle: LLVM",
+            "IndentWidth: 4",
+            "ContinuationIndentWidth: 4",
+            "ColumnLimit: 0",
+            "PointerAlignment: Left",
+            "ReferenceAlignment: Left",
+            "DerivePointerAlignment: false",
+            "SpacesInLineCommentPrefix:",
+            "  Minimum: 2",
+            "  Maximum: 2",
+        ):
+            self.assertIn(setting, style)
+
     def test_bridge_ci_covers_release_validation_and_reusable_diagnostics(self) -> None:
         """Require release coverage, dependency caching, cancellation, and failure diagnostics."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
@@ -151,7 +169,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256', workflow
+            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256',
+            workflow,
         )
         self.assertIn("if ($actualSha256 -ne $cmakeArchiveSha256) {", workflow)
         # A regression that swaps this for Write-Warning/Write-Host would silently downgrade the
@@ -182,10 +201,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure Debug"),
         )
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
-        self.assertIn("uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", workflow)
+        self.assertIn(
+            "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            workflow,
+        )
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
-        self.assertIn("hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')", workflow)
+        self.assertIn(
+            "hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')",
+            workflow,
+        )
 
         for step_name in (
             "Configure Debug",
@@ -204,7 +229,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("if: failure()", workflow)
-        self.assertIn("uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6", workflow)
+        self.assertIn(
+            "uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6",
+            workflow,
+        )
         self.assertIn(
             "Maintained stable release; no stable Node 24 replacement is available yet.",
             workflow,
@@ -258,11 +286,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2", workflow)
+        self.assertIn(
+            "uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2",
+            workflow,
+        )
         self.assertIn("channel: stable", workflow)
         self.assertIn("cache: true", workflow)
         step_names_and_commands = (
-            ("Restore Dart SDK dependencies", "sdk/dart/dovahlink_client", "dart pub get"),
+            (
+                "Restore Dart SDK dependencies",
+                "sdk/dart/dovahlink_client",
+                "dart pub get",
+            ),
             (
                 "Generate Dart SDK sources",
                 "sdk/dart/dovahlink_client",
@@ -354,7 +389,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256', workflow
+            'Get-FileHash -Path "$env:RUNNER_TEMP\\$cmakeArchive" -Algorithm SHA256',
+            workflow,
         )
         self.assertIn("if ($actualSha256 -ne $cmakeArchiveSha256) {", workflow)
         # A regression that swaps this for Write-Warning/Write-Host would silently downgrade the
@@ -390,34 +426,50 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure bridge debug harness"),
         )
         self.assertIn(
-            "git -C \"${{ runner.temp }}\\vcpkg\" checkout $env:VCPKG_BASELINE_COMMIT",
+            'git -C "${{ runner.temp }}\\vcpkg" checkout $env:VCPKG_BASELINE_COMMIT',
             workflow,
         )
         self.assertIn(
             '& "${{ runner.temp }}\\vcpkg\\bootstrap-vcpkg.bat" -disableMetrics',
             workflow,
         )
-        self.assertIn("uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5", workflow)
+        self.assertIn(
+            "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            workflow,
+        )
         self.assertIn("dotnet-version: 9.0.x", workflow)
-        self.assertIn("uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1", workflow)
-        self.assertIn("uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", workflow)
+        self.assertIn(
+            "uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1",
+            workflow,
+        )
+        self.assertIn(
+            "uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            workflow,
+        )
         self.assertIn("VCPKG_DEFAULT_BINARY_CACHE", workflow)
         self.assertIn("run: cmake --preset windows-x64-debug", workflow)
         self.assertIn(
             "run: cmake --build --preset windows-x64-debug --target dovahlink_bridge_harness",
             workflow,
         )
-        harness_step = self._yaml_block(workflow, "      - name: Configure bridge debug harness")
+        harness_step = self._yaml_block(
+            workflow, "      - name: Configure bridge debug harness"
+        )
         self.assertIn("        working-directory: bridge", harness_step)
         self.assertIn("          VCPKG_ROOT: ${{ runner.temp }}\\vcpkg", harness_step)
-        self.assertIn("run: dotnet restore integration/DovahLinkValidation.sln", workflow)
+        self.assertIn(
+            "run: dotnet restore integration/DovahLinkValidation.sln", workflow
+        )
         self.assertIn(
             "run: dotnet test integration/DovahLinkValidation.sln --configuration Release --no-restore",
             workflow,
         )
         self.assertIn('--logger "trx;LogFileName=integration.trx"', workflow)
         self.assertIn("--results-directory integration/TestResults", workflow)
-        self.assertIn("uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6", workflow)
+        self.assertIn(
+            "uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6",
+            workflow,
+        )
         self.assertIn(
             "Maintained stable release; no stable Node 24 replacement is available yet.",
             workflow,
@@ -481,20 +533,118 @@ class RepositoryConsistencyTests(unittest.TestCase):
             checkout,
             "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
-            "          persist-credentials: false",
+            "          persist-credentials: false\n"
+            "          fetch-depth: 0",
         )
         self.assertIn("runs-on: ubuntu-latest", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
         self.assertIn("        shell: bash", workflow)
+        self.assertEqual(
+            self._yaml_block(workflow, "    env:"),
+            "    env:\n      EnableWindowsTargeting: true",
+        )
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
             "  group: tooling-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
             workflow,
         )
         self.assertIn("  cancel-in-progress: true", workflow)
-        self.assertIn("uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6", workflow)
+        self.assertIn(
+            "uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6",
+            workflow,
+        )
         self.assertIn('python-version: "3.13"', workflow)
-        self.assertIn('run: python -m unittest discover -s tooling -p "test_*.py"', workflow)
+        self.assertIn(
+            "uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2",
+            workflow,
+        )
+        self.assertIn(
+            "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            workflow,
+        )
+        sdk_restore = self._yaml_block(
+            workflow,
+            "      - name: Restore Dart SDK dependencies",
+        )
+        self.assertIn(
+            "        working-directory: sdk/dart/dovahlink_client", sdk_restore
+        )
+        self.assertIn("        run: dart pub get", sdk_restore)
+        app_restore = self._yaml_block(
+            workflow,
+            "      - name: Restore Flutter dependencies",
+        )
+        self.assertIn("        working-directory: app", app_restore)
+        self.assertIn("        run: flutter pub get", app_restore)
+        self.assertLess(
+            workflow.index("Restore Dart SDK dependencies"),
+            workflow.index("Check formatting of changed source files"),
+        )
+        self.assertLess(
+            workflow.index("Restore Flutter dependencies"),
+            workflow.index("Check formatting of changed source files"),
+        )
+        formatter_install = self._yaml_block(
+            workflow,
+            "      - name: Install formatter tools",
+        )
+        self.assertIn('llvm_version="19.1.5"', formatter_install)
+        self.assertIn(
+            'llvm_sha256="13e9975b026d431c945927960e5f8c0a47a155a2f600f57e85f4d1482620c65f"',
+            formatter_install,
+        )
+        self.assertIn(
+            'curl --fail --location --retry 3 --output "$RUNNER_TEMP/$llvm_archive" "$llvm_url"',
+            formatter_install,
+        )
+        self.assertIn(
+            'llvm_archive="LLVM-$llvm_version-Linux-X64.tar.xz"', formatter_install
+        )
+        self.assertIn(
+            'llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version/$llvm_archive"',
+            formatter_install,
+        )
+        self.assertIn(
+            'echo "$llvm_sha256  $RUNNER_TEMP/$llvm_archive" | sha256sum --check --strict',
+            formatter_install,
+        )
+        self.assertIn(
+            'tar -xJf "$RUNNER_TEMP/$llvm_archive" -C "$RUNNER_TEMP"', formatter_install
+        )
+        self.assertIn(
+            'echo "$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin" >> "$GITHUB_PATH"',
+            formatter_install,
+        )
+        self.assertIn(
+            'export PATH="$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin:$PATH"',
+            formatter_install,
+        )
+        self.assertIn("clang-format --version", formatter_install)
+        self.assertLess(
+            formatter_install.index("export PATH="),
+            formatter_install.index("clang-format --version"),
+        )
+        self.assertNotIn("apt-get install --yes clang-format", formatter_install)
+        self.assertIn("python -m pip install ruff", workflow)
+        self.assertIn("Install-Module PSScriptAnalyzer", workflow)
+        self.assertIn('dotnet restore "$project"', workflow)
+        self.assertIn(
+            'run: python -m unittest discover -s tooling -p "test_*.py"', workflow
+        )
+        self.assertIn("python tooling/format_staged.py --check --paths", workflow)
+        self.assertIn("git diff --name-only -z --diff-filter=ACMR", workflow)
+        self.assertIn("set -euo pipefail", workflow)
+        self.assertIn('changed_file="$(mktemp)"', workflow)
+        self.assertIn("if ! git diff --name-only", workflow)
+        self.assertIn(
+            "Unable to determine changed files for formatter verification.", workflow
+        )
+        self.assertIn("core.hooksPath .githooks", self._read("CONTRIBUTING.md"))
+        hook = self._read(".githooks/pre-commit")
+        self.assertIn("exec python tooling/format_staged.py", hook)
+        formatter = self._read("tooling/format_staged.py")
+        self.assertIn("partial_staged_paths", formatter)
+        self.assertIn("Required formatter(s) unavailable", formatter)
         self.assertNotIn("continue-on-error:", workflow)
 
     def test_common_conventions_reject_deprecated_workflow_dependencies(self) -> None:
@@ -545,9 +695,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "actions/cache": ("caa296126883cff596d87d8935842f9db880ef25", "v5"),
             "actions/setup-python": ("ece7cb06caefa5fff74198d8649806c4678c61a1", "v6"),
             "actions/setup-dotnet": ("26b0ec14cb23fa6904739307f278c14f94c95bf1", "v5"),
-            "actions/upload-artifact": ("b7c566a772e6b6bfb58ed0dc250532a479d7789f", "v6"),
+            "actions/upload-artifact": (
+                "b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+                "v6",
+            ),
             "ilammy/msvc-dev-cmd": ("0b201ec74fa43914dc39ae48a89fd1d8cb592756", "v1"),
-            "subosito/flutter-action": ("1a449444c387b1966244ae4d4f8c696479add0b2", "v2"),
+            "subosito/flutter-action": (
+                "1a449444c387b1966244ae4d4f8c696479add0b2",
+                "v2",
+            ),
         }
 
         workflow_directory = REPOSITORY_ROOT / ".github" / "workflows"
@@ -577,7 +733,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 # a missing comment lands here as a plain, readable "" != "# vN" failure below --
                 # not a crash.
                 self.assertEqual(
-                    comment.strip(), f"# {expected_version}", f"{workflow_path.name}: {action}"
+                    comment.strip(),
+                    f"# {expected_version}",
+                    f"{workflow_path.name}: {action}",
                 )
 
     def test_workflow_job_level_env_never_uses_the_runner_context(self) -> None:
@@ -596,7 +754,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     continue
                 end = index + 1
                 while end < len(lines) and (
-                    not lines[end].strip() or len(lines[end]) - len(lines[end].lstrip()) > 4
+                    not lines[end].strip()
+                    or len(lines[end]) - len(lines[end].lstrip()) > 4
                 ):
                     end += 1
                 block = "\n".join(lines[index:end])
@@ -621,26 +780,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "$env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot",
             "$env:X_VCPKG_REGISTRIES_CACHE = $registriesCacheRoot",
             '$vcpkgExePath = Join-Path $vcpkgRoot "vcpkg.exe"',
-            '$currentVcpkgCommit = (& git -C $vcpkgRoot rev-parse HEAD)',
+            "$currentVcpkgCommit = (& git -C $vcpkgRoot rev-parse HEAD)",
             "$vcpkgAlreadyBootstrapped = $false",
             "& $vcpkgExePath version | Out-Null",
             "$vcpkgAlreadyBootstrapped = ($LASTEXITCODE -eq 0)",
             "if (-not $vcpkgAlreadyBootstrapped) {",
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
-            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"pub\", \"get\")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")',
             '$appBuildCache = Join-Path $appDirectory ".dart_tool',
-            'if (Test-Path -LiteralPath $appBuildCache) {',
-            'Remove-Item -LiteralPath $appBuildCache -Recurse -Force',
-            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @(\"run\", \"build_runner\", \"build\")',
-            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"analyze\")',
-            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"test\")',
-            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @(\"build\", \"windows\", \"--debug\")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--preset\", \"windows-x64-debug\")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--build\", \"--preset\", \"windows-x64-debug\")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @(\"--preset\", \"windows-x64-debug\")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--preset\", \"windows-x64-release\")',
-            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @(\"--build\", \"--preset\", \"windows-x64-release\")',
+            "if (Test-Path -LiteralPath $appBuildCache) {",
+            "Remove-Item -LiteralPath $appBuildCache -Recurse -Force",
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")',
+            'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")',
+            'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")',
             '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
             '"restore", "integration/DovahLinkValidation.sln"',
             '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"',
@@ -672,21 +831,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ]
         self.assertEqual(section_positions, sorted(section_positions))
         command_positions = [
-            script.index('Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'),
-            script.index('Remove-Item -LiteralPath $appBuildCache -Recurse -Force'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")'),
-            script.index('Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")'),
-            script.index('"--test-dir", "build/windows-x64-release", "--output-on-failure"'),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'
+            ),
+            script.index("Remove-Item -LiteralPath $appBuildCache -Recurse -Force"),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "dart" -ArgumentList @("run", "build_runner", "build")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("analyze")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("test")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("build", "windows", "--debug")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-debug")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-debug")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "ctest" -ArgumentList @("--preset", "windows-x64-debug")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--preset", "windows-x64-release")'
+            ),
+            script.index(
+                'Invoke-LocalCommand -WorkingDirectory $bridgeDirectory -FilePath "cmake" -ArgumentList @("--build", "--preset", "windows-x64-release")'
+            ),
+            script.index(
+                '"--test-dir", "build/windows-x64-release", "--output-on-failure"'
+            ),
             script.index('"restore", "integration/DovahLinkValidation.sln"'),
-            script.index('"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"'),
+            script.index(
+                '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"'
+            ),
         ]
         self.assertEqual(command_positions, sorted(command_positions))
         self.assertNotIn("choco install", script)
@@ -699,9 +884,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         root_readme = self._read("README.md")
         bridge_readme = self._read("bridge/README.md")
         phase_zero = self._roadmap_section("0. Documentation baseline")
-        phase_zero_five = self._roadmap_section(
-            "0.5 Client and Protocol Foundation"
-        )
+        phase_zero_five = self._roadmap_section("0.5 Client and Protocol Foundation")
         phase_one = self._roadmap_section("1. Skyrim Bridge Foundation")
         phase_two = self._roadmap_section(
             "2. Bridge Identity and Authoritative State Foundation"
@@ -710,7 +893,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         phase_three_one = self._roadmap_section("3.1 Live Pairing Challenge UX")
 
         self.assertEqual(manifest["version-string"], version)
-        for completed_phase in (phase_zero, phase_zero_five, phase_one, phase_two, phase_three, phase_three_one):
+        for completed_phase in (
+            phase_zero,
+            phase_zero_five,
+            phase_one,
+            phase_two,
+            phase_three,
+            phase_three_one,
+        ):
             self.assertEqual(
                 re.findall(r"(?m)^\*\*Status:\*\* .+$", completed_phase),
                 ["**Status:** Complete"],
@@ -723,10 +913,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
         version_components = ", ".join(version.split("."))
 
         self.assertIn(
-            f'kBridgeVersion = "{version}"', self._read("bridge/application/bridge_config.hpp")
+            f'kBridgeVersion = "{version}"',
+            self._read("bridge/application/bridge_config.hpp"),
         )
         self.assertIn(
-            f"REL::Version{{{version_components}, 0}}", self._read("bridge/plugin/dovahlink_bridge_plugin.cpp")
+            f"REL::Version{{{version_components}, 0}}",
+            self._read("bridge/plugin/dovahlink_bridge_plugin.cpp"),
         )
 
         compatibility = self._read(
@@ -744,7 +936,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "protocol/fixtures/connection/hello-ack.json",
             "protocol/fixtures/connection/hello-ack-active-context.json",
         ):
-            self.assertIn(f'"bridgeVersion": "{version}"', self._read(current_example), current_example)
+            self.assertIn(
+                f'"bridgeVersion": "{version}"',
+                self._read(current_example),
+                current_example,
+            )
 
     def test_changelog_matches_the_published_bridge_version(self) -> None:
         """Keep CHANGELOG.md's newest entry synchronized with the published bridge version."""
@@ -756,7 +952,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(entry_versions[0], manifest["version-string"])
         for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"):
             self.assertIn(known_version, entry_versions)
-        self.assertEqual(len(set(entry_versions)), len(entry_versions), "CHANGELOG.md has duplicate versions.")
+        self.assertEqual(
+            len(set(entry_versions)),
+            len(entry_versions),
+            "CHANGELOG.md has duplicate versions.",
+        )
 
     def test_flutter_and_integration_docs_use_consistent_terminology(self) -> None:
         """Guard the datasource file-count exception and one shared term for the compatibility
@@ -826,7 +1026,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 9)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
-        self.assertEqual(roadmap.count("**Status:** Planned after read-only product validation"), 1)
+        self.assertEqual(
+            roadmap.count("**Status:** Planned after read-only product validation"), 1
+        )
         # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
         # "Status" section records the same decision); its status line carries that explanation
         # instead of the plain "Planned" every other undone phase uses.
@@ -838,7 +1040,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         for heading in expected_headings:
             phase = self._roadmap_section(heading)
-            if heading.startswith(("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ", "3.2 ", "3.3 ")):
+            if heading.startswith(
+                ("0. ", "0.5 ", "1. ", "2. ", "3. ", "3.1 ", "3.2 ", "3.3 ")
+            ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
                 # Stage 4's own status stays Planned until every phase (4.1-4.5) is done; its span
@@ -848,7 +1052,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             elif heading.startswith("5. "):
                 expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):
-                expected_statuses = ["**Status:** Planned after read-only product validation"]
+                expected_statuses = [
+                    "**Status:** Planned after read-only product validation"
+                ]
             else:
                 expected_statuses = ["**Status:** Planned"]
             self.assertEqual(
@@ -866,22 +1072,42 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn("Phase 1.25", supporting_document)
             self.assertNotIn("Phase 1.5", supporting_document)
-        self.assertIn("[Stage 3 roadmap](../roadmap/03-local-device-pairing-and-reconnection.md)", bridge_readme)
+        self.assertIn(
+            "[Stage 3 roadmap](../roadmap/03-local-device-pairing-and-reconnection.md)",
+            bridge_readme,
+        )
         self.assertIn("## Live event delivery is deferred to Phase 4", bridge_readme)
-        self.assertIn("the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries", integration_readme)
+        self.assertIn(
+            "the `roadmap/04-live-state-synchronization-foundation.md` and `roadmap/03-local-device-pairing-and-reconnection.md` entries",
+            integration_readme,
+        )
 
-        ordering = {heading: roadmap.index(f"## {heading}") for heading in expected_headings}
+        ordering = {
+            heading: roadmap.index(f"## {heading}") for heading in expected_headings
+        }
         self.assertLess(
             ordering["4. Live State Synchronization Foundation"],
             ordering["5. Dart Client SDK Foundation"],
         )
         self.assertLess(
-            ordering["5. Dart Client SDK Foundation"], ordering["6. PC / Second-Screen Baseline"]
+            ordering["5. Dart Client SDK Foundation"],
+            ordering["6. PC / Second-Screen Baseline"],
         )
-        self.assertLess(ordering["6. PC / Second-Screen Baseline"], ordering["7. Core UI Theme System"])
-        self.assertLess(ordering["7. Core UI Theme System"], ordering["8. Live Player State"])
-        self.assertLess(ordering["8. Live Player State"], ordering["9. Multi-Client Runtime Foundation"])
-        self.assertLess(ordering["9. Multi-Client Runtime Foundation"], ordering["13. Interactive Map Foundation"])
+        self.assertLess(
+            ordering["6. PC / Second-Screen Baseline"],
+            ordering["7. Core UI Theme System"],
+        )
+        self.assertLess(
+            ordering["7. Core UI Theme System"], ordering["8. Live Player State"]
+        )
+        self.assertLess(
+            ordering["8. Live Player State"],
+            ordering["9. Multi-Client Runtime Foundation"],
+        )
+        self.assertLess(
+            ordering["9. Multi-Client Runtime Foundation"],
+            ordering["13. Interactive Map Foundation"],
+        )
         self.assertLess(
             ordering["22. Secure LAN Transport and Network Discovery"],
             ordering["23. Mobile / Tablet Client"],
@@ -912,11 +1138,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 heading,
             )
         self.assertIn("without exposing a generic command API", authorization)
-        self.assertIn("Validate the machinery without adding gameplay mutation", authorization)
+        self.assertIn(
+            "Validate the machinery without adding gameplay mutation", authorization
+        )
         self.assertIn("Each action needs its own product decision", authorization)
         self.assertIn("no Skyrim\nmutation is exposed", authorization)
         self.assertIn("Individual companion actions", deferred)
-        for deferred_action in ("equipment", "favorites or hotkeys", "map markers", "fast travel"):
+        for deferred_action in (
+            "equipment",
+            "favorites or hotkeys",
+            "map markers",
+            "fast travel",
+        ):
             self.assertIn(deferred_action, deferred)
 
     def test_pairing_phase_establishes_persistent_per_user_trust(self) -> None:
@@ -958,7 +1191,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertNotIn(retired_phrase, normalized_pairing)
 
-        identity_model = self._markdown_section("ARCHITECTURE.md", "Runtime and identity model")
+        identity_model = self._markdown_section(
+            "ARCHITECTURE.md", "Runtime and identity model"
+        )
         normalized_identity_model = self._normalize_whitespace(identity_model)
         self.assertIn(
             "Persistent device trust is a separate concept layered on top of these four "
@@ -981,7 +1216,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_identity_model,
         )
 
-    def test_security_doc_establishes_persistent_trust_and_liveness_ownership(self) -> None:
+    def test_security_doc_establishes_persistent_trust_and_liveness_ownership(
+        self,
+    ) -> None:
         """Guard the pairing/trust, developer-auth, liveness, and threat-boundary sections."""
         security = self._read("ai/context/protocol/security.md")
         for heading in (
@@ -1114,8 +1351,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for command in canonical_commands:
             self.assertIn(command, console_readme)
             self.assertIn(f"`{command}`", security)
-        self.assertIn("Entering bare `dovahlink` displays ConsoleUtil Extended's compact command index.", console_readme)
-        self.assertIn("`dovahlink help` for the full trust-administration descriptions.", console_readme)
+        self.assertIn(
+            "Entering bare `dovahlink` displays ConsoleUtil Extended's compact command index.",
+            console_readme,
+        )
+        self.assertIn(
+            "`dovahlink help` for the full trust-administration descriptions.",
+            console_readme,
+        )
 
         for retired_command in (
             "dovahlink devices",
@@ -1138,7 +1381,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
         raw_command_names = re.findall(r"(?m)^  - name: (.+)$", yaml)
         self.assertEqual(
             [name for name, _ in command_entries],
-            ["list", "help", "revoke", "block", "unblock", "forget", "reset-trust", "reset", "confirm-reset"],
+            [
+                "list",
+                "help",
+                "revoke",
+                "block",
+                "unblock",
+                "forget",
+                "reset-trust",
+                "reset",
+                "confirm-reset",
+            ],
         )
         self.assertEqual([name for name, _ in command_entries], raw_command_names)
         command_blocks = dict(command_entries)
@@ -1154,13 +1407,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "confirm-reset": "ConfirmReset",
         }
         for command, function in expected_functions.items():
-            self.assertEqual(len(re.findall(r"(?m)^    func: .+$", command_blocks[command])), 1)
+            self.assertEqual(
+                len(re.findall(r"(?m)^    func: .+$", command_blocks[command])), 1
+            )
             self.assertIn(f"func: {function}", command_blocks[command])
         for command in ("revoke", "block", "unblock", "forget"):
             self.assertEqual(command_blocks[command].count("      - name: -id"), 1)
             self.assertIn("        required: true", command_blocks[command])
         self.assertNotIn("      - name:", command_blocks["reset"])
-        self.assertEqual(command_blocks["confirm-reset"].count("      - name: -confirm"), 1)
+        self.assertEqual(
+            command_blocks["confirm-reset"].count("      - name: -confirm"), 1
+        )
         self.assertIn("        required: true", command_blocks["confirm-reset"])
         self.assertIn("name: scope", yaml)
         self.assertIn("required: false", yaml)
@@ -1176,7 +1433,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("name: devices", yaml)
         self.assertNotIn("name: blocklist", yaml)
 
-    def test_architecture_establishes_sdk_boundary_and_replaces_client_non_goal(self) -> None:
+    def test_architecture_establishes_sdk_boundary_and_replaces_client_non_goal(
+        self,
+    ) -> None:
         """Guard the sdk/ repository boundary and the retired single-client non-goal."""
         architecture = self._read("ARCHITECTURE.md")
 
@@ -1212,9 +1471,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             architecture,
         )
         self.assertIn(
-            "The official Flutter app is the SDK's first production consumer", architecture
+            "The official Flutter app is the SDK's first production consumer",
+            architecture,
         )
-        self.assertIn("See `ai/context/sdk/` for SDK-specific conventions", architecture)
+        self.assertIn(
+            "See `ai/context/sdk/` for SDK-specific conventions", architecture
+        )
         self.assertIn(
             "normal DovahLink communication from the app goes through the SDK rather than "
             "through app-private transport, compatibility, authentication, pairing, reconnect, "
@@ -1241,7 +1503,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             architecture,
         )
 
-    def test_sdk_readme_documents_the_phase_5_pull_forward_and_the_real_package(self) -> None:
+    def test_sdk_readme_documents_the_phase_5_pull_forward_and_the_real_package(
+        self,
+    ) -> None:
         """Guard sdk/README.md's content and the real, partially-implemented Dart package."""
         sdk_readme = self._read("sdk/README.md")
 
@@ -1312,7 +1576,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             flutter_dart_style,
         )
         self.assertIn(
-            "follow `ai/context/dart/dart-style.md`'s baseline naming rules", flutter_dart_style
+            "follow `ai/context/dart/dart-style.md`'s baseline naming rules",
+            flutter_dart_style,
         )
         # The moved sections and their content must not be duplicated in the Flutter-only file.
         for retired_phrase in (
@@ -1334,7 +1599,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             flutter_dart_style,
         )
 
-    def test_sdk_conventions_cover_architecture_api_persistence_and_testing(self) -> None:
+    def test_sdk_conventions_cover_architecture_api_persistence_and_testing(
+        self,
+    ) -> None:
         """Guard the four ai/context/sdk/ convention files and their non-duplication of security/compatibility."""
         sdk_architecture = self._read("ai/context/sdk/architecture.md")
         sdk_api_design = self._read("ai/context/sdk/api-design.md")
@@ -1396,7 +1663,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(retired_duplication_phrase, sdk_doc)
             self.assertNotIn("never use floating branches such as `@main`", sdk_doc)
 
-    def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(self) -> None:
+    def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
+        self,
+    ) -> None:
         """Guard the AGENTS.md/common.md pointers added for ai/context/dart/ and ai/context/sdk/."""
         agents = self._read("AGENTS.md")
         common = self._read("ai/context/common.md")
@@ -1407,7 +1676,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             agents,
         )
         self.assertIn(
-            "- `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work", agents
+            "- `ai/context/sdk/` — Dart Client SDK conventions; read for SDK work",
+            agents,
         )
         self.assertIn(
             "SDK conventions in `ai/context/sdk/` are locally originated for DovahLink, not "
@@ -1445,7 +1715,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("## SDK migration", app_readme)
         self.assertIn(
-            "Before `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 (\"Dart Client SDK Foundation\"), this directory owns "
+            'Before `roadmap/05-dart-client-sdk-foundation.md`\'s Phase 5 ("Dart Client SDK Foundation"), this directory owns '
             "its protocol and\nclient adapters directly",
             app_readme,
         )
@@ -1479,7 +1749,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             integration_readme,
         )
 
-    def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(self) -> None:
+    def test_live_state_phase_depends_on_reconnect_and_defines_session_loss(
+        self,
+    ) -> None:
         """Preserve reconnect ordering and the bounded, session-scoped reliable-event contract."""
         live_state = self._roadmap_section("4. Live State Synchronization Foundation")
         bridge_live_state = self._markdown_section(
@@ -1586,7 +1858,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("before public release", dependency_audit)
         self.assertEqual(dependency_audit.count("before the next public release"), 3)
 
-    def test_token_examples_use_secure_generation_and_powershell_assignment(self) -> None:
+    def test_token_examples_use_secure_generation_and_powershell_assignment(
+        self,
+    ) -> None:
         """Reject insecure token generation and shell-incompatible environment examples."""
         bridge_readme = self._read("bridge/README.md")
         integration_readme = self._read("integration/README.md")
@@ -1607,7 +1881,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             token_example,
         )
         self.assertIn("[Array]::Clear($tokenBytes", token_example)
-        self.assertLess(token_example.index("[byte[]]::new(32)"), token_example.index("GetBytes"))
+        self.assertLess(
+            token_example.index("[byte[]]::new(32)"), token_example.index("GetBytes")
+        )
         self.assertLess(
             token_example.index("$rng.GetBytes($tokenBytes)"),
             token_example.index("$env:DOVAHLINK_BRIDGE_TOKEN"),
@@ -1616,7 +1892,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             token_example.index("$env:DOVAHLINK_BRIDGE_TOKEN"),
             token_example.index("[Array]::Clear($tokenBytes"),
         )
-        self.assertIn('$env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token', integration_readme)
+        self.assertIn(
+            '$env:DOVAHLINK_BRIDGE_TOKEN = "<the same hex token', integration_readme
+        )
         self.assertNotRegex(
             integration_readme,
             r"(?m)^DOVAHLINK_BRIDGE_TOKEN=.*\bdotnet run$",
@@ -1645,7 +1923,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertLess(try_create_session_index, revalidation_index)
         self.assertLess(revalidation_index, success_index)
 
-    def test_bridge_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(self) -> None:
+    def test_bridge_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(
+        self,
+    ) -> None:
         """Require cached vcpkg tooling and a cached colorglass registry checkout.
 
         Re-fetching the pinned, immutable colorglass registry from GitLab on every run is what
@@ -1659,7 +1939,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         # -- a duplicated literal here (checkout command vs. cache key) is exactly the drift that
         # would leave a bumped pin silently served from a stale cache.
         self.assertIn(
-            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523", workflow
+            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523",
+            workflow,
         )
         self.assertEqual(
             workflow.count("2f1d605400c8727cc00c15797aba796c88ccd523"),
@@ -1668,9 +1949,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "other reference must go through $env:VCPKG_BASELINE_COMMIT or env.VCPKG_BASELINE_COMMIT",
         )
 
-        tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
+        tooling_cache = self._yaml_block(
+            workflow, "      - name: Restore cached vcpkg tooling"
+        )
         self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
-        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", tooling_cache)
+        self.assertIn(
+            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            tooling_cache,
+        )
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
@@ -1681,18 +1967,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow, "      - name: Check out vcpkg at the pinned builtin baseline"
         )
         self.assertIn(
-            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'", checkout_step
+            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'",
+            checkout_step,
         )
         self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
 
-        binary_cache = self._yaml_block(workflow, "      - name: Restore vcpkg binary cache")
+        binary_cache = self._yaml_block(
+            workflow, "      - name: Restore vcpkg binary cache"
+        )
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-"
             "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}",
             binary_cache,
         )
 
-        registries_env = self._yaml_block(workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE")
+        registries_env = self._yaml_block(
+            workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE"
+        )
         self.assertIn(
             'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
             ">> $env:GITHUB_ENV",
@@ -1704,9 +1995,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
 
-        registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
-        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", registries_cache)
-        self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
+        registries_cache = self._yaml_block(
+            workflow, "      - name: Restore vcpkg registries cache"
+        )
+        self.assertIn(
+            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            registries_cache,
+        )
+        self.assertIn(
+            "          path: ${{ runner.temp }}\\vcpkg-registries-cache",
+            registries_cache,
+        )
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-registries-"
             "${{ hashFiles('bridge/vcpkg-configuration.json') }}",
@@ -1726,7 +2025,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure Debug"),
         )
 
-    def test_integration_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(self) -> None:
+    def test_integration_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(
+        self,
+    ) -> None:
         """Require the same vcpkg tooling/registry caching as bridge-ci.yml.
 
         This job runs on its own fresh runner with no bridge-ci filesystem state to reuse, so it
@@ -1736,7 +2037,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         workflow = self._read(".github/workflows/integration-ci.yml")
 
         self.assertIn(
-            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523", workflow
+            "      VCPKG_BASELINE_COMMIT: 2f1d605400c8727cc00c15797aba796c88ccd523",
+            workflow,
         )
         self.assertEqual(
             workflow.count("2f1d605400c8727cc00c15797aba796c88ccd523"),
@@ -1745,9 +2047,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "other reference must go through $env:VCPKG_BASELINE_COMMIT or env.VCPKG_BASELINE_COMMIT",
         )
 
-        tooling_cache = self._yaml_block(workflow, "      - name: Restore cached vcpkg tooling")
+        tooling_cache = self._yaml_block(
+            workflow, "      - name: Restore cached vcpkg tooling"
+        )
         self.assertIn("        id: vcpkg-tooling-cache", tooling_cache)
-        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", tooling_cache)
+        self.assertIn(
+            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            tooling_cache,
+        )
         self.assertIn("          path: ${{ runner.temp }}\\vcpkg", tooling_cache)
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-tooling-${{ env.VCPKG_BASELINE_COMMIT }}",
@@ -1758,11 +2065,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow, "      - name: Check out vcpkg at the pinned builtin baseline"
         )
         self.assertIn(
-            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'", checkout_step
+            "        if: steps.vcpkg-tooling-cache.outputs.cache-hit != 'true'",
+            checkout_step,
         )
         self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
 
-        registries_env = self._yaml_block(workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE")
+        registries_env = self._yaml_block(
+            workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE"
+        )
         self.assertIn(
             'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
             ">> $env:GITHUB_ENV",
@@ -1774,9 +2084,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
 
-        registries_cache = self._yaml_block(workflow, "      - name: Restore vcpkg registries cache")
-        self.assertIn("        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5", registries_cache)
-        self.assertIn("          path: ${{ runner.temp }}\\vcpkg-registries-cache", registries_cache)
+        registries_cache = self._yaml_block(
+            workflow, "      - name: Restore vcpkg registries cache"
+        )
+        self.assertIn(
+            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
+            registries_cache,
+        )
+        self.assertIn(
+            "          path: ${{ runner.temp }}\\vcpkg-registries-cache",
+            registries_cache,
+        )
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-registries-"
             "${{ hashFiles('bridge/vcpkg-configuration.json') }}",

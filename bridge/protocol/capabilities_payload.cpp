@@ -8,8 +8,10 @@
 
 namespace dovahlink::protocol {
 
-std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload) {
-    const boost::json::value* capabilitiesValue = RequireField(payload, "capabilities");
+std::expected<CapabilitiesPayload, MessageError>
+DecodeCapabilitiesPayload(const boost::json::object& payload) {
+    const boost::json::value* capabilitiesValue =
+        RequireField(payload, "capabilities");
     if (!capabilitiesValue) {
         return Fail("missing required field: capabilities");
     }
@@ -25,21 +27,25 @@ std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const
         }
         const boost::json::object& capObj = item.get_object();
 
-        auto id = DecodeNonEmptyString(RequireField(capObj, "id"), "capabilities[].id");
+        auto id =
+            DecodeNonEmptyString(RequireField(capObj, "id"), "capabilities[].id");
         if (!id) {
             return std::unexpected(id.error());
         }
-        auto version = DecodeNonNegativeInt(RequireField(capObj, "version"), "capabilities[].version");
+        auto version = DecodeNonNegativeInt(RequireField(capObj, "version"),
+                                            "capabilities[].version");
         if (!version) {
             return std::unexpected(version.error());
         }
-        capabilities.push_back(Capability{.id = std::move(*id), .version = *version});
+        capabilities.push_back(
+            Capability{.id = std::move(*id), .version = *version});
     }
 
     return CapabilitiesPayload{.capabilities = std::move(capabilities)};
 }
 
-boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload) {
+boost::json::object
+EncodeCapabilitiesPayload(const CapabilitiesPayload& payload) {
     boost::json::array capabilities;
     capabilities.reserve(payload.capabilities.size());
     for (const Capability& capability : payload.capabilities) {
@@ -53,4 +59,4 @@ boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload
     return obj;
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

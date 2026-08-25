@@ -11,7 +11,7 @@ using dovahlink::security::EncryptForCurrentUser;
 
 namespace {
 
-/// Builds a deterministic byte sequence from a seed value.
+///  Builds a deterministic byte sequence from a seed value.
 std::vector<std::uint8_t> MakeBytes(std::uint8_t seed, std::size_t size) {
     std::vector<std::uint8_t> bytes(size);
     for (std::size_t i = 0; i < size; ++i) {
@@ -20,9 +20,10 @@ std::vector<std::uint8_t> MakeBytes(std::uint8_t seed, std::size_t size) {
     return bytes;
 }
 
-}  // namespace
+} //  namespace
 
-TEST_CASE("encrypted plaintext decrypts back to the original bytes", "[security][dpapi]") {
+TEST_CASE("encrypted plaintext decrypts back to the original bytes",
+          "[security][dpapi]") {
     auto plaintext = MakeBytes(1, 64);
     auto ciphertext = EncryptForCurrentUser(plaintext);
     REQUIRE(ciphertext.has_value());
@@ -33,7 +34,8 @@ TEST_CASE("encrypted plaintext decrypts back to the original bytes", "[security]
     CHECK(*decrypted == plaintext);
 }
 
-TEST_CASE("ciphertext differs from the plaintext it encrypts", "[security][dpapi]") {
+TEST_CASE("ciphertext differs from the plaintext it encrypts",
+          "[security][dpapi]") {
     auto plaintext = MakeBytes(1, 64);
     auto ciphertext = EncryptForCurrentUser(plaintext);
     REQUIRE(ciphertext.has_value());
@@ -43,13 +45,14 @@ TEST_CASE("ciphertext differs from the plaintext it encrypts", "[security][dpapi
 
 TEST_CASE("ciphertext does not contain the plaintext as a contiguous byte run",
           "[security][dpapi]") {
-    // A cheap sanity check that DPAPI is genuinely transforming the bytes rather than wrapping
-    // them unchanged; not a cryptographic opacity proof.
+    //  A cheap sanity check that DPAPI is genuinely transforming the bytes rather
+    //  than wrapping them unchanged; not a cryptographic opacity proof.
     auto plaintext = MakeBytes(1, 64);
     auto ciphertext = EncryptForCurrentUser(plaintext);
     REQUIRE(ciphertext.has_value());
 
-    auto found = std::search(ciphertext->begin(), ciphertext->end(), plaintext.begin(), plaintext.end());
+    auto found = std::search(ciphertext->begin(), ciphertext->end(),
+                             plaintext.begin(), plaintext.end());
 
     CHECK(found == ciphertext->end());
 }
@@ -65,7 +68,8 @@ TEST_CASE("two encryptions of identical plaintext produce different ciphertext",
     CHECK(*first != *second);
 }
 
-TEST_CASE("decrypting a bit-flipped ciphertext fails closed", "[security][dpapi]") {
+TEST_CASE("decrypting a bit-flipped ciphertext fails closed",
+          "[security][dpapi]") {
     auto plaintext = MakeBytes(1, 64);
     auto ciphertext = EncryptForCurrentUser(plaintext);
     REQUIRE(ciphertext.has_value());
@@ -76,7 +80,8 @@ TEST_CASE("decrypting a bit-flipped ciphertext fails closed", "[security][dpapi]
     CHECK_FALSE(decrypted.has_value());
 }
 
-TEST_CASE("decrypting a truncated ciphertext fails closed", "[security][dpapi]") {
+TEST_CASE("decrypting a truncated ciphertext fails closed",
+          "[security][dpapi]") {
     auto plaintext = MakeBytes(1, 64);
     auto ciphertext = EncryptForCurrentUser(plaintext);
     REQUIRE(ciphertext.has_value());
@@ -96,7 +101,8 @@ TEST_CASE("decrypting arbitrary garbage bytes fails closed without crashing",
     CHECK_FALSE(decrypted.has_value());
 }
 
-TEST_CASE("decrypting an empty buffer fails closed without crashing", "[security][dpapi]") {
+TEST_CASE("decrypting an empty buffer fails closed without crashing",
+          "[security][dpapi]") {
     auto decrypted = DecryptForCurrentUser(std::vector<std::uint8_t>{});
 
     CHECK_FALSE(decrypted.has_value());

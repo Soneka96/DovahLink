@@ -6,10 +6,10 @@
 
 namespace dovahlink::security {
 
-/// The durable state a `TrustStore` loads from and saves to persistent storage.
+///  The durable state a `TrustStore` loads from and saves to persistent storage.
 struct TrustStoreSnapshot {
-    /// Every known device, regardless of state.
+    ///  Every known device, regardless of state.
     std::vector<KnownDeviceRecord> devices;
 };
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

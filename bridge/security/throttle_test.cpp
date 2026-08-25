@@ -13,11 +13,12 @@ using dovahlink::security::RateWindowCounter;
 using dovahlink::security::ViolationTracker;
 
 namespace {
-/// Clock type used for deterministic sliding-window assertions.
+///  Clock type used for deterministic sliding-window assertions.
 using Clock = std::chrono::steady_clock;
-}  // namespace
+} //  namespace
 
-TEST_CASE("RateWindowCounter counts events within the window", "[security][throttle]") {
+TEST_CASE("RateWindowCounter counts events within the window",
+          "[security][throttle]") {
     RateWindowCounter counter(std::chrono::seconds(10));
     Clock::time_point t0 = Clock::now();
 
@@ -26,20 +27,23 @@ TEST_CASE("RateWindowCounter counts events within the window", "[security][throt
     CHECK(counter.RecordEvent(t0 + std::chrono::seconds(2)) == 3);
 }
 
-TEST_CASE("RateWindowCounter prunes events once the window has passed", "[security][throttle]") {
+TEST_CASE("RateWindowCounter prunes events once the window has passed",
+          "[security][throttle]") {
     RateWindowCounter counter(std::chrono::seconds(10));
     Clock::time_point t0 = Clock::now();
 
     CHECK(counter.RecordEvent(t0) == 1);
     CHECK(counter.RecordEvent(t0 + std::chrono::seconds(5)) == 2);
-    // 25s after t0: both prior events (0s, 5s) are more than 10s old and prune away,
-    // leaving only this event.
+    //  25s after t0: both prior events (0s, 5s) are more than 10s old and prune
+    //  away, leaving only this event.
     CHECK(counter.RecordEvent(t0 + std::chrono::seconds(25)) == 1);
 }
 
-TEST_CASE("RateWindowCounter prunes an event exactly `window` old", "[security][throttle]") {
-    // The pruning rule is `t <= now - window`, so an event exactly `window` old is
-    // treated as just outside the window (a half-open (now-window, now] interval).
+TEST_CASE("RateWindowCounter prunes an event exactly `window` old",
+          "[security][throttle]") {
+    //  The pruning rule is `t <= now - window`, so an event exactly `window` old
+    //  is treated as just outside the window (a half-open (now-window, now]
+    //  interval).
     RateWindowCounter counter(std::chrono::seconds(10));
     Clock::time_point t0 = Clock::now();
 
@@ -47,7 +51,8 @@ TEST_CASE("RateWindowCounter prunes an event exactly `window` old", "[security][
     CHECK(counter.RecordEvent(t0 + std::chrono::seconds(10)) == 1);
 }
 
-TEST_CASE("RateWindowCounter reports active events without recording another", "[security][throttle]") {
+TEST_CASE("RateWindowCounter reports active events without recording another",
+          "[security][throttle]") {
     RateWindowCounter counter(std::chrono::seconds(10));
     Clock::time_point t0 = Clock::now();
 
@@ -56,12 +61,13 @@ TEST_CASE("RateWindowCounter reports active events without recording another", "
     CHECK(counter.ActiveCount(t0 + std::chrono::seconds(2)) == 1);
 }
 
-TEST_CASE("RateWindowCounter is safe under concurrent recording", "[security][throttle]") {
-    // Uses a spin barrier to maximize actual thread overlap rather than a timing
-    // sleep to approximate concurrency. This proves
-    // the mutex prevents corruption/crashes under contention; it does not depend
-    // on a specific interleaving, since concurrent callers may race on which
-    // steady_clock::now() reading reaches the lock first.
+TEST_CASE("RateWindowCounter is safe under concurrent recording",
+          "[security][throttle]") {
+    //  Uses a spin barrier to maximize actual thread overlap rather than a timing
+    //  sleep to approximate concurrency. This proves
+    //  the mutex prevents corruption/crashes under contention; it does not depend
+    //  on a specific interleaving, since concurrent callers may race on which
+    //  steady_clock::now() reading reaches the lock first.
     RateWindowCounter counter(std::chrono::seconds(60));
 
     constexpr int kThreads = 16;
@@ -87,13 +93,14 @@ TEST_CASE("RateWindowCounter is safe under concurrent recording", "[security][th
         t.join();
     }
 
-    // All kThreads events are within a 60s window recorded moments apart; the
-    // final recorded count must reflect every one of them, with none lost or
-    // duplicated.
+    //  All kThreads events are within a 60s window recorded moments apart; the
+    //  final recorded count must reflect every one of them, with none lost or
+    //  duplicated.
     CHECK(counter.RecordEvent(Clock::now()) == kThreads + 1);
 }
 
-TEST_CASE("FailedTokenThrottle allows the first 5 failures within the window", "[security][throttle]") {
+TEST_CASE("FailedTokenThrottle allows the first 5 failures within the window",
+          "[security][throttle]") {
     FailedTokenThrottle throttle;
     Clock::time_point t0 = Clock::now();
 
@@ -103,7 +110,8 @@ TEST_CASE("FailedTokenThrottle allows the first 5 failures within the window", "
     }
 }
 
-TEST_CASE("FailedTokenThrottle blocks the 6th attempt before validation", "[security][throttle]") {
+TEST_CASE("FailedTokenThrottle blocks the 6th attempt before validation",
+          "[security][throttle]") {
     FailedTokenThrottle throttle;
     Clock::time_point t0 = Clock::now();
 
@@ -114,7 +122,8 @@ TEST_CASE("FailedTokenThrottle blocks the 6th attempt before validation", "[secu
     CHECK(throttle.IsBlocked(t0 + std::chrono::seconds(5)));
 }
 
-TEST_CASE("FailedTokenThrottle allows attempts again once the window has fully passed",
+TEST_CASE("FailedTokenThrottle allows attempts again once the window has fully "
+          "passed",
           "[security][throttle]") {
     FailedTokenThrottle throttle;
     Clock::time_point t0 = Clock::now();
@@ -125,45 +134,53 @@ TEST_CASE("FailedTokenThrottle allows attempts again once the window has fully p
     }
     REQUIRE(throttle.IsBlocked(t0 + std::chrono::seconds(5)));
 
-    // Blocked checks do not record another failure or extend the window.
+    //  Blocked checks do not record another failure or extend the window.
     CHECK(throttle.IsBlocked(t0 + std::chrono::seconds(6)));
     CHECK_FALSE(throttle.IsBlocked(t0 + std::chrono::seconds(65)));
 }
 
-TEST_CASE("ViolationTracker does not close the connection for the first two violations",
+TEST_CASE("ViolationTracker does not close the connection for the first two "
+          "violations",
           "[security][throttle]") {
     ViolationTracker tracker;
     Clock::time_point t0 = Clock::now();
 
     CHECK_FALSE(tracker.RecordViolationAndCheckLimit(t0));
-    CHECK_FALSE(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
+    CHECK_FALSE(
+        tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
 }
 
-TEST_CASE("ViolationTracker closes the connection on the 3rd violation within the window",
+TEST_CASE("ViolationTracker closes the connection on the 3rd violation within "
+          "the window",
           "[security][throttle]") {
     ViolationTracker tracker;
     Clock::time_point t0 = Clock::now();
 
     REQUIRE_FALSE(tracker.RecordViolationAndCheckLimit(t0));
-    REQUIRE_FALSE(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
+    REQUIRE_FALSE(
+        tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
     CHECK(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(2)));
 }
 
-TEST_CASE("ViolationTracker does not close the connection once the window has passed",
-          "[security][throttle]") {
+TEST_CASE(
+    "ViolationTracker does not close the connection once the window has passed",
+    "[security][throttle]") {
     ViolationTracker tracker;
     Clock::time_point t0 = Clock::now();
 
     REQUIRE_FALSE(tracker.RecordViolationAndCheckLimit(t0));
-    REQUIRE_FALSE(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
+    REQUIRE_FALSE(
+        tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(1)));
 
-    // 61s after t0: both prior violations (0s, 1s) are more than 30s old and prune
-    // away, so this is only the 1st violation within the window.
-    CHECK_FALSE(tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(61)));
+    //  61s after t0: both prior violations (0s, 1s) are more than 30s old and
+    //  prune away, so this is only the 1st violation within the window.
+    CHECK_FALSE(
+        tracker.RecordViolationAndCheckLimit(t0 + std::chrono::seconds(61)));
 }
 
-TEST_CASE("InboundMessageRateLimiter allows the first 100 messages within one second",
-          "[security][throttle]") {
+TEST_CASE(
+    "InboundMessageRateLimiter allows the first 100 messages within one second",
+    "[security][throttle]") {
     InboundMessageRateLimiter limiter;
     Clock::time_point t0 = Clock::now();
 
@@ -172,8 +189,9 @@ TEST_CASE("InboundMessageRateLimiter allows the first 100 messages within one se
     }
 }
 
-TEST_CASE("InboundMessageRateLimiter rejects the 101st message within one second",
-          "[security][throttle]") {
+TEST_CASE(
+    "InboundMessageRateLimiter rejects the 101st message within one second",
+    "[security][throttle]") {
     InboundMessageRateLimiter limiter;
     Clock::time_point t0 = Clock::now();
 
@@ -183,15 +201,17 @@ TEST_CASE("InboundMessageRateLimiter rejects the 101st message within one second
     CHECK(limiter.RecordMessageAndCheckLimit(t0));
 }
 
-TEST_CASE("InboundMessageRateLimiter allows messages again once a second has passed",
-          "[security][throttle]") {
+TEST_CASE(
+    "InboundMessageRateLimiter allows messages again once a second has passed",
+    "[security][throttle]") {
     InboundMessageRateLimiter limiter;
     Clock::time_point t0 = Clock::now();
 
     for (int i = 0; i < 100; ++i) {
         REQUIRE_FALSE(limiter.RecordMessageAndCheckLimit(t0));
     }
-    REQUIRE(limiter.RecordMessageAndCheckLimit(t0));  // 101st, blocked
+    REQUIRE(limiter.RecordMessageAndCheckLimit(t0)); //  101st, blocked
 
-    CHECK_FALSE(limiter.RecordMessageAndCheckLimit(t0 + std::chrono::seconds(1) + std::chrono::milliseconds(1)));
+    CHECK_FALSE(limiter.RecordMessageAndCheckLimit(t0 + std::chrono::seconds(1) +
+                                                   std::chrono::milliseconds(1)));
 }

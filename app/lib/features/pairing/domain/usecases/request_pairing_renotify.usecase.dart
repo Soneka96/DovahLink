@@ -7,7 +7,8 @@ import 'package:dovahlink_client/shared/usecase/usecase.dart';
 
 /// Requests redisplay of the active pairing code through
 /// [IPairingRepository]. Returns cooldown seconds if in cooldown, null if succeeded.
-class RequestPairingRenotifyUseCase extends UseCase<Either<Failure, int?>, NoParams> {
+class RequestPairingRenotifyUseCase
+    extends UseCase<Either<Failure, int?>, NoParams> {
   /// Creates a use case backed by [IPairingRepository].
   RequestPairingRenotifyUseCase(this._repository);
 

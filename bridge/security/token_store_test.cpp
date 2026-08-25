@@ -20,7 +20,7 @@ static_assert(std::is_nothrow_move_assignable_v<TokenStore::Reservation>);
 
 namespace {
 
-/// Builds a deterministic token-sized byte sequence from a seed value.
+///  Builds a deterministic token-sized byte sequence from a seed value.
 std::vector<std::uint8_t> MakeToken(std::uint8_t seed) {
     std::vector<std::uint8_t> token(32);
     for (std::size_t i = 0; i < token.size(); ++i) {
@@ -29,9 +29,10 @@ std::vector<std::uint8_t> MakeToken(std::uint8_t seed) {
     return token;
 }
 
-}  // namespace
+} //  namespace
 
-TEST_CASE("committing a matching reservation consumes the token", "[security][token_store]") {
+TEST_CASE("committing a matching reservation consumes the token",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     auto reservation = store.TryReserve(token);
@@ -40,19 +41,23 @@ TEST_CASE("committing a matching reservation consumes the token", "[security][to
     CHECK_FALSE(store.IsAvailable());
 }
 
-TEST_CASE("an incorrect token creates no reservation and leaves the store available", "[security][token_store]") {
+TEST_CASE(
+    "an incorrect token creates no reservation and leaves the store available",
+    "[security][token_store]") {
     TokenStore store(MakeToken(1));
     CHECK_FALSE(store.TryReserve(MakeToken(2)).has_value());
     CHECK(store.IsAvailable());
 }
 
-TEST_CASE("a token of the wrong length creates no reservation", "[security][token_store]") {
+TEST_CASE("a token of the wrong length creates no reservation",
+          "[security][token_store]") {
     TokenStore store(MakeToken(1));
     std::vector<std::uint8_t> shortToken{1, 2, 3};
     CHECK_FALSE(store.TryReserve(shortToken).has_value());
 }
 
-TEST_CASE("a wrong guess does not block a later correct guess", "[security][token_store]") {
+TEST_CASE("a wrong guess does not block a later correct guess",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     REQUIRE_FALSE(store.TryReserve(MakeToken(2)).has_value());
@@ -75,24 +80,28 @@ TEST_CASE("a second reservation fails after the first reservation is committed",
     CHECK_FALSE(store.TryReserve(token).has_value());
 }
 
-TEST_CASE("TryReserve fails once the token has expired", "[security][token_store]") {
+TEST_CASE("TryReserve fails once the token has expired",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token, std::chrono::seconds(0));
     CHECK_FALSE(store.TryReserve(token).has_value());
 }
 
-TEST_CASE("IsAvailable is false once the token has expired", "[security][token_store]") {
+TEST_CASE("IsAvailable is false once the token has expired",
+          "[security][token_store]") {
     TokenStore store(MakeToken(1), std::chrono::seconds(0));
     CHECK_FALSE(store.IsAvailable());
 }
 
-TEST_CASE("IsAvailable is true before consumption or expiry", "[security][token_store]") {
+TEST_CASE("IsAvailable is true before consumption or expiry",
+          "[security][token_store]") {
     TokenStore store(MakeToken(1));
     CHECK(store.IsAvailable());
 }
 
-TEST_CASE("RemainingSeconds reports a positive duration before consumption or expiry",
-          "[security][token_store]") {
+TEST_CASE(
+    "RemainingSeconds reports a positive duration before consumption or expiry",
+    "[security][token_store]") {
     TokenStore store(MakeToken(1), std::chrono::minutes(5));
     auto remaining = store.RemainingSeconds();
     REQUIRE(remaining.has_value());
@@ -100,12 +109,14 @@ TEST_CASE("RemainingSeconds reports a positive duration before consumption or ex
     CHECK(*remaining <= std::chrono::minutes(5));
 }
 
-TEST_CASE("RemainingSeconds reports no value once the token has expired", "[security][token_store]") {
+TEST_CASE("RemainingSeconds reports no value once the token has expired",
+          "[security][token_store]") {
     TokenStore store(MakeToken(1), std::chrono::seconds(0));
     CHECK_FALSE(store.RemainingSeconds().has_value());
 }
 
-TEST_CASE("RemainingSeconds reports no value after a successful consume", "[security][token_store]") {
+TEST_CASE("RemainingSeconds reports no value after a successful consume",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     auto reservation = store.TryReserve(token);
@@ -114,7 +125,8 @@ TEST_CASE("RemainingSeconds reports no value after a successful consume", "[secu
     CHECK_FALSE(store.RemainingSeconds().has_value());
 }
 
-TEST_CASE("IsAvailable is false after a successful consume", "[security][token_store]") {
+TEST_CASE("IsAvailable is false after a successful consume",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     auto reservation = store.TryReserve(token);
@@ -123,7 +135,8 @@ TEST_CASE("IsAvailable is false after a successful consume", "[security][token_s
     CHECK_FALSE(store.IsAvailable());
 }
 
-TEST_CASE("destroying an uncommitted reservation preserves the token", "[security][token_store]") {
+TEST_CASE("destroying an uncommitted reservation preserves the token",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     {
@@ -134,7 +147,8 @@ TEST_CASE("destroying an uncommitted reservation preserves the token", "[securit
     CHECK(store.TryReserve(token).has_value());
 }
 
-TEST_CASE("moving a reservation transfers commit authority", "[security][token_store]") {
+TEST_CASE("moving a reservation transfers commit authority",
+          "[security][token_store]") {
     auto token = MakeToken(1);
     TokenStore store(token);
     auto reservation = store.TryReserve(token);
@@ -165,9 +179,10 @@ TEST_CASE("move-assigning a reservation releases its previous token unchanged",
     CHECK_FALSE(secondStore.IsAvailable());
 }
 
-TEST_CASE("exactly one concurrent TryReserve attempt succeeds", "[security][token_store]") {
-    // Uses a spin barrier to maximize actual thread overlap rather than a
-    // timing sleep to approximate concurrency.
+TEST_CASE("exactly one concurrent TryReserve attempt succeeds",
+          "[security][token_store]") {
+    //  Uses a spin barrier to maximize actual thread overlap rather than a
+    //  timing sleep to approximate concurrency.
     auto token = MakeToken(1);
     TokenStore store(token);
 

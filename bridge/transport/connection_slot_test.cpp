@@ -21,21 +21,24 @@ TEST_CASE("a fresh slot is not occupied", "[transport][connection_slot]") {
     CHECK_FALSE(slot.IsOccupied());
 }
 
-TEST_CASE("TryAcquire succeeds when the slot is free", "[transport][connection_slot]") {
+TEST_CASE("TryAcquire succeeds when the slot is free",
+          "[transport][connection_slot]") {
     ConnectionSlot slot;
     auto lease = slot.TryAcquire();
     CHECK(lease.has_value());
     CHECK(slot.IsOccupied());
 }
 
-TEST_CASE("TryAcquire fails while the slot is already occupied", "[transport][connection_slot]") {
+TEST_CASE("TryAcquire fails while the slot is already occupied",
+          "[transport][connection_slot]") {
     ConnectionSlot slot;
     auto lease = slot.TryAcquire();
     REQUIRE(lease.has_value());
     CHECK_FALSE(slot.TryAcquire().has_value());
 }
 
-TEST_CASE("destroying a lease frees the slot for a later TryAcquire", "[transport][connection_slot]") {
+TEST_CASE("destroying a lease frees the slot for a later TryAcquire",
+          "[transport][connection_slot]") {
     ConnectionSlot slot;
     auto lease = slot.TryAcquire();
     REQUIRE(lease.has_value());
@@ -44,7 +47,8 @@ TEST_CASE("destroying a lease frees the slot for a later TryAcquire", "[transpor
     CHECK(slot.TryAcquire().has_value());
 }
 
-TEST_CASE("moving a lease transfers ownership without releasing the slot", "[transport][connection_slot]") {
+TEST_CASE("moving a lease transfers ownership without releasing the slot",
+          "[transport][connection_slot]") {
     ConnectionSlot slot;
     auto lease = slot.TryAcquire();
     REQUIRE(lease.has_value());
@@ -60,7 +64,8 @@ TEST_CASE("moving a lease transfers ownership without releasing the slot", "[tra
     CHECK(slot.TryAcquire().has_value());
 }
 
-TEST_CASE("move-assigning a lease releases its previous slot", "[transport][connection_slot]") {
+TEST_CASE("move-assigning a lease releases its previous slot",
+          "[transport][connection_slot]") {
     ConnectionSlot firstSlot;
     ConnectionSlot secondSlot;
     auto firstLease = firstSlot.TryAcquire();
@@ -78,9 +83,10 @@ TEST_CASE("move-assigning a lease releases its previous slot", "[transport][conn
     CHECK_FALSE(secondSlot.IsOccupied());
 }
 
-TEST_CASE("exactly one concurrent TryAcquire attempt succeeds", "[transport][connection_slot]") {
-    // Uses a spin barrier to maximize actual thread overlap rather than a
-    // timing sleep to approximate concurrency.
+TEST_CASE("exactly one concurrent TryAcquire attempt succeeds",
+          "[transport][connection_slot]") {
+    //  Uses a spin barrier to maximize actual thread overlap rather than a
+    //  timing sleep to approximate concurrency.
     ConnectionSlot slot;
 
     constexpr int kAttempts = 16;

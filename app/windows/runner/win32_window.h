@@ -9,7 +9,7 @@
 
 /// A high-DPI-aware Win32 window base for custom rendering and input handling.
 class Win32Window {
- public:
+public:
   /// A logical window origin in screen coordinates.
   struct Point {
     /// The horizontal screen coordinate.
@@ -42,7 +42,7 @@ class Win32Window {
   virtual ~Win32Window();
 
   /// Creates an invisible window positioned and sized on the default monitor.
-  bool Create(const std::wstring& title, const Point& origin, const Size& size);
+  bool Create(const std::wstring &title, const Point &origin, const Size &size);
 
   /// Shows the current window and reports whether it was shown successfully.
   bool Show();
@@ -62,10 +62,9 @@ class Win32Window {
   /// Returns the bounds of the current client area.
   RECT GetClientArea();
 
- protected:
+protected:
   /// Routes window messages to the native window and subclasses.
-  virtual LRESULT MessageHandler(HWND window,
-                                 UINT const message,
+  virtual LRESULT MessageHandler(HWND window, UINT const message,
                                  WPARAM const wparam,
                                  LPARAM const lparam) noexcept;
 
@@ -75,17 +74,16 @@ class Win32Window {
   /// Performs subclass cleanup during destruction.
   virtual void OnDestroy();
 
- private:
+private:
   friend class WindowClassRegistrar;
 
   /// Dispatches OS callbacks to the associated Win32Window instance.
-  static LRESULT CALLBACK WndProc(HWND const window,
-                                  UINT const message,
+  static LRESULT CALLBACK WndProc(HWND const window, UINT const message,
                                   WPARAM const wparam,
                                   LPARAM const lparam) noexcept;
 
   /// Retrieves the Win32Window instance associated with the native window.
-  static Win32Window* GetThisFromHandle(HWND const window) noexcept;
+  static Win32Window *GetThisFromHandle(HWND const window) noexcept;
 
   /// Updates the window frame theme to match the system preference.
   static void UpdateTheme(HWND const window);
@@ -100,4 +98,4 @@ class Win32Window {
   HWND child_content_ = nullptr;
 };
 
-#endif  // RUNNER_WIN32_WINDOW_H_
+#endif // RUNNER_WIN32_WINDOW_H_

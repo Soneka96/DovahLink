@@ -13,14 +13,17 @@ namespace dovahlink::protocol {
 
 namespace {
 
-/// Encodes an optional string as its value or JSON `null`, never omitted.
-/// Used for envelope fields that are always present once emitted at all.
-boost::json::value EncodeNullableString(const std::optional<std::string>& value) {
-    return value.has_value() ? boost::json::value(*value) : boost::json::value(nullptr);
+///  Encodes an optional string as its value or JSON `null`, never omitted.
+///  Used for envelope fields that are always present once emitted at all.
+boost::json::value
+EncodeNullableString(const std::optional<std::string>& value) {
+    return value.has_value() ? boost::json::value(*value)
+                             : boost::json::value(nullptr);
 }
 
-}
-std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& message) {
+} //  namespace
+std::expected<Envelope, EnvelopeError>
+DecodeEnvelope(const boost::json::value& message) {
     if (!message.is_object()) {
         return Fail("envelope must be a JSON object");
     }
@@ -29,14 +32,18 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
     const boost::json::value* messageTypeValue = obj.if_contains("messageType");
     const boost::json::value* messageIdValue = obj.if_contains("messageId");
     const boost::json::value* sessionIdValue = obj.if_contains("sessionId");
-    const boost::json::value* correlationIdValue = obj.if_contains("correlationId");
+    const boost::json::value* correlationIdValue =
+        obj.if_contains("correlationId");
     const boost::json::value* payloadValue = obj.if_contains("payload");
-    const boost::json::value* bridgeInstanceIdValue = obj.if_contains("bridgeInstanceId");
-    const boost::json::value* playContextIdValue = obj.if_contains("playContextId");
+    const boost::json::value* bridgeInstanceIdValue =
+        obj.if_contains("bridgeInstanceId");
+    const boost::json::value* playContextIdValue =
+        obj.if_contains("playContextId");
     const boost::json::value* clientIdValue = obj.if_contains("clientId");
 
-    if (!messageTypeValue || !messageIdValue || !sessionIdValue || !correlationIdValue || !payloadValue ||
-        !bridgeInstanceIdValue || !playContextIdValue || !clientIdValue) {
+    if (!messageTypeValue || !messageIdValue || !sessionIdValue ||
+        !correlationIdValue || !payloadValue || !bridgeInstanceIdValue ||
+        !playContextIdValue || !clientIdValue) {
         return Fail("missing required envelope field");
     }
 
@@ -60,8 +67,8 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         return Fail("correlationId must be a string or null");
     }
 
-    // sessionId is null only for hello, and may be null for an error that rejects a
-    // connection before a session exists (protocol/schema/README.md).
+    //  sessionId is null only for hello, and may be null for an error that rejects
+    //  a connection before a session exists (protocol/schema/README.md).
     std::optional<std::string> sessionId;
     if (*messageType == "hello") {
         if (!sessionIdValue->is_null()) {
@@ -78,7 +85,8 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         }
     } else {
         if (!sessionIdValue->is_string() || sessionIdValue->get_string().empty()) {
-            return Fail("sessionId must be a non-empty string for '" + *messageType + "'");
+            return Fail("sessionId must be a non-empty string for '" + *messageType +
+                        "'");
         }
         sessionId = std::string(sessionIdValue->get_string());
     }
@@ -87,13 +95,15 @@ std::expected<Envelope, EnvelopeError> DecodeEnvelope(const boost::json::value& 
         return Fail("payload must be an object");
     }
 
-    // The key is now required (checked above); the value itself is still
-    // nullable, the same shape sessionId and correlationId already use.
-    auto bridgeInstanceId = DecodeOptionalString(bridgeInstanceIdValue, "bridgeInstanceId");
+    //  The key is now required (checked above); the value itself is still
+    //  nullable, the same shape sessionId and correlationId already use.
+    auto bridgeInstanceId =
+        DecodeOptionalString(bridgeInstanceIdValue, "bridgeInstanceId");
     if (!bridgeInstanceId) {
         return std::unexpected(bridgeInstanceId.error());
     }
-    auto playContextId = DecodeOptionalString(playContextIdValue, "playContextId");
+    auto playContextId =
+        DecodeOptionalString(playContextIdValue, "playContextId");
     if (!playContextId) {
         return std::unexpected(playContextId.error());
     }
@@ -118,22 +128,25 @@ std::string EncodeEnvelope(const Envelope& envelope) {
     boost::json::object obj;
     obj["messageType"] = envelope.messageType;
     obj["messageId"] = envelope.messageId;
-    obj["sessionId"] =
-        envelope.sessionId.has_value() ? boost::json::value(*envelope.sessionId) : boost::json::value(nullptr);
-    obj["correlationId"] = envelope.correlationId.has_value() ? boost::json::value(*envelope.correlationId)
-                                                                : boost::json::value(nullptr);
+    obj["sessionId"] = envelope.sessionId.has_value()
+                           ? boost::json::value(*envelope.sessionId)
+                           : boost::json::value(nullptr);
+    obj["correlationId"] = envelope.correlationId.has_value()
+                               ? boost::json::value(*envelope.correlationId)
+                               : boost::json::value(nullptr);
     obj["payload"] = envelope.payload;
-    // Always emitted as a value or `null`, per protocol/schema/README.md --
-    // no version gate left to condition this on.
+    //  Always emitted as a value or `null`, per protocol/schema/README.md --
+    //  no version gate left to condition this on.
     obj["bridgeInstanceId"] = EncodeNullableString(envelope.bridgeInstanceId);
     obj["playContextId"] = EncodeNullableString(envelope.playContextId);
     obj["clientId"] = EncodeNullableString(envelope.clientId);
     return boost::json::serialize(obj);
 }
 
-std::optional<Envelope> BuildEnvelope(std::string messageType, std::optional<std::string> sessionId,
-                                       std::optional<std::string> correlationId,
-                                       boost::json::object payload) {
+std::optional<Envelope> BuildEnvelope(std::string messageType,
+                                      std::optional<std::string> sessionId,
+                                      std::optional<std::string> correlationId,
+                                      boost::json::object payload) {
     auto messageId = security::GenerateOpaqueId();
     if (!messageId.has_value()) {
         return std::nullopt;
@@ -147,4 +160,4 @@ std::optional<Envelope> BuildEnvelope(std::string messageType, std::optional<std
     };
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

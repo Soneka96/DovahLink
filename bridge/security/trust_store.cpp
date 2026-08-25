@@ -16,7 +16,8 @@ namespace dovahlink::security {
 
 namespace {
 
-/// Overwrites a byte buffer without performing a potentially throwing reallocation.
+///  Overwrites a byte buffer without performing a potentially throwing
+///  reallocation.
 void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
     if (!buffer.empty()) {
         SecureZeroMemory(buffer.data(), buffer.size());
@@ -24,21 +25,24 @@ void SecureClear(std::vector<std::uint8_t>& buffer) noexcept {
     buffer.clear();
 }
 
-/// Overwrites every device's credential in a whole-map rollback copy that a successful mutation no
-/// longer needs. A copy taken only to restore `devices_` on a `Save` failure still holds whatever
-/// credential bytes the live map held at that moment; once the mutation succeeds and the copy is
-/// discarded instead, those bytes must not linger un-zeroed in memory until the copy's backing
-/// allocation happens to be reused.
-void SecureClearDevices(std::unordered_map<std::string, KnownDeviceRecord>& devices) noexcept {
+///  Overwrites every device's credential in a whole-map rollback copy that a
+///  successful mutation no longer needs. A copy taken only to restore `devices_`
+///  on a `Save` failure still holds whatever credential bytes the live map held
+///  at that moment; once the mutation succeeds and the copy is discarded
+///  instead, those bytes must not linger un-zeroed in memory until the copy's
+///  backing allocation happens to be reused.
+void SecureClearDevices(
+    std::unordered_map<std::string, KnownDeviceRecord>& devices) noexcept {
     for (auto& [clientId, device] : devices) {
         SecureClear(device.credential);
     }
 }
 
-}  // namespace
+} //  namespace
 
-TrustStore::TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator shortIdGenerator,
-                        TrustStoreSnapshot snapshot, bool wasCorruptOnLoad)
+TrustStore::TrustStore(ITrustStorePersistence& persistence,
+                       ShortIdGenerator shortIdGenerator,
+                       TrustStoreSnapshot snapshot, bool wasCorruptOnLoad)
     : persistence_(&persistence),
       shortIdGenerator_(std::move(shortIdGenerator)),
       wasCorruptOnLoad_(wasCorruptOnLoad) {
@@ -49,14 +53,16 @@ TrustStore::TrustStore(ITrustStorePersistence& persistence, ShortIdGenerator sho
 }
 
 TrustStore TrustStore::Load(ITrustStorePersistence& persistence,
-                             ShortIdGenerator shortIdGenerator) {
+                            ShortIdGenerator shortIdGenerator) {
     auto snapshot = persistence.Load();
     if (!snapshot.has_value()) {
-        return TrustStore(persistence, std::move(shortIdGenerator), TrustStoreSnapshot{},
-                           /*wasCorruptOnLoad=*/true);
+        return TrustStore(persistence, std::move(shortIdGenerator),
+                          TrustStoreSnapshot{},
+                          /*wasCorruptOnLoad=*/true);
     }
-    return TrustStore(persistence, std::move(shortIdGenerator), std::move(*snapshot),
-                       /*wasCorruptOnLoad=*/false);
+    return TrustStore(persistence, std::move(shortIdGenerator),
+                      std::move(*snapshot),
+                      /*wasCorruptOnLoad=*/false);
 }
 
 std::optional<std::string> TrustStore::DefaultShortIdGenerator() {
@@ -66,7 +72,8 @@ std::optional<std::string> TrustStore::DefaultShortIdGenerator() {
 
 bool TrustStore::WasCorruptOnLoad() const noexcept { return wasCorruptOnLoad_; }
 
-std::optional<KnownDeviceRecord> TrustStore::Query(const std::string& clientId) {
+std::optional<KnownDeviceRecord>
+TrustStore::Query(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = devices_.find(clientId);
     if (it == devices_.end() || it->second.state != KnownDeviceState::kTrusted) {
@@ -108,7 +115,8 @@ bool TrustStore::IsBlocked(const std::string& clientId) {
     return it != devices_.end() && it->second.state == KnownDeviceState::kBlocked;
 }
 
-std::optional<KnownDeviceRecord> TrustStore::FindByShortId(std::string_view shortId) {
+std::optional<KnownDeviceRecord>
+TrustStore::FindByShortId(std::string_view shortId) {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& [clientId, device] : devices_) {
         if (device.shortId == shortId) {
@@ -118,8 +126,9 @@ std::optional<KnownDeviceRecord> TrustStore::FindByShortId(std::string_view shor
     return std::nullopt;
 }
 
-bool TrustStore::Authenticate(const std::string& clientId,
-                               const std::vector<std::uint8_t>& presentedCredential) {
+bool TrustStore::Authenticate(
+    const std::string& clientId,
+    const std::vector<std::uint8_t>& presentedCredential) {
     if (presentedCredential.empty()) {
         return false;
     }
@@ -144,7 +153,8 @@ bool TrustStore::IsValidDisplayName(const std::string& displayName) {
 }
 
 std::optional<std::string> TrustStore::GenerateUniqueShortId() {
-    for (std::size_t attempt = 0; attempt < kMaxShortIdGenerationAttempts; ++attempt) {
+    for (std::size_t attempt = 0; attempt < kMaxShortIdGenerationAttempts;
+         ++attempt) {
         auto candidate = shortIdGenerator_();
         if (!candidate.has_value()) {
             return std::nullopt;
@@ -172,9 +182,9 @@ TrustStoreSnapshot TrustStore::BuildSnapshot() const {
     return snapshot;
 }
 
-std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
-                                                      std::vector<std::uint8_t> credential,
-                                                      std::optional<std::string> displayName) {
+std::optional<KnownDeviceRecord>
+TrustStore::Persist(std::string clientId, std::vector<std::uint8_t> credential,
+                    std::optional<std::string> displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (clientId.empty() || credential.empty()) {
         return std::nullopt;
@@ -183,12 +193,14 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
         return std::nullopt;
     }
 
-    // A known device (in any prior state) keeps its shortId and createdAt for the lifetime of its
-    // record; only a genuinely new clientId mints fresh ones. A kBlocked device is the one prior
-    // state that must not be able to re-pair straight to kTrusted -- it requires an explicit
-    // Unblock first, per enums.hpp's KnownDeviceState::kBlocked contract.
+    //  A known device (in any prior state) keeps its shortId and createdAt for the
+    //  lifetime of its record; only a genuinely new clientId mints fresh ones. A
+    //  kBlocked device is the one prior state that must not be able to re-pair
+    //  straight to kTrusted -- it requires an explicit Unblock first, per
+    //  enums.hpp's KnownDeviceState::kBlocked contract.
     auto existing = devices_.find(clientId);
-    if (existing != devices_.end() && existing->second.state == KnownDeviceState::kBlocked) {
+    if (existing != devices_.end() &&
+        existing->second.state == KnownDeviceState::kBlocked) {
         return std::nullopt;
     }
     std::string shortId;
@@ -196,8 +208,9 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
     if (existing != devices_.end()) {
         shortId = existing->second.shortId;
         createdAt = existing->second.createdAt;
-        // An omitted displayName (std::nullopt) preserves whatever the record already held on
-        // re-pair; a supplied value -- including an explicit empty string -- always replaces it.
+        //  An omitted displayName (std::nullopt) preserves whatever the record
+        //  already held on re-pair; a supplied value -- including an explicit empty
+        //  string -- always replaces it.
         if (!displayName.has_value()) {
             displayName = existing->second.displayName;
         }
@@ -210,18 +223,19 @@ std::optional<KnownDeviceRecord> TrustStore::Persist(std::string clientId,
         createdAt = std::chrono::system_clock::now();
     }
 
-    // An explicit empty string clears the name -- stored as std::nullopt, never an empty string, so
-    // "no display name" stays one canonical representation, matching Rename's own normalization.
+    //  An explicit empty string clears the name -- stored as std::nullopt, never
+    //  an empty string, so "no display name" stays one canonical representation,
+    //  matching Rename's own normalization.
     if (displayName.has_value() && displayName->empty()) {
         displayName.reset();
     }
 
     KnownDeviceRecord device{.clientId = clientId,
-                              .credential = std::move(credential),
-                              .shortId = std::move(shortId),
-                              .displayName = std::move(displayName),
-                              .state = KnownDeviceState::kTrusted,
-                              .createdAt = createdAt};
+                             .credential = std::move(credential),
+                             .shortId = std::move(shortId),
+                             .displayName = std::move(displayName),
+                             .state = KnownDeviceState::kTrusted,
+                             .createdAt = createdAt};
 
     auto previousDevices = devices_;
     auto it = devices_.insert_or_assign(clientId, std::move(device)).first;
@@ -238,8 +252,9 @@ bool TrustStore::Revoke(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = devices_.find(clientId);
     if (it == devices_.end() || it->second.state != KnownDeviceState::kTrusted) {
-        // Unknown, or already not trusted: nothing to change. Only a clientId that was actually
-        // trusted transitions to a durable Revoked record (see IsRevoked).
+        //  Unknown, or already not trusted: nothing to change. Only a clientId that
+        //  was actually trusted transitions to a durable Revoked record (see
+        //  IsRevoked).
         return true;
     }
 
@@ -264,8 +279,10 @@ BlockOutcome TrustStore::Block(const std::string& clientId) {
     if (it->second.state == KnownDeviceState::kBlocked) {
         return BlockOutcome::kAlreadyBlocked;
     }
-    if (it->second.state != KnownDeviceState::kTrusted && it->second.state != KnownDeviceState::kRevoked) {
-        // Only kUnpaired remains, per the four-state model; not eligible for blocking in this phase.
+    if (it->second.state != KnownDeviceState::kTrusted &&
+        it->second.state != KnownDeviceState::kRevoked) {
+        //  Only kUnpaired remains, per the four-state model; not eligible for
+        //  blocking in this phase.
         return BlockOutcome::kNotEligible;
     }
 
@@ -324,7 +341,8 @@ ForgetOutcome TrustStore::Forget(const std::string& clientId) {
     if (it == devices_.end()) {
         return ForgetOutcome::kNotFound;
     }
-    if (it->second.state != KnownDeviceState::kRevoked && it->second.state != KnownDeviceState::kUnpaired) {
+    if (it->second.state != KnownDeviceState::kRevoked &&
+        it->second.state != KnownDeviceState::kUnpaired) {
         return ForgetOutcome::kNotEligible;
     }
 
@@ -339,7 +357,8 @@ ForgetOutcome TrustStore::Forget(const std::string& clientId) {
     return ForgetOutcome::kForgotten;
 }
 
-RenameOutcome TrustStore::Rename(const std::string& clientId, std::string displayName) {
+RenameOutcome TrustStore::Rename(const std::string& clientId,
+                                 std::string displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = devices_.find(clientId);
     if (it == devices_.end()) {
@@ -353,7 +372,9 @@ RenameOutcome TrustStore::Rename(const std::string& clientId, std::string displa
     }
 
     auto previousDevice = it->second;
-    it->second.displayName = displayName.empty() ? std::nullopt : std::optional(std::move(displayName));
+    it->second.displayName = displayName.empty()
+                                 ? std::nullopt
+                                 : std::optional(std::move(displayName));
 
     if (!persistence_->Save(BuildSnapshot())) {
         it->second = std::move(previousDevice);
@@ -380,4 +401,4 @@ bool TrustStore::ResetTrust() {
     return true;
 }
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

@@ -6,18 +6,21 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_r
 /// Exercises PairingRetryButton rendering and interaction.
 void main() {
   group('PairingRetryButton', () {
-    testWidgets('renders the retry label keyed pairing-retry-button', (
+    testWidgets(
+      'PairingRetryButton renders the retry label keyed pairing-retry-button',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(home: PairingRetryButton(onRetry: () {})),
+        );
+
+        expect(find.text('Try Again'), findsOneWidget);
+        expect(find.byKey(const Key('pairing-retry-button')), findsOneWidget);
+      },
+    );
+
+    testWidgets('PairingRetryButton calls onRetry when tapped', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        MaterialApp(home: PairingRetryButton(onRetry: () {})),
-      );
-
-      expect(find.text('Try Again'), findsOneWidget);
-      expect(find.byKey(const Key('pairing-retry-button')), findsOneWidget);
-    });
-
-    testWidgets('calls onRetry when tapped', (WidgetTester tester) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(home: PairingRetryButton(onRetry: () => callCount++)),
@@ -30,7 +33,7 @@ void main() {
     });
 
     testWidgets(
-      'labels the button and meets its minimum interactive size',
+      'PairingRetryButton labels the button and meets its minimum interactive size',
       (WidgetTester tester) async {
         // See the equivalent check on PairingRequestCodeButton for why this
         // checks labeledTapTargetGuideline + kMinInteractiveDimension
@@ -41,10 +44,7 @@ void main() {
             MaterialApp(home: PairingRetryButton(onRetry: () {})),
           );
 
-          await expectLater(
-            tester,
-            meetsGuideline(labeledTapTargetGuideline),
-          );
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
           final Size buttonSize = tester.getSize(
             find.byKey(const Key('pairing-retry-button')),
           );

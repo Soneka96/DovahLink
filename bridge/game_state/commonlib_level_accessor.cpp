@@ -12,4 +12,4 @@ std::optional<std::int64_t> CommonLibLevelAccessor::ReadLevel() const {
     return static_cast<std::int64_t>(player->GetLevel());
 }
 
-}  // namespace dovahlink::game_state
+} //  namespace dovahlink::game_state

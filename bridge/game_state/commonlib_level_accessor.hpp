@@ -4,11 +4,11 @@
 
 namespace dovahlink::game_state {
 
-/// Reads the current player's level through the CommonLib runtime API.
+///  Reads the current player's level through the CommonLib runtime API.
 class CommonLibLevelAccessor : public LevelAccessor {
-public:
-    /// @copydoc LevelAccessor::ReadLevel
+  public:
+    ///  @copydoc LevelAccessor::ReadLevel
     [[nodiscard]] std::optional<std::int64_t> ReadLevel() const override;
 };
 
-}  // namespace dovahlink::game_state
+} //  namespace dovahlink::game_state

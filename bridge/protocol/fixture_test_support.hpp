@@ -13,13 +13,14 @@
 #include <utility>
 #include <vector>
 
-// Test-only helpers for loading canonical protocol fixtures from the configured
-// fixture directory.
+//  Test-only helpers for loading canonical protocol fixtures from the configured
+//  fixture directory.
 namespace dovahlink::protocol::test_support {
 
-/// Reads a protocol fixture file as its complete binary contents.
+///  Reads a protocol fixture file as its complete binary contents.
 inline std::string ReadFixture(const std::string& relativePath) {
-    std::filesystem::path path = std::filesystem::path(DOVAHLINK_FIXTURES_DIR) / relativePath;
+    std::filesystem::path path =
+        std::filesystem::path(DOVAHLINK_FIXTURES_DIR) / relativePath;
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.is_open());
     std::ostringstream buffer;
@@ -27,7 +28,7 @@ inline std::string ReadFixture(const std::string& relativePath) {
     return buffer.str();
 }
 
-/// Reads and decodes a protocol envelope fixture.
+///  Reads and decodes a protocol envelope fixture.
 inline Envelope DecodeFixtureEnvelope(const std::string& relativePath) {
     auto parsed = ParseBoundedJson(ReadFixture(relativePath));
     REQUIRE(parsed.has_value());
@@ -36,18 +37,21 @@ inline Envelope DecodeFixtureEnvelope(const std::string& relativePath) {
     return std::move(*envelope);
 }
 
-/// Returns every JSON fixture path below the configured fixture directory in
-/// deterministic order.
+///  Returns every JSON fixture path below the configured fixture directory in
+///  deterministic order.
 inline std::vector<std::string> DiscoverFixturePaths() {
     const std::filesystem::path fixtureRoot(DOVAHLINK_FIXTURES_DIR);
     std::vector<std::string> fixturePaths;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(fixtureRoot)) {
+    for (const auto& entry :
+         std::filesystem::recursive_directory_iterator(fixtureRoot)) {
         if (entry.is_regular_file() && entry.path().extension() == ".json") {
-            fixturePaths.push_back(std::filesystem::relative(entry.path(), fixtureRoot).generic_string());
+            fixturePaths.push_back(
+                std::filesystem::relative(entry.path(), fixtureRoot)
+                    .generic_string());
         }
     }
     std::ranges::sort(fixturePaths);
     return fixturePaths;
 }
 
-}  // namespace dovahlink::protocol::test_support
+} //  namespace dovahlink::protocol::test_support

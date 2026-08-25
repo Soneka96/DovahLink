@@ -9,4 +9,4 @@ std::string FormatTimestamp(std::chrono::system_clock::time_point time) {
     return std::format("{:%Y-%m-%dT%H:%M:%S}Z", truncated);
 }
 
-}  // namespace dovahlink::application
+} //  namespace dovahlink::application

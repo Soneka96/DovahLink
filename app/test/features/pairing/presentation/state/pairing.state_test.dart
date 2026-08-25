@@ -7,21 +7,26 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 /// Exercises pairing-state initialization and copying.
 void main() {
   group('PairingState — initial', () {
-    test('creates a state with no phase, bridge version, error, or timing values', () {
-      final PairingState state = PairingState.initial();
+    test(
+      'creates a state with no phase, bridge version, error, or timing values',
+      () {
+        final PairingState state = PairingState.initial();
 
-      expect(state.phase, PairingPhase.none);
-      expect(state.bridgeVersion, isNull);
-      expect(state.error, isNull);
-      expect(state.codeExpiresAt, isNull);
-      expect(state.renotifyAvailableAt, isNull);
-    });
+        expect(state.phase, PairingPhase.none);
+        expect(state.bridgeVersion, isNull);
+        expect(state.error, isNull);
+        expect(state.codeExpiresAt, isNull);
+        expect(state.renotifyAvailableAt, isNull);
+      },
+    );
   });
 
   group('PairingState — direct constructor', () {
     test('creates a state with all fields including DateTime values', () {
       final DateTime expiresAt = DateTime.now();
-      final DateTime availableAt = DateTime.now().add(const Duration(seconds: 5));
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
 
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
@@ -71,7 +76,9 @@ void main() {
     });
 
     test('sets and updates code expiration time', () {
-      final DateTime expiresAt = DateTime.now().add(const Duration(seconds: 30));
+      final DateTime expiresAt = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
       final PairingState state = PairingState.initial();
 
       final PairingState result = state.copyWith(
@@ -83,7 +90,9 @@ void main() {
     });
 
     test('clears code expiration time explicitly', () {
-      final DateTime expiresAt = DateTime.now().add(const Duration(seconds: 30));
+      final DateTime expiresAt = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
         bridgeVersion: '1.2.3',
@@ -92,15 +101,15 @@ void main() {
         renotifyAvailableAt: null,
       );
 
-      final PairingState result = state.copyWith(
-        codeExpiresAt: const None(),
-      );
+      final PairingState result = state.copyWith(codeExpiresAt: const None());
 
       expect(result.codeExpiresAt, isNull);
     });
 
     test('sets and updates renotify availability time', () {
-      final DateTime availableAt = DateTime.now().add(const Duration(seconds: 5));
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
       final PairingState state = PairingState.initial();
 
       final PairingState result = state.copyWith(
@@ -112,7 +121,9 @@ void main() {
     });
 
     test('clears renotify availability time explicitly', () {
-      final DateTime availableAt = DateTime.now().add(const Duration(seconds: 5));
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
         bridgeVersion: '1.2.3',
@@ -129,8 +140,12 @@ void main() {
     });
 
     test('updates both timing fields together', () {
-      final DateTime expiresAt = DateTime.now().add(const Duration(seconds: 30));
-      final DateTime availableAt = DateTime.now().add(const Duration(seconds: 5));
+      final DateTime expiresAt = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
       final PairingState state = PairingState.initial();
 
       final PairingState result = state.copyWith(
@@ -143,8 +158,12 @@ void main() {
     });
 
     test('preserves timing fields when updating other fields', () {
-      final DateTime expiresAt = DateTime.now().add(const Duration(seconds: 30));
-      final DateTime availableAt = DateTime.now().add(const Duration(seconds: 5));
+      final DateTime expiresAt = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
+      final DateTime availableAt = DateTime.now().add(
+        const Duration(seconds: 5),
+      );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
         bridgeVersion: '1.2.3',
@@ -165,7 +184,9 @@ void main() {
     });
 
     test('updates phase and clears error while preserving timing fields', () {
-      final DateTime expiresAt = DateTime.now().add(const Duration(seconds: 30));
+      final DateTime expiresAt = DateTime.now().add(
+        const Duration(seconds: 30),
+      );
       final PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
         bridgeVersion: '1.2.3',

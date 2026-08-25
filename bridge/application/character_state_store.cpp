@@ -12,4 +12,4 @@ CharacterSnapshot CharacterStateStore::CurrentCharacterSnapshot() const {
     return snapshot_;
 }
 
-}  // namespace dovahlink::application
+} //  namespace dovahlink::application

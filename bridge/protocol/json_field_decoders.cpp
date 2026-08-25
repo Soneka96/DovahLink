@@ -11,12 +11,14 @@ std::unexpected<DecodeError> Fail(std::string reason) {
     return std::unexpected(DecodeError{std::move(reason)});
 }
 
-const boost::json::value* RequireField(const boost::json::object& obj, std::string_view key) {
+const boost::json::value* RequireField(const boost::json::object& obj,
+                                       std::string_view key) {
     return obj.if_contains(key);
 }
 
-std::expected<std::string, DecodeError> DecodeNonEmptyString(const boost::json::value* value,
-                                                               std::string_view fieldName) {
+std::expected<std::string, DecodeError>
+DecodeNonEmptyString(const boost::json::value* value,
+                     std::string_view fieldName) {
     if (!value) {
         return Fail("missing required field: " + std::string(fieldName));
     }
@@ -26,8 +28,8 @@ std::expected<std::string, DecodeError> DecodeNonEmptyString(const boost::json::
     return std::string(value->get_string());
 }
 
-std::expected<std::string, DecodeError> DecodeString(const boost::json::value* value,
-                                                       std::string_view fieldName) {
+std::expected<std::string, DecodeError>
+DecodeString(const boost::json::value* value, std::string_view fieldName) {
     if (!value) {
         return Fail("missing required field: " + std::string(fieldName));
     }
@@ -37,8 +39,9 @@ std::expected<std::string, DecodeError> DecodeString(const boost::json::value* v
     return std::string(value->get_string());
 }
 
-std::expected<std::int64_t, DecodeError> DecodeNonNegativeInt(const boost::json::value* value,
-                                                                std::string_view fieldName) {
+std::expected<std::int64_t, DecodeError>
+DecodeNonNegativeInt(const boost::json::value* value,
+                     std::string_view fieldName) {
     if (!value) {
         return Fail("missing required field: " + std::string(fieldName));
     }
@@ -49,7 +52,8 @@ std::expected<std::int64_t, DecodeError> DecodeNonNegativeInt(const boost::json:
     std::int64_t result = 0;
     if (value->is_uint64()) {
         std::uint64_t asUint = value->get_uint64();
-        if (asUint > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+        if (asUint >
+            static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
             return Fail(std::string(fieldName) + " is out of range");
         }
         result = static_cast<std::int64_t>(asUint);
@@ -63,8 +67,9 @@ std::expected<std::int64_t, DecodeError> DecodeNonNegativeInt(const boost::json:
     return result;
 }
 
-std::expected<std::optional<std::string>, DecodeError> DecodeOptionalString(const boost::json::value* value,
-                                                                             std::string_view fieldName) {
+std::expected<std::optional<std::string>, DecodeError>
+DecodeOptionalString(const boost::json::value* value,
+                     std::string_view fieldName) {
     if (!value || value->is_null()) {
         return std::optional<std::string>{};
     }
@@ -74,8 +79,9 @@ std::expected<std::optional<std::string>, DecodeError> DecodeOptionalString(cons
     return std::optional<std::string>(std::string(value->get_string()));
 }
 
-std::expected<std::optional<std::int64_t>, DecodeError> DecodeOptionalNonNegativeInt(
-    const boost::json::value* value, std::string_view fieldName) {
+std::expected<std::optional<std::int64_t>, DecodeError>
+DecodeOptionalNonNegativeInt(const boost::json::value* value,
+                             std::string_view fieldName) {
     if (!value || value->is_null()) {
         return std::optional<std::int64_t>{};
     }
@@ -86,8 +92,8 @@ std::expected<std::optional<std::int64_t>, DecodeError> DecodeOptionalNonNegativ
     return std::optional<std::int64_t>(*decoded);
 }
 
-std::expected<std::vector<std::string>, DecodeError> DecodeStringArray(const boost::json::value* value,
-                                                                        std::string_view fieldName) {
+std::expected<std::vector<std::string>, DecodeError>
+DecodeStringArray(const boost::json::value* value, std::string_view fieldName) {
     if (!value) {
         return Fail("missing required field: " + std::string(fieldName));
     }
@@ -105,4 +111,4 @@ std::expected<std::vector<std::string>, DecodeError> DecodeStringArray(const boo
     return result;
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

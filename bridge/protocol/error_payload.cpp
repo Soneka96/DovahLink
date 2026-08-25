@@ -7,12 +7,14 @@
 
 namespace dovahlink::protocol {
 
-std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::object& payload) {
+std::expected<ErrorPayload, MessageError>
+DecodeErrorPayload(const boost::json::object& payload) {
     auto code = DecodeNonEmptyString(RequireField(payload, "code"), "code");
     if (!code) {
         return std::unexpected(code.error());
     }
-    auto message = DecodeNonEmptyString(RequireField(payload, "message"), "message");
+    auto message =
+        DecodeNonEmptyString(RequireField(payload, "message"), "message");
     if (!message) {
         return std::unexpected(message.error());
     }
@@ -23,7 +25,8 @@ std::expected<ErrorPayload, MessageError> DecodeErrorPayload(const boost::json::
     }
 
     std::optional<boost::json::value> details;
-    if (const boost::json::value* detailsValue = RequireField(payload, "details")) {
+    if (const boost::json::value* detailsValue =
+            RequireField(payload, "details")) {
         if (!detailsValue->is_null()) {
             details = *detailsValue;
         }
@@ -42,26 +45,31 @@ boost::json::object EncodeErrorPayload(const ErrorPayload& payload) {
     obj["code"] = payload.code;
     obj["message"] = payload.message;
     obj["retryable"] = payload.retryable;
-    obj["details"] = payload.details.has_value() ? *payload.details : boost::json::value(nullptr);
+    obj["details"] = payload.details.has_value() ? *payload.details
+                                                 : boost::json::value(nullptr);
     return obj;
 }
 
-Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::optional<std::string> sessionId,
-                             std::string code, std::string message, bool retryable) {
+Envelope BuildErrorEnvelope(std::optional<std::string> correlationId,
+                            std::optional<std::string> sessionId,
+                            std::string code, std::string message,
+                            bool retryable) {
     boost::json::object payload = EncodeErrorPayload(ErrorPayload{
         .code = std::move(code),
         .message = std::move(message),
         .retryable = retryable,
         .details = std::nullopt,
     });
-    auto envelope = BuildEnvelope(std::string(message_type::kError), sessionId, correlationId, payload);
+    auto envelope = BuildEnvelope(std::string(message_type::kError), sessionId,
+                                  correlationId, payload);
     if (envelope.has_value()) {
         return std::move(*envelope);
     }
-    // GenerateOpaqueId failed inside BuildEnvelope -- unreachable in practice (security/csprng.hpp).
-    // A fixed, non-random messageId here is the one place this function cannot honor the
-    // "cryptographically random messageId" requirement, since the same broken primitive would fail
-    // identically on any retry.
+    //  GenerateOpaqueId failed inside BuildEnvelope -- unreachable in practice
+    //  (security/csprng.hpp). A fixed, non-random messageId here is the one place
+    //  this function cannot honor the "cryptographically random messageId"
+    //  requirement, since the same broken primitive would fail identically on any
+    //  retry.
     return Envelope{
         .messageType = std::string(message_type::kError),
         .messageId = "csprng-unavailable",
@@ -71,4 +79,4 @@ Envelope BuildErrorEnvelope(std::optional<std::string> correlationId, std::optio
     };
 }
 
-}  // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

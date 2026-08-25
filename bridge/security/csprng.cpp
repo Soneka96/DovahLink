@@ -17,8 +17,9 @@ std::optional<std::vector<std::uint8_t>> GenerateRandomBytes(std::size_t size) {
         return buffer;
     }
 
-    NTSTATUS status = BCryptGenRandom(nullptr, buffer.data(), static_cast<ULONG>(size),
-                                       BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    NTSTATUS status =
+        BCryptGenRandom(nullptr, buffer.data(), static_cast<ULONG>(size),
+                        BCRYPT_USE_SYSTEM_PREFERRED_RNG);
     if (!BCRYPT_SUCCESS(status)) {
         return std::nullopt;
     }
@@ -46,11 +47,12 @@ std::optional<std::string> GenerateNumericCode(std::size_t digits) {
         value = (value << 8) | byte;
     }
 
-    // Known limitation: value % range is mildly non-uniform (low residues occur one extra time each
-    // once range doesn't evenly divide 2^32) -- irrelevant at this usage scale: current callers
-    // only request 5-6 digit administrative/UX codes, brute-force-limited by throttling rather than
-    // relying on perfect distribution. Revisit with rejection sampling if a caller ever needs a
-    // uniformity guarantee.
+    //  Known limitation: value % range is mildly non-uniform (low residues occur
+    //  one extra time each once range doesn't evenly divide 2^32) -- irrelevant at
+    //  this usage scale: current callers only request 5-6 digit administrative/UX
+    //  codes, brute-force-limited by throttling rather than relying on perfect
+    //  distribution. Revisit with rejection sampling if a caller ever needs a
+    //  uniformity guarantee.
     std::uint32_t range = 1;
     for (std::size_t i = 0; i < digits; ++i) {
         range *= 10;
@@ -58,4 +60,4 @@ std::optional<std::string> GenerateNumericCode(std::size_t digits) {
     return std::format("{:0{}}", value % range, digits);
 }
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

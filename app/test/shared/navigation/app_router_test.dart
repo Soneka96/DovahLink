@@ -16,7 +16,7 @@ void main() {
   setUp(initDependencies);
 
   group('createRouter', () {
-    testWidgets('resolves the home route to BridgeListScreen', (
+    testWidgets('createRouter resolves the home route to BridgeListScreen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -30,7 +30,7 @@ void main() {
       expect(find.byType(PairingScreen), findsNothing);
     });
 
-    testWidgets('resolves the pairing route to PairingScreen', (
+    testWidgets('createRouter resolves the pairing route to PairingScreen', (
       WidgetTester tester,
     ) async {
       final GoRouter router = createRouter();
@@ -54,7 +54,7 @@ void main() {
     });
 
     testWidgets(
-      'an unmatched path falls back safely instead of resolving a known screen',
+      'createRouter falls back safely for an unmatched path instead of resolving a known screen',
       (WidgetTester tester) async {
         final GoRouter router = createRouter();
         await tester.pumpWidget(

@@ -9,7 +9,7 @@ namespace dovahlink::application {
 
 namespace {
 
-/// Returns `text` with leading and trailing ASCII whitespace removed.
+///  Returns `text` with leading and trailing ASCII whitespace removed.
 std::string_view Trim(std::string_view text) {
     const auto first = text.find_first_not_of(" \t\r\n");
     if (first == std::string_view::npos) {
@@ -19,10 +19,11 @@ std::string_view Trim(std::string_view text) {
     return text.substr(first, last - first + 1);
 }
 
-/// Applies one parsed `key=value` pair to `config` if it matches a known
-/// compatibility key with a valid `0`/`1` value; otherwise leaves `config`
-/// unchanged for that key.
-void ApplyKey(std::string_view key, std::string_view value, GameBehaviorConfig& config) {
+///  Applies one parsed `key=value` pair to `config` if it matches a known
+///  compatibility key with a valid `0`/`1` value; otherwise leaves `config`
+///  unchanged for that key.
+void ApplyKey(std::string_view key, std::string_view value,
+              GameBehaviorConfig& config) {
     std::optional<bool> parsed;
     if (value == "1") {
         parsed = true;
@@ -39,8 +40,8 @@ void ApplyKey(std::string_view key, std::string_view value, GameBehaviorConfig& 
     }
 }
 
-/// Parses `text` as INI content, applying only keys found inside the
-/// `[DovahLink]` section to `config`.
+///  Parses `text` as INI content, applying only keys found inside the
+///  `[DovahLink]` section to `config`.
 GameBehaviorConfig ParseGameBehaviorConfig(std::string_view text) {
     GameBehaviorConfig config;
     bool inSection = false;
@@ -72,9 +73,10 @@ GameBehaviorConfig ParseGameBehaviorConfig(std::string_view text) {
     return config;
 }
 
-}  // namespace
+} //  namespace
 
-std::optional<std::string> FilesystemGameBehaviorConfigFileReader::Read(const std::filesystem::path& path) const {
+std::optional<std::string> FilesystemGameBehaviorConfigFileReader::Read(
+    const std::filesystem::path& path) const {
     std::ifstream file(path);
     if (!file.is_open()) {
         return std::nullopt;
@@ -84,8 +86,9 @@ std::optional<std::string> FilesystemGameBehaviorConfigFileReader::Read(const st
     return buffer.str();
 }
 
-GameBehaviorConfig ReadGameBehaviorConfig(const GameBehaviorConfigFileReader& reader,
-                                           const std::filesystem::path& path) {
+GameBehaviorConfig
+ReadGameBehaviorConfig(const GameBehaviorConfigFileReader& reader,
+                       const std::filesystem::path& path) {
     auto text = reader.Read(path);
     if (!text.has_value()) {
         return GameBehaviorConfig{};
@@ -93,4 +96,4 @@ GameBehaviorConfig ReadGameBehaviorConfig(const GameBehaviorConfigFileReader& re
     return ParseGameBehaviorConfig(*text);
 }
 
-}  // namespace dovahlink::application
+} //  namespace dovahlink::application

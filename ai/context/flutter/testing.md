@@ -21,14 +21,25 @@
 - Mirror the source tree under `test/`.
 - Add a dedicated test file for each source unit with behavior or failure logic; keep trivial
   declaration assertions in that source unit's test file without creating a class-wide test group.
-- Keep ordinary client fixtures below the feature-owned
-  `app/test/features/<feature>/fixtures/` directory, with subfolders mirroring the production
-  ownership below `lib/features/<feature>/`. For example, an entity fixture belongs below
-  `app/test/features/pairing/fixtures/domain/entities/` in repository-relative form. Use
-  descriptive `.fixture.dart` files, share builders only within that feature, and apply the shared
-  Dart fixture-builder rules. Keep one cohesive fixture family per file rather than creating one
-  giant fixture or constants file. Cross-side protocol fixtures are an explicit exception and live
-  in `protocol/fixtures/`; those canonical fixtures take precedence for contract tests.
+- Keep Flutter-owned typed fixtures below the app-local `app/test/fixtures/` directory. The app's
+  discoverable catalog is `app/test/fixtures/fixtures.dart`, with named builders such as
+  `Fixtures.buildBridgeEntity(...)` grouped by the owning production area (`Connection`, `Pairing`,
+  and so on). This catalog is test-only in-memory construction; it must not import SDK-private
+  fixture code or enter production exports. Canonical cross-side JSON fixtures remain in
+  `protocol/fixtures/` and take precedence for contract tests.
+- A representative model/entity/value construction lives in exactly one catalog builder. Every
+  other test file calls the relevant named catalog builder rather than duplicating construction
+  inline or creating a private builder. When one fixture's default needs another fixture, compose
+  the other builder through a nullable parameter and `??`, because fixture-builder calls are not
+  `const`-eligible.
+- A test-local helper may compose a catalog builder and override only the fields that define its
+  scenario. It must not re-derive the catalog builder's representative defaults. Malformed boundary
+  values, scenario-specific widget fixtures, and Redux/store setup may remain local when locality
+  makes the behavior under test clearer.
+- A model/entity/value type used through a fixture builder needs real `==`/`hashCode` if any test
+  compares two instances for equality. `const` literals can canonicalize to the same instance and
+  hide a missing equality override; non-`const` catalog calls must surface that gap through the
+  failing `verify()` or `expect()`.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.

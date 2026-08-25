@@ -12,35 +12,41 @@ using dovahlink::application::LifecycleState;
 
 namespace {
 
-/// Returns a deterministic, strictly increasing generator for assertions
-/// that need to distinguish successive play context identifiers.
+///  Returns a deterministic, strictly increasing generator for assertions
+///  that need to distinguish successive play context identifiers.
 dovahlink::application::PlayContextIdGenerator SequentialGenerator() {
-    return [n = 0]() mutable -> std::optional<std::string> { return "ctx-" + std::to_string(++n); };
+    return [n = 0]() mutable -> std::optional<std::string> {
+        return "ctx-" + std::to_string(++n);
+    };
 }
 
-/// Returns a generator that always fails, matching security::GenerateOpaqueId's
-/// documented CNG-failure behavior.
+///  Returns a generator that always fails, matching security::GenerateOpaqueId's
+///  documented CNG-failure behavior.
 dovahlink::application::PlayContextIdGenerator FailingGenerator() {
     return [] { return std::optional<std::string>{}; };
 }
 
-}  // namespace
+} //  namespace
 
-TEST_CASE("DecodePostLoadGameSuccess treats a null pointer as failure", "[application][game_lifecycle_tracker]") {
+TEST_CASE("DecodePostLoadGameSuccess treats a null pointer as failure",
+          "[application][game_lifecycle_tracker]") {
     CHECK_FALSE(DecodePostLoadGameSuccess(nullptr));
 }
 
-TEST_CASE("DecodePostLoadGameSuccess treats the exact value that crashed the dereference as success",
+TEST_CASE("DecodePostLoadGameSuccess treats the exact value that crashed the "
+          "dereference as success",
           "[application][game_lifecycle_tracker]") {
     CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(1)));
 }
 
-TEST_CASE("DecodePostLoadGameSuccess treats reinterpret_cast<void*>(true), SKSE's actual encoding, as success",
+TEST_CASE("DecodePostLoadGameSuccess treats reinterpret_cast<void*>(true), "
+          "SKSE's actual encoding, as success",
           "[application][game_lifecycle_tracker]") {
     CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(true)));
 }
 
-TEST_CASE("DecodePostLoadGameSuccess treats any non-null value as success, not only exactly 1",
+TEST_CASE("DecodePostLoadGameSuccess treats any non-null value as success, not "
+          "only exactly 1",
           "[application][game_lifecycle_tracker]") {
     CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(2)));
 }
@@ -52,7 +58,8 @@ TEST_CASE("a fresh tracker starts in kNoContext with no active play context",
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("Revert from kNoContext is an idempotent no-op", "[application][game_lifecycle_tracker]") {
+TEST_CASE("Revert from kNoContext is an idempotent no-op",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto transition = tracker.HandleEvent(LifecycleEvent::kRevert);
 
@@ -61,8 +68,9 @@ TEST_CASE("Revert from kNoContext is an idempotent no-op", "[application][game_l
     CHECK(tracker.CurrentState() == LifecycleState::kNoContext);
 }
 
-TEST_CASE("PreLoadGame from kNoContext enters kLoading without invalidating anything",
-          "[application][game_lifecycle_tracker]") {
+TEST_CASE(
+    "PreLoadGame from kNoContext enters kLoading without invalidating anything",
+    "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto transition = tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
 
@@ -71,7 +79,8 @@ TEST_CASE("PreLoadGame from kNoContext enters kLoading without invalidating anyt
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("PreLoadGame while already kLoading is idempotent", "[application][game_lifecycle_tracker]") {
+TEST_CASE("PreLoadGame while already kLoading is idempotent",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
     auto transition = tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
@@ -86,7 +95,8 @@ TEST_CASE("PostLoadGameSuccess from kLoading activates a fresh play context",
     tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
     auto transition = tracker.HandleEvent(LifecycleEvent::kPostLoadGameSuccess);
 
-    CHECK_FALSE(transition.contextInvalidated);  // was Loading, not Active -- nothing active to invalidate
+    CHECK_FALSE(transition.contextInvalidated); //  was Loading, not Active --
+                                                //  nothing active to invalidate
     REQUIRE(transition.newPlayContextId.has_value());
     CHECK(tracker.CurrentState() == LifecycleState::kActive);
     CHECK(tracker.CurrentPlayContextId() == transition.newPlayContextId);
@@ -94,7 +104,7 @@ TEST_CASE("PostLoadGameSuccess from kLoading activates a fresh play context",
 
 TEST_CASE("PostLoadGameSuccess activates even without a preceding PreLoadGame",
           "[application][game_lifecycle_tracker]") {
-    // Tolerates ordering that public SKSE documentation does not guarantee.
+    //  Tolerates ordering that public SKSE documentation does not guarantee.
     GameLifecycleTracker tracker(SequentialGenerator());
     auto transition = tracker.HandleEvent(LifecycleEvent::kPostLoadGameSuccess);
 
@@ -113,7 +123,8 @@ TEST_CASE("NewGame from kNoContext activates directly without a Loading detour",
     CHECK(tracker.CurrentState() == LifecycleState::kActive);
 }
 
-TEST_CASE("Revert from kActive invalidates the current context", "[application][game_lifecycle_tracker]") {
+TEST_CASE("Revert from kActive invalidates the current context",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     tracker.HandleEvent(LifecycleEvent::kNewGame);
     auto transition = tracker.HandleEvent(LifecycleEvent::kRevert);
@@ -124,7 +135,8 @@ TEST_CASE("Revert from kActive invalidates the current context", "[application][
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("double Revert in a row is invalidate-then-idempotent", "[application][game_lifecycle_tracker]") {
+TEST_CASE("double Revert in a row is invalidate-then-idempotent",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     tracker.HandleEvent(LifecycleEvent::kNewGame);
 
@@ -135,31 +147,37 @@ TEST_CASE("double Revert in a row is invalidate-then-idempotent", "[application]
     CHECK_FALSE(second.contextInvalidated);
 }
 
-TEST_CASE("PostLoadGameFailure from kLoading settles into kNoContext without reviving anything",
+TEST_CASE("PostLoadGameFailure from kLoading settles into kNoContext without "
+          "reviving anything",
           "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
-    tracker.HandleEvent(LifecycleEvent::kNewGame);          // establish an active context
-    tracker.HandleEvent(LifecycleEvent::kRevert);            // invalidate it (matches real teardown-before-load)
-    tracker.HandleEvent(LifecycleEvent::kPreLoadGame);        // -> kLoading
+    tracker.HandleEvent(LifecycleEvent::kNewGame);     //  establish an active context
+    tracker.HandleEvent(LifecycleEvent::kRevert);      //  invalidate it (matches real
+                                                       //  teardown-before-load)
+    tracker.HandleEvent(LifecycleEvent::kPreLoadGame); //  -> kLoading
     auto transition = tracker.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
 
-    CHECK_FALSE(transition.contextInvalidated);  // already invalidated at kPreLoadGame
+    CHECK_FALSE(
+        transition.contextInvalidated); //  already invalidated at kPreLoadGame
     CHECK_FALSE(transition.newPlayContextId.has_value());
     CHECK(tracker.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("PostLoadGameFailure arriving while unexpectedly kActive still invalidates defensively",
+TEST_CASE("PostLoadGameFailure arriving while unexpectedly kActive still "
+          "invalidates defensively",
           "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
-    tracker.HandleEvent(LifecycleEvent::kNewGame);  // kActive, no kPreLoadGame/kRevert in between
+    tracker.HandleEvent(
+        LifecycleEvent::kNewGame); //  kActive, no kPreLoadGame/kRevert in between
     auto transition = tracker.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
 
     CHECK(transition.contextInvalidated);
     CHECK(tracker.CurrentState() == LifecycleState::kNoContext);
 }
 
-TEST_CASE("reload sequence: Active -> Revert -> PreLoadGame -> Loading -> PostLoadGameSuccess -> new Active",
+TEST_CASE("reload sequence: Active -> Revert -> PreLoadGame -> Loading -> "
+          "PostLoadGameSuccess -> new Active",
           "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto first = tracker.HandleEvent(LifecycleEvent::kNewGame);
@@ -173,8 +191,9 @@ TEST_CASE("reload sequence: Active -> Revert -> PreLoadGame -> Loading -> PostLo
     CHECK(tracker.CurrentPlayContextId() == second.newPlayContextId);
 }
 
-TEST_CASE("new game while already playing: Active -> Revert -> NewGame -> new Active",
-          "[application][game_lifecycle_tracker]") {
+TEST_CASE(
+    "new game while already playing: Active -> Revert -> NewGame -> new Active",
+    "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto first = tracker.HandleEvent(LifecycleEvent::kNewGame);
     tracker.HandleEvent(LifecycleEvent::kRevert);
@@ -185,10 +204,11 @@ TEST_CASE("new game while already playing: Active -> Revert -> NewGame -> new Ac
     CHECK(*first.newPlayContextId != *second.newPlayContextId);
 }
 
-TEST_CASE("PostLoadGameSuccess arriving while unexpectedly kActive invalidates the old context",
+TEST_CASE("PostLoadGameSuccess arriving while unexpectedly kActive invalidates "
+          "the old context",
           "[application][game_lifecycle_tracker]") {
-    // Out-of-order: no Revert/PreLoadGame in between, exercising Activate()'s
-    // hadActiveContext == true branch directly.
+    //  Out-of-order: no Revert/PreLoadGame in between, exercising Activate()'s
+    //  hadActiveContext == true branch directly.
     GameLifecycleTracker tracker(SequentialGenerator());
     auto first = tracker.HandleEvent(LifecycleEvent::kNewGame);
     auto second = tracker.HandleEvent(LifecycleEvent::kPostLoadGameSuccess);
@@ -198,8 +218,9 @@ TEST_CASE("PostLoadGameSuccess arriving while unexpectedly kActive invalidates t
     CHECK(*first.newPlayContextId != *second.newPlayContextId);
 }
 
-TEST_CASE("NewGame arriving while unexpectedly kActive invalidates the old context",
-          "[application][game_lifecycle_tracker]") {
+TEST_CASE(
+    "NewGame arriving while unexpectedly kActive invalidates the old context",
+    "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto first = tracker.HandleEvent(LifecycleEvent::kNewGame);
     auto second = tracker.HandleEvent(LifecycleEvent::kNewGame);
@@ -209,7 +230,8 @@ TEST_CASE("NewGame arriving while unexpectedly kActive invalidates the old conte
     CHECK(*first.newPlayContextId != *second.newPlayContextId);
 }
 
-TEST_CASE("PreLoadGame from kActive invalidates the current context", "[application][game_lifecycle_tracker]") {
+TEST_CASE("PreLoadGame from kActive invalidates the current context",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     tracker.HandleEvent(LifecycleEvent::kNewGame);
     auto transition = tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
@@ -219,7 +241,8 @@ TEST_CASE("PreLoadGame from kActive invalidates the current context", "[applicat
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("Revert from kLoading invalidates and returns to kNoContext", "[application][game_lifecycle_tracker]") {
+TEST_CASE("Revert from kLoading invalidates and returns to kNoContext",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     tracker.HandleEvent(LifecycleEvent::kPreLoadGame);
     auto transition = tracker.HandleEvent(LifecycleEvent::kRevert);
@@ -228,7 +251,8 @@ TEST_CASE("Revert from kLoading invalidates and returns to kNoContext", "[applic
     CHECK(tracker.CurrentState() == LifecycleState::kNoContext);
 }
 
-TEST_CASE("PostLoadGameFailure from kNoContext is a no-op baseline", "[application][game_lifecycle_tracker]") {
+TEST_CASE("PostLoadGameFailure from kNoContext is a no-op baseline",
+          "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(SequentialGenerator());
     auto transition = tracker.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
 
@@ -236,23 +260,28 @@ TEST_CASE("PostLoadGameFailure from kNoContext is a no-op baseline", "[applicati
     CHECK(tracker.CurrentState() == LifecycleState::kNoContext);
 }
 
-TEST_CASE("a failing generator clears a previously active context's identifier rather than leaving it stale",
+TEST_CASE("a failing generator clears a previously active context's identifier "
+          "rather than leaving it stale",
           "[application][game_lifecycle_tracker]") {
     GameLifecycleTracker tracker(FailingGenerator());
-    tracker.HandleEvent(LifecycleEvent::kNewGame);  // Activate() with a failing generator: id already nullopt
+    tracker.HandleEvent(
+        LifecycleEvent::kNewGame); //  Activate() with a failing generator: id
+                                   //  already nullopt
     tracker.HandleEvent(LifecycleEvent::kRevert);
-    auto transition = tracker.HandleEvent(LifecycleEvent::kNewGame);  // Activate() again, still failing
+    auto transition = tracker.HandleEvent(
+        LifecycleEvent::kNewGame); //  Activate() again, still failing
 
     CHECK(tracker.CurrentState() == LifecycleState::kActive);
     CHECK_FALSE(transition.newPlayContextId.has_value());
     CHECK_FALSE(tracker.CurrentPlayContextId().has_value());
 }
 
-TEST_CASE("Activate still transitions to kActive when identifier generation fails",
-          "[application][game_lifecycle_tracker]") {
-    // Matches security::GenerateOpaqueId's documented fallibility: state
-    // tracking must not silently fabricate an identifier, but it also must
-    // not get stuck refusing to acknowledge the game has moved on.
+TEST_CASE(
+    "Activate still transitions to kActive when identifier generation fails",
+    "[application][game_lifecycle_tracker]") {
+    //  Matches security::GenerateOpaqueId's documented fallibility: state
+    //  tracking must not silently fabricate an identifier, but it also must
+    //  not get stuck refusing to acknowledge the game has moved on.
     GameLifecycleTracker tracker(FailingGenerator());
     auto transition = tracker.HandleEvent(LifecycleEvent::kNewGame);
 

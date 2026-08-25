@@ -7,9 +7,11 @@
 
 namespace dovahlink::security {
 
-FactoryResetChallenge::FactoryResetChallenge(CodeGenerator codeGenerator,
-                                              std::chrono::steady_clock::duration codeTimeToLive)
-    : codeGenerator_(std::move(codeGenerator)), codeTimeToLive_(codeTimeToLive) {}
+FactoryResetChallenge::FactoryResetChallenge(
+    CodeGenerator codeGenerator,
+    std::chrono::steady_clock::duration codeTimeToLive)
+    : codeGenerator_(std::move(codeGenerator)),
+      codeTimeToLive_(codeTimeToLive) {}
 
 std::optional<std::string> FactoryResetChallenge::DefaultCodeGenerator() {
     return GenerateNumericCode(kFactoryResetCodeDigits);
@@ -28,18 +30,20 @@ std::optional<std::string> FactoryResetChallenge::TryStart() {
     return code;
 }
 
-FactoryResetConfirmOutcome FactoryResetChallenge::TryConfirm(const std::string& presentedCode) {
+FactoryResetConfirmOutcome
+FactoryResetChallenge::TryConfirm(const std::string& presentedCode) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!activeChallenge_.has_value() || !activeChallenge_->IsAvailable()) {
         activeChallenge_.reset();
         return FactoryResetConfirmOutcome::kExpired;
     }
 
-    std::vector<std::uint8_t> presentedBytes(presentedCode.begin(), presentedCode.end());
+    std::vector<std::uint8_t> presentedBytes(presentedCode.begin(),
+                                             presentedCode.end());
     auto reservation = activeChallenge_->TryReserve(presentedBytes);
     if (!reservation.has_value()) {
-        // One wrong attempt destroys the challenge immediately -- no multi-attempt budget, unlike
-        // PairingSession's pairing code.
+        //  One wrong attempt destroys the challenge immediately -- no multi-attempt
+        //  budget, unlike PairingSession's pairing code.
         activeChallenge_.reset();
         return FactoryResetConfirmOutcome::kInvalid;
     }
@@ -49,4 +53,4 @@ FactoryResetConfirmOutcome FactoryResetChallenge::TryConfirm(const std::string& 
     return FactoryResetConfirmOutcome::kConfirmed;
 }
 
-}  // namespace dovahlink::security
+} //  namespace dovahlink::security

@@ -10,4 +10,4 @@ std::optional<std::int64_t> CaptureLevel(const LevelAccessor& accessor) {
     return raw;
 }
 
-}  // namespace dovahlink::game_state
+} //  namespace dovahlink::game_state
