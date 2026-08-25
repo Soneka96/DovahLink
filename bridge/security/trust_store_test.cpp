@@ -20,6 +20,7 @@ using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
 using dovahlink::security::RenameOutcome;
+using dovahlink::security::TrustMutationGeneration;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::UnblockOutcome;
@@ -198,6 +199,46 @@ TEST_CASE("Persist assigns the generated shortId and is queryable afterward",
     auto queried = store.Query("client-1");
     REQUIRE(queried.has_value());
     CHECK(queried->credential == MakeCredential(1));
+}
+
+TEST_CASE("PersistIfGeneration accepts the current generation and rejects a stale one",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store =
+        TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    const TrustMutationGeneration initialGeneration =
+        store.CurrentMutationGeneration();
+
+    REQUIRE(store.PersistIfGeneration(initialGeneration, "client-1",
+                                      MakeCredential(1), std::nullopt)
+                .has_value());
+    CHECK(store.CurrentMutationGeneration() == initialGeneration);
+
+    REQUIRE(store.ResetTrust());
+    const TrustMutationGeneration resetGeneration =
+        store.CurrentMutationGeneration();
+    CHECK(resetGeneration != initialGeneration);
+    CHECK_FALSE(store.PersistIfGeneration(initialGeneration, "client-2",
+                                          MakeCredential(2), std::nullopt)
+                    .has_value());
+    CHECK_FALSE(store.Query("client-2").has_value());
+    CHECK(persistence.saveCallCount == 2);
+}
+
+TEST_CASE("PersistIfGeneration leaves state and generation unchanged on Save failure",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    const TrustMutationGeneration generation =
+        store.CurrentMutationGeneration();
+
+    persistence.FailNextSave();
+    CHECK_FALSE(store.PersistIfGeneration(generation, "client-1",
+                                          MakeCredential(1), std::nullopt)
+                    .has_value());
+    CHECK(store.CurrentMutationGeneration() == generation);
+    CHECK(store.ListAll().empty());
+    CHECK(persistence.saveCallCount == 1);
 }
 
 TEST_CASE("Persist sets state to kTrusted and stamps createdAt",
@@ -481,9 +522,12 @@ TEST_CASE("Block transitions a trusted client to kBlocked, clearing its "
     auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
     REQUIRE(
         store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
     auto before = std::chrono::system_clock::now();
 
     CHECK(store.Block("client-1") == BlockOutcome::kBlocked);
+    CHECK(store.CurrentMutationGeneration() != beforeMutation);
 
     auto after = std::chrono::system_clock::now();
     CHECK_FALSE(store.Authenticate("client-1", MakeCredential(1)));
@@ -553,11 +597,14 @@ TEST_CASE("Block surfaces a Save failure without corrupting in-memory state",
     REQUIRE(
         store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
 
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
     persistence.FailNextSave();
     CHECK(store.Block("client-1") == BlockOutcome::kSaveFailed);
 
     CHECK_FALSE(store.IsBlocked("client-1"));
     CHECK(store.Authenticate("client-1", MakeCredential(1)));
+    CHECK(store.CurrentMutationGeneration() == beforeMutation);
 }
 
 TEST_CASE("Persist rejects re-pairing a blocked clientId",
@@ -746,10 +793,25 @@ TEST_CASE("Reset clears every known device regardless of state",
         store.Persist("client-2", MakeCredential(2), std::nullopt).has_value());
     REQUIRE(store.Revoke("client-2"));
 
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
     CHECK(store.Reset());
+    CHECK(store.CurrentMutationGeneration() != beforeMutation);
 
     CHECK(store.ListTrusted().empty());
     CHECK_FALSE(store.IsRevoked("client-2"));
+}
+
+TEST_CASE("Reset advances the mutation generation even for an empty store",
+          "[security][trust_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
+
+    CHECK(store.Reset());
+
+    CHECK(store.CurrentMutationGeneration() != beforeMutation);
 }
 
 TEST_CASE("IsRevoked distinguishes never-paired, currently trusted, and "
@@ -935,10 +997,13 @@ TEST_CASE("Reset surfaces a Save failure without corrupting in-memory state",
     REQUIRE(
         store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
 
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
     persistence.FailNextSave();
     CHECK_FALSE(store.Reset());
 
     CHECK(store.Query("client-1").has_value());
+    CHECK(store.CurrentMutationGeneration() == beforeMutation);
 }
 
 TEST_CASE("DefaultShortIdGenerator produces a five-digit numeric candidate",
@@ -1433,10 +1498,17 @@ TEST_CASE("ResetTrust with no trusted devices is a harmless no-op",
           "[security][trust_store]") {
     FakePersistence persistence;
     auto store = TrustStore::Load(persistence, QueuedShortIds({}));
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
 
     CHECK(store.ResetTrust());
 
     CHECK(store.ListAll().empty());
+    const TrustMutationGeneration afterFirstReset =
+        store.CurrentMutationGeneration();
+    CHECK(afterFirstReset != beforeMutation);
+    CHECK(store.ResetTrust());
+    CHECK(store.CurrentMutationGeneration() != afterFirstReset);
 }
 
 TEST_CASE(
@@ -1447,10 +1519,13 @@ TEST_CASE(
     REQUIRE(
         store.Persist("client-1", MakeCredential(1), std::nullopt).has_value());
     REQUIRE(store.ResetTrust());
+    const TrustMutationGeneration afterFirstReset =
+        store.CurrentMutationGeneration();
 
     CHECK(store.ResetTrust());
 
     CHECK(store.IsRevoked("client-1"));
+    CHECK(store.CurrentMutationGeneration() != afterFirstReset);
 }
 
 TEST_CASE("ResetTrust surfaces a Save failure without corrupting in-memory "
@@ -1465,6 +1540,8 @@ TEST_CASE("ResetTrust surfaces a Save failure without corrupting in-memory "
     REQUIRE(
         store.Persist("client-2", MakeCredential(2), std::nullopt).has_value());
 
+    const TrustMutationGeneration beforeMutation =
+        store.CurrentMutationGeneration();
     persistence.FailNextSave();
     CHECK_FALSE(store.ResetTrust());
 
@@ -1472,4 +1549,5 @@ TEST_CASE("ResetTrust surfaces a Save failure without corrupting in-memory "
     CHECK(store.Query("client-2").has_value());
     CHECK_FALSE(store.IsRevoked("client-1"));
     CHECK_FALSE(store.IsRevoked("client-2"));
+    CHECK(store.CurrentMutationGeneration() == beforeMutation);
 }

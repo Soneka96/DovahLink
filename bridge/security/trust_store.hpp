@@ -2,6 +2,7 @@
 
 #include "security/i_trust_store_persistence.hpp"
 #include "security/known_device_record.hpp"
+#include "security/trust_mutation_generation.hpp"
 #include "security/trust_store_snapshot.hpp"
 
 #include <cstdint>
@@ -95,6 +96,11 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  inaccessible and fell back to an empty store.
     [[nodiscard]] bool WasCorruptOnLoad() const noexcept;
 
+    ///  Returns the current generation of successful administrative trust
+    ///  mutations. Pairing code captures this generation when it becomes
+    ///  pending and supplies it to `PersistIfGeneration` before trust is saved.
+    [[nodiscard]] TrustMutationGeneration CurrentMutationGeneration();
+
     ///  Returns the known device record for `clientId`, if it is currently in the
     ///  `kTrusted` state.
     [[nodiscard]] std::optional<KnownDeviceRecord>
@@ -152,6 +158,17 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     [[nodiscard]] std::optional<KnownDeviceRecord>
     Persist(std::string clientId, std::vector<std::uint8_t> credential,
             std::optional<std::string> displayName);
+
+    ///  Persists a pairing result only when no successful administrative trust
+    ///  mutation has occurred since `expectedGeneration` was captured. The
+    ///  generation check and persistence occur under the same trust-store lock.
+    ///  @return The trusted record, or `std::nullopt` when the generation is
+    ///  stale, validation fails, or persistence fails.
+    [[nodiscard]] std::optional<KnownDeviceRecord>
+    PersistIfGeneration(TrustMutationGeneration expectedGeneration,
+                        std::string clientId,
+                        std::vector<std::uint8_t> credential,
+                        std::optional<std::string> displayName);
 
     ///  Transitions a currently `kTrusted` `clientId` to `kRevoked`, securely
     ///  clearing its credential while keeping its record (identity, `shortId`,
@@ -241,6 +258,11 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///      exhaustion.
     [[nodiscard]] std::optional<std::string> GenerateUniqueShortId();
 
+    ///  Persists a trusted record while the caller already holds `mutex_`.
+    [[nodiscard]] std::optional<KnownDeviceRecord>
+    PersistLocked(std::string clientId, std::vector<std::uint8_t> credential,
+                  std::optional<std::string> displayName);
+
     ///  Reports whether `displayName` satisfies the length bound and is free of
     ///  control characters.
     [[nodiscard]] static bool IsValidDisplayName(const std::string& displayName);
@@ -256,6 +278,9 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
 
     ///  Serializes access to in-memory trust state.
     std::mutex mutex_;
+
+    ///  Advances after each successful Block, Reset Trust, or Factory Reset.
+    TrustMutationGeneration mutationGeneration_ = 0;
 
     ///  Every known device, keyed by `clientId`, regardless of state.
     std::unordered_map<std::string, KnownDeviceRecord> devices_;
