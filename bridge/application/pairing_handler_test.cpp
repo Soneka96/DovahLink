@@ -11,6 +11,7 @@
 #include <boost/json/object.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -61,6 +62,12 @@ class FailingSavePersistence : public ITrustStorePersistence {
     }
     bool Save(const TrustStoreSnapshot&) override { return false; }
 };
+
+///  Builds a deterministic credential for trust-store setup in handler tests.
+std::vector<std::uint8_t> MakeCredential(std::uint8_t seed) {
+    return std::vector<std::uint8_t>{seed,
+                                     static_cast<std::uint8_t>(seed + 1)};
+}
 
 ///  `ITrustStorePersistence` double that fails exactly one `Save`, then succeeds
 ///  on every call after -- simulates a transient save failure a client recovers
@@ -686,6 +693,51 @@ TEST_CASE("HandlePairingAck reports pending_not_found and persists nothing "
     CHECK(outcome->outcome == "pending_not_found");
     CHECK_FALSE(sessions.IsFullyTrusted(kConnection));
     CHECK_FALSE(trustStore.Query(kClientId).has_value());
+}
+
+TEST_CASE("HandlePairingAck reports pairing_invalidated after the pending "
+          "credential's mutation fence changes",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession(
+        []() -> std::optional<std::string> { return std::string("123456"); });
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, []() -> std::optional<std::string> {
+        return std::string("11111");
+    });
+    REQUIRE(trustStore.Persist(kClientId, MakeCredential(9), std::nullopt)
+                .has_value());
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    REQUIRE(sessionLease.has_value());
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(),
+                                           kSessionId, kClientId, pairingSession,
+                                           sink, now));
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession);
+    auto confirmResponse = dovahlink::application::HandlePairingConfirm(
+        BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
+        pairingSession, coordinator, sink, now);
+    auto confirmOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
+    REQUIRE(confirmOutcome.has_value());
+    REQUIRE(confirmOutcome->credential.has_value());
+
+    //  Mutate the store directly so the pending record remains present and the
+    //  coordinator must identify the stale client-scoped fence at commit time.
+    REQUIRE(trustStore.Block(kClientId) ==
+            dovahlink::security::BlockOutcome::kBlocked);
+    auto ackResponse = dovahlink::application::HandlePairingAck(
+        BuildPairingAckEnvelope(*confirmOutcome->credential), kSessionId,
+        kClientId, kConnection, trustStore, coordinator, sessions, now);
+    auto ackOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(ackResponse.payload);
+    REQUIRE(ackOutcome.has_value());
+    CHECK(ackOutcome->outcome == "pairing_invalidated");
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnection));
 }
 
 TEST_CASE("HandlePairingAck reports already_trusted on a retry after the "

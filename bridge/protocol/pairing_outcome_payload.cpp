@@ -12,7 +12,7 @@ namespace dovahlink::protocol {
 namespace {
 
 ///  Registered `pairing_outcome.outcome` values.
-constexpr std::array<std::string_view, 12> kValidPairingOutcomes = {
+constexpr std::array<std::string_view, 13> kValidPairingOutcomes = {
     "credential_issued",
     "trusted",
     "already_trusted",
@@ -25,6 +25,7 @@ constexpr std::array<std::string_view, 12> kValidPairingOutcomes = {
     "renotify_cooldown",
     "cancelled",
     "already_idle",
+    "pairing_invalidated",
 };
 
 } //  namespace

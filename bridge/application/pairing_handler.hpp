@@ -89,8 +89,9 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  @param sessionManager Session registry, upgraded to full trust on success.
 ///  @param now Current monotonic time, for the pending-credential lazy-expiry
 ///  check.
-///  @return `pairing_outcome` envelope: `"trusted"`, `"already_trusted"`, or
-///      `"pending_not_found"`; a generic `error` envelope for a malformed
+///  @return `pairing_outcome` envelope: `"trusted"`, `"already_trusted"`,
+///      `"pending_not_found"`, or `"pairing_invalidated"`; a generic `error`
+///      envelope for a malformed
 ///      payload or an internal failure committing the credential or building the
 ///      response.
 [[nodiscard]] protocol::Envelope HandlePairingAck(

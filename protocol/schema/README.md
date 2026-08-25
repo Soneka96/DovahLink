@@ -254,8 +254,9 @@ Client's final confirmation, echoing back the credential it durably saved:
 
 `credential` is the hex-encoded credential the client received in a prior `credential_issued`
 outcome, saved to persistent storage before this message is sent. The bridge responds with
-`pairing_outcome` (`"trusted"`, `"already_trusted"`, or `"pending_not_found"`), and on `"trusted"`
-upgrades the session to full trust in place on the same connection — no reconnect required.
+`pairing_outcome` (`"trusted"`, `"already_trusted"`, `"pending_not_found"`, or
+`"pairing_invalidated"`), and on `"trusted"` upgrades the session to full trust in place on the
+same connection — no reconnect required.
 
 Required payload field: `credential`.
 
@@ -302,14 +303,20 @@ Shared bridge reply to both `pairing_confirm` and `pairing_ack`, distinguished b
 ```
 
 `outcome` is one of `"credential_issued"`, `"trusted"`, `"already_trusted"`, `"expired"`,
-`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`, `"renotified"`,
+`"invalid"`, `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`,
+`"pairing_invalidated"`, `"renotified"`,
 `"renotify_cooldown"`, `"cancelled"`, or `"already_idle"`. Outcomes are grouped by originating message:
 - From `pairing_confirm`: `"credential_issued"`, `"expired"`, `"invalid"`, `"pacing_limited"`,
   `"hard_limit_reached"`. `"pacing_limited"` and `"hard_limit_reached"` replace the single
   undifferentiated `"rate_limited"` earlier phases used: pacing rejects an attempt made too soon
   after the previous one, without counting it as wrong, while the hard limit is the terminal count
   of wrong attempts that cancels the challenge outright.
-- From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`.
+- From `pairing_ack`: `"trusted"`, `"already_trusted"`, `"pending_not_found"`,
+  `"pairing_invalidated"`. `pending_not_found` means no matching in-memory pending
+  credential remained, such as after Bridge restart, expiry, or a mismatched credential.
+  `pairing_invalidated` means the matching pending credential was consumed but an
+  administrative mutation invalidated its trust fence; the client must discard it and
+  restart pairing.
 - From `pairing_renotify`: `"renotified"`, `"renotify_cooldown"`, `"already_idle"`.
 - From `pairing_cancel`: `"cancelled"`, `"already_idle"`.
 

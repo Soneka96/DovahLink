@@ -184,7 +184,7 @@ TEST_CASE("TrustMutationCoordinator restores pending pairing after Save failure"
     CHECK(retried.outcome == PairingCommitOutcome::kCommitted);
 }
 
-TEST_CASE("TrustMutationCoordinator rejects a pending pairing after generation changes",
+TEST_CASE("TrustMutationCoordinator reports an invalidated pending pairing after generation changes",
           "[application][trust_mutation_coordinator]") {
     FakePersistence persistence;
     auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
@@ -197,7 +197,8 @@ TEST_CASE("TrustMutationCoordinator rejects a pending pairing after generation c
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    CHECK(result.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK(result.outcome == PairingCommitOutcome::kInvalidated);
+    CHECK_FALSE(result.record.has_value());
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
     CHECK_FALSE(trustStore.Query("client-1").has_value());
@@ -239,6 +240,23 @@ TEST_CASE("TrustMutationCoordinator preserves a different client's pairing when 
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
     CHECK(result.outcome == PairingCommitOutcome::kCommitted);
     CHECK(trustStore.Query("client-1").has_value());
+}
+
+TEST_CASE("TrustMutationCoordinator reports invalidation after a direct Factory Reset",
+          "[application][trust_mutation_coordinator]") {
+    FakePersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
+
+    REQUIRE(trustStore.Reset());
+    auto result =
+        coordinator.CommitPairing("client-1", MakeCredential(1), now);
+
+    CHECK(result.outcome == PairingCommitOutcome::kInvalidated);
+    CHECK_FALSE(result.record.has_value());
 }
 
 TEST_CASE("TrustMutationCoordinator preserves pairing when Block fails",

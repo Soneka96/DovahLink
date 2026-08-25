@@ -126,6 +126,21 @@ TEST_CASE(
     CHECK(outcome->outcome == "pending_not_found");
 }
 
+TEST_CASE(
+    "pairing-outcome-invalidated fixture decodes with no credential",
+    "[protocol][pairing_outcome_payload]") {
+    auto envelope =
+        DecodeFixtureEnvelope("pairing/pairing-outcome-invalidated.json");
+    auto outcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(envelope.payload);
+    REQUIRE(outcome.has_value());
+    CHECK(outcome->outcome == "pairing_invalidated");
+    CHECK_FALSE(outcome->credential.has_value());
+    CHECK_FALSE(outcome->shortId.has_value());
+    CHECK_FALSE(outcome->displayName.has_value());
+    CHECK_FALSE(outcome->retryAfterSeconds.has_value());
+}
+
 TEST_CASE("pairing-outcome-renotified fixture decodes with no credential and "
           "no retryAfterSeconds",
           "[protocol][pairing_outcome_payload]") {
@@ -209,6 +224,25 @@ TEST_CASE("PairingOutcomePayload round-trips a present retryAfterSeconds "
     REQUIRE(decoded.has_value());
     REQUIRE(decoded->retryAfterSeconds.has_value());
     CHECK(*decoded->retryAfterSeconds == 1);
+}
+
+TEST_CASE("PairingOutcomePayload round-trips pairing_invalidated without trust data",
+          "[protocol][pairing_outcome_payload]") {
+    dovahlink::protocol::PairingOutcomePayload original{
+        .outcome = "pairing_invalidated",
+        .credential = std::nullopt,
+        .shortId = std::nullopt,
+        .displayName = std::nullopt,
+        .retryAfterSeconds = std::nullopt,
+    };
+    auto decoded = dovahlink::protocol::DecodePairingOutcomePayload(
+        dovahlink::protocol::EncodePairingOutcomePayload(original));
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->outcome == original.outcome);
+    CHECK_FALSE(decoded->credential.has_value());
+    CHECK_FALSE(decoded->shortId.has_value());
+    CHECK_FALSE(decoded->displayName.has_value());
+    CHECK_FALSE(decoded->retryAfterSeconds.has_value());
 }
 
 TEST_CASE("pairing_outcome is rejected when outcome is not a registered value",

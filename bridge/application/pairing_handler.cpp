@@ -215,6 +215,11 @@ protocol::Envelope HandlePairingAck(
             sessionId, pairingAckEnvelope.messageId,
             protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
     }
+    if (commit.outcome == security::PairingCommitOutcome::kInvalidated) {
+        return BuildPairingOutcome(
+            sessionId, pairingAckEnvelope.messageId,
+            protocol::PairingOutcomePayload{.outcome = "pairing_invalidated"});
+    }
     if (commit.outcome == security::PairingCommitOutcome::kPersistenceFailed) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId,
                                             "internal_error",

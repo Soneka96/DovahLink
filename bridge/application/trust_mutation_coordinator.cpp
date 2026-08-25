@@ -53,7 +53,7 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
         (void)pairingSession_.RestorePending(std::move(*pending));
         return {.outcome = security::PairingCommitOutcome::kPersistenceFailed};
     }
-    return {.outcome = security::PairingCommitOutcome::kPendingNotFound};
+    return {.outcome = security::PairingCommitOutcome::kInvalidated};
 }
 
 security::CancelOutcome TrustMutationCoordinator::TryCancel(

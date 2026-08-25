@@ -17,6 +17,7 @@ struct PairingOutcomePayload {
     ///  One of `"credential_issued"`, `"trusted"`, `"already_trusted"`,
     ///  `"expired"`, `"invalid"`,
     ///  `"pacing_limited"`, `"hard_limit_reached"`, `"pending_not_found"`,
+    ///  `"pairing_invalidated"`,
     ///  `"renotified"`,
     ///  `"renotify_cooldown"`, `"cancelled"`, `"already_idle"`. `"pacing_limited"`
     ///  and
