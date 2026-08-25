@@ -304,7 +304,10 @@ def main(arguments: list[str] | None = None) -> int:
             else staged_paths(repository_root)
         )
         if options.paths is None:
-            partial = partial_staged_paths(paths, unstaged_paths(repository_root))
+            partial = supported_paths(
+                repository_root,
+                partial_staged_paths(paths, unstaged_paths(repository_root)),
+            )
             if partial:
                 print(
                     "Partially staged supported files are not allowed:\n"

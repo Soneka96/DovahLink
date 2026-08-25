@@ -117,9 +117,15 @@ class FormatStagedTests(unittest.TestCase):
     def test_main_rejects_partially_staged_files_before_formatting(self) -> None:
         """Stop before invoking any formatter when a supported file is partially staged."""
         with (
-            patch.object(format_staged, "staged_paths", return_value=["app/main.dart"]),
             patch.object(
-                format_staged, "unstaged_paths", return_value=["app/main.dart"]
+                format_staged,
+                "staged_paths",
+                return_value=["app/lib/main.dart"],
+            ),
+            patch.object(
+                format_staged,
+                "unstaged_paths",
+                return_value=["app/lib/main.dart"],
             ),
             patch.object(format_staged, "format_paths") as format_paths,
         ):
@@ -127,6 +133,22 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         format_paths.assert_not_called()
+
+    def test_main_ignores_partially_staged_unsupported_files(self) -> None:
+        """Allow a partial unsupported file without invoking a formatter for it."""
+        with (
+            patch.object(format_staged, "staged_paths", return_value=["README.md"]),
+            patch.object(format_staged, "unstaged_paths", return_value=["README.md"]),
+            patch.object(format_staged, "format_paths", return_value=0) as format_paths,
+        ):
+            result = format_staged.main([])
+
+        self.assertEqual(result, 0)
+        format_paths.assert_called_once_with(
+            format_staged.REPOSITORY_ROOT,
+            ["README.md"],
+            False,
+        )
 
 
 if __name__ == "__main__":
