@@ -9,26 +9,27 @@ namespace {
 /// Counts non-overlapping occurrences of a substring in source text.
 /// @param haystack Text to search.
 /// @param needle Substring to count.
-std::size_t CountOccurrences(const std::string& haystack, const std::string& needle) {
-    std::size_t count = 0;
-    std::size_t pos = 0;
-    while ((pos = haystack.find(needle, pos)) != std::string::npos) {
-        ++count;
-        pos += needle.size();
-    }
-    return count;
+std::size_t CountOccurrences(const std::string &haystack,
+                             const std::string &needle) {
+  std::size_t count = 0;
+  std::size_t pos = 0;
+  while ((pos = haystack.find(needle, pos)) != std::string::npos) {
+    ++count;
+    pos += needle.size();
+  }
+  return count;
 }
 
 /// Reads the plugin entry point's own source text for structural assertions.
 std::string ReadPluginSource() {
-    std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
-    REQUIRE(file.is_open());
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
+  std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
+  REQUIRE(file.is_open());
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  return buffer.str();
 }
 
-}  // namespace
+} // namespace
 
 // SKSE::MessagingInterface::RegisterListener may be called at most once per
 // plugin; a second call silently breaks both registrations instead of
@@ -40,14 +41,15 @@ std::string ReadPluginSource() {
 // entry point's source text -- every new messaging-interface concern must be
 // added inside that single listener's dispatch, never via another
 // RegisterListener call.
-TEST_CASE("SKSEPluginLoad registers the SKSE messaging listener exactly once", "[plugin][registration]") {
-    std::string source = ReadPluginSource();
+TEST_CASE("SKSEPluginLoad registers the SKSE messaging listener exactly once",
+          "[plugin][registration]") {
+  std::string source = ReadPluginSource();
 
-    // Text search only, not a C++ parse: a mention of "RegisterListener(" inside
-    // a comment or string literal would also count. Acceptable for this file,
-    // which does not otherwise reference the name in prose; raise the check to
-    // a real parse only if that stops being true.
-    CHECK(CountOccurrences(source, "RegisterListener(") == 1);
+  // Text search only, not a C++ parse: a mention of "RegisterListener(" inside
+  // a comment or string literal would also count. Acceptable for this file,
+  // which does not otherwise reference the name in prose; raise the check to
+  // a real parse only if that stops being true.
+  CHECK(CountOccurrences(source, "RegisterListener(") == 1);
 }
 
 // SKSE::GetPluginHandle() (used internally by MessagingInterface::
@@ -60,16 +62,18 @@ TEST_CASE("SKSEPluginLoad registers the SKSE messaging listener exactly once", "
 // plugin before this call existed). That failure mode plays out only inside
 // a running SKSE process, so it cannot be caught by exercising plugin
 // behavior in a unit test; this asserts the fix structurally instead.
-TEST_CASE("SKSEPluginLoad calls SKSE::Init before any interface registration that depends on it",
+TEST_CASE("SKSEPluginLoad calls SKSE::Init before any interface registration "
+          "that depends on it",
           "[plugin][registration]") {
-    std::string source = ReadPluginSource();
+  std::string source = ReadPluginSource();
 
-    std::size_t initPos = source.find("SKSE::Init(");
-    REQUIRE(initPos != std::string::npos);
+  std::size_t initPos = source.find("SKSE::Init(");
+  REQUIRE(initPos != std::string::npos);
 
-    for (const std::string& dependentCall : {std::string("RegisterListener("), std::string("SetRevertCallback(")}) {
-        std::size_t callPos = source.find(dependentCall);
-        REQUIRE(callPos != std::string::npos);
-        CHECK(initPos < callPos);
-    }
+  for (const std::string &dependentCall :
+       {std::string("RegisterListener("), std::string("SetRevertCallback(")}) {
+    std::size_t callPos = source.find(dependentCall);
+    REQUIRE(callPos != std::string::npos);
+    CHECK(initPos < callPos);
+  }
 }

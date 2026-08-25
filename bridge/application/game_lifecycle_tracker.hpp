@@ -11,14 +11,15 @@ namespace dovahlink::application {
 /// Generates a fresh opaque play-context identifier, or no value on failure.
 using PlayContextIdGenerator = std::function<std::optional<std::string>()>;
 
-/// SKSE-QUIRK: see ai/context/skse/runtime-quirks.md#kpostloadgames-data-is-a-value-not-a-pointer
+/// SKSE-QUIRK: see
+/// ai/context/skse/runtime-quirks.md#kpostloadgames-data-is-a-value-not-a-pointer
 /// Decodes SKSE's kPostLoadGame success flag. SKSE encodes it directly as
 /// the pointer's bit pattern (0 or 1), not as a pointer to a bool in
 /// memory -- confirmed from a crash dereferencing address 0x1, i.e.
 /// `reinterpret_cast<void*>(true)`. A null value means failure rather than
 /// fabricating success for an unexpected payload (ai/context/common.md's
 /// "do not hide stale, missing, or incompatible data" quality floor).
-[[nodiscard]] bool DecodePostLoadGameSuccess(const void* rawData);
+[[nodiscard]] bool DecodePostLoadGameSuccess(const void *rawData);
 
 /// Tracks the currently active Skyrim play context from raw SKSE lifecycle
 /// signals, independent of any SKSE or CommonLib type.
@@ -35,51 +36,52 @@ using PlayContextIdGenerator = std::function<std::optional<std::string>()>;
 /// the same responsibility RevisionTracker places on its own caller.
 class GameLifecycleTracker {
 public:
-    /// Reports the effect of one processed lifecycle event.
-    struct Transition {
-        /// Whether a previously active or loading play context was invalidated.
-        bool contextInvalidated = false;
-        /// The freshly minted play context identifier, when one was created.
-        std::optional<std::string> newPlayContextId;
-    };
+  /// Reports the effect of one processed lifecycle event.
+  struct Transition {
+    /// Whether a previously active or loading play context was invalidated.
+    bool contextInvalidated = false;
+    /// The freshly minted play context identifier, when one was created.
+    std::optional<std::string> newPlayContextId;
+  };
 
-    /// Creates a tracker starting in `kNoContext`.
-    /// @param generateId Generates a fresh play-context identifier; defaults
-    ///     to the same CSPRNG-backed generator used for session and message
-    ///     identifiers.
-    explicit GameLifecycleTracker(PlayContextIdGenerator generateId = DefaultGenerator());
+  /// Creates a tracker starting in `kNoContext`.
+  /// @param generateId Generates a fresh play-context identifier; defaults
+  ///     to the same CSPRNG-backed generator used for session and message
+  ///     identifiers.
+  explicit GameLifecycleTracker(
+      PlayContextIdGenerator generateId = DefaultGenerator());
 
-    /// Processes one raw lifecycle signal and updates tracked state.
-    /// @param event Signal received from the runtime adapter.
-    /// @return The resulting invalidation/creation effect.
-    Transition HandleEvent(LifecycleEvent event);
+  /// Processes one raw lifecycle signal and updates tracked state.
+  /// @param event Signal received from the runtime adapter.
+  /// @return The resulting invalidation/creation effect.
+  Transition HandleEvent(LifecycleEvent event);
 
-    /// Returns the identifier of the currently active play context.
-    /// @return The active identifier, or no value outside `kActive`.
-    [[nodiscard]] std::optional<std::string> CurrentPlayContextId() const;
+  /// Returns the identifier of the currently active play context.
+  /// @return The active identifier, or no value outside `kActive`.
+  [[nodiscard]] std::optional<std::string> CurrentPlayContextId() const;
 
-    /// Returns the tracker's current lifecycle state.
-    [[nodiscard]] LifecycleState CurrentState() const;
+  /// Returns the tracker's current lifecycle state.
+  [[nodiscard]] LifecycleState CurrentState() const;
 
 private:
-    /// Returns the default identifier generator.
-    static PlayContextIdGenerator DefaultGenerator();
+  /// Returns the default identifier generator.
+  static PlayContextIdGenerator DefaultGenerator();
 
-    /// Unconditionally invalidates any active or loading context and returns
-    /// to `kNoContext`. Idempotent when already in `kNoContext`.
-    Transition Invalidate();
+  /// Unconditionally invalidates any active or loading context and returns
+  /// to `kNoContext`. Idempotent when already in `kNoContext`.
+  Transition Invalidate();
 
-    /// Mints a fresh play context identifier and enters `kActive`.
-    Transition Activate();
+  /// Mints a fresh play context identifier and enters `kActive`.
+  Transition Activate();
 
-    /// Produces fresh play-context identifiers.
-    PlayContextIdGenerator generateId_;
+  /// Produces fresh play-context identifiers.
+  PlayContextIdGenerator generateId_;
 
-    /// Current lifecycle state.
-    LifecycleState state_ = LifecycleState::kNoContext;
+  /// Current lifecycle state.
+  LifecycleState state_ = LifecycleState::kNoContext;
 
-    /// Identifier of the active play context, when `state_` is `kActive`.
-    std::optional<std::string> currentPlayContextId_;
+  /// Identifier of the active play context, when `state_` is `kActive`.
+  std::optional<std::string> currentPlayContextId_;
 };
 
-}  // namespace dovahlink::application
+} // namespace dovahlink::application

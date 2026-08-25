@@ -17,4 +17,4 @@ void ApplyAlwaysActiveSetting();
 /// plugin; see `bridge/README.md`'s supported-runtime section.
 void InstallAchievementCompatibilityPatch();
 
-}  // namespace dovahlink::game_state
+} // namespace dovahlink::game_state

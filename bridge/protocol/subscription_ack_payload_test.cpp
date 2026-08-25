@@ -12,33 +12,44 @@
 
 using dovahlink::protocol::test_support::DecodeFixtureEnvelope;
 
-TEST_CASE("subscription-ack fixture decodes to the expected SubscriptionAckPayload",
-          "[protocol][subscription_ack_payload]") {
-    auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
-    auto subscriptionAck = dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
-    REQUIRE(subscriptionAck.has_value());
-    CHECK(subscriptionAck->acceptedStateAreas.empty());
-    CHECK(subscriptionAck->rejectedStateAreas == std::vector<std::string>{"example_area"});
+TEST_CASE(
+    "subscription-ack fixture decodes to the expected SubscriptionAckPayload",
+    "[protocol][subscription_ack_payload]") {
+  auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
+  auto subscriptionAck =
+      dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
+  REQUIRE(subscriptionAck.has_value());
+  CHECK(subscriptionAck->acceptedStateAreas.empty());
+  CHECK(subscriptionAck->rejectedStateAreas ==
+        std::vector<std::string>{"example_area"});
 }
 
-TEST_CASE("subscription_ack is rejected when rejectedStateAreas is the wrong type",
-          "[protocol][subscription_ack_payload]") {
-    boost::json::object payload =
-        boost::json::parse(R"({"acceptedStateAreas": ["example_area"], "rejectedStateAreas": "none"})").get_object();
-    auto subscriptionAck = dovahlink::protocol::DecodeSubscriptionAckPayload(payload);
-    REQUIRE_FALSE(subscriptionAck.has_value());
+TEST_CASE(
+    "subscription_ack is rejected when rejectedStateAreas is the wrong type",
+    "[protocol][subscription_ack_payload]") {
+  boost::json::object payload =
+      boost::json::parse(
+          R"({"acceptedStateAreas": ["example_area"], "rejectedStateAreas": "none"})")
+          .get_object();
+  auto subscriptionAck =
+      dovahlink::protocol::DecodeSubscriptionAckPayload(payload);
+  REQUIRE_FALSE(subscriptionAck.has_value());
 }
 
-TEST_CASE("EncodeSubscriptionAckPayload round-trips the subscription-ack fixture's payload",
+TEST_CASE("EncodeSubscriptionAckPayload round-trips the subscription-ack "
+          "fixture's payload",
           "[protocol][subscription_ack_payload]") {
-    auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
-    auto original = dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
-    REQUIRE(original.has_value());
+  auto envelope = DecodeFixtureEnvelope("subscriptions/subscription-ack.json");
+  auto original =
+      dovahlink::protocol::DecodeSubscriptionAckPayload(envelope.payload);
+  REQUIRE(original.has_value());
 
-    boost::json::object encoded = dovahlink::protocol::EncodeSubscriptionAckPayload(*original);
-    auto roundTripped = dovahlink::protocol::DecodeSubscriptionAckPayload(encoded);
+  boost::json::object encoded =
+      dovahlink::protocol::EncodeSubscriptionAckPayload(*original);
+  auto roundTripped =
+      dovahlink::protocol::DecodeSubscriptionAckPayload(encoded);
 
-    REQUIRE(roundTripped.has_value());
-    CHECK(roundTripped->acceptedStateAreas == original->acceptedStateAreas);
-    CHECK(roundTripped->rejectedStateAreas == original->rejectedStateAreas);
+  REQUIRE(roundTripped.has_value());
+  CHECK(roundTripped->acceptedStateAreas == original->acceptedStateAreas);
+  CHECK(roundTripped->rejectedStateAreas == original->rejectedStateAreas);
 }

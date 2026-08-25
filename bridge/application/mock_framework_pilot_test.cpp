@@ -13,13 +13,13 @@ using fakeit::When;
 
 TEST_CASE("FakeIt verifies string-view arguments on an existing Bridge port",
           "[application][mock_framework]") {
-    Mock<ActiveSessionDisconnector> disconnector;
-    When(Method(disconnector, DisconnectIfClientActive)).Return();
+  Mock<ActiveSessionDisconnector> disconnector;
+  When(Method(disconnector, DisconnectIfClientActive)).Return();
 
-    disconnector.get().DisconnectIfClientActive("client-1", "revoked");
+  disconnector.get().DisconnectIfClientActive("client-1", "revoked");
 
-    Verify(Method(disconnector, DisconnectIfClientActive).Using(
-               std::string_view{"client-1"}, std::string_view{"revoked"}))
-        .Once();
-    VerifyNoOtherInvocations(disconnector);
+  Verify(Method(disconnector, DisconnectIfClientActive)
+             .Using(std::string_view{"client-1"}, std::string_view{"revoked"}))
+      .Once();
+  VerifyNoOtherInvocations(disconnector);
 }

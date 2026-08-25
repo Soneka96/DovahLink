@@ -48,15 +48,18 @@ inline constexpr std::size_t kMaxProtocolViolations = 3;
 /// Sliding window for protocol violations.
 inline constexpr std::chrono::seconds kProtocolViolationWindow{30};
 
-/// Maximum length of a trusted client's optional presentation-only display name.
+/// Maximum length of a trusted client's optional presentation-only display
+/// name.
 inline constexpr std::size_t kMaxDisplayNameLengthBytes = 64;
-/// Maximum attempts to generate a unique trusted-client `shortId` before failing closed.
+/// Maximum attempts to generate a unique trusted-client `shortId` before
+/// failing closed.
 inline constexpr std::size_t kMaxShortIdGenerationAttempts = 20;
 
-/// How long an active pairing challenge survives its owning client's disconnect before it is
-/// cancelled outright and freed for another device.
+/// How long an active pairing challenge survives its owning client's disconnect
+/// before it is cancelled outright and freed for another device.
 inline constexpr std::chrono::seconds kPairingReconnectGracePeriod{10};
-/// Minimum interval between successful "show code again" redisplays of the same active code.
+/// Minimum interval between successful "show code again" redisplays of the same
+/// active code.
 inline constexpr std::chrono::seconds kPairingRenotifyCooldown{5};
 /// Minimum interval between evaluated `pairing_confirm` code validations.
 inline constexpr std::chrono::seconds kPairingConfirmPacingInterval{1};
@@ -70,4 +73,4 @@ inline constexpr std::size_t kFactoryResetCodeDigits = 6;
 /// How long a started Factory Reset confirmation code remains valid.
 inline constexpr std::chrono::seconds kFactoryResetCodeTtl{60};
 
-}  // namespace dovahlink::security
+} // namespace dovahlink::security

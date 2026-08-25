@@ -29,14 +29,14 @@ inline constexpr std::string_view kPairingCancel = "pairing_cancel";
 inline constexpr std::string_view kRenameRequest = "rename_request";
 inline constexpr std::string_view kRenameOutcome = "rename_outcome";
 inline constexpr std::string_view kSessionInvalidated = "session_invalidated";
-}  // namespace message_type
+} // namespace message_type
 
 // ---- State areas ----
 
-/// Identifiers for registered state areas. No state area is currently registered; the previous
-/// `character` aggregate was retired without a replacement (protocol/schema/README.md's
-/// "Registered state areas"). A future phase adds identifiers here when it registers one.
-namespace state_area {
-}  // namespace state_area
+/// Identifiers for registered state areas. No state area is currently
+/// registered; the previous `character` aggregate was retired without a
+/// replacement (protocol/schema/README.md's "Registered state areas"). A future
+/// phase adds identifiers here when it registers one.
+namespace state_area {} // namespace state_area
 
-}  // namespace dovahlink::protocol
+} // namespace dovahlink::protocol

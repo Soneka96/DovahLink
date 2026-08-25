@@ -12,17 +12,18 @@ namespace dovahlink::protocol {
 
 /// Bridge response listing accepted and rejected subscription areas.
 struct SubscriptionAckPayload {
-    /// State areas accepted by the bridge.
-    std::vector<std::string> acceptedStateAreas;
-    /// State areas rejected by the bridge.
-    std::vector<std::string> rejectedStateAreas;
+  /// State areas accepted by the bridge.
+  std::vector<std::string> acceptedStateAreas;
+  /// State areas rejected by the bridge.
+  std::vector<std::string> rejectedStateAreas;
 };
 
 /// Decodes a subscription acknowledgment payload.
-std::expected<SubscriptionAckPayload, MessageError> DecodeSubscriptionAckPayload(
-    const boost::json::object& payload);
+std::expected<SubscriptionAckPayload, MessageError>
+DecodeSubscriptionAckPayload(const boost::json::object &payload);
 
 /// Encodes a subscription acknowledgment payload.
-boost::json::object EncodeSubscriptionAckPayload(const SubscriptionAckPayload& payload);
+boost::json::object
+EncodeSubscriptionAckPayload(const SubscriptionAckPayload &payload);
 
-}  // namespace dovahlink::protocol
+} // namespace dovahlink::protocol

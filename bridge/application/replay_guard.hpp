@@ -12,20 +12,21 @@ namespace dovahlink::application {
 /// One instance belongs to one serial connection and is not thread-safe.
 class ReplayGuard {
 public:
-    /// Creates an empty message-ID tracker.
-    ReplayGuard() = default;
+  /// Creates an empty message-ID tracker.
+  ReplayGuard() = default;
 
-    /// Records and classifies one message ID.
-    /// @param messageId Message ID received from the client.
-    /// @return Accepted or replayed result.
-    [[nodiscard]] MessageIdCheckResult RecordMessage(const std::string& messageId);
+  /// Records and classifies one message ID.
+  /// @param messageId Message ID received from the client.
+  /// @return Accepted or replayed result.
+  [[nodiscard]] MessageIdCheckResult
+  RecordMessage(const std::string &messageId);
 
-    /// Reports the number of distinct recorded message IDs.
-    [[nodiscard]] std::size_t Count() const;
+  /// Reports the number of distinct recorded message IDs.
+  [[nodiscard]] std::size_t Count() const;
 
 private:
-    /// Message IDs already observed in this session.
-    std::unordered_set<std::string> seenIds_;
+  /// Message IDs already observed in this session.
+  std::unordered_set<std::string> seenIds_;
 };
 
-}  // namespace dovahlink::application
+} // namespace dovahlink::application

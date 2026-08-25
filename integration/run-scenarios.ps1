@@ -52,8 +52,8 @@ function Find-VisualStudioToolchain {
     $installationPath = $installationPath.Trim()
 
     $requiredPaths = [ordered]@{
-        VcvarsallPath = Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat"
-        VcpkgRoot = Join-Path $installationPath "VC\vcpkg"
+        VcvarsallPath  = Join-Path $installationPath "VC\Auxiliary\Build\vcvarsall.bat"
+        VcpkgRoot      = Join-Path $installationPath "VC\vcpkg"
         CMakeDirectory = Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
         NinjaDirectory = Join-Path $installationPath "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja"
     }
@@ -73,10 +73,10 @@ function Find-VisualStudioToolchain {
 
     [pscustomobject]@{
         InstallationPath = $installationPath
-        VcvarsallPath = $requiredPaths.VcvarsallPath
-        VcpkgRoot = $requiredPaths.VcpkgRoot
-        CMakeDirectory = $requiredPaths.CMakeDirectory
-        NinjaDirectory = $requiredPaths.NinjaDirectory
+        VcvarsallPath    = $requiredPaths.VcvarsallPath
+        VcpkgRoot        = $requiredPaths.VcpkgRoot
+        CMakeDirectory   = $requiredPaths.CMakeDirectory
+        NinjaDirectory   = $requiredPaths.NinjaDirectory
     }
 }
 

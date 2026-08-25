@@ -30,194 +30,214 @@ using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
 
-TEST_CASE("a message within the frame size limit is read normally", "[transport][inbound_limit]") {
-    boost::asio::io_context ioc;
-    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    REQUIRE(listener.has_value());
-    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+TEST_CASE("a message within the frame size limit is read normally",
+          "[transport][inbound_limit]") {
+  boost::asio::io_context ioc;
+  auto listener =
+      LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+  REQUIRE(listener.has_value());
+  boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
-    boost::system::error_code serverAcceptEc;
-    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
-    std::expected<std::string, SessionError> serverReadResult = std::unexpected(SessionError::kReadFailed);
+  boost::system::error_code serverAcceptEc;
+  std::expected<void, SessionError> serverHandshakeResult =
+      std::unexpected(SessionError::kHandshakeFailed);
+  std::expected<std::string, SessionError> serverReadResult =
+      std::unexpected(SessionError::kReadFailed);
 
-    std::thread serverThread([&] {
-        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
-        if (serverAcceptEc) {
-            return;
-        }
-        WebSocketSession session(std::move(serverSocket));
-        serverHandshakeResult = session.Accept();
-        if (!serverHandshakeResult.has_value()) {
-            return;
-        }
-        serverReadResult = session.ReadMessage();
-    });
+  std::thread serverThread([&] {
+    boost::asio::ip::tcp::socket serverSocket =
+        listener->Acceptor().accept(serverAcceptEc);
+    if (serverAcceptEc) {
+      return;
+    }
+    WebSocketSession session(std::move(serverSocket));
+    serverHandshakeResult = session.Accept();
+    if (!serverHandshakeResult.has_value()) {
+      return;
+    }
+    serverReadResult = session.ReadMessage();
+  });
 
-    boost::asio::ip::tcp::socket clientSocket(ioc);
-    boost::system::error_code connectEc;
-    clientSocket.connect(endpoint, connectEc);
-    REQUIRE_FALSE(connectEc);
+  boost::asio::ip::tcp::socket clientSocket(ioc);
+  boost::system::error_code connectEc;
+  clientSocket.connect(endpoint, connectEc);
+  REQUIRE_FALSE(connectEc);
 
-    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
-    boost::system::error_code handshakeEc;
-    clientWs.handshake("127.0.0.1", "/", handshakeEc);
-    REQUIRE_FALSE(handshakeEc);
+  boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+      std::move(clientSocket));
+  boost::system::error_code handshakeEc;
+  clientWs.handshake("127.0.0.1", "/", handshakeEc);
+  REQUIRE_FALSE(handshakeEc);
 
-    clientWs.text(true);
-    std::string withinLimit(1024, 'x');
-    boost::system::error_code writeEc;
-    clientWs.write(boost::asio::buffer(withinLimit), writeEc);
-    REQUIRE_FALSE(writeEc);
+  clientWs.text(true);
+  std::string withinLimit(1024, 'x');
+  boost::system::error_code writeEc;
+  clientWs.write(boost::asio::buffer(withinLimit), writeEc);
+  REQUIRE_FALSE(writeEc);
 
-    serverThread.join();
+  serverThread.join();
 
-    REQUIRE_FALSE(serverAcceptEc);
-    REQUIRE(serverHandshakeResult.has_value());
-    REQUIRE(serverReadResult.has_value());
-    CHECK(serverReadResult->size() == withinLimit.size());
+  REQUIRE_FALSE(serverAcceptEc);
+  REQUIRE(serverHandshakeResult.has_value());
+  REQUIRE(serverReadResult.has_value());
+  CHECK(serverReadResult->size() == withinLimit.size());
 }
 
-TEST_CASE("a message exactly at the frame size limit is accepted, not rejected", "[transport][inbound_limit]") {
-    boost::asio::io_context ioc;
-    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    REQUIRE(listener.has_value());
-    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+TEST_CASE("a message exactly at the frame size limit is accepted, not rejected",
+          "[transport][inbound_limit]") {
+  boost::asio::io_context ioc;
+  auto listener =
+      LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+  REQUIRE(listener.has_value());
+  boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
-    boost::system::error_code serverAcceptEc;
-    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
-    std::expected<std::string, SessionError> serverReadResult = std::unexpected(SessionError::kReadFailed);
+  boost::system::error_code serverAcceptEc;
+  std::expected<void, SessionError> serverHandshakeResult =
+      std::unexpected(SessionError::kHandshakeFailed);
+  std::expected<std::string, SessionError> serverReadResult =
+      std::unexpected(SessionError::kReadFailed);
 
-    std::thread serverThread([&] {
-        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
-        if (serverAcceptEc) {
-            return;
-        }
-        WebSocketSession session(std::move(serverSocket));
-        serverHandshakeResult = session.Accept();
-        if (!serverHandshakeResult.has_value()) {
-            return;
-        }
-        serverReadResult = session.ReadMessage();
-    });
+  std::thread serverThread([&] {
+    boost::asio::ip::tcp::socket serverSocket =
+        listener->Acceptor().accept(serverAcceptEc);
+    if (serverAcceptEc) {
+      return;
+    }
+    WebSocketSession session(std::move(serverSocket));
+    serverHandshakeResult = session.Accept();
+    if (!serverHandshakeResult.has_value()) {
+      return;
+    }
+    serverReadResult = session.ReadMessage();
+  });
 
-    boost::asio::ip::tcp::socket clientSocket(ioc);
-    boost::system::error_code connectEc;
-    clientSocket.connect(endpoint, connectEc);
-    REQUIRE_FALSE(connectEc);
+  boost::asio::ip::tcp::socket clientSocket(ioc);
+  boost::system::error_code connectEc;
+  clientSocket.connect(endpoint, connectEc);
+  REQUIRE_FALSE(connectEc);
 
-    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
-    boost::system::error_code handshakeEc;
-    clientWs.handshake("127.0.0.1", "/", handshakeEc);
-    REQUIRE_FALSE(handshakeEc);
+  boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+      std::move(clientSocket));
+  boost::system::error_code handshakeEc;
+  clientWs.handshake("127.0.0.1", "/", handshakeEc);
+  REQUIRE_FALSE(handshakeEc);
 
-    clientWs.text(true);
-    std::string atLimit(dovahlink::security::kMaxInboundFrameBytes, 'x');
-    boost::system::error_code writeEc;
-    clientWs.write(boost::asio::buffer(atLimit), writeEc);
-    REQUIRE_FALSE(writeEc);
+  clientWs.text(true);
+  std::string atLimit(dovahlink::security::kMaxInboundFrameBytes, 'x');
+  boost::system::error_code writeEc;
+  clientWs.write(boost::asio::buffer(atLimit), writeEc);
+  REQUIRE_FALSE(writeEc);
 
-    serverThread.join();
+  serverThread.join();
 
-    REQUIRE_FALSE(serverAcceptEc);
-    REQUIRE(serverHandshakeResult.has_value());
-    REQUIRE(serverReadResult.has_value());
-    CHECK(serverReadResult->size() == atLimit.size());
+  REQUIRE_FALSE(serverAcceptEc);
+  REQUIRE(serverHandshakeResult.has_value());
+  REQUIRE(serverReadResult.has_value());
+  CHECK(serverReadResult->size() == atLimit.size());
 }
 
-TEST_CASE("a message exceeding the frame size limit is rejected as kFrameTooLarge", "[transport][inbound_limit]") {
-    boost::asio::io_context ioc;
-    auto listener = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    REQUIRE(listener.has_value());
-    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+TEST_CASE(
+    "a message exceeding the frame size limit is rejected as kFrameTooLarge",
+    "[transport][inbound_limit]") {
+  boost::asio::io_context ioc;
+  auto listener =
+      LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+  REQUIRE(listener.has_value());
+  boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
-    boost::system::error_code serverAcceptEc;
-    std::expected<void, SessionError> serverHandshakeResult = std::unexpected(SessionError::kHandshakeFailed);
-    std::expected<std::string, SessionError> serverReadResult = std::string{"should not remain unset"};
+  boost::system::error_code serverAcceptEc;
+  std::expected<void, SessionError> serverHandshakeResult =
+      std::unexpected(SessionError::kHandshakeFailed);
+  std::expected<std::string, SessionError> serverReadResult =
+      std::string{"should not remain unset"};
 
-    std::thread serverThread([&] {
-        boost::asio::ip::tcp::socket serverSocket = listener->Acceptor().accept(serverAcceptEc);
-        if (serverAcceptEc) {
-            return;
-        }
-        WebSocketSession session(std::move(serverSocket));
-        serverHandshakeResult = session.Accept();
-        if (!serverHandshakeResult.has_value()) {
-            return;
-        }
-        serverReadResult = session.ReadMessage();
-    });
+  std::thread serverThread([&] {
+    boost::asio::ip::tcp::socket serverSocket =
+        listener->Acceptor().accept(serverAcceptEc);
+    if (serverAcceptEc) {
+      return;
+    }
+    WebSocketSession session(std::move(serverSocket));
+    serverHandshakeResult = session.Accept();
+    if (!serverHandshakeResult.has_value()) {
+      return;
+    }
+    serverReadResult = session.ReadMessage();
+  });
 
-    boost::asio::ip::tcp::socket clientSocket(ioc);
-    boost::system::error_code connectEc;
-    clientSocket.connect(endpoint, connectEc);
-    REQUIRE_FALSE(connectEc);
+  boost::asio::ip::tcp::socket clientSocket(ioc);
+  boost::system::error_code connectEc;
+  clientSocket.connect(endpoint, connectEc);
+  REQUIRE_FALSE(connectEc);
 
-    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(std::move(clientSocket));
-    boost::system::error_code handshakeEc;
-    clientWs.handshake("127.0.0.1", "/", handshakeEc);
-    REQUIRE_FALSE(handshakeEc);
+  boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+      std::move(clientSocket));
+  boost::system::error_code handshakeEc;
+  clientWs.handshake("127.0.0.1", "/", handshakeEc);
+  REQUIRE_FALSE(handshakeEc);
 
-    clientWs.text(true);
-    std::string oversized(dovahlink::security::kMaxInboundFrameBytes + 1, 'x');
-    boost::system::error_code writeEc;
-    clientWs.write(boost::asio::buffer(oversized), writeEc);
-    // The write itself may succeed or fail depending on how much the server
-    // read before rejecting; either is consistent with rejection happening
-    // on the server side, so it is not asserted here.
+  clientWs.text(true);
+  std::string oversized(dovahlink::security::kMaxInboundFrameBytes + 1, 'x');
+  boost::system::error_code writeEc;
+  clientWs.write(boost::asio::buffer(oversized), writeEc);
+  // The write itself may succeed or fail depending on how much the server
+  // read before rejecting; either is consistent with rejection happening
+  // on the server side, so it is not asserted here.
 
-    // Gracefully shut down the client's send side once the (rejected)
-    // message has been written, rather than leaving the socket open and
-    // never sending anything more. On the server side, Beast's rejection
-    // path (do_fail) sends a close frame and then waits for the peer to
-    // also close before it can report message_too_big -- confirmed by
-    // reproducing the alternative directly: without this, that wait has no
-    // bound in Beast's synchronous API and stalls until the OS's own
-    // default TCP timeout gives up (observed: ~2 minutes), surfacing a
-    // generic failure instead of kFrameTooLarge. This shutdown_send is
-    // what lets that wait resolve immediately and correctly (an abrupt
-    // close() instead of a graceful shutdown was tried too and is not
-    // enough -- it produces a reset rather than the clean EOF do_fail
-    // needs to see before it will report the original error). See
-    // transport/websocket_session.cpp's asynchronous read timeout for the
-    // production fix covering a peer that never does this.
-    boost::system::error_code clientShutdownEc;
-    clientWs.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send, clientShutdownEc);
+  // Gracefully shut down the client's send side once the (rejected)
+  // message has been written, rather than leaving the socket open and
+  // never sending anything more. On the server side, Beast's rejection
+  // path (do_fail) sends a close frame and then waits for the peer to
+  // also close before it can report message_too_big -- confirmed by
+  // reproducing the alternative directly: without this, that wait has no
+  // bound in Beast's synchronous API and stalls until the OS's own
+  // default TCP timeout gives up (observed: ~2 minutes), surfacing a
+  // generic failure instead of kFrameTooLarge. This shutdown_send is
+  // what lets that wait resolve immediately and correctly (an abrupt
+  // close() instead of a graceful shutdown was tried too and is not
+  // enough -- it produces a reset rather than the clean EOF do_fail
+  // needs to see before it will report the original error). See
+  // transport/websocket_session.cpp's asynchronous read timeout for the
+  // production fix covering a peer that never does this.
+  boost::system::error_code clientShutdownEc;
+  clientWs.next_layer().shutdown(boost::asio::ip::tcp::socket::shutdown_send,
+                                 clientShutdownEc);
 
-    serverThread.join();
+  serverThread.join();
 
-    REQUIRE_FALSE(serverAcceptEc);
-    REQUIRE(serverHandshakeResult.has_value());
-    REQUIRE_FALSE(serverReadResult.has_value());
-    CHECK(serverReadResult.error() == SessionError::kFrameTooLarge);
+  REQUIRE_FALSE(serverAcceptEc);
+  REQUIRE(serverHandshakeResult.has_value());
+  REQUIRE_FALSE(serverReadResult.has_value());
+  CHECK(serverReadResult.error() == SessionError::kFrameTooLarge);
 }
 
 TEST_CASE("kFrameTooLarge closes immediately without consuming a violation "
           "strike, matching the "
           "documented immediate-close calling convention",
           "[transport][inbound_limit]") {
-    // Demonstrates the intended policy: kFrameTooLarge -> close now, do not
-    // touch the throttle; every other SessionError -> record a violation and
-    // close only once the throttle says so. Simulated here as a small,
-    // explicit dispatcher rather than something WebSocketSession itself
-    // implements, since transport code must not depend on this specific
-    // application-layer throttle type.
-    ViolationTracker violations;
-    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+  // Demonstrates the intended policy: kFrameTooLarge -> close now, do not
+  // touch the throttle; every other SessionError -> record a violation and
+  // close only once the throttle says so. Simulated here as a small,
+  // explicit dispatcher rather than something WebSocketSession itself
+  // implements, since transport code must not depend on this specific
+  // application-layer throttle type.
+  ViolationTracker violations;
+  std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 
-    auto shouldCloseImmediately = [&](SessionError error) -> bool {
-        if (error == SessionError::kFrameTooLarge) {
-            return true;  // immediate close, no violation recorded.
-        }
-        return violations.RecordViolationAndCheckLimit(now);
-    };
+  auto shouldCloseImmediately = [&](SessionError error) -> bool {
+    if (error == SessionError::kFrameTooLarge) {
+      return true; // immediate close, no violation recorded.
+    }
+    return violations.RecordViolationAndCheckLimit(now);
+  };
 
-    // A single kFrameTooLarge closes immediately and leaves the throttle
-    // untouched: two more non-framing violations afterward still only close
-    // on the third of *those*, proving the frame-too-large case truly did
-    // not consume one of the three strikes.
-    CHECK(shouldCloseImmediately(SessionError::kFrameTooLarge));
+  // A single kFrameTooLarge closes immediately and leaves the throttle
+  // untouched: two more non-framing violations afterward still only close
+  // on the third of *those*, proving the frame-too-large case truly did
+  // not consume one of the three strikes.
+  CHECK(shouldCloseImmediately(SessionError::kFrameTooLarge));
 
-    CHECK_FALSE(shouldCloseImmediately(SessionError::kReadFailed));
-    CHECK_FALSE(shouldCloseImmediately(SessionError::kBinaryFrameRejected));
-    CHECK(shouldCloseImmediately(SessionError::kHandshakeFailed));
+  CHECK_FALSE(shouldCloseImmediately(SessionError::kReadFailed));
+  CHECK_FALSE(shouldCloseImmediately(SessionError::kBinaryFrameRejected));
+  CHECK(shouldCloseImmediately(SessionError::kHandshakeFailed));
 }

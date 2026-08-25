@@ -12,14 +12,16 @@ namespace dovahlink::protocol {
 
 /// Collection of capabilities advertised by an endpoint.
 struct CapabilitiesPayload {
-    /// Capabilities included in the message.
-    std::vector<Capability> capabilities;
+  /// Capabilities included in the message.
+  std::vector<Capability> capabilities;
 };
 
 /// Decodes a capabilities payload.
-std::expected<CapabilitiesPayload, MessageError> DecodeCapabilitiesPayload(const boost::json::object& payload);
+std::expected<CapabilitiesPayload, MessageError>
+DecodeCapabilitiesPayload(const boost::json::object &payload);
 
 /// Encodes a capabilities payload.
-boost::json::object EncodeCapabilitiesPayload(const CapabilitiesPayload& payload);
+boost::json::object
+EncodeCapabilitiesPayload(const CapabilitiesPayload &payload);
 
-}  // namespace dovahlink::protocol
+} // namespace dovahlink::protocol

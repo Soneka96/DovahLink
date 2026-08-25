@@ -8,14 +8,14 @@ namespace {
 
 /// Reads the plugin entry point's own source text for structural assertions.
 std::string ReadPluginSource() {
-    std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
-    REQUIRE(file.is_open());
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
+  std::ifstream file(DOVAHLINK_PLUGIN_SOURCE_FILE);
+  REQUIRE(file.is_open());
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  return buffer.str();
 }
 
-}  // namespace
+} // namespace
 
 // ai/context/skse/architecture.md forbids blocking filesystem work inside a
 // Skyrim callback or game-thread hook; every SKSE::log:: call in this plugin
@@ -24,12 +24,13 @@ std::string ReadPluginSource() {
 // reproduced a crash to desktop empirically. That failure mode plays out
 // only inside a running SKSE process, so it cannot be caught by exercising
 // plugin behavior in a unit test; this asserts the fix structurally instead.
-TEST_CASE("SetupLogging configures the default logger through spdlog's non-blocking async factory",
+TEST_CASE("SetupLogging configures the default logger through spdlog's "
+          "non-blocking async factory",
           "[plugin][logging]") {
-    std::string source = ReadPluginSource();
-    // Matches the actual call, not just the identifier: SetupLogging's own
-    // doc comment names "async_factory_nonblock" in prose, so a bare
-    // substring check would pass even if the real construction reverted to
-    // a synchronous logger.
-    CHECK(source.find("async_factory_nonblock::create<") != std::string::npos);
+  std::string source = ReadPluginSource();
+  // Matches the actual call, not just the identifier: SetupLogging's own
+  // doc comment names "async_factory_nonblock" in prose, so a bare
+  // substring check would pass even if the real construction reverted to
+  // a synchronous logger.
+  CHECK(source.find("async_factory_nonblock::create<") != std::string::npos);
 }
