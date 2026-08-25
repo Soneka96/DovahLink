@@ -21,6 +21,10 @@ Use explicit seams for runtime-dependent code: a fake callback registry for regi
   mock the object or codec whose behavior the test is intended to prove.
 - Small composition or integration tests use real implementations to prove that the production
   graph is wired correctly; they do not duplicate every collaborator's unit tests.
+- When a consumer changes to depend on a new contract, update its isolated consumer test in the
+  same implementation step. Use strict mocks for synchronous consumers; use controllable,
+  thread-safe fakes for worker, callback, transport, and lifetime consumers. Keep real composition
+  tests separately when they prove production wiring.
 
 Use FakeIt as the first C++ mocking-framework candidate. It must pass a repository proof of concept
 through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference,
