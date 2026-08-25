@@ -14,7 +14,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Exercises [PairingRenotifyButton] dispatch behavior and enabled/disabled states.
 void main() {
   group('PairingRenotifyButton', () {
-    testWidgets('displays enabled button when renotify is available', (
+    testWidgets('PairingRenotifyButton displays enabled button when renotify is available', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -47,7 +47,7 @@ void main() {
       expect(text.data, 'Send Code Again');
     });
 
-    testWidgets('displays disabled button during cooldown', (
+    testWidgets('PairingRenotifyButton displays disabled button during cooldown', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -79,7 +79,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('shows cooldown seconds in default format', (
+    testWidgets('PairingRenotifyButton shows cooldown seconds in default format', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -111,7 +111,7 @@ void main() {
       expect(text.data, matches(r'Send Code Again \(\d+s\)'));
     });
 
-    testWidgets('treats zero cooldown seconds as available', (
+    testWidgets('PairingRenotifyButton treats zero cooldown seconds as available', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -146,7 +146,7 @@ void main() {
       expect(text.data, 'Send Code Again');
     });
 
-    testWidgets('uses custom cooldown label when provided', (
+    testWidgets('PairingRenotifyButton uses custom cooldown label when provided', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -180,7 +180,7 @@ void main() {
       expect(text.data, 'Please wait...');
     });
 
-    testWidgets('dispatches PairingRenotifyRequestedAction on tap', (
+    testWidgets('PairingRenotifyButton dispatches PairingRenotifyRequestedAction on tap', (
       WidgetTester tester,
     ) async {
       final actions = <dynamic>[];
@@ -215,7 +215,7 @@ void main() {
       expect(actions, contains(isA<PairingRenotifyRequestedAction>()));
     });
 
-    testWidgets('does not dispatch action during cooldown', (
+    testWidgets('PairingRenotifyButton does not dispatch action during cooldown', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -256,7 +256,7 @@ void main() {
     });
 
     testWidgets(
-      'updates label when state transitions from cooldown to available',
+      'PairingRenotifyButton updates label when state transitions from cooldown to available',
       (WidgetTester tester) async {
         final now = DateTime.now();
         final availableIn5Seconds = now.add(const Duration(seconds: 5));
@@ -309,7 +309,7 @@ void main() {
       },
     );
 
-    testWidgets('becomes enabled once the cooldown elapses with no Redux dispatch at all', (
+    testWidgets('PairingRenotifyButton becomes enabled once the cooldown elapses with no Redux dispatch at all', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(

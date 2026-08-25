@@ -6,7 +6,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_b
 /// Exercises PairingBackButton rendering and interaction.
 void main() {
   group('PairingBackButton', () {
-    testWidgets('renders keyed pairing-back-button', (
+    testWidgets('PairingBackButton renders keyed pairing-back-button', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -16,7 +16,7 @@ void main() {
       expect(find.byKey(const Key('pairing-back-button')), findsOneWidget);
     });
 
-    testWidgets('calls onBack when tapped', (WidgetTester tester) async {
+    testWidgets('PairingBackButton calls onBack when tapped', (WidgetTester tester) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(home: PairingBackButton(onBack: () => callCount++)),
@@ -28,7 +28,7 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('labels the button and meets its minimum interactive size', (
+    testWidgets('PairingBackButton labels the button and meets its minimum interactive size', (
       WidgetTester tester,
     ) async {
       // See the equivalent check on PairingRequestCodeButton for why this

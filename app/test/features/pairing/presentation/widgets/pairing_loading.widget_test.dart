@@ -6,7 +6,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_l
 /// Exercises PairingLoadingIndicator rendering.
 void main() {
   group('PairingLoadingIndicator', () {
-    testWidgets('renders a progress indicator keyed pairing-loading', (
+    testWidgets('PairingLoadingIndicator renders a progress indicator keyed pairing-loading', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(

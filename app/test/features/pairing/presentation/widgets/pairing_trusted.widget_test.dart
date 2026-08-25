@@ -6,7 +6,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_t
 /// Exercises PairingTrustedIndicator rendering.
 void main() {
   group('PairingTrustedIndicator', () {
-    testWidgets('displays Paired keyed pairing-trusted', (
+    testWidgets('PairingTrustedIndicator displays Paired keyed pairing-trusted', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(

@@ -8,7 +8,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_c
 void main() {
   group('PairingCodeForm contains widgets', () {
     testWidgets(
-      'contains the code and display-name fields and a confirm button',
+      'PairingCodeForm contains the code and display-name fields and a confirm button',
       (WidgetTester tester) async {
         await tester.pumpWidget(
           MaterialApp(
@@ -25,7 +25,7 @@ void main() {
       },
     );
 
-    testWidgets('submitting the form calls onSubmit with the entered values', (
+    testWidgets('PairingCodeForm submitting the form calls onSubmit with the entered values', (
       WidgetTester tester,
     ) async {
       String? submittedCode;
@@ -59,7 +59,7 @@ void main() {
     });
 
     testWidgets(
-      'submitting the form with no display name calls onSubmit with a null displayName',
+      'PairingCodeForm submitting the form with no display name calls onSubmit with a null displayName',
       (WidgetTester tester) async {
         String? submittedDisplayName = 'not null yet';
         await tester.pumpWidget(
@@ -84,7 +84,7 @@ void main() {
       },
     );
 
-    testWidgets('disposes cleanly when unmounted', (WidgetTester tester) async {
+    testWidgets('PairingCodeForm disposes cleanly when unmounted', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
@@ -97,7 +97,7 @@ void main() {
     });
 
     testWidgets(
-      'submitting with an empty code still calls onSubmit with an empty string',
+      'PairingCodeForm submitting with an empty code still calls onSubmit with an empty string',
       (WidgetTester tester) async {
         String? submittedCode = 'not called yet';
         await tester.pumpWidget(
@@ -120,7 +120,7 @@ void main() {
 
   group('PairingCodeForm meets accessibility recommended guidelines', () {
     testWidgets(
-      'labels the confirm button and meets its minimum interactive size',
+      'PairingCodeForm labels the confirm button and meets its minimum interactive size',
       (WidgetTester tester) async {
         // See the equivalent check on the pairing screen's request-code
         // button for why this checks labeledTapTargetGuideline +
@@ -150,7 +150,7 @@ void main() {
       },
     );
 
-    testWidgets('lays out without overflow at a large text scale', (
+    testWidgets('PairingCodeForm lays out without overflow at a large text scale', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -168,7 +168,7 @@ void main() {
     });
 
     testWidgets(
-      'traverses focus from the code field to the display-name field in order',
+      'PairingCodeForm traverses focus from the code field to the display-name field in order',
       (WidgetTester tester) async {
         await tester.pumpWidget(
           MaterialApp(

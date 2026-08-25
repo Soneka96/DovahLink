@@ -13,7 +13,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Exercises [PairingCancelButton] dispatch behavior and enabled/disabled states.
 void main() {
   group('PairingCancelButton', () {
-    testWidgets('displays enabled button during awaiting-code phase', (
+    testWidgets('PairingCancelButton displays enabled button during awaiting-code phase', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -46,7 +46,7 @@ void main() {
       expect(text.data, 'Cancel');
     });
 
-    testWidgets('displays disabled button in disconnected phase', (
+    testWidgets('PairingCancelButton displays disabled button in disconnected phase', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -76,7 +76,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('displays disabled button in failed phase', (
+    testWidgets('PairingCancelButton displays disabled button in failed phase', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -106,7 +106,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('displays disabled button in succeeded phase', (
+    testWidgets('PairingCancelButton displays disabled button in succeeded phase', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -136,7 +136,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('dispatches PairingCancelRequestedAction on tap', (
+    testWidgets('PairingCancelButton dispatches PairingCancelRequestedAction on tap', (
       WidgetTester tester,
     ) async {
       final actions = <dynamic>[];
@@ -171,7 +171,7 @@ void main() {
       expect(actions, contains(isA<PairingCancelRequestedAction>()));
     });
 
-    testWidgets('does not dispatch action when disabled', (
+    testWidgets('PairingCancelButton does not dispatch action when disabled', (
       WidgetTester tester,
     ) async {
       final actions = <dynamic>[];
@@ -209,7 +209,7 @@ void main() {
       expect(actions.whereType<PairingCancelRequestedAction>(), isEmpty);
     });
 
-    testWidgets('uses custom label when provided', (WidgetTester tester) async {
+    testWidgets('PairingCancelButton uses custom label when provided', (WidgetTester tester) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -239,7 +239,7 @@ void main() {
       expect(text.data, 'Exit Pairing');
     });
 
-    testWidgets('updates when phase changes', (WidgetTester tester) async {
+    testWidgets('PairingCancelButton updates when phase changes', (WidgetTester tester) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) {
           if (action is _TransitionPhaseAction) {
@@ -287,7 +287,7 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('re-enables when phase returns to awaiting-code', (
+    testWidgets('PairingCancelButton re-enables when phase returns to awaiting-code', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -356,7 +356,7 @@ void main() {
       expect(button.onPressed, isNotNull);
     });
 
-    testWidgets('applies custom style when provided', (
+    testWidgets('PairingCancelButton applies custom style when provided', (
       WidgetTester tester,
     ) async {
       const customStyle = ButtonStyle(

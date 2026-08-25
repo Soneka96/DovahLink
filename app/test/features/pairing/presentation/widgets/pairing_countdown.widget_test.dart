@@ -12,7 +12,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Exercises [PairingCountdown] countdown display and periodic updates.
 void main() {
   group('PairingCountdown', () {
-    testWidgets('renders nothing when countdown is null', (
+    testWidgets('PairingCountdown renders nothing when countdown is null', (
       WidgetTester tester,
     ) async {
       final store = Store<AppState>(
@@ -41,7 +41,7 @@ void main() {
       expect(find.byType(Text), findsNothing);
     });
 
-    testWidgets('displays formatted countdown when seconds remain', (
+    testWidgets('PairingCountdown displays formatted countdown when seconds remain', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -79,7 +79,7 @@ void main() {
       expect(textWidget.data, '2:05');
     });
 
-    testWidgets('displays zero when countdown has expired', (
+    testWidgets('PairingCountdown displays zero when countdown has expired', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -113,7 +113,7 @@ void main() {
       expect(textWidget.data, '0:00');
     });
 
-    testWidgets('applies custom text style when provided', (
+    testWidgets('PairingCountdown applies custom text style when provided', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -150,7 +150,7 @@ void main() {
       expect(textWidget.style, customStyle);
     });
 
-    testWidgets('uses custom format function when provided', (
+    testWidgets('PairingCountdown uses custom format function when provided', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -188,7 +188,7 @@ void main() {
       expect(textWidget.data, contains('s remaining'));
     });
 
-    testWidgets('updates countdown when store state changes', (
+    testWidgets('PairingCountdown updates countdown when store state changes', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();
@@ -246,7 +246,7 @@ void main() {
       expect(textWidget.data, '0:30');
     });
 
-    testWidgets('maintains timer during widget rebuild', (
+    testWidgets('PairingCountdown maintains timer during widget rebuild', (
       WidgetTester tester,
     ) async {
       final now = DateTime.now();

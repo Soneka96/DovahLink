@@ -7,7 +7,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_r
 void main() {
   group('PairingRequestCodeButton', () {
     testWidgets(
-      'renders the request-code label keyed pairing-request-code-button',
+      'PairingRequestCodeButton renders the request-code label keyed pairing-request-code-button',
       (WidgetTester tester) async {
         await tester.pumpWidget(
           MaterialApp(home: PairingRequestCodeButton(onRequestCode: () {})),
@@ -21,7 +21,7 @@ void main() {
       },
     );
 
-    testWidgets('calls onRequestCode when tapped', (WidgetTester tester) async {
+    testWidgets('PairingRequestCodeButton calls onRequestCode when tapped', (WidgetTester tester) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(
@@ -35,7 +35,7 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('labels the button and meets its minimum interactive size', (
+    testWidgets('PairingRequestCodeButton labels the button and meets its minimum interactive size', (
       WidgetTester tester,
     ) async {
       // DovahLink is a Windows desktop app, not a touch device, so this

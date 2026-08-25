@@ -6,7 +6,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_r
 /// Exercises PairingRetryButton rendering and interaction.
 void main() {
   group('PairingRetryButton', () {
-    testWidgets('renders the retry label keyed pairing-retry-button', (
+    testWidgets('PairingRetryButton renders the retry label keyed pairing-retry-button', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -17,7 +17,7 @@ void main() {
       expect(find.byKey(const Key('pairing-retry-button')), findsOneWidget);
     });
 
-    testWidgets('calls onRetry when tapped', (WidgetTester tester) async {
+    testWidgets('PairingRetryButton calls onRetry when tapped', (WidgetTester tester) async {
       int callCount = 0;
       await tester.pumpWidget(
         MaterialApp(home: PairingRetryButton(onRetry: () => callCount++)),
@@ -29,7 +29,7 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('labels the button and meets its minimum interactive size', (
+    testWidgets('PairingRetryButton labels the button and meets its minimum interactive size', (
       WidgetTester tester,
     ) async {
       // See the equivalent check on PairingRequestCodeButton for why this

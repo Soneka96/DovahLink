@@ -33,7 +33,7 @@ void main() {
   });
 
   group('BridgeListScreen contains widgets', () {
-    testWidgets('contains the static default Bridge tile', (
+    testWidgets('BridgeListScreen contains the static default Bridge tile', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -51,7 +51,7 @@ void main() {
   });
 
   group('BridgeListScreen selection', () {
-    testWidgets('tapping a Bridge tile navigates to pairing', (
+    testWidgets('BridgeListScreen tapping a Bridge tile navigates to pairing', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -71,7 +71,7 @@ void main() {
       verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
     });
 
-    testWidgets('tapping the second tile passes that Bridge, not the first', (
+    testWidgets('BridgeListScreen tapping the second tile passes that Bridge, not the first', (
       WidgetTester tester,
     ) async {
       final BridgeEntity first = Fixtures.buildBridgeEntity(
@@ -109,7 +109,7 @@ void main() {
 
   group('BridgeListScreen meets accessibility recommended guidelines', () {
     testWidgets(
-      'labels the Bridge tile and meets its minimum tap-target size',
+        'BridgeListScreen labels the Bridge tile and meets its minimum tap-target size',
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
@@ -129,7 +129,7 @@ void main() {
       },
     );
 
-    testWidgets('exposes the Bridge tile label as semantics', (
+    testWidgets('BridgeListScreen exposes the Bridge tile label as semantics', (
       WidgetTester tester,
     ) async {
       final SemanticsHandle handle = tester.ensureSemantics();
