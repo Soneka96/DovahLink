@@ -9,8 +9,8 @@
 
 namespace dovahlink::protocol {
 
-/// Parses one JSON text while enforcing all inbound size and nesting limits.
+///  Parses one JSON text while enforcing all inbound size and nesting limits.
 std::expected<boost::json::value, BoundedJsonError>
 ParseBoundedJson(std::string_view text);
 
-} // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

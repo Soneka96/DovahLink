@@ -7,13 +7,13 @@
 namespace dovahlink::protocol {
 
 std::expected<SubscribePayload, MessageError>
-DecodeSubscribePayload(const boost::json::object &payload) {
-  auto stateAreas =
-      DecodeStringArray(RequireField(payload, "stateAreas"), "stateAreas");
-  if (!stateAreas) {
-    return std::unexpected(stateAreas.error());
-  }
-  return SubscribePayload{.stateAreas = std::move(*stateAreas)};
+DecodeSubscribePayload(const boost::json::object& payload) {
+    auto stateAreas =
+        DecodeStringArray(RequireField(payload, "stateAreas"), "stateAreas");
+    if (!stateAreas) {
+        return std::unexpected(stateAreas.error());
+    }
+    return SubscribePayload{.stateAreas = std::move(*stateAreas)};
 }
 
-} // namespace dovahlink::protocol
+} //  namespace dovahlink::protocol

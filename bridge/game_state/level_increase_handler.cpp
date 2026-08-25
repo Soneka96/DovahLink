@@ -2,12 +2,12 @@
 
 namespace dovahlink::game_state {
 
-LevelIncreaseHandler::LevelIncreaseHandler(const LevelAccessor &accessor,
-                                           application::LevelEventSink &sink)
+LevelIncreaseHandler::LevelIncreaseHandler(const LevelAccessor& accessor,
+                                           application::LevelEventSink& sink)
     : accessor_(accessor), sink_(sink) {}
 
 void LevelIncreaseHandler::HandleLevelIncrease() {
-  sink_.OnLevelCaptured(CaptureLevel(accessor_));
+    sink_.OnLevelCaptured(CaptureLevel(accessor_));
 }
 
-} // namespace dovahlink::game_state
+} //  namespace dovahlink::game_state

@@ -12,7 +12,10 @@ TEST_CASE("source text matching ignores formatter layout", "[test_support]") {
     CHECK(ContainsSourceText(source,
                              "RE::BSFixedString Reset(RE::StaticFunctionTag*, "
                              "RE::BSFixedString akCode)"));
-    CHECK(FindSourceText(source, "Reset(RE::StaticFunctionTag*)") != std::string::npos);
+    CHECK(FindSourceText(
+              source,
+              "Reset(RE::StaticFunctionTag*, RE::BSFixedString akCode)") !=
+          std::string::npos);
 }
 
 TEST_CASE("source text matching joins adjacent string literals", "[test_support]") {
