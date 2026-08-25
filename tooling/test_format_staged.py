@@ -69,7 +69,7 @@ class FormatStagedTests(unittest.TestCase):
         """Quote staged metacharacters when launching a Windows batch formatter."""
         resolved_dart = r"C:\Dart\flutter\bin\dart.BAT"
         with (
-            patch.object(format_staged.os, "name", "nt"),
+            patch.object(format_staged, "is_windows_batch_wrapper", return_value=True),
             patch.object(format_staged.shutil, "which", return_value=resolved_dart),
             patch.object(
                 format_staged.subprocess,
