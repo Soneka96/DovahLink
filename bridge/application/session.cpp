@@ -31,7 +31,7 @@ SessionManager::Lease::~Lease() { Reset(); }
 
 void SessionManager::Lease::Reset() noexcept {
     if (manager_ != nullptr) {
-        manager_->InvalidateSession(connection_, sessionId_);
+        static_cast<void>(manager_->InvalidateSession(connection_, sessionId_));
         manager_ = nullptr;
     }
 }
@@ -87,14 +87,16 @@ void SessionManager::UpgradeToFullTrust(ConnectionId connection,
     }
 }
 
-void SessionManager::InvalidateSession(ConnectionId connection,
+bool SessionManager::InvalidateSession(ConnectionId connection,
                                        const std::string& sessionId) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
     if (activeSession_.has_value() &&
         activeSession_->connectionId == connection &&
         activeSession_->sessionId == sessionId) {
         activeSession_.reset();
+        return true;
     }
+    return false;
 }
 
 void SessionManager::InvalidateAll() {

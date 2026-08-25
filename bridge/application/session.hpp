@@ -122,6 +122,13 @@ class SessionManager : public ISessionPromotion {
     ///  Invalidates the active session regardless of its connection.
     void InvalidateAll();
 
+    ///  Invalidates the active session only when both identity values match.
+    ///  @param connection Connection owning the session to invalidate.
+    ///  @param sessionId Exact session identifier to invalidate.
+    ///  @return `true` when the matching session was invalidated.
+    [[nodiscard]] bool InvalidateSession(
+        ConnectionId connection, const std::string& sessionId) noexcept;
+
     ///  Returns how `connection`'s active session authenticated at `hello`. Needed
     ///  by trust administration (`ai/context/protocol/security.md`'s "Developer
     ///  authentication") to exempt a `kDeveloperToken` session from
@@ -152,10 +159,6 @@ class SessionManager : public ISessionPromotion {
     SessionForConnection(ConnectionId connection) const;
 
   private:
-    ///  Invalidates the active session when owned by `connection`.
-    void InvalidateSession(ConnectionId connection,
-                           const std::string& sessionId) noexcept;
-
     ///  Synchronizes session ownership state.
     mutable std::mutex mutex_;
 

@@ -430,6 +430,22 @@ TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on "
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
 }
 
+TEST_CASE("InvalidateSession clears the exact session before delayed promotion",
+          "[application][session]") {
+    SessionManager sessions;
+    auto lease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(lease.has_value());
+
+    CHECK(sessions.InvalidateSession(kConnectionA, kSessionOne));
+    CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
+    CHECK_FALSE(sessions.InvalidateSession(kConnectionA, kSessionOne));
+}
+
 TEST_CASE("UpgradeToFullTrust on an already-kFull session leaves it kFull",
           "[application][session]") {
     SessionManager sessions;

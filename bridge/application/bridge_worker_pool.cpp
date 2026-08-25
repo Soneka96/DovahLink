@@ -167,6 +167,10 @@ void BridgeWorkerPool::DisconnectIfClientActive(std::string_view clientId,
         if (session->authMethod == SessionAuthMethod::kDeveloperToken) {
             return;
         }
+        if (!sessionManager_.InvalidateSession(activeConnectionId_,
+                                               session->sessionId)) {
+            return;
+        }
         activeSessionId = std::move(session->sessionId);
         activeSocket = std::move(socket);
     }
@@ -187,6 +191,8 @@ void BridgeWorkerPool::DisconnectActive(std::string_view reason) {
         if (activeSocket) {
             auto session = sessionManager_.SessionForConnection(activeConnectionId_);
             if (session.has_value()) {
+                (void)sessionManager_.InvalidateSession(activeConnectionId_,
+                                                        session->sessionId);
                 activeSessionId = std::move(session->sessionId);
             }
         }
