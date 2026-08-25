@@ -37,22 +37,31 @@ namespace dovahlink::application {
 ///  surface is ever introduced.
 class TrustAdminService {
   public:
-    ///  Binds the service to the trust store it administers, the pairing session
-    ///  it cancels owned or all pending challenges through, the Factory Reset
-    ///  confirmation challenge it starts and confirms, and the session
-    ///  disconnector it enforces immediate revocation/blocking through.
-    ///  @param trustStore Persistent trust store this service reads and mutates.
+    ///  Binds the service to its per-device and bulk trust-store ports, the
+    ///  session disconnector, the pairing-cancellation port, and the Factory
+    ///  Reset confirmation challenge.
+    ///  @param deviceStore Per-device trust store operations.
+    ///  @param resetStore Bulk trust reset operations over the same authoritative
+    ///      trust store as `deviceStore`.
     ///  @param sessionDisconnector Force-closes the active session on a successful
     ///  revoke, block,
     ///      Reset Trust, or Factory Reset.
-    ///  @param pairingSession Cancels any pairing challenge or pending credential
+    ///  @param pairingCancellation Cancels any pairing challenge or pending credential
     ///  the blocked
     ///      identity owns on a successful block, or every pairing
     ///      challenge/pending credential in progress on a successful Reset Trust
     ///      or Factory Reset.
-    ///  @param factoryResetChallenge The six-digit confirmation challenge
-    ///  `StartFactoryReset` and
-    ///      `ConfirmFactoryReset` start and confirm.
+    ///  @param factoryResetChallenge The six-digit confirmation challenge used by
+    ///      `StartFactoryReset` and `ConfirmFactoryReset`.
+    TrustAdminService(security::ITrustDeviceStore& deviceStore,
+                      security::ITrustResetStore& resetStore,
+                      ActiveSessionDisconnector& sessionDisconnector,
+                      security::IPairingCancellation& pairingCancellation,
+                      security::IFactoryResetChallenge& factoryResetChallenge);
+
+    ///  Binds the service to the repository's concrete implementations. This
+    ///  overload keeps the plugin composition root concise while the primary
+    ///  constructor exposes narrow substitution ports to consumer tests.
     TrustAdminService(security::TrustStore& trustStore,
                       ActiveSessionDisconnector& sessionDisconnector,
                       security::PairingSession& pairingSession,
@@ -160,21 +169,24 @@ class TrustAdminService {
     [[nodiscard]] std::string ResetTrust() const;
 
   private:
-    ///  Trust store this service reads and mutates.
-    security::TrustStore& trustStore_;
+    ///  Trust store operations used by per-device administration.
+    security::ITrustDeviceStore& deviceStore_;
 
-    ///  Force-closes the active session on a successful revoke, block, Reset
-    ///  Trust, or Factory Reset.
+    ///  Trust-store bulk operations used by reset orchestration.
+    security::ITrustResetStore& resetStore_;
+
+    ///  Force-closes targeted or unconditional active sessions after
+    ///  administration mutations.
     ActiveSessionDisconnector& sessionDisconnector_;
 
     ///  Cancels any pairing challenge or pending credential a blocked identity
     ///  owns, or every one in progress on a successful Reset Trust or Factory
     ///  Reset.
-    security::PairingSession& pairingSession_;
+    security::IPairingCancellation& pairingCancellation_;
 
     ///  The Factory Reset confirmation challenge `StartFactoryReset` and
     ///  `ConfirmFactoryReset` start and confirm.
-    security::FactoryResetChallenge& factoryResetChallenge_;
+    security::IFactoryResetChallenge& factoryResetChallenge_;
 };
 
 } //  namespace dovahlink::application

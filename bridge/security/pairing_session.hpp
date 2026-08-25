@@ -16,6 +16,21 @@
 
 namespace dovahlink::security {
 
+///  The pairing-session operations required by administrative cancellation.
+class IPairingCancellation {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IPairingCancellation() = default;
+
+    ///  Cancels the challenge or pending credential owned by `clientId`.
+    [[nodiscard]] virtual CancelOutcome
+    TryCancel(const std::string& clientId,
+              std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Cancels every active challenge and pending credential.
+    virtual void CancelAll() = 0;
+};
+
 ///  The credential-issuance data a successful `PairingSession::TryFinalize`
 ///  returns, ready for the caller to commit via `TrustStore::Persist`.
 struct PendingCredential {
@@ -38,7 +53,7 @@ struct PendingCredential {
 ///  generated credential and commits a successful `TryFinalize`'s result to
 ///  `TrustStore` itself. Never persists across a Bridge restart -- "Incomplete
 ///  pending pairing does not need to survive a bridge restart."
-class PairingSession {
+class PairingSession : public IPairingCancellation {
   public:
     ///  Produces one six-digit pairing-code candidate, or `std::nullopt` when the
     ///  underlying random source fails.
@@ -206,7 +221,7 @@ class PairingSession {
     ///  @param now Current monotonic time, for the lazy-expiry checks.
     [[nodiscard]] CancelOutcome
     TryCancel(const std::string& clientId,
-              std::chrono::steady_clock::time_point now);
+              std::chrono::steady_clock::time_point now) override;
 
     ///  Unconditionally discards any active challenge and any pending credential,
     ///  regardless of which `clientId` owns it. Unlike `TryCancel`, which only
@@ -215,7 +230,7 @@ class PairingSession {
     ///  cancel every pairing attempt in progress at once. Never touches
     ///  `TrustStore` or any already-committed trust; only ever clears in-memory
     ///  challenge/pending state. A harmless no-op when nothing is active.
-    void CancelAll();
+    void CancelAll() override;
 
   private:
     ///  Clears `activeChallenge_` and `ownerClientId_` once `disconnectedAt_` is

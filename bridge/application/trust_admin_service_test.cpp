@@ -6,6 +6,7 @@
 #include "security/trust_store.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <fakeit.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -28,6 +29,10 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::UnblockOutcome;
+using fakeit::Mock;
+using fakeit::Verify;
+using fakeit::VerifyNoOtherInvocations;
+using fakeit::When;
 
 namespace {
 
@@ -1179,6 +1184,293 @@ TEST_CASE("ForgetByShortId reports not-found on an empty store",
                               factoryResetChallenge);
 
     CHECK(service.ForgetByShortId("11111") == "No known device with id 11111.");
+}
+
+TEST_CASE("TrustAdminService listing uses only the device-store port",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    auto device = MakeKnownDevice("client-1", "11111", std::string("Phone"),
+                                  KnownDeviceState::kTrusted, 1);
+    When(Method(deviceStore, ListAll))
+        .Return(std::vector<KnownDeviceRecord>{device});
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.List("all") == "1 known device:\n11111  Phone  trusted");
+
+    Verify(Method(deviceStore, ListAll)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService unblock and forget use device-store mutations",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    auto device = MakeKnownDevice("client-1", "11111", std::nullopt,
+                                  KnownDeviceState::kBlocked, 1);
+    When(Method(deviceStore, FindByShortId))
+        .AlwaysReturn(std::optional<KnownDeviceRecord>{device});
+    When(Method(deviceStore, Unblock)).Return(UnblockOutcome::kUnblocked);
+    When(Method(deviceStore, Forget)).Return(ForgetOutcome::kForgotten);
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.UnblockByShortId("11111") ==
+          "Unblocked device 11111 ((no display name)).");
+    CHECK(service.ForgetByShortId("11111") ==
+          "Forgot device 11111 ((no display name)).");
+
+    Verify(Method(deviceStore, FindByShortId)).Exactly(2);
+    Verify(Method(deviceStore, Unblock)).Once();
+    Verify(Method(deviceStore, Forget)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService start Factory Reset uses only the challenge port",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    When(Method(factoryResetChallenge, TryStart))
+        .Return(std::optional<std::string>{"654321"});
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.StartFactoryReset() ==
+          "Factory Reset requested. Confirm with code 654321 within 60 "
+          "seconds to permanently erase all trust.");
+
+    Verify(Method(factoryResetChallenge, TryStart)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService successful Reset Trust performs bulk cleanup",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    auto first = MakeKnownDevice("client-1", "11111", std::nullopt,
+                                 KnownDeviceState::kTrusted, 1);
+    auto second = MakeKnownDevice("client-2", "22222", std::nullopt,
+                                  KnownDeviceState::kTrusted, 2);
+    When(Method(resetStore, ListTrusted))
+        .Return(std::vector<KnownDeviceRecord>{first, second});
+    When(Method(resetStore, ResetTrust)).Return(true);
+    When(Method(pairingCancellation, CancelAll)).Return();
+    When(Method(sessionDisconnector, DisconnectIfClientActive)).AlwaysReturn();
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.ResetTrust() ==
+          "Reset Trust complete (2 devices revoked).");
+
+    Verify(Method(resetStore, ListTrusted)).Once();
+    Verify(Method(resetStore, ResetTrust)).Once();
+    Verify(Method(pairingCancellation, CancelAll)).Once();
+    Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Exactly(2);
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService invalid Factory Reset performs no trust mutation",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    When(Method(factoryResetChallenge, TryConfirm))
+        .Return(dovahlink::security::FactoryResetConfirmOutcome::kInvalid);
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.ConfirmFactoryReset("000000") ==
+          "Wrong Factory Reset confirmation code; the challenge was cancelled. "
+          "Start over with 'reset'.");
+
+    Verify(Method(factoryResetChallenge, TryConfirm)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService revoke isolates the targeted-client path",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    auto device = MakeKnownDevice("client-1", "11111", std::string("Phone"),
+                                  KnownDeviceState::kTrusted, 1);
+    When(Method(deviceStore, ListTrusted))
+        .Return(std::vector<KnownDeviceRecord>{device});
+    When(Method(deviceStore, Revoke)).Return(true);
+    When(Method(sessionDisconnector, DisconnectIfClientActive)).AlwaysReturn();
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.RevokeByShortId("11111") ==
+          "Revoked client 11111 (Phone).");
+    Verify(Method(deviceStore, ListTrusted)).Once();
+    Verify(Method(deviceStore, Revoke)).Once();
+    Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService block isolates cancellation and disconnect",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    auto device = MakeKnownDevice("client-1", "11111", std::nullopt,
+                                  KnownDeviceState::kRevoked, 1);
+    const auto now = std::chrono::steady_clock::time_point(
+        std::chrono::seconds(42));
+    When(Method(deviceStore, FindByShortId))
+        .Return(std::optional<KnownDeviceRecord>{device});
+    When(Method(deviceStore, Block)).Return(BlockOutcome::kBlocked);
+    When(Method(pairingCancellation, TryCancel))
+        .Return(dovahlink::security::CancelOutcome::kCancelled);
+    When(Method(sessionDisconnector, DisconnectIfClientActive)).Return();
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.BlockByShortId("11111", now) ==
+          "Blocked device 11111 ((no display name)).");
+    Verify(Method(deviceStore, FindByShortId)).Once();
+    Verify(Method(deviceStore, Block)).Once();
+    Verify(Method(pairingCancellation, TryCancel)).Once();
+    Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService Reset Trust failure has no cleanup side effects",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    When(Method(resetStore, ListTrusted)).Return(std::vector<KnownDeviceRecord>{});
+    When(Method(resetStore, ResetTrust)).Return(false);
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.ResetTrust() ==
+          "Failed to reset trust: trust-store save failed.");
+    Verify(Method(resetStore, ListTrusted)).Once();
+    Verify(Method(resetStore, ResetTrust)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustAdminService confirmed Factory Reset isolates bulk cleanup",
+          "[application][trust_admin_service][mock_framework]") {
+    Mock<dovahlink::security::ITrustDeviceStore> deviceStore;
+    Mock<dovahlink::security::ITrustResetStore> resetStore;
+    Mock<dovahlink::application::ActiveSessionDisconnector>
+        sessionDisconnector;
+    Mock<dovahlink::security::IPairingCancellation> pairingCancellation;
+    Mock<dovahlink::security::IFactoryResetChallenge> factoryResetChallenge;
+
+    When(Method(factoryResetChallenge, TryConfirm))
+        .Return(dovahlink::security::FactoryResetConfirmOutcome::kConfirmed);
+    When(Method(resetStore, ListTrusted))
+        .Return(std::vector<KnownDeviceRecord>{});
+    When(Method(resetStore, Reset)).Return(true);
+    When(Method(pairingCancellation, CancelAll)).Return();
+    When(Method(sessionDisconnector, DisconnectActive)).Return();
+
+    TrustAdminService service(
+        deviceStore.get(), resetStore.get(), sessionDisconnector.get(),
+        pairingCancellation.get(), factoryResetChallenge.get());
+
+    CHECK(service.ConfirmFactoryReset("654321") ==
+          "Factory Reset complete (0 trusted devices erased).");
+    Verify(Method(factoryResetChallenge, TryConfirm)).Once();
+    Verify(Method(resetStore, ListTrusted)).Once();
+    Verify(Method(resetStore, Reset)).Once();
+    Verify(Method(pairingCancellation, CancelAll)).Once();
+    Verify(Method(sessionDisconnector, DisconnectActive)).Once();
+    VerifyNoOtherInvocations(deviceStore);
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(pairingCancellation);
+    VerifyNoOtherInvocations(factoryResetChallenge);
 }
 
 TEST_CASE("ForgetByShortId reports not-eligible for a trusted client and "
