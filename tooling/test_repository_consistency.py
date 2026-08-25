@@ -548,7 +548,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
             "      - name: Restore Dart SDK dependencies",
         )
-        self.assertIn("        working-directory: sdk/dart/dovahlink_client", sdk_restore)
+        self.assertIn(
+            "        working-directory: sdk/dart/dovahlink_client", sdk_restore
+        )
         self.assertIn("        run: dart pub get", sdk_restore)
         app_restore = self._yaml_block(
             workflow,
@@ -564,7 +566,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Restore Flutter dependencies"),
             workflow.index("Check formatting of changed source files"),
         )
-        self.assertIn("sudo apt-get install --yes clang-format", workflow)
+        formatter_install = self._yaml_block(
+            workflow,
+            "      - name: Install formatter tools",
+        )
+        self.assertIn('llvm_version="19.1.5"', formatter_install)
+        self.assertIn(
+            'llvm_sha256="13e9975b026d431c945927960e5f8c0a47a155a2f600f57e85f4d1482620c65f"',
+            formatter_install,
+        )
+        self.assertIn(
+            'curl --fail --location --retry 3 --output "$RUNNER_TEMP/$llvm_archive" "$llvm_url"',
+            formatter_install,
+        )
+        self.assertIn(
+            'llvm_archive="LLVM-$llvm_version-Linux-X64.tar.xz"', formatter_install
+        )
+        self.assertIn(
+            'llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version/$llvm_archive"',
+            formatter_install,
+        )
+        self.assertIn(
+            'echo "$llvm_sha256  $RUNNER_TEMP/$llvm_archive" | sha256sum --check --strict',
+            formatter_install,
+        )
+        self.assertIn(
+            'tar -xJf "$RUNNER_TEMP/$llvm_archive" -C "$RUNNER_TEMP"', formatter_install
+        )
+        self.assertIn(
+            'echo "$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin" >> "$GITHUB_PATH"',
+            formatter_install,
+        )
+        self.assertIn(
+            'export PATH="$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin:$PATH"',
+            formatter_install,
+        )
+        self.assertIn("clang-format --version", formatter_install)
+        self.assertLess(
+            formatter_install.index("export PATH="),
+            formatter_install.index("clang-format --version"),
+        )
+        self.assertNotIn("apt-get install --yes clang-format", formatter_install)
         self.assertIn("python -m pip install ruff", workflow)
         self.assertIn("Install-Module PSScriptAnalyzer", workflow)
         self.assertIn('dotnet restore "$project"', workflow)

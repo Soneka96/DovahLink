@@ -73,8 +73,16 @@ jobs:
 
       - name: Install formatter tools
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes clang-format
+          llvm_version="19.1.5"
+          llvm_archive="LLVM-$llvm_version-Linux-X64.tar.xz"
+          llvm_sha256="13e9975b026d431c945927960e5f8c0a47a155a2f600f57e85f4d1482620c65f"
+          llvm_url="https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvm_version/$llvm_archive"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$llvm_archive" "$llvm_url"
+          echo "$llvm_sha256  $RUNNER_TEMP/$llvm_archive" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/$llvm_archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin:$PATH"
+          clang-format --version
           python -m pip install ruff
           pwsh -NoProfile -NonInteractive -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
           while IFS= read -r -d '' project; do

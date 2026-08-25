@@ -258,7 +258,7 @@ def format_paths(
     paths: list[str],
     check: bool,
 ) -> int:
-    """Format selected paths and restage them after successful formatting."""
+    """Format selected paths and require review before they can be committed."""
     selected = supported_paths(repository_root, paths)
     if not selected:
         return 0
@@ -274,10 +274,14 @@ def format_paths(
             file=sys.stderr,
         )
         return 1
-    restage = run_git(repository_root, ["add", "--", *selected])
-    if restage.returncode != 0:
-        print(restage.stderr.decode("utf-8").strip(), file=sys.stderr)
-        return restage.returncode
+    changed = sorted(set(selected).intersection(unstaged_paths(repository_root)))
+    if changed:
+        print(
+            "Formatting changed files; review and stage them before retrying:\n"
+            + "\n".join(f"  {path}" for path in changed),
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 

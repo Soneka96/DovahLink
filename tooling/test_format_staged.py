@@ -1,5 +1,7 @@
 """Test staged-file selection and formatter command construction."""
 
+from contextlib import redirect_stderr
+from io import StringIO
 import tempfile
 import unittest
 from pathlib import Path
@@ -149,6 +151,45 @@ class FormatStagedTests(unittest.TestCase):
             ["README.md"],
             False,
         )
+
+    def test_format_paths_reports_changes_without_restaging(self) -> None:
+        """Leave formatted files for review instead of adding them to the index."""
+        repository_root = Path(".")
+        selected = ["app/lib/main.dart"]
+        stderr = StringIO()
+        with (
+            patch.object(format_staged, "supported_paths", return_value=selected),
+            patch.object(
+                format_staged, "index_snapshot", side_effect=[b"same", b"same"]
+            ),
+            patch.object(format_staged, "execute_commands", return_value=0),
+            patch.object(format_staged, "unstaged_paths", return_value=selected),
+            patch.object(format_staged, "run_git") as run_git,
+            redirect_stderr(stderr),
+        ):
+            result = format_staged.format_paths(repository_root, selected, check=False)
+
+        self.assertEqual(result, 1)
+        self.assertIn("app/lib/main.dart", stderr.getvalue())
+        run_git.assert_not_called()
+
+    def test_format_paths_succeeds_when_formatter_makes_no_changes(self) -> None:
+        """Allow the commit to continue when selected files are already formatted."""
+        repository_root = Path(".")
+        selected = ["app/lib/main.dart"]
+        with (
+            patch.object(format_staged, "supported_paths", return_value=selected),
+            patch.object(
+                format_staged, "index_snapshot", side_effect=[b"same", b"same"]
+            ),
+            patch.object(format_staged, "execute_commands", return_value=0),
+            patch.object(format_staged, "unstaged_paths", return_value=[]),
+            patch.object(format_staged, "run_git") as run_git,
+        ):
+            result = format_staged.format_paths(repository_root, selected, check=False)
+
+        self.assertEqual(result, 0)
+        run_git.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -76,7 +76,9 @@ release/0.3.3
 
 The repository's shared pre-commit hook formats only supported code files that are already staged.
 It rejects partially staged supported files so formatting cannot capture unrelated work, fails when
-a required formatter is unavailable, and re-stages formatter output after a successful run.
+a required formatter is unavailable, and leaves formatter changes in the worktree for review. A
+formatting change makes the hook exit nonzero; review the diff, stage the intended files manually,
+and retry the commit.
 
 Enable it once per checkout:
 
