@@ -9,7 +9,7 @@ import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.r
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
-import '../../fixtures/pairing.fixture.dart';
+import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the remote data source for [PairingRepositoryImpl] tests.
 class MockPairingRemoteDataSource extends Mock
@@ -35,7 +35,8 @@ void main() {
     test(
       'Method authenticate returns Right when the data source succeeds',
       () async {
-        final PairingHandshakeEntity handshake = buildPairingHandshakeEntity();
+        final PairingHandshakeEntity handshake =
+            Fixtures.buildPairingHandshakeEntity();
         when(
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => Right(handshake));
