@@ -72,6 +72,35 @@ docs/protocol-notes
 release/0.3.3
 ```
 
+## Staged-code formatting
+
+The repository's shared pre-commit hook formats only supported code files that are already staged.
+It rejects partially staged supported files so formatting cannot capture unrelated work, fails when
+a required formatter is unavailable, and re-stages formatter output after a successful run.
+
+Enable it once per checkout:
+
+```text
+git config core.hooksPath .githooks
+```
+
+On Unix-like hosts, also make the hook executable with `chmod +x .githooks/pre-commit` before
+committing it. Repository CI fails closed if it cannot determine the changed-file set for its
+formatter check; it never treats a diff error as “nothing to format.”
+
+The formatter matrix is:
+
+| File types | Formatter |
+| --- | --- |
+| Dart (`.dart`) | `dart format` |
+| C/C++ (`.cc`, `.cpp`, `.h`, `.hpp`) | `clang-format` |
+| C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and staged paths |
+| Python (`.py`) | `ruff format` |
+| PowerShell (`.ps1`) | PSScriptAnalyzer's `Invoke-Formatter` through `pwsh` |
+
+Other files remain outside this hook until the repository adopts a formatter for them. The same
+formatter entry point checks changed supported files in repository CI.
+
 ## AI-assisted development
 
 AI tools must follow `AGENTS.md`, which owns implementation authority, decision priority, and

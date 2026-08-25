@@ -481,7 +481,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             checkout,
             "      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6\n"
             "        with:\n"
-            "          persist-credentials: false",
+            "          persist-credentials: false\n"
+            "          fetch-depth: 0",
         )
         self.assertIn("runs-on: ubuntu-latest", workflow)
         self.assertIn("timeout-minutes: 10", workflow)
@@ -494,7 +495,25 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6", workflow)
         self.assertIn('python-version: "3.13"', workflow)
+        self.assertIn("uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2", workflow)
+        self.assertIn("uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5", workflow)
+        self.assertIn("sudo apt-get install --yes clang-format", workflow)
+        self.assertIn("python -m pip install ruff", workflow)
+        self.assertIn("Install-Module PSScriptAnalyzer", workflow)
+        self.assertIn("dotnet restore \"$project\"", workflow)
         self.assertIn('run: python -m unittest discover -s tooling -p "test_*.py"', workflow)
+        self.assertIn("python tooling/format_staged.py --check --paths", workflow)
+        self.assertIn("git diff --name-only -z --diff-filter=ACMR", workflow)
+        self.assertIn("set -euo pipefail", workflow)
+        self.assertIn('changed_file="$(mktemp)"', workflow)
+        self.assertIn("if ! git diff --name-only", workflow)
+        self.assertIn("Unable to determine changed files for formatter verification.", workflow)
+        self.assertIn("core.hooksPath .githooks", self._read("CONTRIBUTING.md"))
+        hook = self._read(".githooks/pre-commit")
+        self.assertIn("exec python tooling/format_staged.py", hook)
+        formatter = self._read("tooling/format_staged.py")
+        self.assertIn("partial_staged_paths", formatter)
+        self.assertIn("Required formatter(s) unavailable", formatter)
         self.assertNotIn("continue-on-error:", workflow)
 
     def test_common_conventions_reject_deprecated_workflow_dependencies(self) -> None:
