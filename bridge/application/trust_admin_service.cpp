@@ -1,75 +1,6 @@
 #include "application/trust_admin_service.hpp"
 
-#include <algorithm>
-#include <cctype>
-#include <chrono>
-#include <map>
-#include <sstream>
-
 namespace dovahlink::application {
-
-namespace {
-
-///  Returns the stable, lower-case presentation label for a known-device state.
-std::string_view StateLabel(security::KnownDeviceState state) {
-    switch (state) {
-    case security::KnownDeviceState::kTrusted:
-        return "trusted";
-    case security::KnownDeviceState::kRevoked:
-        return "revoked";
-    case security::KnownDeviceState::kBlocked:
-        return "blocked";
-    case security::KnownDeviceState::kUnpaired:
-        return "unpaired";
-    }
-    return "unknown";
-}
-
-///  Formats a sorted device listing, numbering repeated display names only in
-///  the returned presentation and never mutating the durable records.
-std::string
-FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> records,
-                         std::string_view deviceKind,
-                         bool includeState = true) {
-    if (records.empty()) {
-        return "No " + std::string(deviceKind) + "s.";
-    }
-
-    std::sort(records.begin(), records.end(),
-              [](const security::KnownDeviceRecord& left,
-                 const security::KnownDeviceRecord& right) {
-                  if (left.createdAt != right.createdAt) {
-                      return left.createdAt < right.createdAt;
-                  }
-                  return left.shortId < right.shortId;
-              });
-
-    std::map<std::string, std::size_t> displayNameCounts;
-    for (const auto& record : records) {
-        if (record.displayName.has_value()) {
-            ++displayNameCounts[*record.displayName];
-        }
-    }
-
-    std::map<std::string, std::size_t> displayNameIndexes;
-    std::ostringstream out;
-    out << records.size() << ' ' << deviceKind << (records.size() == 1 ? "" : "s")
-        << ':';
-    for (const auto& record : records) {
-        std::string displayName = record.displayName.value_or("(no display name)");
-        if (record.displayName.has_value() && displayNameCounts[displayName] > 1) {
-            displayName += " #" + std::to_string(++displayNameIndexes[displayName]);
-        }
-        out << '\n'
-            << record.shortId << "  " << displayName;
-        if (includeState) {
-            out << "  " << StateLabel(record.state);
-        }
-    }
-    return out.str();
-}
-
-} //  namespace
 
 TrustAdminService::TrustAdminService(
     security::ITrustDeviceStore& deviceStore,
@@ -77,230 +8,67 @@ TrustAdminService::TrustAdminService(
     ActiveSessionDisconnector& sessionDisconnector,
     security::IPairingCancellation& pairingCancellation,
     security::IFactoryResetChallenge& factoryResetChallenge)
-    : deviceStore_(deviceStore), resetStore_(resetStore),
-      sessionDisconnector_(sessionDisconnector),
-      pairingCancellation_(pairingCancellation),
-      factoryResetChallenge_(factoryResetChallenge) {}
+    : deviceService_(deviceStore, sessionDisconnector, pairingCancellation),
+      resetService_(resetStore, sessionDisconnector, pairingCancellation,
+                    factoryResetChallenge) {}
 
 TrustAdminService::TrustAdminService(
     security::TrustStore& trustStore,
     ActiveSessionDisconnector& sessionDisconnector,
     security::PairingSession& pairingSession,
     security::FactoryResetChallenge& factoryResetChallenge)
-    : TrustAdminService(
-          static_cast<security::ITrustDeviceStore&>(trustStore),
-          static_cast<security::ITrustResetStore&>(trustStore),
-          sessionDisconnector,
-          static_cast<security::IPairingCancellation&>(pairingSession),
-          static_cast<security::IFactoryResetChallenge&>(factoryResetChallenge)) {}
+    : deviceService_(trustStore, sessionDisconnector, pairingSession),
+      resetService_(trustStore, sessionDisconnector, pairingSession,
+                    factoryResetChallenge) {}
 
 std::string TrustAdminService::List(std::string_view scope) const {
-    std::string normalizedScope(scope);
-    std::transform(normalizedScope.begin(), normalizedScope.end(),
-                   normalizedScope.begin(), [](unsigned char character) {
-                       return static_cast<char>(std::tolower(character));
-                   });
-
-    if (normalizedScope.empty() || normalizedScope == "all") {
-        return ListKnownDevices();
-    }
-    if (normalizedScope == "trust") {
-        return ListTrusted();
-    }
-    if (normalizedScope == "block") {
-        return ListBlocked();
-    }
-    return "Unknown list scope '" + std::string(scope) +
-           "'. Use all, trust, or block.";
+    return deviceService_.List(scope);
 }
 
-std::string TrustAdminService::Help() const {
-    return "DovahLink commands:\n"
-           " list [all|trust|block]\n"
-           " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id "
-           "<id>\n"
-           " reset-trust | reset | confirm-reset -confirm <code> | help";
-}
+std::string TrustAdminService::Help() const { return deviceService_.Help(); }
 
 std::string TrustAdminService::ListTrusted() const {
-    return FormatKnownDeviceListing(deviceStore_.ListTrusted(), "trusted client",
-                                    false);
+    return deviceService_.ListTrusted();
 }
 
 std::string TrustAdminService::ListKnownDevices() const {
-    return FormatKnownDeviceListing(deviceStore_.ListAll(), "known device");
+    return deviceService_.ListKnownDevices();
 }
 
 std::string TrustAdminService::ListBlocked() const {
-    auto records = deviceStore_.ListAll();
-    records.erase(std::remove_if(records.begin(), records.end(),
-                                 [](const security::KnownDeviceRecord& record) {
-                                     return record.state !=
-                                            security::KnownDeviceState::kBlocked;
-                                 }),
-                  records.end());
-    return FormatKnownDeviceListing(std::move(records), "blocked device");
+    return deviceService_.ListBlocked();
 }
 
-std::string TrustAdminService::RevokeByShortId(std::string_view shortId) const {
-    auto records = deviceStore_.ListTrusted();
-    auto it = std::find_if(records.begin(), records.end(),
-                           [&](const security::KnownDeviceRecord& record) {
-                               return record.shortId == shortId;
-                           });
-    if (it == records.end()) {
-        return "No trusted client with id " + std::string(shortId) + ".";
-    }
-
-    std::string displayName = it->displayName.value_or("(no display name)");
-    if (!deviceStore_.Revoke(it->clientId)) {
-        return "Failed to revoke client " + std::string(shortId) +
-               ": trust-store save failed.";
-    }
-    sessionDisconnector_.DisconnectIfClientActive(it->clientId, "revoked");
-    return "Revoked client " + std::string(shortId) + " (" + displayName + ").";
+std::string
+TrustAdminService::RevokeByShortId(std::string_view shortId) const {
+    return deviceService_.RevokeByShortId(shortId);
 }
 
 std::string TrustAdminService::StartFactoryReset() const {
-    auto code = factoryResetChallenge_.TryStart();
-    if (!code.has_value()) {
-        return "Failed to start Factory Reset: could not generate a confirmation "
-               "code.";
-    }
-    return "Factory Reset requested. Confirm with code " + *code +
-           " within 60 seconds to permanently erase all trust.";
+    return resetService_.StartFactoryReset();
 }
 
 std::string TrustAdminService::BlockByShortId(
     std::string_view shortId, std::chrono::steady_clock::time_point now) const {
-    auto device = deviceStore_.FindByShortId(shortId);
-    if (!device.has_value()) {
-        return "No known device with id " + std::string(shortId) + ".";
-    }
-    std::string displayName = device->displayName.value_or("(no display name)");
-
-    switch (deviceStore_.Block(device->clientId)) {
-    case security::BlockOutcome::kBlocked:
-        (void)pairingCancellation_.TryCancel(device->clientId, now);
-        sessionDisconnector_.DisconnectIfClientActive(device->clientId,
-                                                      "blocked");
-        return "Blocked device " + std::string(shortId) + " (" + displayName + ").";
-    case security::BlockOutcome::kAlreadyBlocked:
-        return "Device " + std::string(shortId) + " is already blocked.";
-    case security::BlockOutcome::kNotEligible:
-        return "Device " + std::string(shortId) +
-               " cannot be blocked (not currently trusted or revoked).";
-    case security::BlockOutcome::kNotFound:
-        return "No known device with id " + std::string(shortId) + ".";
-    case security::BlockOutcome::kSaveFailed:
-        return "Failed to block device " + std::string(shortId) +
-               ": trust-store save failed.";
-    }
-    //  Unreachable: every enumerator is handled above.
-    return "Failed to block device " + std::string(shortId) +
-           ": unexpected outcome.";
+    return deviceService_.BlockByShortId(shortId, now);
 }
 
 std::string
 TrustAdminService::UnblockByShortId(std::string_view shortId) const {
-    auto device = deviceStore_.FindByShortId(shortId);
-    if (!device.has_value()) {
-        return "No known device with id " + std::string(shortId) + ".";
-    }
-    std::string displayName = device->displayName.value_or("(no display name)");
-
-    switch (deviceStore_.Unblock(device->clientId)) {
-    case security::UnblockOutcome::kUnblocked:
-        return "Unblocked device " + std::string(shortId) + " (" + displayName +
-               ").";
-    case security::UnblockOutcome::kNotBlocked:
-        return "Device " + std::string(shortId) + " is not blocked.";
-    case security::UnblockOutcome::kNotFound:
-        return "No known device with id " + std::string(shortId) + ".";
-    case security::UnblockOutcome::kSaveFailed:
-        return "Failed to unblock device " + std::string(shortId) +
-               ": trust-store save failed.";
-    }
-    //  Unreachable: every enumerator is handled above.
-    return "Failed to unblock device " + std::string(shortId) +
-           ": unexpected outcome.";
+    return deviceService_.UnblockByShortId(shortId);
 }
 
 std::string TrustAdminService::ForgetByShortId(std::string_view shortId) const {
-    auto device = deviceStore_.FindByShortId(shortId);
-    if (!device.has_value()) {
-        return "No known device with id " + std::string(shortId) + ".";
-    }
-    std::string displayName = device->displayName.value_or("(no display name)");
-
-    switch (deviceStore_.Forget(device->clientId)) {
-    case security::ForgetOutcome::kForgotten:
-        return "Forgot device " + std::string(shortId) + " (" + displayName + ").";
-    case security::ForgetOutcome::kNotEligible:
-        return "Device " + std::string(shortId) +
-               " cannot be forgotten (revoke or unblock it first).";
-    case security::ForgetOutcome::kNotFound:
-        return "No known device with id " + std::string(shortId) + ".";
-    case security::ForgetOutcome::kSaveFailed:
-        return "Failed to forget device " + std::string(shortId) +
-               ": trust-store save failed.";
-    }
-    //  Unreachable: every enumerator is handled above.
-    return "Failed to forget device " + std::string(shortId) +
-           ": unexpected outcome.";
+    return deviceService_.ForgetByShortId(shortId);
 }
 
 std::string
 TrustAdminService::ConfirmFactoryReset(std::string_view presentedCode) const {
-    switch (factoryResetChallenge_.TryConfirm(std::string(presentedCode))) {
-    case security::FactoryResetConfirmOutcome::kConfirmed: {
-        std::size_t previousCount = resetStore_.ListTrusted().size();
-        if (!resetStore_.Reset()) {
-            return "Failed to complete Factory Reset: trust-store save failed.";
-        }
-        pairingCancellation_.CancelAll();
-        sessionDisconnector_.DisconnectActive("factory_reset");
-        return "Factory Reset complete (" + std::to_string(previousCount) +
-               (previousCount == 1 ? " trusted device erased)."
-                                   : " trusted devices erased).");
-    }
-    case security::FactoryResetConfirmOutcome::kExpired:
-        return "No Factory Reset confirmation is pending; start one with 'reset' "
-               "first.";
-    case security::FactoryResetConfirmOutcome::kInvalid:
-        return "Wrong Factory Reset confirmation code; the challenge was "
-               "cancelled. Start over with 'reset'.";
-    }
-    //  Unreachable: every enumerator is handled above.
-    return "Failed to confirm Factory Reset: unexpected outcome.";
+    return resetService_.ConfirmFactoryReset(presentedCode);
 }
 
 std::string TrustAdminService::ResetTrust() const {
-    auto previouslyTrusted = resetStore_.ListTrusted();
-    if (!resetStore_.ResetTrust()) {
-        return "Failed to reset trust: trust-store save failed.";
-    }
-    //  Reached only once the trust-store mutation above has actually landed,
-    //  matching the existing atomicity guarantee this method already provided (a
-    //  save failure leaves pairing untouched too, not just trust state) -- this
-    //  ordering is unrelated to the pending-credential race HandlePairingAck now
-    //  closes (pairing_handler.cpp's PeekPending/CommitPending/Persist
-    //  reordering): CommitPending and CancelAll share PairingSession's one mutex
-    //  regardless of when, relative to this call, CancelAll happens to run, since
-    //  resetStore_.ResetTrust() above never touches PairingSession and cannot
-    //  itself race a pending credential that isn't kTrusted yet.
-    pairingCancellation_.CancelAll();
-    //  Only the devices this call actually revoked may lose their session --
-    //  unlike Factory Reset, Reset Trust must leave an unrelated active session (a
-    //  developer-token connection, in particular) untouched, per security.md's
-    //  "leaves developer-token configuration and sessions unaffected".
-    for (const auto& record : previouslyTrusted) {
-        sessionDisconnector_.DisconnectIfClientActive(record.clientId,
-                                                      "trust_reset");
-    }
-    return "Reset Trust complete (" + std::to_string(previouslyTrusted.size()) +
-           (previouslyTrusted.size() == 1 ? " device revoked)."
-                                          : " devices revoked).");
+    return resetService_.ResetTrust();
 }
 
 } //  namespace dovahlink::application

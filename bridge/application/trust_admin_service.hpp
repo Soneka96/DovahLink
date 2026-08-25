@@ -1,9 +1,11 @@
 #pragma once
 
-#include "application/active_session_disconnector.hpp"
-#include "security/factory_reset_challenge.hpp"
-#include "security/pairing_session.hpp"
-#include "security/trust_store.hpp"
+#include "application/trust_device_admin_service.hpp"
+#include "application/trust_reset_service.hpp"
+
+#include <chrono>
+#include <string>
+#include <string_view>
 
 #include <chrono>
 #include <string>
@@ -11,65 +13,32 @@
 
 namespace dovahlink::application {
 
-///  Reusable trust-administration behavior (list/revoke/reset/block/unblock)
-///  over `security::TrustStore`, shared by every administration surface --
-///  console, a future Flutter management UI, and developer tooling -- so none of
-///  them duplicates trust-store logic
-///  (`ai/context/protocol/security.md`'s "Trust administration surface"). Also
-///  enforces that section's "Revocation is immediate" guarantee, extended
-///  uniformly to blocking and both bulk operations: a successful
-///  `RevokeByShortId`/`ConfirmFactoryReset`/`ResetTrust`/`BlockByShortId`
-///  force-closes the affected client's active session through the injected
-///  `ActiveSessionDisconnector`, not just the persisted trust record, and a
-///  successful `BlockByShortId`/`ConfirmFactoryReset`/`ResetTrust` also cancels
-///  any pairing challenge or pending credential in progress through the injected
-///  `PairingSession`.
-///
-///  Known limitation: `RevokeByShortId`/`BlockByShortId`/`UnblockByShortId` each
-///  call `TrustStore` more than once (find-then-act); each individual call is
-///  atomic but the pair is not, so a concurrent `Persist`/`Revoke`/`Block` from
-///  an unrelated connection between them could make a reported message (client
-///  count, display name) stale by the time it prints. `TrustStore`'s own
-///  persisted state always stays internally consistent regardless -- only this
-///  service's human-readable report could rarely lag. Acceptable because this
-///  service is driven by one serialized admin operator at a time (a console
-///  command); add a lock spanning both calls if a second concurrent admin
-///  surface is ever introduced.
+///  Composes the focused device-administration and reset services for callers
+///  that still expose one trust-administration surface.
 class TrustAdminService {
   public:
-    ///  Binds the service to its per-device and bulk trust-store ports, the
-    ///  session disconnector, the pairing-cancellation port, and the Factory
-    ///  Reset confirmation challenge.
+    ///  Binds both focused trust-administration services to their ports.
     ///  @param deviceStore Per-device trust store operations.
     ///  @param resetStore Bulk trust reset operations over the same authoritative
     ///      trust store as `deviceStore`.
-    ///  @param sessionDisconnector Force-closes the active session on a successful
-    ///  revoke, block,
-    ///      Reset Trust, or Factory Reset.
-    ///  @param pairingCancellation Cancels any pairing challenge or pending credential
-    ///  the blocked
-    ///      identity owns on a successful block, or every pairing
-    ///      challenge/pending credential in progress on a successful Reset Trust
-    ///      or Factory Reset.
-    ///  @param factoryResetChallenge The six-digit confirmation challenge used by
-    ///      `StartFactoryReset` and `ConfirmFactoryReset`.
+    ///  @param sessionDisconnector Disconnects sessions affected by administration.
+    ///  @param pairingCancellation Cancels active pairing state affected by
+    ///      administration.
+    ///  @param factoryResetChallenge The local Factory Reset confirmation
+    ///      challenge.
     TrustAdminService(security::ITrustDeviceStore& deviceStore,
                       security::ITrustResetStore& resetStore,
                       ActiveSessionDisconnector& sessionDisconnector,
                       security::IPairingCancellation& pairingCancellation,
                       security::IFactoryResetChallenge& factoryResetChallenge);
 
-    ///  Binds the service to the repository's concrete implementations. This
-    ///  overload keeps the plugin composition root concise while the primary
-    ///  constructor exposes narrow substitution ports to consumer tests.
+    ///  Binds both focused services to the repository's concrete implementations.
     TrustAdminService(security::TrustStore& trustStore,
                       ActiveSessionDisconnector& sessionDisconnector,
                       security::PairingSession& pairingSession,
                       security::FactoryResetChallenge& factoryResetChallenge);
 
-    ///  Lists known devices according to a console-facing scope: empty or
-    ///  <c>all</c> for every known device, <c>trust</c> for trusted devices, or
-    ///  <c>block</c> for blocked devices.
+    ///  Lists known devices according to a console-facing scope.
     ///  @param scope The requested listing scope.
     ///  @return A display-ready listing or a clear invalid-scope message.
     [[nodiscard]] std::string List(std::string_view scope) const;
@@ -102,20 +71,13 @@ class TrustAdminService {
     ///  persistence failure.
     [[nodiscard]] std::string RevokeByShortId(std::string_view shortId) const;
 
-    ///  Starts a Factory Reset confirmation challenge: generates and displays a
-    ///  six-digit code through the returned message. Performs no mutation,
-    ///  disconnects no one, and alters no trust -- the destructive wipe happens
-    ///  only once `ConfirmFactoryReset` receives the matching code. Always
-    ///  (re)starts, discarding any previously started, unconfirmed challenge.
+    ///  Starts a Factory Reset confirmation challenge.
     ///  @return A human-readable message containing the code to display, or a
     ///  generator-failure
     ///      message.
     [[nodiscard]] std::string StartFactoryReset() const;
 
-    ///  Blocks the known device identified by its five-digit `shortId`, regardless
-    ///  of its current state (unlike `RevokeByShortId`, which only ever finds a
-    ///  currently-trusted device). On success, also cancels any pairing challenge
-    ///  the device owns and force-closes its active session.
+    ///  Blocks the known device identified by its administration short ID.
     ///  @param shortId Administration-only identifier presented by the caller.
     ///  @param now Current monotonic time, forwarded to
     ///  `PairingSession::TryCancel`'s lazy-expiry
@@ -145,12 +107,8 @@ class TrustAdminService {
     ///      persistence failure.
     [[nodiscard]] std::string ForgetByShortId(std::string_view shortId) const;
 
-    ///  Confirms a started Factory Reset challenge with the presented code. On a
-    ///  match, executes the destructive wipe (every trusted credential, every
-    ///  Known Device record, every block, every pending pairing) and disconnects
-    ///  every active session. An expired or wrong confirmation performs zero
-    ///  destructive changes; a wrong code also destroys the challenge immediately,
-    ///  requiring a fresh `StartFactoryReset`.
+    ///  Confirms a started Factory Reset challenge and performs the destructive
+    ///  wipe on success.
     ///  @param presentedCode The code the operator entered.
     ///  @return A human-readable result message: wiped, expired, invalid, or a
     ///  persistence
@@ -158,35 +116,18 @@ class TrustAdminService {
     [[nodiscard]] std::string
     ConfirmFactoryReset(std::string_view presentedCode) const;
 
-    ///  Reset Trust: immediately revokes every currently trusted device and
-    ///  disconnects the active session, while preserving every Known Device record
-    ///  (including blocks) and requiring no destructive-confirmation flow. Also
-    ///  cancels every pairing challenge or pending credential in progress,
-    ///  matching Factory Reset's own pairing-cancellation guarantee.
+    ///  Performs the recoverable Reset Trust workflow.
     ///  @return A human-readable result message naming how many devices were
     ///  revoked, or a
     ///      persistence failure.
     [[nodiscard]] std::string ResetTrust() const;
 
   private:
-    ///  Trust store operations used by per-device administration.
-    security::ITrustDeviceStore& deviceStore_;
+    ///  Focused device listing and mutation behavior.
+    TrustDeviceAdminService deviceService_;
 
-    ///  Trust-store bulk operations used by reset orchestration.
-    security::ITrustResetStore& resetStore_;
-
-    ///  Force-closes targeted or unconditional active sessions after
-    ///  administration mutations.
-    ActiveSessionDisconnector& sessionDisconnector_;
-
-    ///  Cancels any pairing challenge or pending credential a blocked identity
-    ///  owns, or every one in progress on a successful Reset Trust or Factory
-    ///  Reset.
-    security::IPairingCancellation& pairingCancellation_;
-
-    ///  The Factory Reset confirmation challenge `StartFactoryReset` and
-    ///  `ConfirmFactoryReset` start and confirm.
-    security::IFactoryResetChallenge& factoryResetChallenge_;
+    ///  Focused trust-reset and Factory Reset behavior.
+    TrustResetService resetService_;
 };
 
 } //  namespace dovahlink::application
