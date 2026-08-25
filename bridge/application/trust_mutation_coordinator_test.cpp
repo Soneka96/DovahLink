@@ -10,17 +10,23 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 using dovahlink::application::PairingCommitResult;
 using dovahlink::application::TrustMutationCoordinator;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::ITrustStorePersistence;
+using dovahlink::security::KnownDeviceRecord;
+using dovahlink::security::KnownDeviceState;
 using dovahlink::security::PairingCommitOutcome;
 using dovahlink::security::PairingSession;
 using dovahlink::security::TrustMutationGeneration;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+
+static_assert(!std::is_default_constructible_v<PairingCommitResult>);
+static_assert(!std::is_aggregate_v<PairingCommitResult>);
 
 namespace {
 
@@ -123,6 +129,34 @@ void StartPending(PairingSession& pairingSession,
 
 } //  namespace
 
+TEST_CASE("PairingCommitResult factories preserve their record invariants",
+          "[application][pairing_commit_result]") {
+    const KnownDeviceRecord record{
+        .clientId = "client-1",
+        .credential = MakeCredential(1),
+        .shortId = "11111",
+        .displayName = std::nullopt,
+        .state = KnownDeviceState::kTrusted};
+
+    const auto committed = PairingCommitResult::Committed(record);
+    REQUIRE(committed.Outcome() == PairingCommitOutcome::kCommitted);
+    REQUIRE(committed.Record().has_value());
+    CHECK(committed.Record()->clientId == "client-1");
+
+    const auto pendingNotFound = PairingCommitResult::PendingNotFound();
+    CHECK(pendingNotFound.Outcome() == PairingCommitOutcome::kPendingNotFound);
+    CHECK_FALSE(pendingNotFound.Record().has_value());
+
+    const auto persistenceFailed = PairingCommitResult::PersistenceFailed();
+    CHECK(persistenceFailed.Outcome() ==
+          PairingCommitOutcome::kPersistenceFailed);
+    CHECK_FALSE(persistenceFailed.Record().has_value());
+
+    const auto invalidated = PairingCommitResult::Invalidated();
+    CHECK(invalidated.Outcome() == PairingCommitOutcome::kInvalidated);
+    CHECK_FALSE(invalidated.Record().has_value());
+}
+
 TEST_CASE("TrustMutationCoordinator commits pending pairing atomically",
           "[application][trust_mutation_coordinator]") {
     FakePersistence persistence;
@@ -135,9 +169,9 @@ TEST_CASE("TrustMutationCoordinator commits pending pairing atomically",
     PairingCommitResult result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    REQUIRE(result.outcome == PairingCommitOutcome::kCommitted);
-    REQUIRE(result.record.has_value());
-    CHECK(result.record->shortId == "11111");
+    REQUIRE(result.Outcome() == PairingCommitOutcome::kCommitted);
+    REQUIRE(result.Record().has_value());
+    CHECK(result.Record()->shortId == "11111");
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
     CHECK(trustStore.Query("client-1").has_value());
@@ -181,14 +215,14 @@ TEST_CASE("TrustMutationCoordinator restores pending pairing after Save failure"
     auto failed =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    CHECK(failed.outcome == PairingCommitOutcome::kPersistenceFailed);
+    CHECK(failed.Outcome() == PairingCommitOutcome::kPersistenceFailed);
     CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
               .has_value());
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 
     auto retried =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
-    CHECK(retried.outcome == PairingCommitOutcome::kCommitted);
+    CHECK(retried.Outcome() == PairingCommitOutcome::kCommitted);
 }
 
 TEST_CASE("TrustMutationCoordinator reports an invalidated pending pairing after generation changes",
@@ -204,8 +238,8 @@ TEST_CASE("TrustMutationCoordinator reports an invalidated pending pairing after
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    CHECK(result.outcome == PairingCommitOutcome::kInvalidated);
-    CHECK_FALSE(result.record.has_value());
+    CHECK(result.Outcome() == PairingCommitOutcome::kInvalidated);
+    CHECK_FALSE(result.Record().has_value());
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
     CHECK_FALSE(trustStore.Query("client-1").has_value());
@@ -245,7 +279,7 @@ TEST_CASE("TrustMutationCoordinator preserves a different client's pairing when 
 
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
-    CHECK(result.outcome == PairingCommitOutcome::kCommitted);
+    CHECK(result.Outcome() == PairingCommitOutcome::kCommitted);
     CHECK(trustStore.Query("client-1").has_value());
 }
 
@@ -262,8 +296,8 @@ TEST_CASE("TrustMutationCoordinator reports invalidation after a direct Factory 
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    CHECK(result.outcome == PairingCommitOutcome::kInvalidated);
-    CHECK_FALSE(result.record.has_value());
+    CHECK(result.Outcome() == PairingCommitOutcome::kInvalidated);
+    CHECK_FALSE(result.Record().has_value());
 }
 
 TEST_CASE("TrustMutationCoordinator preserves pairing when Block fails",
@@ -378,8 +412,7 @@ TEST_CASE("TrustMutationCoordinator cancels pairing before a concurrent commit w
     });
     persistence.WaitUntilEntered();
 
-    PairingCommitResult commitResult{
-        .outcome = PairingCommitOutcome::kPendingNotFound};
+    PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
         commitResult =
             coordinator.CommitPairing("client-1", MakeCredential(1), now);
@@ -390,7 +423,7 @@ TEST_CASE("TrustMutationCoordinator cancels pairing before a concurrent commit w
     commitThread.join();
 
     CHECK(revokeResult);
-    CHECK(commitResult.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK(commitResult.Outcome() == PairingCommitOutcome::kPendingNotFound);
     CHECK(trustStore.IsRevoked("client-1"));
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
@@ -459,8 +492,7 @@ TEST_CASE("TrustMutationCoordinator serializes pairing commit before reset",
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
-    PairingCommitResult commitResult{
-        .outcome = PairingCommitOutcome::kPendingNotFound};
+    PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
         commitResult =
             coordinator.CommitPairing("client-1", MakeCredential(1), now);
@@ -473,7 +505,7 @@ TEST_CASE("TrustMutationCoordinator serializes pairing commit before reset",
     commitThread.join();
     resetThread.join();
 
-    CHECK(commitResult.outcome == PairingCommitOutcome::kCommitted);
+    CHECK(commitResult.Outcome() == PairingCommitOutcome::kCommitted);
     REQUIRE(resetResult.has_value());
     CHECK(*resetResult == std::vector<std::string>{"client-1"});
     CHECK_FALSE(trustStore.Query("client-1").has_value());
@@ -492,7 +524,7 @@ TEST_CASE("TrustMutationCoordinator rejects a commit after reset cancels first",
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
-    CHECK(result.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK(result.Outcome() == PairingCommitOutcome::kPendingNotFound);
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
 
@@ -509,8 +541,7 @@ TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acqui
     std::thread resetThread([&] { resetResult = coordinator.ResetTrust(); });
     persistence.WaitUntilEntered();
 
-    PairingCommitResult commitResult{
-        .outcome = PairingCommitOutcome::kPendingNotFound};
+    PairingCommitResult commitResult = PairingCommitResult::PendingNotFound();
     std::thread commitThread([&] {
         commitResult =
             coordinator.CommitPairing("client-1", MakeCredential(1), now);
@@ -522,7 +553,7 @@ TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acqui
 
     REQUIRE(resetResult.has_value());
     CHECK(resetResult->empty());
-    CHECK(commitResult.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK(commitResult.Outcome() == PairingCommitOutcome::kPendingNotFound);
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
 

@@ -210,23 +210,23 @@ protocol::Envelope HandlePairingAck(
 
     auto commit =
         mutationCoordinator.CommitPairing(clientId, *credentialBytes, now);
-    if (commit.outcome == security::PairingCommitOutcome::kPendingNotFound) {
+    if (commit.Outcome() == security::PairingCommitOutcome::kPendingNotFound) {
         return BuildPairingOutcome(
             sessionId, pairingAckEnvelope.messageId,
             protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
     }
-    if (commit.outcome == security::PairingCommitOutcome::kInvalidated) {
+    if (commit.Outcome() == security::PairingCommitOutcome::kInvalidated) {
         return BuildPairingOutcome(
             sessionId, pairingAckEnvelope.messageId,
             protocol::PairingOutcomePayload{.outcome = "pairing_invalidated"});
     }
-    if (commit.outcome == security::PairingCommitOutcome::kPersistenceFailed) {
+    if (commit.Outcome() == security::PairingCommitOutcome::kPersistenceFailed) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId,
                                             "internal_error",
                                             "Unable to commit trust", false);
     }
 
-    const auto& persisted = *commit.record;
+    const auto& persisted = *commit.Record();
     sessionManager.UpgradeToFullTrust(connection, sessionId);
 
     return BuildPairingOutcome(

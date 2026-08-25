@@ -28,19 +28,18 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
     std::lock_guard<std::mutex> lock(mutex_);
     auto pending = pairingSession_.PeekPending(clientId, credential, now);
     if (!pending.has_value()) {
-        return {.outcome = security::PairingCommitOutcome::kPendingNotFound};
+        return PairingCommitResult::PendingNotFound();
     }
 
     if (!pairingSession_.CommitPending(clientId, credential, now)) {
-        return {.outcome = security::PairingCommitOutcome::kPendingNotFound};
+        return PairingCommitResult::PendingNotFound();
     }
 
     auto persisted = trustStore_.PersistIfGeneration(
         pending->mutationGeneration, pending->clientId,
         pending->credential, pending->displayName);
     if (persisted.has_value()) {
-        return {.outcome = security::PairingCommitOutcome::kCommitted,
-                .record = std::move(persisted)};
+        return PairingCommitResult::Committed(std::move(*persisted));
     }
 
     //  A generation change means an administrative operation invalidated this
@@ -51,9 +50,9 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
         //  Pairing cancellation is coordinated by this same mutex in production,
         //  so restoration cannot race an administrative cancellation.
         (void)pairingSession_.RestorePending(std::move(*pending));
-        return {.outcome = security::PairingCommitOutcome::kPersistenceFailed};
+        return PairingCommitResult::PersistenceFailed();
     }
-    return {.outcome = security::PairingCommitOutcome::kInvalidated};
+    return PairingCommitResult::Invalidated();
 }
 
 security::CancelOutcome TrustMutationCoordinator::TryCancel(
