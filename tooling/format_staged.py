@@ -292,7 +292,9 @@ def parse_arguments(arguments: list[str] | None) -> argparse.Namespace:
         "--check", action="store_true", help="fail when formatting is needed"
     )
     parser.add_argument(
-        "--paths", nargs="*", help="format these repository-relative paths"
+        "--paths",
+        nargs=argparse.REMAINDER,
+        help="format these repository-relative paths",
     )
     return parser.parse_args(arguments)
 

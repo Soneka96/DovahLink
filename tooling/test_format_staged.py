@@ -33,6 +33,13 @@ class FormatStagedTests(unittest.TestCase):
         )
         self.assertIsNone(format_staged.formatter_group("protocol/schema.json"))
 
+    def test_parse_arguments_accepts_option_looking_paths(self) -> None:
+        """Capture a repository path beginning with a hyphen after `--paths`."""
+        options = format_staged.parse_arguments(["--check", "--paths", "--fixture.py"])
+
+        self.assertTrue(options.check)
+        self.assertEqual(options.paths, ["--fixture.py"])
+
     def test_parse_git_paths_preserves_non_utf8_bytes(self) -> None:
         """Decode Git paths without crashing on bytes outside UTF-8."""
         self.assertEqual(
