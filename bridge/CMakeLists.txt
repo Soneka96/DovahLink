@@ -147,6 +147,7 @@ add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)
 target_link_libraries(dovahlink_bridge_harness PRIVATE dovahlink_bridge_core)
 
 add_executable(dovahlink_bridge_tests
+    test_support/source_text_test_support_test.cpp
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
     application/character_state_store_test.cpp
