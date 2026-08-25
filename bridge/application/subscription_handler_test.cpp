@@ -1,5 +1,6 @@
 #include "application/subscription_handler.hpp"
 
+#include "application/application_test_support.hpp"
 #include "protocol/messages.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -9,11 +10,13 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 
 using dovahlink::application::BuildBridgeCapabilities;
 using dovahlink::application::HandleClientCapabilities;
 using dovahlink::application::HandleSnapshotRequest;
 using dovahlink::application::HandleSubscribe;
+using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::protocol::Envelope;
 
 namespace {
@@ -24,13 +27,9 @@ constexpr const char* kSessionId = "session-1";
 Envelope BuildEnvelopeWithPayload(std::string messageType,
                                   const std::string& jsonPayload,
                                   std::string messageId = "message-1") {
-    return Envelope{
-        .messageType = std::move(messageType),
-        .messageId = std::move(messageId),
-        .sessionId = std::string(kSessionId),
-        .correlationId = std::nullopt,
-        .payload = boost::json::parse(jsonPayload).get_object(),
-    };
+    return BuildEnvelope(std::move(messageType), std::move(messageId),
+                         std::string(kSessionId), std::nullopt,
+                         boost::json::parse(jsonPayload).get_object());
 }
 
 } //  namespace

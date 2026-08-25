@@ -8,7 +8,14 @@
 
 #include <string>
 
+using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildHelloEnvelope;
+using dovahlink::application::test_support::BuildPairingAckEnvelope;
+using dovahlink::application::test_support::BuildPairingCancelEnvelope;
+using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
+using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
+using dovahlink::application::test_support::BuildPairingRequestEnvelope;
+using dovahlink::application::test_support::BuildRenameRequestEnvelope;
 
 TEST_CASE("BuildHelloEnvelope creates the representative one-time-token hello",
           "[application][test_support]") {
@@ -80,4 +87,52 @@ TEST_CASE("BuildHelloEnvelope preserves its representative wire shape",
     CHECK_FALSE(decoded->playContextId.has_value());
     CHECK_FALSE(decoded->clientId.has_value());
     CHECK(decoded->payload.at("clientId").as_string() == "client-1");
+}
+
+TEST_CASE("BuildEnvelope supports authenticated payload overrides",
+          "[application][test_support]") {
+    auto payload = boost::json::parse(
+                       R"({"stateAreas": ["example_area"]})")
+                       .get_object();
+    auto envelope = BuildEnvelope("subscribe", "message-sub-2", "session-2",
+                                  "request-1", std::move(payload));
+
+    CHECK(envelope.messageType == "subscribe");
+    CHECK(envelope.messageId == "message-sub-2");
+    REQUIRE(envelope.sessionId.has_value());
+    CHECK(*envelope.sessionId == "session-2");
+    REQUIRE(envelope.correlationId.has_value());
+    CHECK(*envelope.correlationId == "request-1");
+    CHECK(envelope.payload.at("stateAreas").as_array().size() == 1);
+    CHECK_FALSE(envelope.bridgeInstanceId.has_value());
+    CHECK_FALSE(envelope.playContextId.has_value());
+    CHECK_FALSE(envelope.clientId.has_value());
+}
+
+TEST_CASE("named application fixture builders use representative protocol shapes",
+          "[application][test_support]") {
+    auto request = BuildPairingRequestEnvelope();
+    CHECK(request.messageType == "pairing_request");
+    CHECK(request.payload.empty());
+
+    auto confirm = BuildPairingConfirmEnvelope("123456", "My PC");
+    CHECK(confirm.messageType == "pairing_confirm");
+    CHECK(confirm.payload.at("code").as_string() == "123456");
+    CHECK(confirm.payload.at("displayName").as_string() == "My PC");
+
+    auto ack = BuildPairingAckEnvelope("credential-1");
+    CHECK(ack.messageType == "pairing_ack");
+    CHECK(ack.payload.at("credential").as_string() == "credential-1");
+
+    auto renotify = BuildPairingRenotifyEnvelope();
+    CHECK(renotify.messageType == "pairing_renotify");
+    CHECK(renotify.payload.empty());
+
+    auto cancel = BuildPairingCancelEnvelope();
+    CHECK(cancel.messageType == "pairing_cancel");
+    CHECK(cancel.payload.empty());
+
+    auto rename = BuildRenameRequestEnvelope("New Name");
+    CHECK(rename.messageType == "rename_request");
+    CHECK(rename.payload.at("displayName").as_string() == "New Name");
 }

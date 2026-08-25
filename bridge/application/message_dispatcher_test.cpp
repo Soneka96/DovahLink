@@ -1,16 +1,20 @@
 #include "application/message_dispatcher.hpp"
 
+#include "application/application_test_support.hpp"
 #include "application/handshake_handler.hpp"
 #include "protocol/messages.hpp"
 #include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <boost/json/parse.hpp>
+
 #include <chrono>
 #include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using dovahlink::application::ActivePlayContext;
@@ -22,6 +26,13 @@ using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::test_support::BuildEnvelope;
+using dovahlink::application::test_support::BuildPairingAckEnvelope;
+using dovahlink::application::test_support::BuildPairingCancelEnvelope;
+using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
+using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
+using dovahlink::application::test_support::BuildPairingRequestEnvelope;
+using dovahlink::application::test_support::BuildRenameRequestEnvelope;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::PairingSession;
@@ -141,87 +152,72 @@ struct Fixture {
 
 ///  Builds a valid ping envelope for the fixture's authenticated session.
 std::string PingMessage(std::string messageId = "message-ping-1") {
-    return R"({"messageType": "ping", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildEnvelope("ping", std::move(messageId), std::string(kSessionId)));
 }
 
 ///  Builds a subscribe envelope requesting an example state area.
 std::string SubscribeMessage(std::string messageId = "message-sub-1") {
-    return R"({"messageType": "subscribe", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {"stateAreas": ["example_area"]}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    auto payload = boost::json::parse(
+                       R"({"stateAreas": ["example_area"]})")
+                       .get_object();
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildEnvelope("subscribe", std::move(messageId),
+                      std::string(kSessionId), std::nullopt, std::move(payload)));
 }
 
 ///  Builds a snapshot_request envelope for an example state area.
 std::string
 SnapshotRequestMessage(std::string messageId = "message-snap-req-1") {
-    return R"({"messageType": "snapshot_request", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {"stateArea": "example_area"}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    auto payload = boost::json::parse(
+                       R"({"stateArea": "example_area"})")
+                       .get_object();
+    return dovahlink::protocol::EncodeEnvelope(BuildEnvelope(
+        "snapshot_request", std::move(messageId), std::string(kSessionId),
+        std::nullopt, std::move(payload)));
 }
 
 ///  Builds a pairing_request envelope (no payload).
 std::string
 PairingRequestMessage(std::string messageId = "message-pairing-request-1") {
-    return R"({"messageType": "pairing_request", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildPairingRequestEnvelope(std::move(messageId)));
 }
 
 ///  Builds a pairing_confirm envelope with the given code.
 std::string
 PairingConfirmMessage(const std::string& code,
                       std::string messageId = "message-pairing-confirm-1") {
-    return R"({"messageType": "pairing_confirm", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {"code": ")" + code +
-           R"(", "displayName": null}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(BuildPairingConfirmEnvelope(
+        code, std::nullopt, std::move(messageId)));
 }
 
 ///  Builds a pairing_ack envelope echoing the given hex-encoded credential.
 std::string PairingAckMessage(const std::string& hexCredential,
                               std::string messageId = "message-pairing-ack-1") {
-    return R"({"messageType": "pairing_ack", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {"credential": ")" +
-           hexCredential +
-           R"("}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildPairingAckEnvelope(hexCredential, std::move(messageId)));
 }
 
 ///  Builds a pairing_renotify envelope (no payload).
 std::string
 PairingRenotifyMessage(std::string messageId = "message-pairing-renotify-1") {
-    return R"({"messageType": "pairing_renotify", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildPairingRenotifyEnvelope(std::move(messageId)));
 }
 
 ///  Builds a pairing_cancel envelope (no payload).
 std::string
 PairingCancelMessage(std::string messageId = "message-pairing-cancel-1") {
-    return R"({"messageType": "pairing_cancel", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildPairingCancelEnvelope(std::move(messageId)));
 }
 
 ///  Builds a `rename_request` envelope with the requested display name.
 std::string RenameRequestMessage(const std::string& displayName,
                                  std::string messageId = "message-rename-1") {
-    return R"({"messageType": "rename_request", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + kSessionId +
-           R"(", "correlationId": null, "payload": {"displayName": ")" +
-           displayName +
-           R"("}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildRenameRequestEnvelope(displayName, std::move(messageId)));
 }
 
 } //  namespace
