@@ -111,6 +111,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
 
+    def test_bridge_clang_format_uses_the_established_source_style(self) -> None:
+        """Keep Bridge formatting explicit instead of relying on clang-format defaults."""
+        style = self._read("bridge/.clang-format")
+
+        for setting in (
+            "BasedOnStyle: LLVM",
+            "IndentWidth: 4",
+            "ContinuationIndentWidth: 4",
+            "ColumnLimit: 0",
+            "PointerAlignment: Left",
+            "ReferenceAlignment: Left",
+            "DerivePointerAlignment: false",
+            "SpacesInLineCommentPrefix:",
+            "  Minimum: 2",
+            "  Maximum: 2",
+        ):
+            self.assertIn(setting, style)
+
     def test_bridge_ci_covers_release_validation_and_reusable_diagnostics(self) -> None:
         """Require release coverage, dependency caching, cancellation, and failure diagnostics."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
