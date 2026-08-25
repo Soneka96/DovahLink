@@ -47,10 +47,7 @@ class PairingCancelButton extends StatelessWidget {
 }
 
 class _CancelButtonViewModel {
-  _CancelButtonViewModel({
-    required this.isEnabled,
-    required this.onPressed,
-  });
+  _CancelButtonViewModel({required this.isEnabled, required this.onPressed});
 
   final bool isEnabled;
   final VoidCallback? onPressed;

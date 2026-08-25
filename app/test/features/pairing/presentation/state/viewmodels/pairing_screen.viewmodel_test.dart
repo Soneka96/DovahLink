@@ -14,8 +14,9 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 void main() {
   group('PairingScreenViewModel fromStore()', () {
     test('fromStore constructs an initial ViewModel correctly', () {
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(const CreateStore()());
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        const CreateStore()(),
+      );
 
       expect(viewModel.phase, PairingPhase.none);
       expect(viewModel.statusLabel, 'Unknown');
@@ -32,8 +33,9 @@ void main() {
         ),
       );
 
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(store);
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
 
       expect(viewModel.phase, PairingPhase.unpaired);
       expect(viewModel.statusLabel, 'Not paired');
@@ -45,8 +47,9 @@ void main() {
       final Store<AppState> store = const CreateStore()();
       store.dispatch(const PairingFailedAction('That code isn\'t correct.'));
 
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(store);
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
 
       expect(viewModel.phase, PairingPhase.failed);
       expect(viewModel.error, "That code isn't correct.");
@@ -89,8 +92,9 @@ void main() {
 
     test('onStart dispatches PairingStartedAction', () {
       final Store<AppState> store = const CreateStore()();
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(store);
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
 
       viewModel.onStart();
 
@@ -99,8 +103,9 @@ void main() {
 
     test('onRequestCode dispatches PairingCodeRequestedAction', () {
       final Store<AppState> store = const CreateStore()();
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(store);
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
 
       viewModel.onRequestCode();
 
@@ -132,8 +137,9 @@ void main() {
           },
         ],
       );
-      final PairingScreenViewModel viewModel =
-          PairingScreenViewModel.fromStore(store);
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
 
       viewModel.onBack();
 

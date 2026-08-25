@@ -29,33 +29,29 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets(
-      'labels the button and meets its minimum interactive size',
-      (WidgetTester tester) async {
-        // See the equivalent check on PairingRequestCodeButton for why this
-        // checks labeledTapTargetGuideline + kMinInteractiveDimension
-        // directly rather than the mobile-specific tap-target guidelines.
-        final SemanticsHandle handle = tester.ensureSemantics();
-        try {
-          await tester.pumpWidget(
-            MaterialApp(home: PairingRetryButton(onRetry: () {})),
-          );
+    testWidgets('labels the button and meets its minimum interactive size', (
+      WidgetTester tester,
+    ) async {
+      // See the equivalent check on PairingRequestCodeButton for why this
+      // checks labeledTapTargetGuideline + kMinInteractiveDimension
+      // directly rather than the mobile-specific tap-target guidelines.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(
+          MaterialApp(home: PairingRetryButton(onRetry: () {})),
+        );
 
-          await expectLater(
-            tester,
-            meetsGuideline(labeledTapTargetGuideline),
-          );
-          final Size buttonSize = tester.getSize(
-            find.byKey(const Key('pairing-retry-button')),
-          );
-          expect(
-            buttonSize.height,
-            greaterThanOrEqualTo(kMinInteractiveDimension),
-          );
-        } finally {
-          handle.dispose();
-        }
-      },
-    );
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+        final Size buttonSize = tester.getSize(
+          find.byKey(const Key('pairing-retry-button')),
+        );
+        expect(
+          buttonSize.height,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+        );
+      } finally {
+        handle.dispose();
+      }
+    });
   });
 }

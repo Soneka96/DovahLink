@@ -109,10 +109,7 @@ void main() {
         ),
       );
 
-      expect(
-        PairingSelectors.renotifyCooldownSecondsSelector(state),
-        isNull,
-      );
+      expect(PairingSelectors.renotifyCooldownSecondsSelector(state), isNull);
     });
 
     test('returns positive seconds when cooldown is active', () {
@@ -129,8 +126,7 @@ void main() {
         ),
       );
 
-      final remaining =
-          PairingSelectors.renotifyCooldownSecondsSelector(state);
+      final remaining = PairingSelectors.renotifyCooldownSecondsSelector(state);
       expect(remaining, isNotNull);
       expect(remaining, lessThanOrEqualTo(5));
       expect(remaining, greaterThanOrEqualTo(4));

@@ -71,6 +71,26 @@ void main() {
     });
 
     test(
+      'Method buildPairingHandshakeEntity keeps trust and rejection independent',
+      () {
+        final PairingHandshakeEntity untrustedWithoutMessage =
+            Fixtures.buildPairingHandshakeEntity(trusted: false);
+        final PairingHandshakeEntity trustedWithMessage =
+            Fixtures.buildPairingHandshakeEntity(
+              credentialRejectedMessage: 'Pairing is required again.',
+            );
+
+        expect(untrustedWithoutMessage.trusted, isFalse);
+        expect(untrustedWithoutMessage.credentialRejectedMessage, isNull);
+        expect(trustedWithMessage.trusted, isTrue);
+        expect(
+          trustedWithMessage.credentialRejectedMessage,
+          'Pairing is required again.',
+        );
+      },
+    );
+
+    test(
       'Method buildPairingHandshakeEntity returns a fresh value per call',
       () {
         final PairingHandshakeEntity first =

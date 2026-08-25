@@ -279,8 +279,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
         (DovahLinkConnectionState state) => switch (state) {
           DovahLinkConnectionState.reconnecting ||
           DovahLinkConnectionState.reauthenticating ||
-          DovahLinkConnectionState.disconnected =>
-            PairingConnectionStatus.lost,
+          DovahLinkConnectionState.disconnected => PairingConnectionStatus.lost,
           DovahLinkConnectionState.connected =>
             PairingConnectionStatus.restored,
           DovahLinkConnectionState.administrativelyInvalidated =>

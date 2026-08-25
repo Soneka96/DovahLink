@@ -14,8 +14,9 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Exercises [PairingRenotifyButton] dispatch behavior and enabled/disabled states.
 void main() {
   group('PairingRenotifyButton', () {
-    testWidgets('displays enabled button when renotify is available',
-        (WidgetTester tester) async {
+    testWidgets('displays enabled button when renotify is available', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -34,9 +35,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -48,7 +47,9 @@ void main() {
       expect(text.data, 'Send Code Again');
     });
 
-    testWidgets('displays disabled button during cooldown', (WidgetTester tester) async {
+    testWidgets('displays disabled button during cooldown', (
+      WidgetTester tester,
+    ) async {
       final now = DateTime.now();
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final store = Store<AppState>(
@@ -69,9 +70,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -80,7 +79,9 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('shows cooldown seconds in default format', (WidgetTester tester) async {
+    testWidgets('shows cooldown seconds in default format', (
+      WidgetTester tester,
+    ) async {
       final now = DateTime.now();
       final availableIn3Seconds = now.add(const Duration(seconds: 3));
       final store = Store<AppState>(
@@ -101,9 +102,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -112,7 +111,9 @@ void main() {
       expect(text.data, matches(r'Send Code Again \(\d+s\)'));
     });
 
-    testWidgets('treats zero cooldown seconds as available', (WidgetTester tester) async {
+    testWidgets('treats zero cooldown seconds as available', (
+      WidgetTester tester,
+    ) async {
       final now = DateTime.now();
       final alreadyElapsed = now.subtract(const Duration(seconds: 1));
       final store = Store<AppState>(
@@ -133,9 +134,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -147,7 +146,9 @@ void main() {
       expect(text.data, 'Send Code Again');
     });
 
-    testWidgets('uses custom cooldown label when provided', (WidgetTester tester) async {
+    testWidgets('uses custom cooldown label when provided', (
+      WidgetTester tester,
+    ) async {
       final now = DateTime.now();
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final store = Store<AppState>(
@@ -169,9 +170,7 @@ void main() {
           home: StoreProvider<AppState>(
             store: store,
             child: const Scaffold(
-              body: PairingRenotifyButton(
-                cooldownLabel: 'Please wait...',
-              ),
+              body: PairingRenotifyButton(cooldownLabel: 'Please wait...'),
             ),
           ),
         ),
@@ -181,8 +180,9 @@ void main() {
       expect(text.data, 'Please wait...');
     });
 
-    testWidgets('dispatches PairingRenotifyRequestedAction on tap',
-        (WidgetTester tester) async {
+    testWidgets('dispatches PairingRenotifyRequestedAction on tap', (
+      WidgetTester tester,
+    ) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
         (AppState state, dynamic action) {
@@ -205,9 +205,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -217,7 +215,9 @@ void main() {
       expect(actions, contains(isA<PairingRenotifyRequestedAction>()));
     });
 
-    testWidgets('does not dispatch action during cooldown', (WidgetTester tester) async {
+    testWidgets('does not dispatch action during cooldown', (
+      WidgetTester tester,
+    ) async {
       final now = DateTime.now();
       final availableIn5Seconds = now.add(const Duration(seconds: 5));
       final actions = <dynamic>[];
@@ -242,9 +242,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
+            child: const Scaffold(body: PairingRenotifyButton()),
           ),
         ),
       );
@@ -254,76 +252,26 @@ void main() {
 
       await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
 
-      expect(
-        actions.whereType<PairingRenotifyRequestedAction>(),
-        isEmpty,
-      );
-    });
-
-    testWidgets('updates label when state transitions from cooldown to available',
-        (WidgetTester tester) async {
-      final now = DateTime.now();
-      final availableIn5Seconds = now.add(const Duration(seconds: 5));
-
-      final store = Store<AppState>(
-        (AppState state, dynamic action) {
-          if (action is _TransitionCooldownAction) {
-            return AppState(
-              connection: ConnectionState.initial(),
-              pairing: const PairingState(
-                phase: PairingPhase.awaitingCode,
-                bridgeVersion: null,
-                error: null,
-                codeExpiresAt: null,
-                renotifyAvailableAt: null,
-              ),
-            );
-          }
-          return state;
-        },
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            bridgeVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: availableIn5Seconds,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(
-              body: PairingRenotifyButton(),
-            ),
-          ),
-        ),
-      );
-
-      var text = tester.widget<Text>(find.byType(Text));
-      expect(text.data, matches(r'Send Code Again \(\d+s\)'));
-
-      store.dispatch(_TransitionCooldownAction());
-      await tester.pump();
-
-      text = tester.widget<Text>(find.byType(Text));
-      expect(text.data, 'Send Code Again');
+      expect(actions.whereType<PairingRenotifyRequestedAction>(), isEmpty);
     });
 
     testWidgets(
-      'becomes enabled once the cooldown elapses with no Redux dispatch at all',
+      'updates label when state transitions from cooldown to available',
       (WidgetTester tester) async {
+        final now = DateTime.now();
+        final availableIn5Seconds = now.add(const Duration(seconds: 5));
+
         final store = Store<AppState>(
           (AppState state, dynamic action) {
-            if (action is _SetRenotifyAvailableAtAction) {
+            if (action is _TransitionCooldownAction) {
               return AppState(
-                connection: state.connection,
-                pairing: state.pairing.copyWith(
-                  renotifyAvailableAt: Some(action.availableAt),
+                connection: ConnectionState.initial(),
+                pairing: const PairingState(
+                  phase: PairingPhase.awaitingCode,
+                  bridgeVersion: null,
+                  error: null,
+                  codeExpiresAt: null,
+                  renotifyAvailableAt: null,
                 ),
               );
             }
@@ -331,14 +279,12 @@ void main() {
           },
           initialState: AppState(
             connection: ConnectionState.initial(),
-            // Set once pumpWidget below has already settled, so real test-framework startup
-            // overhead can't eat into this margin the way capturing `now` beforehand would.
-            pairing: const PairingState(
+            pairing: PairingState(
               phase: PairingPhase.awaitingCode,
               bridgeVersion: null,
               error: null,
               codeExpiresAt: null,
-              renotifyAvailableAt: null,
+              renotifyAvailableAt: availableIn5Seconds,
             ),
           ),
         );
@@ -347,40 +293,86 @@ void main() {
           MaterialApp(
             home: StoreProvider<AppState>(
               store: store,
-              child: const Scaffold(
-                body: PairingRenotifyButton(),
-              ),
+              child: const Scaffold(body: PairingRenotifyButton()),
             ),
           ),
         );
 
-        store.dispatch(
-          _SetRenotifyAvailableAtAction(
-            DateTime.now().add(const Duration(seconds: 2)),
-          ),
-        );
+        var text = tester.widget<Text>(find.byType(Text));
+        expect(text.data, matches(r'Send Code Again \(\d+s\)'));
+
+        store.dispatch(_TransitionCooldownAction());
         await tester.pump();
-        expect(
-          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
-          isNull,
-        );
 
-        // Two clocks are in play here: `renotifyCooldownSecondsSelector` reads real
-        // DateTime.now(), which only runAsync's real wait can advance; the widget's own
-        // Timer.periodic runs on flutter_test's simulated clock, which only tester.pump(duration)
-        // can advance. Neither alone triggers a rebuild that observes the elapsed cooldown -- both
-        // are needed, with no further Redux dispatch involved at all.
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(seconds: 3)),
-        );
-        await tester.pump(const Duration(seconds: 2));
-
-        expect(
-          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
-          isNotNull,
-        );
+        text = tester.widget<Text>(find.byType(Text));
+        expect(text.data, 'Send Code Again');
       },
     );
+
+    testWidgets('becomes enabled once the cooldown elapses with no Redux dispatch at all', (
+      WidgetTester tester,
+    ) async {
+      final store = Store<AppState>(
+        (AppState state, dynamic action) {
+          if (action is _SetRenotifyAvailableAtAction) {
+            return AppState(
+              connection: state.connection,
+              pairing: state.pairing.copyWith(
+                renotifyAvailableAt: Some(action.availableAt),
+              ),
+            );
+          }
+          return state;
+        },
+        initialState: AppState(
+          connection: ConnectionState.initial(),
+          // Set once pumpWidget below has already settled, so real test-framework startup
+          // overhead can't eat into this margin the way capturing `now` beforehand would.
+          pairing: const PairingState(
+            phase: PairingPhase.awaitingCode,
+            bridgeVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StoreProvider<AppState>(
+            store: store,
+            child: const Scaffold(body: PairingRenotifyButton()),
+          ),
+        ),
+      );
+
+      store.dispatch(
+        _SetRenotifyAvailableAtAction(
+          DateTime.now().add(const Duration(seconds: 2)),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+        isNull,
+      );
+
+      // Two clocks are in play here: `renotifyCooldownSecondsSelector` reads real
+      // DateTime.now(), which only runAsync's real wait can advance; the widget's own
+      // Timer.periodic runs on flutter_test's simulated clock, which only tester.pump(duration)
+      // can advance. Neither alone triggers a rebuild that observes the elapsed cooldown -- both
+      // are needed, with no further Redux dispatch involved at all.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(seconds: 3)),
+      );
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(
+        tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+        isNotNull,
+      );
+    });
   });
 }
 

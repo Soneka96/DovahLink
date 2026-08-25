@@ -43,9 +43,7 @@ class PairingScreen extends StatelessWidget {
       builder: (BuildContext context, PairingScreenViewModel viewModel) {
         final String? error = viewModel.error;
         return Scaffold(
-          appBar: AppBar(
-            leading: PairingBackButton(onBack: viewModel.onBack),
-          ),
+          appBar: AppBar(leading: PairingBackButton(onBack: viewModel.onBack)),
           // LayoutBuilder + a min-height ConstrainedBox keeps the normal case centered exactly as
           // before, while letting content that's taller than the viewport at a large text scale
           // scroll instead of overflowing.
@@ -84,8 +82,9 @@ class PairingScreen extends StatelessWidget {
                             PairingPhase.awaitingCode => Column(
                               children: [
                                 PairingCountdown(
-                                  textStyle:
-                                      Theme.of(context).textTheme.headlineLarge,
+                                  textStyle: Theme.of(
+                                    context,
+                                  ).textTheme.headlineLarge,
                                 ),
                                 const SizedBox(height: 16),
                                 PairingCodeForm(
@@ -96,13 +95,9 @@ class PairingScreen extends StatelessWidget {
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceEvenly,
                                   children: [
-                                    Expanded(
-                                      child: PairingRenotifyButton(),
-                                    ),
+                                    Expanded(child: PairingRenotifyButton()),
                                     SizedBox(width: 8),
-                                    Expanded(
-                                      child: PairingCancelButton(),
-                                    ),
+                                    Expanded(child: PairingCancelButton()),
                                   ],
                                 ),
                               ],
@@ -118,11 +113,10 @@ class PairingScreen extends StatelessWidget {
                             Text(
                               error,
                               key: const Key('pairing-error'),
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodyMedium?.copyWith(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
                             ),
                           ],
                         ],

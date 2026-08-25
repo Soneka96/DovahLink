@@ -20,8 +20,7 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   final TextEditingController _codeController = TextEditingController();
 
   /// Controls the optional display-name field.
-  final TextEditingController _displayNameController =
-      TextEditingController();
+  final TextEditingController _displayNameController = TextEditingController();
 
   /// Owns focus for the code field, fixing its place first in traversal
   /// order ahead of the display-name field.

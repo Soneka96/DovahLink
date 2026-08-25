@@ -21,10 +21,7 @@ void main() {
           find.byKey(const Key('pairing-display-name-field')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const Key('pairing-confirm-button')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
       },
     );
 
@@ -87,9 +84,7 @@ void main() {
       },
     );
 
-    testWidgets('disposes cleanly when unmounted', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('disposes cleanly when unmounted', (WidgetTester tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
@@ -108,7 +103,9 @@ void main() {
         await tester.pumpWidget(
           MaterialApp(
             home: Scaffold(
-              body: PairingCodeForm(onSubmit: (code, _) => submittedCode = code),
+              body: PairingCodeForm(
+                onSubmit: (code, _) => submittedCode = code,
+              ),
             ),
           ),
         );
@@ -139,10 +136,7 @@ void main() {
             ),
           );
 
-          await expectLater(
-            tester,
-            meetsGuideline(labeledTapTargetGuideline),
-          );
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
           final Size buttonSize = tester.getSize(
             find.byKey(const Key('pairing-confirm-button')),
           );

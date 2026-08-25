@@ -13,8 +13,9 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Exercises [PairingCancelButton] dispatch behavior and enabled/disabled states.
 void main() {
   group('PairingCancelButton', () {
-    testWidgets('displays enabled button during awaiting-code phase',
-        (WidgetTester tester) async {
+    testWidgets('displays enabled button during awaiting-code phase', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -33,9 +34,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -47,8 +46,9 @@ void main() {
       expect(text.data, 'Cancel');
     });
 
-    testWidgets('displays disabled button in disconnected phase',
-        (WidgetTester tester) async {
+    testWidgets('displays disabled button in disconnected phase', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -67,9 +67,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -78,7 +76,9 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('displays disabled button in failed phase', (WidgetTester tester) async {
+    testWidgets('displays disabled button in failed phase', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -97,9 +97,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -108,7 +106,9 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('displays disabled button in succeeded phase', (WidgetTester tester) async {
+    testWidgets('displays disabled button in succeeded phase', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) => state,
         initialState: AppState(
@@ -127,9 +127,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -138,8 +136,9 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('dispatches PairingCancelRequestedAction on tap',
-        (WidgetTester tester) async {
+    testWidgets('dispatches PairingCancelRequestedAction on tap', (
+      WidgetTester tester,
+    ) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
         (AppState state, dynamic action) {
@@ -162,9 +161,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -174,7 +171,9 @@ void main() {
       expect(actions, contains(isA<PairingCancelRequestedAction>()));
     });
 
-    testWidgets('does not dispatch action when disabled', (WidgetTester tester) async {
+    testWidgets('does not dispatch action when disabled', (
+      WidgetTester tester,
+    ) async {
       final actions = <dynamic>[];
       final store = Store<AppState>(
         (AppState state, dynamic action) {
@@ -197,9 +196,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -209,10 +206,7 @@ void main() {
 
       await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
 
-      expect(
-        actions.whereType<PairingCancelRequestedAction>(),
-        isEmpty,
-      );
+      expect(actions.whereType<PairingCancelRequestedAction>(), isEmpty);
     });
 
     testWidgets('uses custom label when provided', (WidgetTester tester) async {
@@ -278,9 +272,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -295,7 +287,9 @@ void main() {
       expect(button.onPressed, isNull);
     });
 
-    testWidgets('re-enables when phase returns to awaiting-code', (WidgetTester tester) async {
+    testWidgets('re-enables when phase returns to awaiting-code', (
+      WidgetTester tester,
+    ) async {
       final store = Store<AppState>(
         (AppState state, dynamic action) {
           if (action is _TransitionPhaseAction) {
@@ -341,9 +335,7 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(),
-            ),
+            child: const Scaffold(body: PairingCancelButton()),
           ),
         ),
       );
@@ -364,7 +356,9 @@ void main() {
       expect(button.onPressed, isNotNull);
     });
 
-    testWidgets('applies custom style when provided', (WidgetTester tester) async {
+    testWidgets('applies custom style when provided', (
+      WidgetTester tester,
+    ) async {
       const customStyle = ButtonStyle(
         backgroundColor: WidgetStatePropertyAll<Color>(Colors.red),
       );
