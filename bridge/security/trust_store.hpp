@@ -184,7 +184,7 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     [[nodiscard]] UnblockOutcome Unblock(const std::string& clientId) override;
 
     ///  Removes every known device record, securely clearing every removed
-    ///  credential. This is Factory Reset's destructive wipe; `TrustAdminService`
+    ///  credential. This is Factory Reset's destructive wipe; `TrustResetService`
     ///  gates it behind a confirmation challenge before calling it. See
     ///  `ResetTrust` for the recoverable, identity-preserving alternative.
     ///  @return Whether the underlying `Save` succeeded. On failure the in-memory

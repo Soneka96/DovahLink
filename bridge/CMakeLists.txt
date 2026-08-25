@@ -57,7 +57,6 @@ add_library(dovahlink_bridge_core STATIC
     application/timestamp.cpp
     application/trust_device_admin_service.cpp
     application/trust_reset_service.cpp
-    application/trust_admin_service.cpp
     application/rename_handler.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
@@ -174,7 +173,6 @@ add_executable(dovahlink_bridge_tests
     application/timestamp_test.cpp
     application/trust_device_admin_service_test.cpp
     application/trust_reset_service_test.cpp
-    application/trust_admin_service_test.cpp
     application/rename_handler_test.cpp
     application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp

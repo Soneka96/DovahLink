@@ -62,7 +62,7 @@ class FactoryResetChallenge : public IFactoryResetChallenge {
     ///  Starts a fresh challenge unconditionally, discarding any previous one --
     ///  there is no ownership model to resume or contend over, since this is
     ///  driven by one serialized local admin operator (matching
-    ///  `TrustAdminService`'s own documented assumption). Performs no mutation of
+    ///  `TrustResetService`'s own documented assumption). Performs no mutation of
     ///  any trust state; the caller is responsible for displaying the returned
     ///  code.
     ///  @return The six-digit code to display, or `std::nullopt` when the

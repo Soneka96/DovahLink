@@ -216,7 +216,7 @@ protocol::Envelope HandlePairingAck(
     //  Consumes the pending credential before persisting it, not after:
     //  CommitPending is the only operation that atomically checks-and-clears
     //  PairingSession's pending state, and PairingSession shares its one mutex
-    //  with CancelAll (TrustAdminService::ResetTrust/ConfirmFactoryReset). Doing
+    //  with CancelAll (TrustResetService::ResetTrust/ConfirmFactoryReset). Doing
     //  this first makes CommitPending and a concurrent CancelAll mutually
     //  exclusive -- whichever runs first wins deterministically -- so an admin
     //  operation cancelling every pending pairing can no longer be defeated by a

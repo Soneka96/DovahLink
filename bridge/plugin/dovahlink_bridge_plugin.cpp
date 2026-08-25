@@ -14,7 +14,8 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
-#include "application/trust_admin_service.hpp"
+#include "application/trust_device_admin_service.hpp"
+#include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
@@ -323,9 +324,12 @@ SKSEPluginInfo(
     //  "Revocation is immediate" (security.md's "Persistent local trust") against
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
-    static dovahlink::application::TrustAdminService trustAdminService(
+    static dovahlink::application::TrustDeviceAdminService
+        trustDeviceAdminService(trustStore, bridgeWorkerPool, pairingSession);
+    static dovahlink::application::TrustResetService trustResetService(
         trustStore, bridgeWorkerPool, pairingSession, factoryResetChallenge);
-    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
+    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
+        trustDeviceAdminService, trustResetService);
 
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);

@@ -439,7 +439,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not retroactively "
           "admitted after it already ran",
           "[application][bridge_worker_pool]") {
     //  Documents the structural premise HandleHello's TrustLossAfterAdmission
-    //  recheck (handshake_handler.cpp) exists to close: TrustAdminService's
+    //  recheck (handshake_handler.cpp) exists to close: trust administration's
     //  revoke/block path calls TrustStore::Revoke/Block, then this exact
     //  DisconnectIfClientActive call, in that order. If that pair runs before
     //  HandleHello's own TryCreateSession has made a session visible here, this
