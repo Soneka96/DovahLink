@@ -1,5 +1,6 @@
 #include "application/bridge_worker_pool.hpp"
 
+#include "application/application_test_support.hpp"
 #include "application/bridge_config.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
@@ -54,13 +55,8 @@ namespace {
 
 ///  Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {
-    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("clientId": "client-1", "auth": {"method": "one_time_local_token", )"
-           R"("token": ")" +
-           std::string(kValidHexToken) +
-           R"("}}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope());
 }
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- these
@@ -600,14 +596,10 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts a "
     clientWs.handshake("127.0.0.1", "/", handshakeEc);
     REQUIRE_FALSE(handshakeEc);
 
-    std::string hello =
-        R"({"messageType": "hello", "messageId": "message-hello-1", )"
-        R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-        R"("clientId": "client-1", "auth": {"method": "trusted_device_credential", )"
-        R"("token": ")" +
-        EncodeHex(credential) +
-        R"("}}, )"
-        R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    std::string hello = dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            EncodeHex(credential), "message-hello-1", "client-1",
+            "trusted_device_credential"));
     clientWs.text(true);
     boost::system::error_code writeEc;
     clientWs.write(boost::asio::buffer(hello), writeEc);
@@ -819,14 +811,10 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new "
     secondClientWs.handshake("127.0.0.1", "/", secondHandshakeEc);
     REQUIRE_FALSE(secondHandshakeEc);
 
-    std::string secondHello =
-        R"({"messageType": "hello", "messageId": "message-hello-2", )"
-        R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-        R"("clientId": "client-2", "auth": {"method": "trusted_device_credential", )"
-        R"("token": ")" +
-        EncodeHex(credential) +
-        R"("}}, )"
-        R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    std::string secondHello = dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            EncodeHex(credential), "message-hello-2", "client-2",
+            "trusted_device_credential"));
     secondClientWs.text(true);
     boost::system::error_code secondWriteEc;
     secondClientWs.write(boost::asio::buffer(secondHello), secondWriteEc);
@@ -1076,14 +1064,10 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's "
     secondClientWs.handshake("127.0.0.1", "/", secondHandshakeEc);
     REQUIRE_FALSE(secondHandshakeEc);
 
-    std::string secondHello =
-        R"({"messageType": "hello", "messageId": "message-hello-2", )"
-        R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-        R"("clientId": "client-2", "auth": {"method": "trusted_device_credential", )"
-        R"("token": ")" +
-        EncodeHex(credential) +
-        R"("}}, )"
-        R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    std::string secondHello = dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            EncodeHex(credential), "message-hello-2", "client-2",
+            "trusted_device_credential"));
     secondClientWs.text(true);
     boost::system::error_code secondWriteEc;
     secondClientWs.write(boost::asio::buffer(secondHello), secondWriteEc);

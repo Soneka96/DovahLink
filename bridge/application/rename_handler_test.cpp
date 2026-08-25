@@ -1,5 +1,6 @@
 #include "application/rename_handler.hpp"
 
+#include "application/application_test_support.hpp"
 #include "protocol/error_payload.hpp"
 #include "protocol/rename_outcome_payload.hpp"
 #include "security/limits.hpp"
@@ -15,6 +16,7 @@
 #include <vector>
 
 using dovahlink::application::HandleRenameRequest;
+using dovahlink::application::test_support::BuildRenameRequestEnvelope;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::TrustStore;
@@ -40,21 +42,6 @@ class ConfigurablePersistence : public ITrustStorePersistence {
     ///  Controls whether subsequent saves succeed.
     bool saveSucceeds = true;
 };
-
-///  Builds a `rename_request` envelope with the requested display name.
-Envelope
-BuildRenameRequestEnvelope(const std::string& displayName,
-                           std::string messageId = "message-rename-1") {
-    boost::json::object payload;
-    payload["displayName"] = displayName;
-    return Envelope{
-        .messageType = "rename_request",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = std::move(payload),
-    };
-}
 
 ///  Builds a `rename_request` envelope with an arbitrary JSON value for
 ///  malformed-payload tests.

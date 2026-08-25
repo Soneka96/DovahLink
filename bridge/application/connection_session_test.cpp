@@ -1,5 +1,6 @@
 #include "application/connection_session.hpp"
 
+#include "application/application_test_support.hpp"
 #include "application/bridge_config.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
@@ -17,6 +18,7 @@
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/websocket/error.hpp>
 #include <boost/beast/websocket/stream.hpp>
+#include <boost/json/parse.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <chrono>
@@ -31,6 +33,7 @@ using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
+using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -120,12 +123,9 @@ void ClientWriteText(
 ///  Builds a hello message using the supplied authentication token and clientId.
 std::string HelloMessage(const std::string& token,
                          std::string clientId = "client-1") {
-    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("clientId": ")" +
-           clientId +
-           R"(", "auth": {"method": "one_time_local_token", "token": ")" + token +
-           R"("}}, "bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            std::string(token), "message-hello-1", std::move(clientId)));
 }
 
 ///  Builds an unpaired-tier hello message (no credential) for the given clientId
@@ -133,30 +133,27 @@ std::string HelloMessage(const std::string& token,
 ///  `ai/context/protocol/security.md`'s "Hello authentication and session trust
 ///  tiers".
 std::string UnpairedHelloMessage(std::string clientId) {
-    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("clientId": ")" +
-           clientId +
-           R"(", "auth": {"method": "unpaired"}}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            std::nullopt, "message-hello-1", std::move(clientId), "unpaired"));
 }
 
 ///  Builds a ping message for an established session.
 std::string PingMessage(const std::string& sessionId) {
-    return R"({"messageType": "ping", "messageId": "message-ping-1", "sessionId": ")" +
-           sessionId +
-           R"(", "correlationId": null, "payload": {}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        BuildEnvelope("ping", "message-ping-1", std::string(sessionId)));
 }
 
 ///  Builds a subscribe message requesting an example state area on an
 ///  established session.
 std::string SubscribeMessage(const std::string& sessionId,
                              std::string messageId = "message-sub-1") {
-    return R"({"messageType": "subscribe", "messageId": ")" + messageId +
-           R"(", "sessionId": ")" + sessionId +
-           R"(", "correlationId": null, "payload": {"stateAreas": ["character"]}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    auto payload = boost::json::parse(
+                       R"({"stateAreas": ["character"]})")
+                       .get_object();
+    return dovahlink::protocol::EncodeEnvelope(BuildEnvelope(
+        "subscribe", std::move(messageId), std::string(sessionId),
+        std::nullopt, std::move(payload)));
 }
 
 } //  namespace

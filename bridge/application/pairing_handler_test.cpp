@@ -1,5 +1,6 @@
 #include "application/pairing_handler.hpp"
 
+#include "application/application_test_support.hpp"
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
 
@@ -22,6 +23,11 @@ using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::test_support::BuildPairingAckEnvelope;
+using dovahlink::application::test_support::BuildPairingCancelEnvelope;
+using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
+using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
+using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
@@ -97,76 +103,6 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     ///  Number of times `NotifyPairingAttemptsExhausted` was called.
     int attemptsExhaustedCount = 0;
 };
-
-///  Builds a `pairing_request` envelope (no payload).
-Envelope
-BuildPairingRequestEnvelope(std::string messageId = "message-request-1") {
-    return Envelope{
-        .messageType = "pairing_request",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = boost::json::object{},
-    };
-}
-
-///  Builds a `pairing_confirm` envelope with the given code and optional display
-///  name.
-Envelope BuildPairingConfirmEnvelope(
-    const std::string& code,
-    std::optional<std::string> displayName = std::nullopt,
-    std::string messageId = "message-confirm-1") {
-    boost::json::object payload;
-    payload["code"] = code;
-    payload["displayName"] = displayName.has_value()
-                                 ? boost::json::value(*displayName)
-                                 : boost::json::value(nullptr);
-    return Envelope{
-        .messageType = "pairing_confirm",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = std::move(payload),
-    };
-}
-
-///  Builds a `pairing_renotify` envelope (no payload).
-Envelope
-BuildPairingRenotifyEnvelope(std::string messageId = "message-renotify-1") {
-    return Envelope{
-        .messageType = "pairing_renotify",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = boost::json::object{},
-    };
-}
-
-///  Builds a `pairing_cancel` envelope (no payload).
-Envelope
-BuildPairingCancelEnvelope(std::string messageId = "message-cancel-1") {
-    return Envelope{
-        .messageType = "pairing_cancel",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = boost::json::object{},
-    };
-}
-
-///  Builds a `pairing_ack` envelope echoing the given hex-encoded credential.
-Envelope BuildPairingAckEnvelope(const std::string& hexCredential,
-                                 std::string messageId = "message-ack-1") {
-    boost::json::object payload;
-    payload["credential"] = hexCredential;
-    return Envelope{
-        .messageType = "pairing_ack",
-        .messageId = std::move(messageId),
-        .sessionId = kSessionId,
-        .correlationId = std::nullopt,
-        .payload = std::move(payload),
-    };
-}
 
 } //  namespace
 
