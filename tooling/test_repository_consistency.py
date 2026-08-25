@@ -544,6 +544,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
             workflow,
         )
+        sdk_restore = self._yaml_block(
+            workflow,
+            "      - name: Restore Dart SDK dependencies",
+        )
+        self.assertIn("        working-directory: sdk/dart/dovahlink_client", sdk_restore)
+        self.assertIn("        run: dart pub get", sdk_restore)
+        app_restore = self._yaml_block(
+            workflow,
+            "      - name: Restore Flutter dependencies",
+        )
+        self.assertIn("        working-directory: app", app_restore)
+        self.assertIn("        run: flutter pub get", app_restore)
+        self.assertLess(
+            workflow.index("Restore Dart SDK dependencies"),
+            workflow.index("Check formatting of changed source files"),
+        )
+        self.assertLess(
+            workflow.index("Restore Flutter dependencies"),
+            workflow.index("Check formatting of changed source files"),
+        )
         self.assertIn("sudo apt-get install --yes clang-format", workflow)
         self.assertIn("python -m pip install ruff", workflow)
         self.assertIn("Install-Module PSScriptAnalyzer", workflow)

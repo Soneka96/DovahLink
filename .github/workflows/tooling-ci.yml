@@ -58,6 +58,14 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Restore Dart SDK dependencies
+        working-directory: sdk/dart/dovahlink_client
+        run: dart pub get
+
+      - name: Restore Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
       - name: Set up .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
