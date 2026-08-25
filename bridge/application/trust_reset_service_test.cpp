@@ -279,15 +279,10 @@ TEST_CASE("TrustResetService Reset Trust cancels and disconnects trusted clients
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
     std::vector<std::string> interactions;
-    When(Method(resetStore, ListTrusted)).Do([&]() {
-        interactions.push_back("list");
-        return std::vector<KnownDeviceRecord>{
-            MakeTrustedDevice("client-1", "11111", 1),
-            MakeTrustedDevice("client-2", "22222", 2)};
-    });
     When(Method(mutationCoordinator, ResetTrust)).Do([&]() {
         interactions.push_back("reset");
-        return true;
+        return std::optional<std::vector<std::string>>{
+            std::vector<std::string>{"client-1", "client-2"}};
     });
     When(Method(sessionDisconnector, DisconnectIfClientActive))
         .AlwaysDo([&](std::string_view clientId, std::string_view reason) {
@@ -303,9 +298,8 @@ TEST_CASE("TrustResetService Reset Trust cancels and disconnects trusted clients
     CHECK(service.ResetTrust() ==
           "Reset Trust complete (2 devices revoked).");
     CHECK(interactions == std::vector<std::string>{
-                              "list", "reset", "disconnect:client-1",
+                              "reset", "disconnect:client-1",
                               "disconnect:client-2"});
-    Verify(Method(resetStore, ListTrusted)).Once();
     Verify(Method(mutationCoordinator, ResetTrust)).Once();
     Verify(Method(sessionDisconnector, DisconnectIfClientActive)).Exactly(2);
     VerifyNoOtherInvocations(resetStore);
@@ -321,9 +315,8 @@ TEST_CASE("TrustResetService Reset Trust failure skips cleanup",
     Mock<ITrustMutationCoordinator> mutationCoordinator;
     Mock<IFactoryResetChallenge> factoryResetChallenge;
 
-    When(Method(resetStore, ListTrusted))
-        .Return(std::vector<KnownDeviceRecord>{});
-    When(Method(mutationCoordinator, ResetTrust)).Return(false);
+    When(Method(mutationCoordinator, ResetTrust))
+        .Return(std::optional<std::vector<std::string>>{});
 
     TrustResetService service(resetStore.get(), sessionDisconnector.get(),
                               mutationCoordinator.get(),
@@ -331,7 +324,29 @@ TEST_CASE("TrustResetService Reset Trust failure skips cleanup",
 
     CHECK(service.ResetTrust() ==
           "Failed to reset trust: trust-store save failed.");
-    Verify(Method(resetStore, ListTrusted)).Once();
+    Verify(Method(mutationCoordinator, ResetTrust)).Once();
+    VerifyNoOtherInvocations(resetStore);
+    VerifyNoOtherInvocations(sessionDisconnector);
+    VerifyNoOtherInvocations(mutationCoordinator);
+    VerifyNoOtherInvocations(factoryResetChallenge);
+}
+
+TEST_CASE("TrustResetService Reset Trust reports zero revoked devices without disconnecting",
+          "[application][trust_reset_service]") {
+    Mock<ITrustResetStore> resetStore;
+    Mock<ActiveSessionDisconnector> sessionDisconnector;
+    Mock<ITrustMutationCoordinator> mutationCoordinator;
+    Mock<IFactoryResetChallenge> factoryResetChallenge;
+
+    When(Method(mutationCoordinator, ResetTrust))
+        .Return(std::optional<std::vector<std::string>>{
+            std::vector<std::string>{}});
+
+    TrustResetService service(resetStore.get(), sessionDisconnector.get(),
+                              mutationCoordinator.get(),
+                              factoryResetChallenge.get());
+
+    CHECK(service.ResetTrust() == "Reset Trust complete (0 devices revoked).");
     Verify(Method(mutationCoordinator, ResetTrust)).Once();
     VerifyNoOtherInvocations(resetStore);
     VerifyNoOtherInvocations(sessionDisconnector);

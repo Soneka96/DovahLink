@@ -77,13 +77,20 @@ security::BlockOutcome TrustMutationCoordinator::Block(
     return outcome;
 }
 
-bool TrustMutationCoordinator::ResetTrust() {
+std::optional<std::vector<std::string>> TrustMutationCoordinator::ResetTrust() {
     std::lock_guard<std::mutex> lock(mutex_);
+    const auto trustedDevices = trustStore_.ListTrusted();
+    std::vector<std::string> affectedClientIds;
+    affectedClientIds.reserve(trustedDevices.size());
+    for (const auto& device : trustedDevices) {
+        affectedClientIds.push_back(device.clientId);
+    }
+
     if (!trustStore_.ResetTrust()) {
-        return false;
+        return std::nullopt;
     }
     pairingSession_.CancelAll();
-    return true;
+    return affectedClientIds;
 }
 
 bool TrustMutationCoordinator::FactoryReset() {

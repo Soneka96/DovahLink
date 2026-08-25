@@ -51,9 +51,11 @@ class ITrustMutationCoordinator {
     Block(const std::string& clientId,
           std::chrono::steady_clock::time_point now) = 0;
 
-    ///  Performs Reset Trust and cancels all pairing only after persistence
-    ///  succeeds.
-    [[nodiscard]] virtual bool ResetTrust() = 0;
+    ///  Performs Reset Trust, returns the affected client IDs, and cancels all
+    ///  pairing only after persistence succeeds. An empty optional means the
+    ///  trust-store save failed.
+    [[nodiscard]] virtual std::optional<std::vector<std::string>>
+    ResetTrust() = 0;
 
     ///  Performs Factory Reset and cancels all pairing only after persistence
     ///  succeeds.
@@ -95,7 +97,8 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
           std::chrono::steady_clock::time_point now) override;
 
     ///  @copydoc ITrustMutationCoordinator::ResetTrust
-    [[nodiscard]] bool ResetTrust() override;
+    [[nodiscard]] std::optional<std::vector<std::string>>
+    ResetTrust() override;
 
     ///  @copydoc ITrustMutationCoordinator::FactoryReset
     [[nodiscard]] bool FactoryReset() override;

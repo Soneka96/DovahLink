@@ -300,11 +300,13 @@ TEST_CASE("TrustMutationCoordinator reset operations cancel only after Save succ
 
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
     persistence.FailNextSave();
-    CHECK_FALSE(coordinator.ResetTrust());
+    CHECK_FALSE(coordinator.ResetTrust().has_value());
     CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
               .has_value());
 
-    CHECK(coordinator.ResetTrust());
+    const auto resetResult = coordinator.ResetTrust();
+    REQUIRE(resetResult.has_value());
+    CHECK(resetResult->empty());
     CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
                     .has_value());
 
@@ -318,6 +320,31 @@ TEST_CASE("TrustMutationCoordinator reset operations cancel only after Save succ
                     .has_value());
 }
 
+TEST_CASE("TrustMutationCoordinator keeps pairing pending until reset persistence succeeds",
+          "[application][trust_mutation_coordinator]") {
+    BlockingPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
+
+    std::optional<std::vector<std::string>> resetResult;
+    std::thread resetThread([&] { resetResult = coordinator.ResetTrust(); });
+    persistence.WaitUntilEntered();
+
+    CHECK(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+              .has_value());
+
+    persistence.Release();
+    resetThread.join();
+
+    REQUIRE(resetResult.has_value());
+    CHECK(resetResult->empty());
+    CHECK_FALSE(pairingSession.PeekPending("client-1", MakeCredential(1), now)
+                    .has_value());
+}
+
 TEST_CASE("TrustMutationCoordinator serializes pairing commit before reset",
           "[application][trust_mutation_coordinator]") {
     BlockingPersistence persistence;
@@ -327,21 +354,23 @@ TEST_CASE("TrustMutationCoordinator serializes pairing commit before reset",
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
-    PairingCommitResult commitResult;
+    PairingCommitResult commitResult{
+        .outcome = PairingCommitOutcome::kPendingNotFound};
     std::thread commitThread([&] {
         commitResult =
             coordinator.CommitPairing("client-1", MakeCredential(1), now);
     });
     persistence.WaitUntilEntered();
 
-    bool resetResult = false;
+    std::optional<std::vector<std::string>> resetResult;
     std::thread resetThread([&] { resetResult = coordinator.ResetTrust(); });
     persistence.Release();
     commitThread.join();
     resetThread.join();
 
     CHECK(commitResult.outcome == PairingCommitOutcome::kCommitted);
-    CHECK(resetResult);
+    REQUIRE(resetResult.has_value());
+    CHECK(*resetResult == std::vector<std::string>{"client-1"});
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
 
@@ -354,11 +383,41 @@ TEST_CASE("TrustMutationCoordinator rejects a commit after reset cancels first",
     auto now = std::chrono::steady_clock::now();
     StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
 
-    REQUIRE(coordinator.ResetTrust());
+    REQUIRE(coordinator.ResetTrust().has_value());
     auto result =
         coordinator.CommitPairing("client-1", MakeCredential(1), now);
 
     CHECK(result.outcome == PairingCommitOutcome::kPendingNotFound);
+    CHECK_FALSE(trustStore.Query("client-1").has_value());
+}
+
+TEST_CASE("TrustMutationCoordinator rejects a concurrent commit when reset acquires first",
+          "[application][trust_mutation_coordinator]") {
+    BlockingPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, FixedShortId("11111"));
+    PairingSession pairingSession(FixedCode("123456"));
+    TrustMutationCoordinator coordinator(trustStore, pairingSession);
+    auto now = std::chrono::steady_clock::now();
+    StartPending(pairingSession, trustStore.CurrentMutationGeneration("client-1"), now);
+
+    std::optional<std::vector<std::string>> resetResult;
+    std::thread resetThread([&] { resetResult = coordinator.ResetTrust(); });
+    persistence.WaitUntilEntered();
+
+    PairingCommitResult commitResult{
+        .outcome = PairingCommitOutcome::kPendingNotFound};
+    std::thread commitThread([&] {
+        commitResult =
+            coordinator.CommitPairing("client-1", MakeCredential(1), now);
+    });
+
+    persistence.Release();
+    resetThread.join();
+    commitThread.join();
+
+    REQUIRE(resetResult.has_value());
+    CHECK(resetResult->empty());
+    CHECK(commitResult.outcome == PairingCommitOutcome::kPendingNotFound);
     CHECK_FALSE(trustStore.Query("client-1").has_value());
 }
 

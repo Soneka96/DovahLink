@@ -54,17 +54,16 @@ TrustResetService::ConfirmFactoryReset(std::string_view presentedCode) const {
 }
 
 std::string TrustResetService::ResetTrust() const {
-    auto previouslyTrusted = resetStore_.ListTrusted();
-    if (!mutationCoordinator_.ResetTrust()) {
+    auto affectedClientIds = mutationCoordinator_.ResetTrust();
+    if (!affectedClientIds.has_value()) {
         return "Failed to reset trust: trust-store save failed.";
     }
-    for (const auto& record : previouslyTrusted) {
-        sessionDisconnector_.DisconnectIfClientActive(record.clientId,
-                                                      "trust_reset");
+    for (const auto& clientId : *affectedClientIds) {
+        sessionDisconnector_.DisconnectIfClientActive(clientId, "trust_reset");
     }
-    return "Reset Trust complete (" + std::to_string(previouslyTrusted.size()) +
-           (previouslyTrusted.size() == 1 ? " device revoked)."
-                                          : " devices revoked).");
+    return "Reset Trust complete (" + std::to_string(affectedClientIds->size()) +
+           (affectedClientIds->size() == 1 ? " device revoked)."
+                                           : " devices revoked).");
 }
 
 } //  namespace dovahlink::application
