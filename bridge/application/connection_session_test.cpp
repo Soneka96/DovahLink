@@ -1,5 +1,6 @@
 #include "application/connection_session.hpp"
 
+#include "application/application_test_support.hpp"
 #include "application/bridge_config.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
@@ -120,12 +121,9 @@ void ClientWriteText(
 ///  Builds a hello message using the supplied authentication token and clientId.
 std::string HelloMessage(const std::string& token,
                          std::string clientId = "client-1") {
-    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("clientId": ")" +
-           clientId +
-           R"(", "auth": {"method": "one_time_local_token", "token": ")" + token +
-           R"("}}, "bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            std::string(token), "message-hello-1", std::move(clientId)));
 }
 
 ///  Builds an unpaired-tier hello message (no credential) for the given clientId
@@ -133,12 +131,9 @@ std::string HelloMessage(const std::string& token,
 ///  `ai/context/protocol/security.md`'s "Hello authentication and session trust
 ///  tiers".
 std::string UnpairedHelloMessage(std::string clientId) {
-    return R"({"messageType": "hello", "messageId": "message-hello-1", )"
-           R"("sessionId": null, "correlationId": null, "payload": {"endpoint": "client", )"
-           R"("clientId": ")" +
-           clientId +
-           R"(", "auth": {"method": "unpaired"}}, )"
-           R"("bridgeInstanceId": null, "playContextId": null, "clientId": null})";
+    return dovahlink::protocol::EncodeEnvelope(
+        dovahlink::application::test_support::BuildHelloEnvelope(
+            std::nullopt, "message-hello-1", std::move(clientId), "unpaired"));
 }
 
 ///  Builds a ping message for an established session.

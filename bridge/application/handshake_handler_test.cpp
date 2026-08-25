@@ -1,13 +1,12 @@
 #include "application/handshake_handler.hpp"
 
+#include "application/application_test_support.hpp"
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
 #include "security/test_token.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <boost/json/array.hpp>
-#include <boost/json/object.hpp>
 #include <boost/json/parse.hpp>
 
 #include <chrono>
@@ -23,6 +22,7 @@ using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::TrustLossAfterAdmission;
+using dovahlink::application::test_support::BuildHelloEnvelope;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
@@ -59,49 +59,12 @@ std::vector<std::uint8_t> ValidTokenBytes() {
     return *DecodeHex(kValidHexToken);
 }
 
-///  Builds a hello envelope with a controllable token, message ID, and
-///  clientId. `clientId` omits the payload key entirely when `std::nullopt`,
-///  so callers can exercise the "clientId missing" rejection path.
-Envelope BuildHelloEnvelope(
-    const std::string& token, std::string messageId = "message-hello-1",
-    std::optional<std::string> clientId = std::string("client-1")) {
-    boost::json::object payload;
-    payload["endpoint"] = "client";
-    if (clientId.has_value()) {
-        payload["clientId"] = *clientId;
-    }
-    boost::json::object auth;
-    auth["method"] = "one_time_local_token";
-    auth["token"] = token;
-    payload["auth"] = auth;
-
-    return Envelope{
-        .messageType = "hello",
-        .messageId = std::move(messageId),
-        .sessionId = std::nullopt,
-        .correlationId = std::nullopt,
-        .payload = payload,
-    };
-}
-
 ///  Builds a hello envelope using the bootstrap `unpaired` auth method (no
 ///  `auth.token` field).
 Envelope BuildUnpairedHelloEnvelope(std::string messageId = "message-hello-1",
                                     std::string clientId = "client-1") {
-    boost::json::object payload;
-    payload["endpoint"] = "client";
-    payload["clientId"] = clientId;
-    boost::json::object auth;
-    auth["method"] = "unpaired";
-    payload["auth"] = auth;
-
-    return Envelope{
-        .messageType = "hello",
-        .messageId = std::move(messageId),
-        .sessionId = std::nullopt,
-        .correlationId = std::nullopt,
-        .payload = payload,
-    };
+    return dovahlink::application::test_support::BuildHelloEnvelope(
+        std::nullopt, std::move(messageId), std::move(clientId), "unpaired");
 }
 
 ///  Builds a hello envelope using the `trusted_device_credential` auth method.
@@ -109,21 +72,9 @@ Envelope
 BuildTrustedCredentialHelloEnvelope(const std::string& credential,
                                     std::string messageId = "message-hello-1",
                                     std::string clientId = "client-1") {
-    boost::json::object payload;
-    payload["endpoint"] = "client";
-    payload["clientId"] = clientId;
-    boost::json::object auth;
-    auth["method"] = "trusted_device_credential";
-    auth["token"] = credential;
-    payload["auth"] = auth;
-
-    return Envelope{
-        .messageType = "hello",
-        .messageId = std::move(messageId),
-        .sessionId = std::nullopt,
-        .correlationId = std::nullopt,
-        .payload = payload,
-    };
+    return dovahlink::application::test_support::BuildHelloEnvelope(
+        std::string(credential), std::move(messageId), std::move(clientId),
+        "trusted_device_credential");
 }
 
 } //  namespace
