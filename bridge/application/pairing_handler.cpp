@@ -97,6 +97,7 @@ protocol::Envelope
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
                      security::PairingSession& pairingSession,
+                     ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now) {
     auto confirm =
@@ -118,7 +119,7 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
             "Unable to generate a credential", false);
     }
 
-    auto result = pairingSession.TryConfirmCode(
+    auto result = mutationCoordinator.ConfirmPairing(
         confirm->code, now, clientId, *credentialBytes, confirm->displayName);
 
     if (result.outcome == security::ConfirmResult::kConfirmed) {
@@ -164,8 +165,8 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 protocol::Envelope HandlePairingAck(
     const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
     const std::string& clientId, ConnectionId connection,
-    security::PairingSession& pairingSession, security::TrustStore& trustStore,
-    SessionManager& sessionManager, std::chrono::steady_clock::time_point now) {
+    ITrustMutationCoordinator& mutationCoordinator,
+    std::chrono::steady_clock::time_point now) {
     auto ack = protocol::DecodePairingAckPayload(pairingAckEnvelope.payload);
     if (!ack.has_value()) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId,
@@ -191,67 +192,46 @@ protocol::Envelope HandlePairingAck(
     //  merely collides with someone else's already-trusted identity cannot be
     //  upgraded to full trust without actually presenting that identity's real
     //  credential.
-    if (trustStore.Authenticate(clientId, *credentialBytes)) {
-        auto existing = trustStore.Query(clientId);
-        if (existing.has_value()) {
-            sessionManager.UpgradeToFullTrust(connection, sessionId);
-            return BuildPairingOutcome(
-                sessionId, pairingAckEnvelope.messageId,
-                protocol::PairingOutcomePayload{
-                    .outcome = "already_trusted",
-                    .credential = security::EncodeHex(existing->credential),
-                    .shortId = existing->shortId,
-                    .displayName = existing->displayName,
-                });
-        }
+    auto existing = mutationCoordinator.PromoteAlreadyTrusted(
+        clientId, *credentialBytes, connection, sessionId);
+    if (existing.has_value()) {
+        return BuildPairingOutcome(
+            sessionId, pairingAckEnvelope.messageId,
+            protocol::PairingOutcomePayload{
+                .outcome = "already_trusted",
+                .credential = security::EncodeHex(existing->credential),
+                .shortId = existing->shortId,
+                .displayName = existing->displayName,
+            });
     }
 
-    auto pending = pairingSession.PeekPending(clientId, *credentialBytes, now);
-    if (!pending.has_value()) {
+    auto commit = mutationCoordinator.CommitPairing(
+        clientId, *credentialBytes, now, connection, sessionId);
+    if (commit.Outcome() == security::PairingCommitOutcome::kPendingNotFound) {
         return BuildPairingOutcome(
             sessionId, pairingAckEnvelope.messageId,
             protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
     }
-
-    //  Consumes the pending credential before persisting it, not after:
-    //  CommitPending is the only operation that atomically checks-and-clears
-    //  PairingSession's pending state, and PairingSession shares its one mutex
-    //  with CancelAll (TrustAdminService::ResetTrust/ConfirmFactoryReset). Doing
-    //  this first makes CommitPending and a concurrent CancelAll mutually
-    //  exclusive -- whichever runs first wins deterministically -- so an admin
-    //  operation cancelling every pending pairing can no longer be defeated by a
-    //  pairing_ack that peeked the pending record before the cancel but committed
-    //  it to TrustStore after. Committing after Persist (the previous order) let
-    //  Persist durably create a Trusted device from a pending credential CancelAll
-    //  had already cleared, since nothing checked PairingSession's state again
-    //  before that write landed.
-    if (!pairingSession.CommitPending(clientId, *credentialBytes, now)) {
+    if (commit.Outcome() == security::PairingCommitOutcome::kInvalidated) {
         return BuildPairingOutcome(
             sessionId, pairingAckEnvelope.messageId,
-            protocol::PairingOutcomePayload{.outcome = "pending_not_found"});
+            protocol::PairingOutcomePayload{.outcome = "pairing_invalidated"});
     }
-
-    auto persisted = trustStore.Persist(pending->clientId, pending->credential,
-                                        pending->displayName);
-    if (!persisted.has_value()) {
-        //  Unlike the previous order, the pending credential is already consumed at
-        //  this point: a retried pairing_ack after this transient failure gets
-        //  pending_not_found, not another shot at the same pending record -- the
-        //  client must restart pairing from pairing_confirm.
+    if (commit.Outcome() == security::PairingCommitOutcome::kPersistenceFailed) {
         return protocol::BuildErrorEnvelope(pairingAckEnvelope.messageId, sessionId,
                                             "internal_error",
                                             "Unable to commit trust", false);
     }
 
-    sessionManager.UpgradeToFullTrust(connection, sessionId);
+    const auto& persisted = *commit.Record();
 
     return BuildPairingOutcome(
         sessionId, pairingAckEnvelope.messageId,
         protocol::PairingOutcomePayload{
             .outcome = "trusted",
-            .credential = security::EncodeHex(persisted->credential),
-            .shortId = persisted->shortId,
-            .displayName = persisted->displayName,
+            .credential = security::EncodeHex(persisted.credential),
+            .shortId = persisted.shortId,
+            .displayName = persisted.displayName,
         });
 }
 
@@ -292,9 +272,9 @@ HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
 protocol::Envelope
 HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope,
                     const std::string& sessionId, const std::string& clientId,
-                    security::PairingSession& pairingSession,
+                    ITrustMutationCoordinator& mutationCoordinator,
                     std::chrono::steady_clock::time_point now) {
-    auto outcome = pairingSession.TryCancel(clientId, now);
+    auto outcome = mutationCoordinator.TryCancel(clientId, now);
     switch (outcome) {
     case security::CancelOutcome::kCancelled:
         return BuildPairingOutcome(

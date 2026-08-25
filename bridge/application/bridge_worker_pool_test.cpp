@@ -38,6 +38,7 @@ using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
+using dovahlink::application::TrustMutationCoordinator;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -135,10 +136,13 @@ struct Fixture {
     FailedTokenThrottle credentialThrottle;
     ///  Pairing challenge/pending-credential state machine; unused by these tests.
     PairingSession pairingSession;
-    ///  Records pairing codes displayed to the user; unused by these tests.
-    RecordingPairingNotificationSink pairingNotificationSink;
     ///  Tracks the authenticated test session.
     SessionManager sessionManager;
+    ///  Coordinates pairing finalization with administrative trust mutations.
+    TrustMutationCoordinator mutationCoordinator{trustStore, pairingSession,
+                                                 sessionManager};
+    ///  Records pairing codes displayed to the user; unused by these tests.
+    RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
     ActivePlayContext activePlayContext;
     ///  Runs the production worker-pool/session path under test.
@@ -152,6 +156,7 @@ struct Fixture {
                           sessionManager,
                           activePlayContext,
                           pairingSession,
+                          mutationCoordinator,
                           pairingNotificationSink,
                           /*bridgeInstanceId=*/std::nullopt,
                           /*bridgeVersion=*/kBridgeVersion};
@@ -439,7 +444,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not retroactively "
           "admitted after it already ran",
           "[application][bridge_worker_pool]") {
     //  Documents the structural premise HandleHello's TrustLossAfterAdmission
-    //  recheck (handshake_handler.cpp) exists to close: TrustAdminService's
+    //  recheck (handshake_handler.cpp) exists to close: trust administration's
     //  revoke/block path calls TrustStore::Revoke/Block, then this exact
     //  DisconnectIfClientActive call, in that order. If that pair runs before
     //  HandleHello's own TryCreateSession has made a session visible here, this
@@ -623,6 +628,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts a "
     REQUIRE_FALSE(capabilitiesReadEc);
 
     fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
     //  Delivery is best-effort (`ai/context/protocol/security.md`'s
     //  "Administrative session invalidation": "best-effort send/flush... then
@@ -892,12 +898,6 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new "
     CHECK(*secondNotification->sessionId == secondSessionId);
     CHECK(*secondNotification->sessionId != firstSessionId);
 
-    auto revokedDeadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (fixture.sessionManager.IsValidForConnection(secondSessionId, 2) &&
-           std::chrono::steady_clock::now() < revokedDeadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 2));
 
     fixture.pool.Stop();
@@ -948,6 +948,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated "
     REQUIRE_FALSE(capabilitiesReadEc);
 
     fixture.pool.DisconnectActive("trust_reset");
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
     //  Delivery is best-effort; see the equivalent comment above and in
     //  websocket_session_test.cpp.
@@ -1118,12 +1119,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's "
     //  matching the sibling "interrupts..." tests: DisconnectActive's actual
     //  security effect on the current (second) session never depends on
     //  best-effort delivery.
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (fixture.sessionManager.IsValidForConnection(secondSessionId, 1) &&
-           std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 1));
+    CHECK_FALSE(fixture.sessionManager.IsValidForConnection(secondSessionId, 2));
 
     fixture.pool.Stop();
     fixture.pool.Join();

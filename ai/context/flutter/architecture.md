@@ -102,7 +102,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - A Widget is a reusable or repeatable unit with one cohesive purpose.
 - Routability and the presence of a ViewModel do not decide the classification.
 - Screens and Sections resolve their own DI-registered dependencies; do not thread them through
-  constructor props from a parent.
+  constructor props from a parent. This is a framework-managed entry-point exception: `GetIt`
+  returns an already-registered contract, and the screen or section never constructs the concrete
+  implementation.
 - Reusable widgets receive data and callbacks as props and remain dumb.
 
 ## Redux flow
@@ -142,7 +144,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   action carries no fields or the handler does not read `store`, for a uniform, self-documenting
   signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
   injected constructor/parameter dependencies; raw values and `BuildContext` are not handler
-  parameters. These narrowly prescribed action handlers are the Flutter exception to
+  parameters. These narrowly prescribed framework handlers resolve already-registered contracts;
+  they are the Flutter exception to
   `ai/context/dart/dart-style.md`'s rule against private methods with independent responsibilities;
   do not extend that exception to ordinary feature or infrastructure code.
 - Fold a use case's `Either<Failure, T>` result with `.fold((Failure failure) => ..., (T value) =>
@@ -157,6 +160,12 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 
 ## Dependency injection
 
+- Every behavior-bearing Flutter/Dart class or equivalent type has an explicit abstract contract,
+  even when it has one implementation. Consumers depend on the contract, and every collaborator is
+  supplied through the constructor. Register concrete implementations behind those contracts in
+  `GetIt`.
+- Do not add artificial interfaces to widgets, DTOs, entities, enums, pure functions, or other
+  data-only types. This rule is adopted phase-forward and does not reopen completed phases.
 - Register shared dependencies first in `lib/injection_container.dart`, then call each feature's
   injection container.
 - Infrastructure implementations, protocol clients, repositories, use cases, services, and ViewModels

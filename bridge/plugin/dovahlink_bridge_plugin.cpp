@@ -14,7 +14,8 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/session.hpp"
-#include "application/trust_admin_service.hpp"
+#include "application/trust_device_admin_service.hpp"
+#include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_accessor.hpp"
@@ -307,11 +308,13 @@ SKSEPluginInfo(
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
+    static dovahlink::application::TrustMutationCoordinator
+        trustMutationCoordinator(trustStore, pairingSession, sessionManager);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,
-        pairingSession, pairingNotificationSink, bridgeInstanceId,
-        kBridgeVersion);
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        bridgeInstanceId, kBridgeVersion);
 
     //  Registers the optional trust-administration console adapter
     //  (ai/context/protocol/security.md's "Trust administration surface").
@@ -323,9 +326,14 @@ SKSEPluginInfo(
     //  "Revocation is immediate" (security.md's "Persistent local trust") against
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
-    static dovahlink::application::TrustAdminService trustAdminService(
-        trustStore, bridgeWorkerPool, pairingSession, factoryResetChallenge);
-    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(trustAdminService);
+    static dovahlink::application::TrustDeviceAdminService
+        trustDeviceAdminService(trustStore, bridgeWorkerPool,
+                                trustMutationCoordinator);
+    static dovahlink::application::TrustResetService trustResetService(
+        trustStore, bridgeWorkerPool, trustMutationCoordinator,
+        factoryResetChallenge);
+    dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
+        trustDeviceAdminService, trustResetService);
 
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);

@@ -85,7 +85,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
       // pending call with a generic DovahLinkConnectionException; distinguishing it here through
       // the SDK's already-public connectionState prevents the caller from treating it as ordinary
-      // transport loss eligible for silent automatic retry, per PLAN.md's Stage 3.
+      // transport loss eligible for silent automatic retry.
       if (_client.connectionState ==
           DovahLinkConnectionState.administrativelyInvalidated) {
         return const Left(SessionInvalidatedFailure.administrative);
@@ -173,9 +173,8 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
       final String message = _pairingOutcomeMessage(error.outcome);
       // Only a wrong code or a too-soon retry are retriable against the same still-active
       // challenge: everything else (expired, hard_limit_reached, pending_not_found) ends the
-      // flow, matching PLAN.md stage I's "keeps a short-of-hard-limit wrong code on
-      // awaitingCode... instead of bouncing to failed" versus "maps hard_limit_reached to the
-      // existing PairingFailedAction path."
+      // flow: a short-of-hard-limit wrong code stays on awaitingCode instead of bouncing to
+      // failed, while hard_limit_reached follows the existing PairingFailedAction path.
       if (error.outcome == PairingOutcome.invalid ||
           error.outcome == PairingOutcome.pacingLimited) {
         return Left(PairingRetriableFailure(message));

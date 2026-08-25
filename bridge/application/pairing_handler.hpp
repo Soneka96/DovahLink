@@ -2,6 +2,7 @@
 
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/pairing_session.hpp"
 #include "security/trust_store.hpp"
@@ -22,7 +23,7 @@ namespace dovahlink::application {
 ///  presented at `hello`
 ///      (session-owned state).
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
+///  state machine, used for code redisplay after a wrong attempt.
 ///  @param notificationSink Displays a freshly generated code to the user.
 ///  @param now Current monotonic time, for the lazy-expiry checks and
 ///  `expiresInSeconds`.
@@ -51,6 +52,8 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 ///      (session-owned state).
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine.
+///  @param mutationCoordinator Captures the trust mutation fence and creates the
+///  pending credential under the same coordination boundary as admin mutations.
 ///  @param notificationSink Redisplays the code after a wrong attempt or reports
 ///  attempts
 ///      exhausted; never called for `kConfirmed`, `kExpired`, or
@@ -65,6 +68,7 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
                      security::PairingSession& pairingSession,
+                     ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now);
 
@@ -72,29 +76,27 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  trusted before touching `pairingSession` at all (a lost-response retry
 ///  resolves to `"already_trusted"`, not an error); otherwise matches the echoed
 ///  credential against the pending record and, on success, commits it to
-///  `trustStore` and upgrades the session to full trust.
+///  `trustStore` and upgrades the session to full trust through the coordinator.
 ///  @param pairingAckEnvelope Decoded client `pairing_ack`.
 ///  @param sessionId Authenticated session identifier.
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`.
 ///  @param connection Transport connection identifier, for the trust-tier
 ///  upgrade.
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
-///  @param trustStore Persistent trust store, queried for idempotency and
-///  committed to on success.
-///  @param sessionManager Session registry, upgraded to full trust on success.
+///  @param mutationCoordinator Serializes pending-pairing finalization with
+///  administrative trust mutations.
 ///  @param now Current monotonic time, for the pending-credential lazy-expiry
 ///  check.
-///  @return `pairing_outcome` envelope: `"trusted"`, `"already_trusted"`, or
-///      `"pending_not_found"`; a generic `error` envelope for a malformed
+///  @return `pairing_outcome` envelope: `"trusted"`, `"already_trusted"`,
+///      `"pending_not_found"`, or `"pairing_invalidated"`; a generic `error`
+///      envelope for a malformed
 ///      payload or an internal failure committing the credential or building the
 ///      response.
 [[nodiscard]] protocol::Envelope HandlePairingAck(
     const protocol::Envelope& pairingAckEnvelope, const std::string& sessionId,
     const std::string& clientId, ConnectionId connection,
-    security::PairingSession& pairingSession, security::TrustStore& trustStore,
-    SessionManager& sessionManager, std::chrono::steady_clock::time_point now);
+    ITrustMutationCoordinator& mutationCoordinator,
+    std::chrono::steady_clock::time_point now);
 
 ///  Handles a `pairing_renotify`: "show my code again". Redisplays `clientId`'s
 ///  owned active challenge's existing code via `notificationSink` when its
@@ -107,8 +109,6 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`
 ///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
 ///  @param notificationSink Redisplays the code on success; never called for a
 ///  cooldown or an idle
 ///      requester.
@@ -138,8 +138,8 @@ HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
 ///  @param clientId The client identity bound to this connection's session,
 ///  presented at `hello`
 ///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
+///  @param mutationCoordinator Serializes cancellation with pending-pairing
+///  finalization and administrative trust mutations.
 ///  @param now Current monotonic time, for the lazy-expiry checks.
 ///  @return `pairing_outcome` envelope: `"cancelled"` when `clientId` owned
 ///  something and it was
@@ -148,7 +148,7 @@ HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
 [[nodiscard]] protocol::Envelope
 HandlePairingCancel(const protocol::Envelope& pairingCancelEnvelope,
                     const std::string& sessionId, const std::string& clientId,
-                    security::PairingSession& pairingSession,
+                    ITrustMutationCoordinator& mutationCoordinator,
                     std::chrono::steady_clock::time_point now);
 
 } //  namespace dovahlink::application

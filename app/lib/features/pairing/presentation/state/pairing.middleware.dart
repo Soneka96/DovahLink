@@ -235,7 +235,7 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// [PairingConnectionStatus.restored] as recovery ([PairingConnectionRestoredAction]), and
   /// [PairingConnectionStatus.invalidated] as an administrative failure
   /// ([PairingFailedAction] carrying [SessionInvalidatedFailure.administrative]'s reason-agnostic
-  /// message, per PLAN.md's Stage 3).
+  /// message).
   void _pairingSessionTrusted(
     Store<AppState> store,
     PairingSessionTrustedAction action,

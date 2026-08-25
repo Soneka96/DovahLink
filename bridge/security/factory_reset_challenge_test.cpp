@@ -64,6 +64,16 @@ TEST_CASE("TryStart returns the generated six-digit code",
     CHECK(*code == "123456");
 }
 
+TEST_CASE("CodeTimeToLive reports the configured challenge lifetime",
+          "[security][factory_reset_challenge]") {
+    FactoryResetChallenge defaultChallenge(FixedCode("123456"));
+    FactoryResetChallenge customChallenge(FixedCode("123456"),
+                                          std::chrono::seconds(90));
+
+    CHECK(defaultChallenge.CodeTimeToLive() == std::chrono::seconds(60));
+    CHECK(customChallenge.CodeTimeToLive() == std::chrono::seconds(90));
+}
+
 TEST_CASE("TryStart propagates a code-generator failure",
           "[security][factory_reset_challenge]") {
     FactoryResetChallenge challenge(FailingCodeGenerator());

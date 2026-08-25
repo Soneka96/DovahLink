@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/active_session.hpp"
+#include "application/session_promotion.hpp"
 #include "shared/enums.hpp"
 
 #include <mutex>
@@ -11,7 +12,7 @@ namespace dovahlink::application {
 
 ///  Binds one authenticated session to one connection.
 ///  The manager is thread-safe and enforces the one-client limit.
-class SessionManager {
+class SessionManager : public ISessionPromotion {
   public:
     ///  Move-only ownership of one active authenticated session.
     ///
@@ -116,10 +117,17 @@ class SessionManager {
     ///  @param sessionId Session identifier the caller validated its request
     ///  against.
     void UpgradeToFullTrust(ConnectionId connection,
-                            const std::string& sessionId);
+                            const std::string& sessionId) override;
 
     ///  Invalidates the active session regardless of its connection.
     void InvalidateAll();
+
+    ///  Invalidates the active session only when both identity values match.
+    ///  @param connection Connection owning the session to invalidate.
+    ///  @param sessionId Exact session identifier to invalidate.
+    ///  @return `true` when the matching session was invalidated.
+    [[nodiscard]] bool InvalidateSession(
+        ConnectionId connection, const std::string& sessionId) noexcept;
 
     ///  Returns how `connection`'s active session authenticated at `hello`. Needed
     ///  by trust administration (`ai/context/protocol/security.md`'s "Developer
@@ -151,10 +159,6 @@ class SessionManager {
     SessionForConnection(ConnectionId connection) const;
 
   private:
-    ///  Invalidates the active session when owned by `connection`.
-    void InvalidateSession(ConnectionId connection,
-                           const std::string& sessionId) noexcept;
-
     ///  Synchronizes session ownership state.
     mutable std::mutex mutex_;
 

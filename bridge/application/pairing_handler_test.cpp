@@ -1,6 +1,8 @@
 #include "application/pairing_handler.hpp"
 
 #include "application/application_test_support.hpp"
+#include "application/pairing_handler.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
 
@@ -9,13 +11,12 @@
 #include <boost/json/object.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 using dovahlink::application::ConnectionId;
-using dovahlink::application::HandlePairingAck;
-using dovahlink::application::HandlePairingCancel;
 using dovahlink::application::HandlePairingConfirm;
 using dovahlink::application::HandlePairingRenotify;
 using dovahlink::application::HandlePairingRequest;
@@ -62,6 +63,12 @@ class FailingSavePersistence : public ITrustStorePersistence {
     bool Save(const TrustStoreSnapshot&) override { return false; }
 };
 
+///  Builds a deterministic credential for trust-store setup in handler tests.
+std::vector<std::uint8_t> MakeCredential(std::uint8_t seed) {
+    return std::vector<std::uint8_t>{seed,
+                                     static_cast<std::uint8_t>(seed + 1)};
+}
+
 ///  `ITrustStorePersistence` double that fails exactly one `Save`, then succeeds
 ///  on every call after -- simulates a transient save failure a client recovers
 ///  from by restarting pairing.
@@ -103,6 +110,55 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     ///  Number of times `NotifyPairingAttemptsExhausted` was called.
     int attemptsExhaustedCount = 0;
 };
+
+///  Supplies the production coordinator boundary to direct confirm-handler tests
+///  without repeating trust-store composition in every case.
+Envelope HandlePairingConfirm(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, PairingSession& pairingSession,
+    RecordingPairingNotificationSink& notificationSink,
+    std::chrono::steady_clock::time_point now) {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    return dovahlink::application::HandlePairingConfirm(
+        envelope, sessionId, clientId, pairingSession, coordinator,
+        notificationSink, now);
+}
+
+///  Keeps existing direct handler tests focused on protocol behavior while
+///  supplying the production coordinator boundary used by pairing acknowledgements.
+Envelope HandlePairingAck(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, ConnectionId connection,
+    PairingSession& pairingSession, TrustStore& trustStore,
+    SessionManager& sessionManager,
+    std::chrono::steady_clock::time_point now) {
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    return dovahlink::application::HandlePairingAck(
+        envelope, sessionId, clientId, connection, coordinator, now);
+}
+
+///  Supplies a coordinator to direct pairing-cancel tests without duplicating
+///  production wiring in every test case.
+Envelope HandlePairingCancel(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, PairingSession& pairingSession,
+    std::chrono::steady_clock::time_point now) {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    return dovahlink::application::HandlePairingCancel(
+        envelope, sessionId, clientId, coordinator, now);
+}
 
 } //  namespace
 
@@ -643,6 +699,52 @@ TEST_CASE("HandlePairingAck reports pending_not_found and persists nothing "
     CHECK_FALSE(trustStore.Query(kClientId).has_value());
 }
 
+TEST_CASE("HandlePairingAck reports pairing_invalidated after the pending "
+          "credential's mutation fence changes",
+          "[application][pairing_handler]") {
+    PairingSession pairingSession(
+        []() -> std::optional<std::string> { return std::string("123456"); });
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence, []() -> std::optional<std::string> {
+        return std::string("11111");
+    });
+    REQUIRE(trustStore.Persist(kClientId, MakeCredential(9), std::nullopt)
+                .has_value());
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    REQUIRE(sessionLease.has_value());
+    RecordingPairingNotificationSink sink;
+    auto now = std::chrono::steady_clock::now();
+    static_cast<void>(HandlePairingRequest(BuildPairingRequestEnvelope(),
+                                           kSessionId, kClientId, pairingSession,
+                                           sink, now));
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessions);
+    auto confirmResponse = dovahlink::application::HandlePairingConfirm(
+        BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
+        pairingSession, coordinator, sink, now);
+    auto confirmOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
+    REQUIRE(confirmOutcome.has_value());
+    REQUIRE(confirmOutcome->credential.has_value());
+
+    //  Mutate the store directly so the pending record remains present and the
+    //  coordinator must identify the stale client-scoped fence at commit time.
+    REQUIRE(trustStore.Block(kClientId) ==
+            dovahlink::security::BlockOutcome::kBlocked);
+    auto ackResponse = dovahlink::application::HandlePairingAck(
+        BuildPairingAckEnvelope(*confirmOutcome->credential), kSessionId,
+        kClientId, kConnection, coordinator, now);
+    auto ackOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(ackResponse.payload);
+    REQUIRE(ackOutcome.has_value());
+    CHECK(ackOutcome->outcome == "pairing_invalidated");
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnection));
+}
+
 TEST_CASE("HandlePairingAck reports already_trusted on a retry after the "
           "credential is already committed",
           "[application][pairing_handler]") {
@@ -731,15 +833,9 @@ TEST_CASE("HandlePairingAck reports internal_error when TrustStore::Persist "
 }
 
 TEST_CASE(
-    "HandlePairingAck consumes the pending credential even when the subsequent "
-    "persist "
-    "fails, so a bare retry with the same credential reports pending_not_found",
+    "HandlePairingAck preserves the pending credential when persist fails, so a "
+    "bare retry succeeds",
     "[application][pairing_handler]") {
-    //  CommitPending now runs before TrustStore::Persist (not after), so the
-    //  pending credential is already gone once Persist fails -- unlike the old
-    //  order, a client cannot retry the same pairing_ack after this failure; it
-    //  must restart pairing from pairing_confirm instead. See the next test case
-    //  for that full-restart recovery path.
     PairingSession pairingSession(
         []() -> std::optional<std::string> { return std::string("123456"); });
     FlakyOnceSavePersistence persistence;
@@ -769,21 +865,21 @@ TEST_CASE(
     CHECK(firstAck.messageType == "error");
     CHECK_FALSE(sessions.IsFullyTrusted(kConnection));
 
-    //  A bare retry with the same acknowledgement now finds no pending credential
-    //  to consume.
+    //  The coordinator restored the pending credential, so a bare retry succeeds
+    //  after the transient persistence failure has been consumed.
     auto retryAck = HandlePairingAck(
         BuildPairingAckEnvelope(credentialHex, "message-ack-2"), kSessionId,
         kClientId, kConnection, pairingSession, trustStore, sessions, now);
     auto retryOutcome =
         dovahlink::protocol::DecodePairingOutcomePayload(retryAck.payload);
     REQUIRE(retryOutcome.has_value());
-    CHECK(retryOutcome->outcome == "pending_not_found");
-    CHECK_FALSE(sessions.IsFullyTrusted(kConnection));
-    CHECK_FALSE(trustStore.Query(kClientId).has_value());
+    CHECK(retryOutcome->outcome == "trusted");
+    CHECK(sessions.IsFullyTrusted(kConnection));
+    CHECK(trustStore.Query(kClientId).has_value());
 }
 
-TEST_CASE("HandlePairingAck succeeds after a full pairing restart following a "
-          "persist failure",
+TEST_CASE("HandlePairingAck supports an explicit pairing restart after a persist "
+          "failure",
           "[application][pairing_handler]") {
     PairingSession pairingSession(
         []() -> std::optional<std::string> { return std::string("123456"); });
@@ -806,16 +902,22 @@ TEST_CASE("HandlePairingAck succeeds after a full pairing restart following a "
         dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
     REQUIRE(confirmOutcome.has_value());
 
-    //  The first ack consumes the pending credential and then fails to persist
-    //  (the underlying store's one simulated transient failure).
+    //  The first ack preserves the pending credential but reports the transient
+    //  persistence failure.
     auto firstAck = HandlePairingAck(
         BuildPairingAckEnvelope(*confirmOutcome->credential), kSessionId,
         kClientId, kConnection, pairingSession, trustStore, sessions, now);
     CHECK(firstAck.messageType == "error");
 
-    //  Recovery is a full restart, not a bare retry: request and confirm again to
-    //  mint a new pending credential -- PairingSession returned to NONE once the
-    //  first ack's CommitPending consumed it.
+    //  An explicit cancel discards the preserved credential, after which a full
+    //  request/confirm restart can mint a fresh pending credential.
+    auto cancel = HandlePairingCancel(BuildPairingCancelEnvelope(), kSessionId,
+                                      kClientId, pairingSession, now);
+    auto cancelOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(cancel.payload);
+    REQUIRE(cancelOutcome.has_value());
+    CHECK(cancelOutcome->outcome == "cancelled");
+
     static_cast<void>(
         HandlePairingRequest(BuildPairingRequestEnvelope("message-request-2"),
                              kSessionId, kClientId, pairingSession, sink, now));

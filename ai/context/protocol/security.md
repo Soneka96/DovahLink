@@ -47,7 +47,12 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   challenge expires. A client that saves the credential but crashes before confirming retries
   confirmation on restart. If the Bridge restarted while the credential was only pending, it reports
   the pending credential as no longer known/valid; the client discards its incomplete local
-  credential and returns to unpaired.
+  credential and returns to unpaired. If a pending record survives while Revoke, Block, Reset Trust,
+  or Factory Reset changes its mutation fence, the bridge returns the distinct `pairing_invalidated`
+  pairing outcome so the client can distinguish administrative invalidation from a missing pending
+  record while taking the same safe discard-and-restart action. The normal coordinated
+  administration path cancels pending state before the ACK is processed, so that path truthfully
+  returns `pending_not_found` instead.
 - This state machine maps to canonical messages, all Connection-category per
   `ai/context/protocol/conventions.md`:
 
@@ -63,7 +68,9 @@ Security rules apply before the bridge accepts any client connection. A local-ne
   `outcome` field: `credential_issued` carries the pending credential; `trusted` carries the
   committed credential's `shortId`; `already_trusted` is `pairing_ack`'s idempotent-retry success
   case; `expired`/`invalid`/`pacing_limited`/`hard_limit_reached` carry no credential; `pending_not_found`
-  is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory pending credential).
+  is what a `pairing_ack` retry gets after a Bridge restart lost the in-memory pending credential;
+  `pairing_invalidated` is what an administrative mutation returns when a matching pending
+  credential survives long enough to be rejected by its stale mutation fence before persistence).
 
   **Phase 3.1 (pairing UX):** Two additional client-originated messages, both on `unpaired`-tier
   sessions: `pairing_renotify` (client requests redisplay of the active code, no payload, bridge

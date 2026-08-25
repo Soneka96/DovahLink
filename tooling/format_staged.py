@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SUPPORTED_SUFFIXES = {
@@ -218,23 +218,42 @@ def formatter_commands(
     return commands
 
 
+def is_windows_batch_wrapper(executable: str) -> bool:
+    """Return whether an executable path is a Windows batch wrapper."""
+    return os.name == "nt" and Path(executable).suffix.lower() in {".bat", ".cmd"}
+
+
 def execute_commands(
     repository_root: Path,
     commands: list[list[str]],
 ) -> int:
     """Run formatter commands and return the first non-zero exit code."""
-    missing = sorted(
-        {command[0] for command in commands if shutil.which(command[0]) is None}
-    )
+    resolved_commands: list[list[str]] = []
+    missing: set[str] = set()
+    for command in commands:
+        executable = shutil.which(command[0])
+        if executable is None:
+            missing.add(command[0])
+            continue
+        resolved_commands.append([executable, *command[1:]])
     if missing:
         print(
-            "Required formatter(s) unavailable: " + ", ".join(missing),
+            "Required formatter(s) unavailable: " + ", ".join(sorted(missing)),
             file=sys.stderr,
         )
         return 127
-    for command in commands:
+    for command in resolved_commands:
         try:
-            result = subprocess.run(command, cwd=repository_root, check=False)
+            if is_windows_batch_wrapper(command[0]):
+                # Python's Windows subprocess implementation otherwise lets the
+                # OS invoke batch wrappers through cmd.exe without escaping the
+                # argument list. `shell=True` asks Python to apply the required
+                # Windows quoting for staged paths before the wrapper runs.
+                result = subprocess.run(
+                    command, cwd=repository_root, check=False, shell=True
+                )
+            else:
+                result = subprocess.run(command, cwd=repository_root, check=False)
         except OSError as error:
             print(str(error), file=sys.stderr)
             return 127

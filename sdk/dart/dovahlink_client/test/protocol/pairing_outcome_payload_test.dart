@@ -39,8 +39,10 @@ void main() {
           PairingOutcome.cancelled: 'pairing/pairing-outcome-cancelled.json',
           PairingOutcome.alreadyIdle:
               'pairing/pairing-outcome-already-idle.json',
+          PairingOutcome.pairingInvalidated:
+              'pairing/pairing-outcome-invalidated.json',
         };
-    // Every one of PairingOutcome's 12 wire values decodes correctly, per
+    // Every one of PairingOutcome's 13 wire values decodes correctly, per
     // `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" full-enum-coverage expectation.
     for (final MapEntry<PairingOutcome, String> entry
         in outcomeFixtures.entries) {
@@ -113,6 +115,18 @@ void main() {
         expect(payload.retryAfterSeconds, 1);
       },
     );
+
+    test('Method fromJson decodes pairing_invalidated with no trust data', () {
+      final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+        _readPayload('pairing/pairing-outcome-invalidated.json'),
+      );
+
+      expect(payload.outcome, PairingOutcome.pairingInvalidated);
+      expect(payload.credential, isNull);
+      expect(payload.shortId, isNull);
+      expect(payload.displayName, isNull);
+      expect(payload.retryAfterSeconds, isNull);
+    });
 
     test(
       'Method fromJson accepts zero retryAfterSeconds for pacing_limited',
@@ -263,6 +277,13 @@ void main() {
             'shortId': null,
             'displayName': null,
             'retryAfterSeconds': 1,
+          },
+          <String, dynamic>{
+            'outcome': 'pairing_invalidated',
+            'credential': 'credential-1',
+            'shortId': null,
+            'displayName': null,
+            'retryAfterSeconds': null,
           },
         ];
 

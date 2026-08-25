@@ -33,23 +33,28 @@ TEST_CASE(
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "RE::BSFixedString List(RE::StaticFunctionTag*, "
                 "RE::BSFixedString akScope)"));
-    CHECK(source.find("g_trustAdminService->List(std::string_view(akScope))") !=
+    CHECK(source.find(
+              "g_trustDeviceAdminService->List(std::string_view(akScope))") !=
           std::string::npos);
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "RE::BSFixedString Help(RE::StaticFunctionTag*)"));
-    CHECK(source.find("g_trustAdminService->Help()") != std::string::npos);
+    CHECK(source.find("g_trustDeviceAdminService->Help()") !=
+          std::string::npos);
     CHECK(source.find(
-              "g_trustAdminService->RevokeByShortId(std::string_view(akId))") !=
+              "g_trustDeviceAdminService->RevokeByShortId(") !=
+          std::string::npos);
+    CHECK(source.find(
+              "std::string_view(akId), std::chrono::steady_clock::now())") !=
           std::string::npos);
     CHECK(dovahlink::test_support::ContainsSourceText(
         source,
-        "g_trustAdminService->BlockByShortId(std::string_view(akId), "
+        "g_trustDeviceAdminService->BlockByShortId(std::string_view(akId), "
         "std::chrono::steady_clock::now())"));
     CHECK(source.find(
-              "g_trustAdminService->UnblockByShortId(std::string_view(akId))") !=
+              "g_trustDeviceAdminService->UnblockByShortId(std::string_view(akId))") !=
           std::string::npos);
     CHECK(source.find(
-              "g_trustAdminService->ForgetByShortId(std::string_view(akId))") !=
+              "g_trustDeviceAdminService->ForgetByShortId(std::string_view(akId))") !=
           std::string::npos);
 
     for (const auto& functionName :
@@ -77,17 +82,18 @@ TEST_CASE("Trust-admin Papyrus registration exposes Reset Trust and Factory "
 
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "RE::BSFixedString Reset(RE::StaticFunctionTag*)"));
-    CHECK(source.find("g_trustAdminService->StartFactoryReset()") !=
+    CHECK(source.find("g_trustResetService->StartFactoryReset()") !=
           std::string::npos);
-    CHECK(source.find("g_trustAdminService->Reset()") == std::string::npos);
+    CHECK(source.find("g_trustResetService->Reset()") == std::string::npos);
 
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "RE::BSFixedString ConfirmReset(RE::StaticFunctionTag*, "
                 "RE::BSFixedString akCode)"));
-    CHECK(source.find("g_trustAdminService->ConfirmFactoryReset(std::string_view("
+    CHECK(source.find("g_trustResetService->ConfirmFactoryReset(std::string_view("
                       "akCode))") != std::string::npos);
 
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "RE::BSFixedString ResetTrust(RE::StaticFunctionTag*)"));
-    CHECK(source.find("g_trustAdminService->ResetTrust()") != std::string::npos);
+    CHECK(source.find("g_trustResetService->ResetTrust()") !=
+          std::string::npos);
 }

@@ -6,6 +6,7 @@
 #include "application/replay_guard.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
@@ -52,8 +53,10 @@ struct DispatchResult {
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine, for
 ///      the three pairing message types.
-///  @param trustStore Persistent trust store, for `pairing_ack`'s
-///  idempotent-retry check and commit.
+///  @param trustStore Persistent trust store, for full-session trust-store
+///  operations such as `rename_request`.
+///  @param mutationCoordinator Serializes pairing finalization and administrative
+///  trust mutations.
 ///  @param pairingNotificationSink Displays a freshly generated pairing code to
 ///  the user.
 ///  @param bridgeInstanceId This bridge process's identity, stamped onto every
@@ -74,6 +77,7 @@ struct DispatchResult {
     ConnectionTimeoutTracker& timeoutTracker,
     const ActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
+    ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     std::chrono::steady_clock::time_point steadyNow);

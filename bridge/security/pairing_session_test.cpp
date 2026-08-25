@@ -15,6 +15,7 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::PendingCredential;
 using dovahlink::security::RenotifyOutcome;
 using dovahlink::security::StartChallengeOutcome;
+using dovahlink::security::TrustMutationGeneration;
 
 namespace {
 
@@ -57,7 +58,7 @@ TEST_CASE(
 
     REQUIRE(session
                 .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
-                                std::string("My PC"))
+                                std::string("My PC"), TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto peeked = session.PeekPending("client-1", MakeCredential(1), now);
@@ -72,6 +73,70 @@ TEST_CASE(
     //  Back to NONE: a fresh challenge can start again.
     CHECK(session.TryStartChallenge("client-1", now).outcome ==
           StartChallengeOutcome::kStarted);
+}
+
+TEST_CASE("pending credentials retain their captured trust mutation generation",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    constexpr TrustMutationGeneration generation{.global = 4, .client = 7};
+
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt, generation)
+                .outcome == ConfirmResult::kConfirmed);
+
+    auto pending = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(pending.has_value());
+    CHECK(pending->mutationGeneration == generation);
+}
+
+TEST_CASE("RestorePending makes a consumed credential retryable",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt, TrustMutationGeneration{})
+                .outcome == ConfirmResult::kConfirmed);
+
+    auto pending = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(pending.has_value());
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1), now));
+    REQUIRE(session.RestorePending(std::move(*pending)));
+
+    CHECK(session.PeekPending("client-1", MakeCredential(1), now).has_value());
+}
+
+TEST_CASE("RestorePending refuses to replace an occupied pending credential",
+          "[security][pairing_session]") {
+    PairingSession session(FixedCode("123456"));
+    auto now = std::chrono::steady_clock::now();
+    REQUIRE(session.TryStartChallenge("client-1", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-1", MakeCredential(1),
+                                std::nullopt, TrustMutationGeneration{})
+                .outcome == ConfirmResult::kConfirmed);
+    auto original = session.PeekPending("client-1", MakeCredential(1), now);
+    REQUIRE(original.has_value());
+    REQUIRE(session.CommitPending("client-1", MakeCredential(1), now));
+
+    REQUIRE(session.TryStartChallenge("client-2", now).outcome ==
+            StartChallengeOutcome::kStarted);
+    REQUIRE(session
+                .TryConfirmCode("123456", now, "client-2", MakeCredential(2),
+                                std::nullopt, TrustMutationGeneration{})
+                .outcome == ConfirmResult::kConfirmed);
+
+    CHECK_FALSE(session.RestorePending(std::move(*original)));
+    auto occupied = session.PeekPending("client-2", MakeCredential(2), now);
+    REQUIRE(occupied.has_value());
+    CHECK(occupied->clientId == "client-2");
 }
 
 TEST_CASE("a second TryStartChallenge from the owning client resumes without a "
@@ -89,7 +154,7 @@ TEST_CASE("a second TryStartChallenge from the owning client resumes without a "
     //  The original code still works -- it was not replaced or cleared.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -109,7 +174,7 @@ TEST_CASE("a second TryStartChallenge from a different client reports "
     //  client-1's original code is untouched.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -122,14 +187,14 @@ TEST_CASE("a non-owner cannot confirm another client's active code",
 
     CHECK(session
               .TryConfirmCode("111111", now, "client-2", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
 
     //  The real owner's correct code still works afterward -- the wrong-owner
     //  attempt did not consume or invalidate it.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -143,7 +208,7 @@ TEST_CASE(
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK(session.TryStartChallenge("client-1", now).outcome ==
@@ -171,7 +236,7 @@ TEST_CASE("a disconnect followed by reconnect within the grace period resumes "
           StartChallengeOutcome::kOtherDeviceActive);
     CHECK(session
               .TryConfirmCode("111111", reconnectTime, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -220,7 +285,7 @@ TEST_CASE("NotifyDisconnected does not start the grace countdown once "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     //  The owner "disconnects" while the credential is only pending -- the grace
@@ -274,7 +339,7 @@ TEST_CASE("RemainingSeconds reports no value once the challenge reaches "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.RemainingSeconds(now).has_value());
@@ -317,7 +382,7 @@ TEST_CASE("CurrentCode reports no value once the challenge reaches "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.CurrentCode(now).has_value());
@@ -389,7 +454,7 @@ TEST_CASE("a non-owner cannot confirm a code while a different client's "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     //  No active challenge remains once PENDING_CREDENTIAL -- a second client's
@@ -397,7 +462,7 @@ TEST_CASE("a non-owner cannot confirm a code while a different client's "
     //  is undisturbed.
     CHECK(session
               .TryConfirmCode("111111", now, "client-2", MakeCredential(2),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
     CHECK(session.PeekPending("client-1", MakeCredential(1), now).has_value());
 }
@@ -408,7 +473,7 @@ TEST_CASE("TryConfirmCode reports kInvalid with no active challenge",
 
     CHECK(session
               .TryConfirmCode("111111", std::chrono::steady_clock::now(),
-                              "client-1", MakeCredential(1), std::nullopt)
+                              "client-1", MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
 }
 
@@ -422,14 +487,14 @@ TEST_CASE("a wrong code does not consume the real one, which still succeeds "
 
     CHECK(session
               .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
     //  Spaced past the pacing interval so this second attempt is actually
     //  evaluated.
     auto later = now + std::chrono::seconds(1);
     CHECK(session
               .TryConfirmCode("111111", later, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -440,14 +505,14 @@ TEST_CASE("a code cannot be confirmed twice", "[security][pairing_session]") {
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     //  The challenge was consumed and cleared -- a second attempt finds no active
     //  challenge at all, distinct from a code that exists but expired.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
 }
 
@@ -461,7 +526,7 @@ TEST_CASE("TryConfirmCode reports kExpired for an expired code, distinct from "
 
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kExpired);
 }
 
@@ -476,14 +541,14 @@ TEST_CASE("an evaluated attempt within the pacing interval is rejected without "
     //  First attempt (wrong) is evaluated and starts the pacing clock.
     REQUIRE(session
                 .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kInvalid);
     //  Immediately retrying with the correct code, still within the pacing
     //  interval, is paced out rather than evaluated -- proving it never reaches
     //  the comparison at all.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kPacingLimited);
 
     //  Once the pacing interval has passed, the correct code is evaluated and
@@ -492,7 +557,7 @@ TEST_CASE("an evaluated attempt within the pacing interval is rejected without "
     auto pastPacing = now + std::chrono::seconds(1);
     CHECK(session
               .TryConfirmCode("111111", pastPacing, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -507,14 +572,14 @@ TEST_CASE("kPacingLimited reports the actual remaining wait, not the full "
     //  First attempt (wrong) is evaluated and starts the pacing clock.
     REQUIRE(session
                 .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kInvalid);
 
     //  400ms later: well past the pacing interval's start, so the true remaining
     //  wait (600ms) rounds up to the minimum safe whole-second wait of 1 second.
     auto paced =
         session.TryConfirmCode("111111", now + std::chrono::milliseconds(400),
-                               "client-1", MakeCredential(1), std::nullopt);
+                               "client-1", MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(paced.outcome == ConfirmResult::kPacingLimited);
     REQUIRE(paced.retryAfterSeconds.has_value());
     CHECK(*paced.retryAfterSeconds == std::chrono::seconds(1));
@@ -554,14 +619,14 @@ TEST_CASE("the fifth wrong evaluated attempt cancels the challenge and "
         auto attemptTime = now + std::chrono::seconds(i);
         CHECK(session
                   .TryConfirmCode("000000", attemptTime, "client-1",
-                                  MakeCredential(1), std::nullopt)
+                                  MakeCredential(1), std::nullopt, TrustMutationGeneration{})
                   .outcome == ConfirmResult::kInvalid);
     }
 
     auto fifthAttemptTime = now + std::chrono::seconds(4);
     CHECK(session
               .TryConfirmCode("000000", fifthAttemptTime, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kHardLimitReached);
 
     //  The now-destroyed code no longer works, even presented correctly, and even
@@ -569,7 +634,7 @@ TEST_CASE("the fifth wrong evaluated attempt cancels the challenge and "
     auto afterCancel = now + std::chrono::seconds(5);
     CHECK(session
               .TryConfirmCode("111111", afterCancel, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
     CHECK(session.TryStartChallenge("client-1", afterCancel).outcome ==
           StartChallengeOutcome::kStarted);
@@ -585,21 +650,21 @@ TEST_CASE("shouldAutoRenotify is true for the first wrong attempt and false "
             StartChallengeOutcome::kStarted);
 
     auto first = session.TryConfirmCode("000000", now, "client-1",
-                                        MakeCredential(1), std::nullopt);
+                                        MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(first.outcome == ConfirmResult::kInvalid);
     CHECK(first.shouldAutoRenotify);
 
     //  One second later clears pacing but not the 5-second auto-renotify cooldown.
     auto secondAttemptTime = now + std::chrono::seconds(1);
     auto second = session.TryConfirmCode("000000", secondAttemptTime, "client-1",
-                                         MakeCredential(1), std::nullopt);
+                                         MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(second.outcome == ConfirmResult::kInvalid);
     CHECK_FALSE(second.shouldAutoRenotify);
 
     //  Past the 5-second auto-renotify cooldown, a wrong attempt fires it again.
     auto thirdAttemptTime = now + std::chrono::seconds(6);
     auto third = session.TryConfirmCode("000000", thirdAttemptTime, "client-1",
-                                        MakeCredential(1), std::nullopt);
+                                        MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(third.outcome == ConfirmResult::kInvalid);
     CHECK(third.shouldAutoRenotify);
 }
@@ -614,7 +679,7 @@ TEST_CASE("shouldAutoRenotify is always false for kConfirmed, kExpired, "
     REQUIRE(confirmed.TryStartChallenge("client-1", now).outcome ==
             StartChallengeOutcome::kStarted);
     auto confirmedResult = confirmed.TryConfirmCode(
-        "111111", now, "client-1", MakeCredential(1), std::nullopt);
+        "111111", now, "client-1", MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(confirmedResult.outcome == ConfirmResult::kConfirmed);
     CHECK_FALSE(confirmedResult.shouldAutoRenotify);
 
@@ -622,7 +687,7 @@ TEST_CASE("shouldAutoRenotify is always false for kConfirmed, kExpired, "
     REQUIRE(expired.TryStartChallenge("client-1", now).outcome ==
             StartChallengeOutcome::kStarted);
     auto expiredResult = expired.TryConfirmCode("111111", now, "client-1",
-                                                MakeCredential(1), std::nullopt);
+                                                MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(expiredResult.outcome == ConfirmResult::kExpired);
     CHECK_FALSE(expiredResult.shouldAutoRenotify);
 
@@ -631,10 +696,10 @@ TEST_CASE("shouldAutoRenotify is always false for kConfirmed, kExpired, "
             StartChallengeOutcome::kStarted);
     REQUIRE(paced
                 .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kInvalid);
     auto pacedResult = paced.TryConfirmCode("000000", now, "client-1",
-                                            MakeCredential(1), std::nullopt);
+                                            MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(pacedResult.outcome == ConfirmResult::kPacingLimited);
     CHECK_FALSE(pacedResult.shouldAutoRenotify);
 
@@ -645,12 +710,12 @@ TEST_CASE("shouldAutoRenotify is always false for kConfirmed, kExpired, "
         auto attemptTime = now + std::chrono::seconds(i);
         REQUIRE(hardLimited
                     .TryConfirmCode("000000", attemptTime, "client-1",
-                                    MakeCredential(1), std::nullopt)
+                                    MakeCredential(1), std::nullopt, TrustMutationGeneration{})
                     .outcome == ConfirmResult::kInvalid);
     }
     auto hardLimitResult =
         hardLimited.TryConfirmCode("000000", now + std::chrono::seconds(4),
-                                   "client-1", MakeCredential(1), std::nullopt);
+                                   "client-1", MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(hardLimitResult.outcome == ConfirmResult::kHardLimitReached);
     CHECK_FALSE(hardLimitResult.shouldAutoRenotify);
 }
@@ -707,7 +772,7 @@ TEST_CASE("TryRenotify's cooldown is independent of the auto-renotify cooldown",
     //  A wrong attempt fires the auto-renotify cooldown; the manual "show again"
     //  cooldown must be untouched by it.
     auto wrong = session.TryConfirmCode("000000", now, "client-1",
-                                        MakeCredential(1), std::nullopt);
+                                        MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(wrong.outcome == ConfirmResult::kInvalid);
     REQUIRE(wrong.shouldAutoRenotify);
     CHECK(session.TryRenotify("client-1", now).outcome ==
@@ -719,7 +784,7 @@ TEST_CASE("TryRenotify's cooldown is independent of the auto-renotify cooldown",
     //  seeded by the manual renotify call.
     auto secondWrongTime = now + std::chrono::seconds(1);
     auto secondWrong = session.TryConfirmCode(
-        "000000", secondWrongTime, "client-1", MakeCredential(1), std::nullopt);
+        "000000", secondWrongTime, "client-1", MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(secondWrong.outcome == ConfirmResult::kInvalid);
     CHECK_FALSE(secondWrong.shouldAutoRenotify);
 }
@@ -743,7 +808,7 @@ TEST_CASE("TryCancel reports kAlreadyIdle for a non-owner and does not disturb "
     CHECK(session.TryCancel("client-2", now) == CancelOutcome::kAlreadyIdle);
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -769,7 +834,7 @@ TEST_CASE(
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK(session.TryCancel("client-1", now) == CancelOutcome::kCancelled);
@@ -799,7 +864,7 @@ TEST_CASE("TryStartChallenge issues a fresh code once the previous one expired",
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kExpired);
 
     auto retried = session.TryStartChallenge("client-1", now);
@@ -834,7 +899,7 @@ TEST_CASE(
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto pastTtl = now + std::chrono::minutes(5);
@@ -852,7 +917,7 @@ TEST_CASE("an expired pending credential no longer blocks a fresh challenge or "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto pastTtl = now + std::chrono::minutes(5);
@@ -870,7 +935,7 @@ TEST_CASE("an expired pending credential is not cancellable -- TryCancel "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto pastTtl = now + std::chrono::minutes(5);
@@ -896,7 +961,7 @@ TEST_CASE("PeekPending fails and leaves the pending credential intact for the "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(
@@ -914,7 +979,7 @@ TEST_CASE("PeekPending fails and leaves the pending credential intact for the "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(
@@ -930,7 +995,7 @@ TEST_CASE("PeekPending does not consume the pending credential",
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto first = session.PeekPending("client-1", MakeCredential(1), now);
@@ -962,7 +1027,7 @@ TEST_CASE("PeekPending is safe to repeat without CommitPending, and a later "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     REQUIRE(session.PeekPending("client-1", MakeCredential(1), now).has_value());
@@ -996,7 +1061,7 @@ TEST_CASE("CommitPending fails and leaves the pending credential intact for "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.CommitPending("client-2", MakeCredential(1), now));
@@ -1013,7 +1078,7 @@ TEST_CASE("CommitPending fails and leaves the pending credential intact for "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     CHECK_FALSE(session.CommitPending("client-1", MakeCredential(9), now));
@@ -1028,7 +1093,7 @@ TEST_CASE("CommitPending consumes the pending credential exactly once",
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
     REQUIRE(session.CommitPending("client-1", MakeCredential(1), now));
 
@@ -1047,7 +1112,7 @@ TEST_CASE("TryRenotify reports kNotActive once the challenge reaches "
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     //  Nothing left to redisplay -- the code is gone, only a pending credential
@@ -1101,21 +1166,21 @@ TEST_CASE(
 
     REQUIRE(session
                 .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kInvalid);
 
     //  Just under the 1-second pacing interval is still paced out.
     auto justUnder = now + std::chrono::milliseconds(999);
     CHECK(session
               .TryConfirmCode("111111", justUnder, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kPacingLimited);
 
     //  Exactly at the boundary, the attempt is evaluated.
     auto exactlyAtBoundary = now + std::chrono::seconds(1);
     CHECK(session
               .TryConfirmCode("111111", exactlyAtBoundary, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -1127,7 +1192,7 @@ TEST_CASE("a pending credential just under the 5-minute TTL is still valid",
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     auto justUnderTtl = now + std::chrono::minutes(5) - std::chrono::seconds(1);
@@ -1152,13 +1217,13 @@ TEST_CASE("the fifth wrong attempt cancels the challenge even mid "
         auto attemptTime = now + std::chrono::seconds(i);
         CHECK(session
                   .TryConfirmCode("000000", attemptTime, "client-1",
-                                  MakeCredential(1), std::nullopt)
+                                  MakeCredential(1), std::nullopt, TrustMutationGeneration{})
                   .outcome == ConfirmResult::kInvalid);
     }
     auto fifthAttemptTime = now + std::chrono::seconds(4);
     CHECK(session
               .TryConfirmCode("000000", fifthAttemptTime, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kHardLimitReached);
 
     //  The slot is genuinely free now, for anyone, immediately -- not still
@@ -1182,7 +1247,7 @@ TEST_CASE("a non-owner's rejected attempts never affect the real owner's "
     for (int i = 0; i < 10; ++i) {
         CHECK(session
                   .TryConfirmCode("111111", now, "client-2", MakeCredential(2),
-                                  std::nullopt)
+                                  std::nullopt, TrustMutationGeneration{})
                   .outcome == ConfirmResult::kInvalid);
     }
 
@@ -1190,7 +1255,7 @@ TEST_CASE("a non-owner's rejected attempts never affect the real owner's "
     //  unpaced and with a full wrong-attempt budget.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -1207,7 +1272,7 @@ TEST_CASE("a fresh challenge resets the wrong-attempt count instead of "
         auto attemptTime = now + std::chrono::seconds(i);
         CHECK(session
                   .TryConfirmCode("000000", attemptTime, "client-1",
-                                  MakeCredential(1), std::nullopt)
+                                  MakeCredential(1), std::nullopt, TrustMutationGeneration{})
                   .outcome == ConfirmResult::kInvalid);
     }
     auto restartTime = now + std::chrono::seconds(4);
@@ -1220,12 +1285,12 @@ TEST_CASE("a fresh challenge resets the wrong-attempt count instead of "
     //  fresh challenge would already be the "fifth" and cancel it. It must not.
     CHECK(session
               .TryConfirmCode("000000", restartTime, "client-1",
-                              MakeCredential(1), std::nullopt)
+                              MakeCredential(1), std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kInvalid);
     auto later = restartTime + std::chrono::seconds(1);
     CHECK(session
               .TryConfirmCode("111111", later, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -1239,7 +1304,7 @@ TEST_CASE(
     //  Evaluated attempt, pacing the old challenge's clock to `now`.
     REQUIRE(session
                 .TryConfirmCode("000000", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kInvalid);
 
     REQUIRE(session.TryCancel("client-1", now) == CancelOutcome::kCancelled);
@@ -1251,7 +1316,7 @@ TEST_CASE(
     //  challenge's first-ever evaluated attempt.
     CHECK(session
               .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                              std::nullopt)
+                              std::nullopt, TrustMutationGeneration{})
               .outcome == ConfirmResult::kConfirmed);
 }
 
@@ -1267,7 +1332,7 @@ TEST_CASE("a fresh challenge resets both renotify cooldowns instead of "
     REQUIRE(session.TryRenotify("client-1", now).outcome ==
             RenotifyOutcome::kRenotified);
     auto wrong = session.TryConfirmCode("000000", now, "client-1",
-                                        MakeCredential(1), std::nullopt);
+                                        MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(wrong.outcome == ConfirmResult::kInvalid);
     REQUIRE(wrong.shouldAutoRenotify);
 
@@ -1280,7 +1345,7 @@ TEST_CASE("a fresh challenge resets both renotify cooldowns instead of "
     CHECK(session.TryRenotify("client-1", now).outcome ==
           RenotifyOutcome::kRenotified);
     auto freshWrong = session.TryConfirmCode("000000", now, "client-1",
-                                             MakeCredential(1), std::nullopt);
+                                             MakeCredential(1), std::nullopt, TrustMutationGeneration{});
     REQUIRE(freshWrong.outcome == ConfirmResult::kInvalid);
     CHECK(freshWrong.shouldAutoRenotify);
 }
@@ -1319,7 +1384,7 @@ TEST_CASE("CancelAll clears a pending credential regardless of who owns it",
             StartChallengeOutcome::kStarted);
     REQUIRE(session
                 .TryConfirmCode("111111", now, "client-1", MakeCredential(1),
-                                std::nullopt)
+                                std::nullopt, TrustMutationGeneration{})
                 .outcome == ConfirmResult::kConfirmed);
 
     session.CancelAll();

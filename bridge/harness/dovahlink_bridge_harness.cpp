@@ -278,11 +278,13 @@ int main() {
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                             listenerV6);
+    dovahlink::application::TrustMutationCoordinator trustMutationCoordinator(
+        trustStore, pairingSession, sessionManager);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContext,
-        pairingSession, pairingNotificationSink, bridgeInstanceId,
-        kBridgeVersion);
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
@@ -341,11 +343,11 @@ int main() {
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
         } else if (line.starts_with(kRevokeCommandPrefix)) {
             //  Test-only shortcut straight to TrustStore::Revoke: a real deployment
-            //  only reaches revocation through TrustAdminService (security.md's "Trust
+            //  only reaches revocation through TrustDeviceAdminService (security.md's "Trust
             //  administration surface"), but the harness already knows the clientId a
             //  scenario paired, so it skips the shortId lookup that surface exists
             //  for. Still exercises the same ActiveSessionDisconnector force-close
-            //  primitive TrustAdminService::RevokeByShortId itself calls, so a
+            //  primitive TrustDeviceAdminService::RevokeByShortId itself calls, so a
             //  scenario can prove revoke-while-connected disconnects the live session
             //  immediately, not just the next reconnect attempt.
             std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
@@ -357,10 +359,10 @@ int main() {
             }
         } else if (line.starts_with(kBlockCommandPrefix)) {
             //  Test-only shortcut straight to TrustStore::Block, mirroring the "revoke
-            //  " shortcut above: skips TrustAdminService's shortId lookup (the harness
+            //  " shortcut above: skips TrustDeviceAdminService's shortId lookup (the harness
             //  already knows the clientId a scenario paired) but still exercises the
             //  same ActiveSessionDisconnector/PairingSession::TryCancel primitives
-            //  TrustAdminService::BlockByShortId itself calls, so a scenario can prove
+            //  TrustDeviceAdminService::BlockByShortId itself calls, so a scenario can prove
             //  block-while-connected disconnects the live session and cancels any
             //  owned pairing challenge immediately, not just the next
             //  reconnect/pairing attempt.
@@ -386,10 +388,10 @@ int main() {
             }
         } else if (line.starts_with(kTrustResetCommandPrefix)) {
             //  Test-only shortcut straight to TrustStore::ResetTrust, mirroring
-            //  "revoke "/"block " above: skips TrustAdminService's
+            //  "revoke "/"block " above: skips TrustResetService's
             //  confirmation-challenge gate but still exercises the same
             //  ActiveSessionDisconnector::DisconnectIfClientActive primitive
-            //  TrustAdminService::ResetTrust itself calls for a formerly-trusted
+            //  TrustResetService::ResetTrust itself calls for a formerly-trusted
             //  client's active session -- targeted by clientId (not DisconnectActive)
             //  because Reset Trust only revokes previously-trusted devices, so an
             //  active session that never held trust must not be disconnected by it.
@@ -404,10 +406,10 @@ int main() {
             }
         } else if (line == kFactoryResetCommand) {
             //  Test-only shortcut straight to TrustStore::Reset, bypassing
-            //  TrustAdminService's StartFactoryReset/ConfirmFactoryReset
+            //  TrustResetService's StartFactoryReset/ConfirmFactoryReset
             //  confirmation-challenge dance. Uses DisconnectActive rather than
             //  DisconnectIfClientActive, mirroring
-            //  TrustAdminService::ConfirmFactoryReset itself: Factory Reset wipes
+            //  TrustResetService::ConfirmFactoryReset itself: Factory Reset wipes
             //  every known device record unconditionally, so any active session --
             //  trusted or not -- is disconnected, unlike trust_reset above.
             if (trustStore.Reset()) {

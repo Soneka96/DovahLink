@@ -316,7 +316,8 @@ class DovahLinkClient {
   /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
   /// [trustState] becomes [DovahLinkTrustState.trusted] on success, and the persisted recovery
   /// state clears back to [PairingRecoveryState.none] while keeping the credential.
-  /// @throws [DovahLinkPairingException] if the bridge has no matching pending confirmation.
+  /// @throws [DovahLinkPairingException] if the bridge has no matching pending confirmation or
+  ///     an administrative mutation invalidated the pending credential.
   Future<void> acknowledgeTrustedCredential(String credential) =>
       _pairingService.acknowledgeTrustedCredential(credential);
 
@@ -326,9 +327,11 @@ class DovahLinkClient {
   ///
   /// A no-op returning [DovahLinkTrustState.unpaired] when no confirmation is outstanding. When
   /// one is, retries [acknowledgeTrustedCredential] with the stored credential: a
-  /// `pending_not_found` outcome (the bridge restarted and lost the pending credential) discards
-  /// the local credential and resets to unpaired rather than treating that as a fatal error; any
-  /// other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry again.
+  /// `pending_not_found` outcome (the bridge restarted and lost the pending credential) or
+  /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
+  /// discards the local credential and resets to unpaired rather than treating that as a fatal
+  /// error; any other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry
+  /// again.
   Future<DovahLinkTrustState> recoverPendingPairing() =>
       _pairingService.recoverPendingPairing();
 

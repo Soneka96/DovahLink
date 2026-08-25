@@ -72,6 +72,21 @@ std::optional<std::string> TrustStore::DefaultShortIdGenerator() {
 
 bool TrustStore::WasCorruptOnLoad() const noexcept { return wasCorruptOnLoad_; }
 
+TrustMutationGeneration TrustStore::CurrentMutationGeneration(
+    const std::string& clientId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return CurrentMutationGenerationLocked(clientId);
+}
+
+TrustMutationGeneration TrustStore::CurrentMutationGenerationLocked(
+    const std::string& clientId) const {
+    const auto clientGeneration = clientMutationGenerations_.find(clientId);
+    return {.global = globalMutationGeneration_,
+            .client = clientGeneration == clientMutationGenerations_.end()
+                          ? 0
+                          : clientGeneration->second};
+}
+
 std::optional<KnownDeviceRecord>
 TrustStore::Query(const std::string& clientId) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -186,6 +201,25 @@ std::optional<KnownDeviceRecord>
 TrustStore::Persist(std::string clientId, std::vector<std::uint8_t> credential,
                     std::optional<std::string> displayName) {
     std::lock_guard<std::mutex> lock(mutex_);
+    return PersistLocked(std::move(clientId), std::move(credential),
+                         std::move(displayName));
+}
+
+std::optional<KnownDeviceRecord> TrustStore::PersistIfGeneration(
+    TrustMutationGeneration expectedGeneration, std::string clientId,
+    std::vector<std::uint8_t> credential,
+    std::optional<std::string> displayName) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (CurrentMutationGenerationLocked(clientId) != expectedGeneration) {
+        return std::nullopt;
+    }
+    return PersistLocked(std::move(clientId), std::move(credential),
+                         std::move(displayName));
+}
+
+std::optional<KnownDeviceRecord> TrustStore::PersistLocked(
+    std::string clientId, std::vector<std::uint8_t> credential,
+    std::optional<std::string> displayName) {
     if (clientId.empty() || credential.empty()) {
         return std::nullopt;
     }
@@ -267,6 +301,7 @@ bool TrustStore::Revoke(const std::string& clientId) {
         return false;
     }
     SecureClear(previousDevice.credential);
+    ++clientMutationGenerations_[clientId];
     return true;
 }
 
@@ -296,6 +331,7 @@ BlockOutcome TrustStore::Block(const std::string& clientId) {
         return BlockOutcome::kSaveFailed;
     }
     SecureClear(previousDevice.credential);
+    ++clientMutationGenerations_[clientId];
     return BlockOutcome::kBlocked;
 }
 
@@ -332,6 +368,7 @@ bool TrustStore::Reset() {
     for (auto& [clientId, device] : previousDevices) {
         SecureClear(device.credential);
     }
+    ++globalMutationGeneration_;
     return true;
 }
 
@@ -398,6 +435,7 @@ bool TrustStore::ResetTrust() {
         return false;
     }
     SecureClearDevices(previousDevices);
+    ++globalMutationGeneration_;
     return true;
 }
 

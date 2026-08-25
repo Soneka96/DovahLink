@@ -213,6 +213,11 @@ enum PairingOutcome {
   /// From `pairing_renotify` or `pairing_cancel`: nothing was owned.
   @JsonValue('already_idle')
   alreadyIdle,
+
+  /// From `pairing_ack`: the pending credential survived long enough to be
+  /// rejected by an administrative mutation fence.
+  @JsonValue('pairing_invalidated')
+  pairingInvalidated,
 }
 
 // ---- Request policy ----

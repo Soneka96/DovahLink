@@ -31,9 +31,11 @@
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
-using dovahlink::application::RunConnectionSession;
 using dovahlink::application::SessionManager;
 using dovahlink::application::test_support::BuildEnvelope;
+using dovahlink::application::test_support::BuildPairingAckEnvelope;
+using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
+using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -156,6 +158,30 @@ std::string SubscribeMessage(const std::string& sessionId,
         std::nullopt, std::move(payload)));
 }
 
+///  Keeps transport-session tests focused on connection behavior while wiring
+///  the real trust-mutation coordinator required by production sessions.
+void RunConnectionSession(
+    WebSocketSession& ws, TokenStore& tokenStore,
+    FailedTokenThrottle& tokenThrottle, TrustStore& trustStore,
+    FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
+    dovahlink::application::ConnectionId connection,
+    const ActivePlayContext& activePlayContext, PairingSession& pairingSession,
+    PairingNotificationSink& pairingNotificationSink,
+    const std::optional<std::string>& bridgeInstanceId,
+    const std::string& bridgeVersion,
+    dovahlink::application::SteadyNowProvider steadyNow = [] {
+        return std::chrono::steady_clock::now();
+    }) {
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    dovahlink::application::RunConnectionSession(
+        ws, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, connection, activePlayContext, pairingSession,
+        coordinator, pairingNotificationSink, bridgeInstanceId, bridgeVersion,
+        std::move(steadyNow));
+}
+
 } //  namespace
 
 TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
@@ -252,6 +278,92 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
     //  Disconnect must invalidate the session (ai/context/protocol/security.md).
     CHECK_FALSE(sessionManager.IsValidForConnection(sessionId, /*connection=*/1));
     CHECK(clockCalls >= 4);
+}
+
+TEST_CASE("RunConnectionSession completes pairing through the mutation coordinator",
+          "[application][connection_session]") {
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession(
+        []() -> std::optional<std::string> { return std::string("123456"); });
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    ActivePlayContext activePlayContext;
+
+    boost::system::error_code serverAcceptEc;
+    std::thread serverThread([&] {
+        boost::asio::ip::tcp::socket serverSocket =
+            listener->Acceptor().accept(serverAcceptEc);
+        if (serverAcceptEc) {
+            return;
+        }
+        WebSocketSession session(std::move(serverSocket));
+        RunConnectionSession(session, tokenStore, tokenThrottle, trustStore,
+                             credentialThrottle, sessionManager, /*connection=*/1,
+                             activePlayContext, pairingSession,
+                             pairingNotificationSink, /*bridgeInstanceId=*/
+                             std::nullopt,
+                             kBridgeVersion);
+    });
+
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    ClientWriteText(clientWs, UnpairedHelloMessage("client-1"));
+    auto helloAck = ClientReadEnvelope(clientWs);
+    REQUIRE(helloAck.sessionId.has_value());
+    const std::string sessionId = *helloAck.sessionId;
+    static_cast<void>(ClientReadEnvelope(clientWs));
+
+    ClientWriteText(
+        clientWs,
+        dovahlink::protocol::EncodeEnvelope(BuildPairingRequestEnvelope(
+            "pairing-request-1", sessionId)));
+    auto pairingStatus = ClientReadEnvelope(clientWs);
+    CHECK(pairingStatus.messageType == "pairing_status");
+
+    ClientWriteText(
+        clientWs,
+        dovahlink::protocol::EncodeEnvelope(BuildPairingConfirmEnvelope(
+            "123456", std::nullopt, "pairing-confirm-1", sessionId)));
+    auto credentialIssued = ClientReadEnvelope(clientWs);
+    auto issued = dovahlink::protocol::DecodePairingOutcomePayload(
+        credentialIssued.payload);
+    REQUIRE(issued.has_value());
+    REQUIRE(issued->credential.has_value());
+    CHECK(issued->outcome == "credential_issued");
+
+    ClientWriteText(
+        clientWs,
+        dovahlink::protocol::EncodeEnvelope(BuildPairingAckEnvelope(
+            *issued->credential, "pairing-ack-1", sessionId)));
+    auto trusted = ClientReadEnvelope(clientWs);
+    auto trustedOutcome =
+        dovahlink::protocol::DecodePairingOutcomePayload(trusted.payload);
+    REQUIRE(trustedOutcome.has_value());
+    CHECK(trustedOutcome->outcome == "trusted");
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+    serverThread.join();
+    CHECK_FALSE(serverAcceptEc);
+    CHECK(trustStore.Query("client-1").has_value());
 }
 
 TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not "

@@ -6,6 +6,7 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
+#include "application/trust_mutation_coordinator.hpp"
 #include "security/pairing_session.hpp"
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
@@ -67,6 +68,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                      SessionManager& sessionManager,
                      const ActivePlayContext& activePlayContext,
                      security::PairingSession& pairingSession,
+                     ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& pairingNotificationSink,
                      std::optional<std::string> bridgeInstanceId,
                      std::string bridgeVersion);
@@ -190,6 +192,9 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
 
     ///  Shared pairing challenge/pending-credential state machine.
     security::PairingSession& pairingSession_;
+
+    ///  Serializes pairing finalization with administrative trust mutations.
+    ITrustMutationCoordinator& mutationCoordinator_;
 
     ///  Displays a freshly generated pairing code to the user.
     PairingNotificationSink& pairingNotificationSink_;

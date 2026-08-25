@@ -10,21 +10,23 @@ namespace dovahlink::game_state {
 
 namespace {
 
-///  Non-owning pointer to the service every native function below forwards to,
-///  set once by `InstallTrustAdminPapyrusAdapter` before the Papyrus VM can call
-///  any of them. Papyrus native functions must be plain function pointers, not
-///  captures, so this file-local pointer is the standard SKSE-ecosystem idiom
+///  Non-owning pointers to the focused services below, set once by
+///  `InstallTrustAdminPapyrusAdapter` before the Papyrus VM can call any native
+///  function. Papyrus native functions must be plain function pointers, not
+///  captures, so these file-local pointers are the standard SKSE-ecosystem idiom
 ///  for reaching plugin-lifetime state from them.
-application::TrustAdminService* g_trustAdminService = nullptr;
+application::TrustDeviceAdminService* g_trustDeviceAdminService = nullptr;
+application::TrustResetService* g_trustResetService = nullptr;
 
 ///  Result returned when a native function runs before
-///  `InstallTrustAdminPapyrusAdapter` set `g_trustAdminService` -- unreachable
+///  `InstallTrustAdminPapyrusAdapter` set the focused service pointers --
+///  unreachable
 ///  once the plugin has finished loading, kept only so a caller never gets a
 ///  null-dereference instead of a message.
 constexpr const char* kUnavailableMessage =
     "DovahLink trust admin is unavailable.";
 
-///  Result returned when `TrustAdminService` throws.
+///  Result returned when a trust-administration service throws.
 ///  `ai/context/skse/cpp-style.md`: "never allow an exception to escape a
 ///  callback" -- a native Papyrus function is called directly by the game's
 ///  Papyrus VM, not through this codebase's own containment, so it is exactly
@@ -34,12 +36,12 @@ constexpr const char* kInternalErrorMessage =
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.List(String)` function.
 RE::BSFixedString List(RE::StaticFunctionTag*, RE::BSFixedString akScope) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
         return RE::BSFixedString(
-            g_trustAdminService->List(std::string_view(akScope)));
+            g_trustDeviceAdminService->List(std::string_view(akScope)));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -48,12 +50,12 @@ RE::BSFixedString List(RE::StaticFunctionTag*, RE::BSFixedString akScope) {
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Revoke(String)`
 ///  function.
 RE::BSFixedString Revoke(RE::StaticFunctionTag*, RE::BSFixedString akId) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(
-            g_trustAdminService->RevokeByShortId(std::string_view(akId)));
+        return RE::BSFixedString(g_trustDeviceAdminService->RevokeByShortId(
+            std::string_view(akId), std::chrono::steady_clock::now()));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -64,11 +66,11 @@ RE::BSFixedString Revoke(RE::StaticFunctionTag*, RE::BSFixedString akId) {
 ///  destructive wipe happens only through `ConfirmReset` once the displayed code
 ///  is confirmed.
 RE::BSFixedString Reset(RE::StaticFunctionTag*) {
-    if (!g_trustAdminService) {
+    if (!g_trustResetService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->StartFactoryReset());
+        return RE::BSFixedString(g_trustResetService->StartFactoryReset());
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -77,11 +79,11 @@ RE::BSFixedString Reset(RE::StaticFunctionTag*) {
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Block(String)`
 ///  function.
 RE::BSFixedString Block(RE::StaticFunctionTag*, RE::BSFixedString akId) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->BlockByShortId(
+        return RE::BSFixedString(g_trustDeviceAdminService->BlockByShortId(
             std::string_view(akId), std::chrono::steady_clock::now()));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
@@ -91,12 +93,12 @@ RE::BSFixedString Block(RE::StaticFunctionTag*, RE::BSFixedString akId) {
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Unblock(String)`
 ///  function.
 RE::BSFixedString Unblock(RE::StaticFunctionTag*, RE::BSFixedString akId) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
         return RE::BSFixedString(
-            g_trustAdminService->UnblockByShortId(std::string_view(akId)));
+            g_trustDeviceAdminService->UnblockByShortId(std::string_view(akId)));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -105,12 +107,12 @@ RE::BSFixedString Unblock(RE::StaticFunctionTag*, RE::BSFixedString akId) {
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Forget(String)`
 ///  function.
 RE::BSFixedString Forget(RE::StaticFunctionTag*, RE::BSFixedString akId) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
         return RE::BSFixedString(
-            g_trustAdminService->ForgetByShortId(std::string_view(akId)));
+            g_trustDeviceAdminService->ForgetByShortId(std::string_view(akId)));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -118,11 +120,11 @@ RE::BSFixedString Forget(RE::StaticFunctionTag*, RE::BSFixedString akId) {
 
 ///  Native implementation of the Papyrus `DovahLinkAdmin.Help()` function.
 RE::BSFixedString Help(RE::StaticFunctionTag*) {
-    if (!g_trustAdminService) {
+    if (!g_trustDeviceAdminService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->Help());
+        return RE::BSFixedString(g_trustDeviceAdminService->Help());
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -133,12 +135,12 @@ RE::BSFixedString Help(RE::StaticFunctionTag*) {
 ///  the destructive wipe on a matching code.
 RE::BSFixedString ConfirmReset(RE::StaticFunctionTag*,
                                RE::BSFixedString akCode) {
-    if (!g_trustAdminService) {
+    if (!g_trustResetService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
         return RE::BSFixedString(
-            g_trustAdminService->ConfirmFactoryReset(std::string_view(akCode)));
+            g_trustResetService->ConfirmFactoryReset(std::string_view(akCode)));
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -148,11 +150,11 @@ RE::BSFixedString ConfirmReset(RE::StaticFunctionTag*,
 ///  the recoverable, non-destructive bulk revoke -- unlike
 ///  `Reset`/`ConfirmReset`, requires no confirmation code.
 RE::BSFixedString ResetTrust(RE::StaticFunctionTag*) {
-    if (!g_trustAdminService) {
+    if (!g_trustResetService) {
         return RE::BSFixedString(kUnavailableMessage);
     }
     try {
-        return RE::BSFixedString(g_trustAdminService->ResetTrust());
+        return RE::BSFixedString(g_trustResetService->ResetTrust());
     } catch (...) {
         return RE::BSFixedString(kInternalErrorMessage);
     }
@@ -174,8 +176,11 @@ bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
 
 } //  namespace
 
-void InstallTrustAdminPapyrusAdapter(application::TrustAdminService& service) {
-    g_trustAdminService = &service;
+void InstallTrustAdminPapyrusAdapter(
+    application::TrustDeviceAdminService& deviceService,
+    application::TrustResetService& resetService) {
+    g_trustDeviceAdminService = &deviceService;
+    g_trustResetService = &resetService;
 
     //  Unlike the plugin's messaging/serialization interfaces, this one backs a
     //  purely optional feature (ai/context/protocol/security.md's "Trust

@@ -137,7 +137,8 @@ void PairingSession::NotifyReconnected(
 ConfirmCodeResult PairingSession::TryConfirmCode(
     const std::string& presentedCode, std::chrono::steady_clock::time_point now,
     std::string clientId, std::vector<std::uint8_t> credential,
-    std::optional<std::string> displayName) {
+    std::optional<std::string> displayName,
+    TrustMutationGeneration mutationGeneration) {
     std::lock_guard<std::mutex> lock(mutex_);
     ExpireOwnerIfGraceElapsedLocked(now);
     if (!activeChallenge_.has_value()) {
@@ -189,6 +190,7 @@ ConfirmCodeResult PairingSession::TryConfirmCode(
         .clientId = std::move(clientId),
         .credential = std::move(credential),
         .displayName = std::move(displayName),
+        .mutationGeneration = mutationGeneration,
         .pendingSince = now,
     };
     ClearChallengeLocked();
@@ -224,6 +226,15 @@ bool PairingSession::CommitPending(const std::string& clientId,
         return false;
     }
     pendingCredential_.reset();
+    return true;
+}
+
+bool PairingSession::RestorePending(PendingCredential pending) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (pendingCredential_.has_value()) {
+        return false;
+    }
+    pendingCredential_ = std::move(pending);
     return true;
 }
 

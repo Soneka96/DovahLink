@@ -30,6 +30,11 @@ std::optional<std::string> FactoryResetChallenge::TryStart() {
     return code;
 }
 
+std::chrono::steady_clock::duration
+FactoryResetChallenge::CodeTimeToLive() const {
+    return codeTimeToLive_;
+}
+
 FactoryResetConfirmOutcome
 FactoryResetChallenge::TryConfirm(const std::string& presentedCode) {
     std::lock_guard<std::mutex> lock(mutex_);

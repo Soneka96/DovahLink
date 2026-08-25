@@ -212,7 +212,8 @@ class PairingServiceImpl implements PairingService {
     final bool isAckOutcome = switch (outcome.outcome) {
       PairingOutcome.trusted ||
       PairingOutcome.alreadyTrusted ||
-      PairingOutcome.pendingNotFound => true,
+      PairingOutcome.pendingNotFound ||
+      PairingOutcome.pairingInvalidated => true,
       _ => false,
     };
     if (!isAckOutcome) {
@@ -222,7 +223,8 @@ class PairingServiceImpl implements PairingService {
         retryable: false,
       );
     }
-    if (outcome.outcome == PairingOutcome.pendingNotFound) {
+    if (outcome.outcome == PairingOutcome.pendingNotFound ||
+        outcome.outcome == PairingOutcome.pairingInvalidated) {
       throw DovahLinkPairingException(
         outcome.outcome,
         retryAfterSeconds: outcome.retryAfterSeconds,
@@ -249,7 +251,8 @@ class PairingServiceImpl implements PairingService {
       await acknowledgeTrustedCredential(state.credential!);
       return DovahLinkTrustState.trusted;
     } on DovahLinkPairingException catch (error) {
-      if (error.outcome == PairingOutcome.pendingNotFound) {
+      if (error.outcome == PairingOutcome.pendingNotFound ||
+          error.outcome == PairingOutcome.pairingInvalidated) {
         await _storage.save(PersistedClientState(clientId: state.clientId));
         return DovahLinkTrustState.unpaired;
       }

@@ -19,6 +19,16 @@ file-organization rule. A nested type is appropriate only when it is structurall
 its owner (for example it requires `private`-member access no file boundary could express), not
 merely because it is small or currently used in one place.
 
+## Behavior-bearing boundaries
+
+- Every behavior-bearing C# class or equivalent type has an explicit interface or abstract
+  contract, even when it currently has one implementation. Consumers depend on that contract
+  rather than the concrete type.
+- Every collaborator is supplied through constructor injection. Do not construct or resolve a
+  behavior-bearing collaborator inside another class.
+- DTOs, value records, enums, pure functions, and other data-only types are not wrapped in
+  artificial interfaces. This rule is adopted phase-forward and does not reopen completed phases.
+
 ## Documentation
 
 Follow the shared documentation rules in `ai/context/common.md`.

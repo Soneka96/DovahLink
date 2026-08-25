@@ -165,6 +165,7 @@ DispatchResult ProcessInboundMessage(
     ConnectionTimeoutTracker& timeoutTracker,
     const ActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
+    ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     std::chrono::steady_clock::time_point steadyNow) {
@@ -279,14 +280,15 @@ DispatchResult ProcessInboundMessage(
         assert(clientId.has_value());
         result = FromHandlerResponse(
             HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession,
-                                 pairingNotificationSink, steadyNow),
+                                 mutationCoordinator, pairingNotificationSink,
+                                 steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kPairingAck) {
         auto clientId = sessionManager.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
             HandlePairingAck(*envelope, sessionId, *clientId, connection,
-                             pairingSession, trustStore, sessionManager, steadyNow),
+                             mutationCoordinator, steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType ==
                protocol::message_type::kPairingRenotify) {
@@ -300,8 +302,9 @@ DispatchResult ProcessInboundMessage(
         auto clientId = sessionManager.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result =
-            FromHandlerResponse(HandlePairingCancel(*envelope, sessionId, *clientId,
-                                                    pairingSession, steadyNow),
+            FromHandlerResponse(HandlePairingCancel(
+                                    *envelope, sessionId, *clientId,
+                                    mutationCoordinator, steadyNow),
                                 violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kRenameRequest) {
         auto clientId = sessionManager.ClientIdForConnection(connection);

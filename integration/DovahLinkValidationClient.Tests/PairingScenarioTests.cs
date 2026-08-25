@@ -511,8 +511,8 @@ public class PairingScenarioTests
 
     /// <summary>
     /// Verifies the single-connected-client model (Phase 9 deferred): "other_device_pairing" is
-    /// scoped by that model, not by two simultaneously live connections -- per PLAN.md's design
-    /// notes, "a second clientId can only ever reach pairing_request while the owner's socket is
+    /// scoped by that model, not by two simultaneously live connections: a second clientId can
+    /// only ever reach pairing_request while the owner's socket is
     /// down and the grace period hasn't elapsed yet." ConnectionSlot admits exactly one connected
     /// client at a time (BridgeWorkerPool rejects a second TCP-level connection attempt outright
     /// while the slot is held, before any WebSocket handshake), so client-1 must disconnect --
@@ -717,7 +717,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies the renotify mechanics (PLAN.md Stage D): the owning client can manually
+    /// Verifies the renotify mechanics: the owning client can manually
     /// redisplay the active challenge's code via pairing_renotify, up to a per-renotify cooldown.
     /// Successful renotify returns updated expiresInSeconds. Immediate repeat hits cooldown
     /// with retryAfterSeconds; after cooldown elapses, renotify succeeds again.
@@ -798,7 +798,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies the auto-renotify path (PLAN.md Stage D): when a client submits an incorrect code,
+    /// Verifies the auto-renotify path: when a client submits an incorrect code,
     /// the outcome is "invalid" (challenge persists), the bridge auto-redisplays the code via
     /// in-game notification (harness signals this with PAIRING_CODE_INCORRECT line), and the expiry
     /// is refreshed. The owning client may continue attempting with the original code.
@@ -879,7 +879,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies pacing_limited (PLAN.md Stage B): a pairing_confirm sent too soon after the
+    /// Verifies pacing_limited: a pairing_confirm sent too soon after the
     /// previous evaluated attempt is rejected as "pacing_limited" without counting as a wrong
     /// attempt, distinct from the hard-limit's "hard_limit_reached". Once the 1-second pacing
     /// interval elapses, the same correct code is genuinely evaluated and succeeds -- proving the
@@ -935,7 +935,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies the hard limit on wrong pairing attempts (PLAN.md Stage B): after 5 incorrect codes,
+    /// Verifies the hard limit on wrong pairing attempts: after 5 incorrect codes,
     /// the challenge is cancelled with outcome "hard_limit_reached". The bridge signals challenge
     /// exhaustion via PAIRING_ATTEMPTS_EXHAUSTED to the notification sink (distinct from per-attempt
     /// PAIRING_CODE_INCORRECT). A fresh pairing_request generates a new challenge.
@@ -1040,7 +1040,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies pairing_cancel on an active challenge (PLAN.md Stage D): the owning client can
+    /// Verifies pairing_cancel on an active challenge: the owning client can
     /// cancel an active pairing challenge, clearing it immediately. A fresh pairing_request then
     /// starts a new challenge, proving the slot was freed and not merely marked invalid.
     /// </summary>
@@ -1095,7 +1095,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies pairing_cancel on a pending credential (PLAN.md Stage D): the owning client can
+    /// Verifies pairing_cancel on a pending credential: the owning client can
     /// cancel a credential awaiting final acknowledgment (pairing_ack), clearing it without committing
     /// it to persistent trust. A fresh pairing_request then starts a new challenge.
     /// </summary>
@@ -1184,7 +1184,7 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies pairing_cancel when idle (PLAN.md Stage D): the owning client can cancel
+    /// Verifies pairing_cancel when idle: the owning client can cancel
     /// even when no active challenge or pending credential exists. The outcome is "already_idle"
     /// (idempotent, no error), proving cancel is safe to retry and doesn't treat absence as a fault.
     /// </summary>
@@ -1227,8 +1227,8 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies Reset Trust's live-session effect (PLAN.md Stage 4's integration coverage for the
-    /// four administrative reasons): resetting trust while a just-paired client is connected
+    /// Verifies Reset Trust's live-session effect: among the four administrative reasons, resetting
+    /// trust while a just-paired client is connected
     /// force-closes its session immediately, mirroring
     /// <see cref="RevokeWhileConnectedClosesTheLiveSessionImmediately"/>'s same proof for revoke,
     /// via the harness's own <c>trust_reset &lt;clientId&gt;</c> shortcut
@@ -1292,8 +1292,8 @@ public class PairingScenarioTests
     }
 
     /// <summary>
-    /// Verifies Factory Reset's live-session effect (PLAN.md Stage 4's integration coverage for the
-    /// four administrative reasons): a factory reset while a just-paired client is connected
+    /// Verifies Factory Reset's live-session effect: among the four administrative reasons, a
+    /// factory reset while a just-paired client is connected
     /// force-closes its session immediately, mirroring
     /// <see cref="TrustResetWhileConnectedClosesTheLiveSessionImmediately"/>'s same proof for trust
     /// reset, via the harness's own <c>factory_reset</c> shortcut

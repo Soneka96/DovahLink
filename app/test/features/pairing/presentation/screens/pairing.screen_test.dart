@@ -229,8 +229,8 @@ void main() {
       (WidgetTester tester) async {
         // The screen has no reason-specific rendering: whichever of the four administrative
         // reasons (revoked/blocked/trustReset/factoryReset) produced this message, it reaches
-        // this same PairingPhase.failed + Retry presentation, proving PLAN.md Stage 3's
-        // "intentionally identical generic presentation" claim at the screen itself.
+        // this same PairingPhase.failed + Retry presentation, keeping the four administrative
+        // reasons intentionally identical at the screen itself.
         when(() => mockViewModel.phase).thenReturn(PairingPhase.failed);
         when(() => mockViewModel.statusLabel).thenReturn('Failed');
         when(
