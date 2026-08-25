@@ -6,13 +6,14 @@
 //  block <clientId>, unblock <clientId>, trust_reset <clientId>,
 //  factory_reset, and quit commands on standard input.
 
+#include "application/active_play_context.hpp"
+#include "application/active_play_context_level_sink.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
 #include "security/pairing_session.hpp"
@@ -97,7 +98,7 @@ class StdoutPairingNotificationSink
 ///  @return The transition produced by this event.
 dovahlink::application::GameLifecycleTracker::Transition ProcessLifecycleEvent(
     dovahlink::application::GameLifecycleTracker& tracker,
-    dovahlink::application::ActivePlayContext& activePlayContext,
+    dovahlink::application::IActivePlayContext& activePlayContext,
     dovahlink::application::LifecycleEvent event) {
     auto transition = tracker.HandleEvent(event);
     dovahlink::application::ApplyLifecycleTransition(activePlayContext,

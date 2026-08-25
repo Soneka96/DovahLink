@@ -11,9 +11,9 @@ namespace dovahlink::application {
 ///  Stores the latest captured character state for bridge-lifetime consumers.
 ///  Access is synchronized because capture and reads may occur on different
 ///  threads.
-class CharacterStateStore : public LevelEventSink {
+class CharacterStateStore : public ILevelEventSink {
   public:
-    ///  @copydoc LevelEventSink::OnLevelCaptured
+    ///  @copydoc ILevelEventSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override;
 
     ///  Returns the most recently captured character state.

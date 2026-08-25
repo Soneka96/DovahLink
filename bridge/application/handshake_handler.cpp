@@ -100,7 +100,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                             ConnectionTimeoutTracker& timeoutTracker,
                             std::chrono::steady_clock::time_point now,
                             const std::optional<std::string>& bridgeInstanceId,
-                            const ActivePlayContext& activePlayContext,
+                            const IActivePlayContext* activePlayContext,
                             const std::string& bridgeVersion) {
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
@@ -189,7 +189,8 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     std::string clientIdentityKind =
         hello->authMethod == "trusted_device_credential" ? "paired" : "unpaired";
 
-    auto context = activePlayContext.AcquireCurrent();
+    auto context = activePlayContext ? activePlayContext->AcquireCurrent()
+                                     : std::shared_ptr<PlayContext>{};
     protocol::Envelope response{
         .messageType = std::string(protocol::message_type::kHelloAck),
         .messageId = *responseMessageId,
@@ -239,6 +240,23 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
     };
+}
+
+HandshakeResult HandleHello(
+    const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
+    security::FailedTokenThrottle& tokenThrottle,
+    security::TrustStore& trustStore,
+    security::FailedTokenThrottle& credentialThrottle,
+    SessionManager& sessionManager, ConnectionId connection,
+    ConnectionTimeoutTracker& timeoutTracker,
+    std::chrono::steady_clock::time_point now,
+    const std::optional<std::string>& bridgeInstanceId,
+    const IActivePlayContext& activePlayContext,
+    const std::string& bridgeVersion) {
+    return HandleHello(helloEnvelope, tokenStore, tokenThrottle, trustStore,
+                       credentialThrottle, sessionManager, connection,
+                       timeoutTracker, now, bridgeInstanceId, &activePlayContext,
+                       bridgeVersion);
 }
 
 std::optional<std::string_view>

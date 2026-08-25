@@ -6,10 +6,10 @@
 namespace dovahlink::application {
 
 ///  Receives owned player-level captures from the game-state boundary.
-class LevelEventSink {
+class ILevelEventSink {
   public:
     ///  Releases the interface without performing work.
-    virtual ~LevelEventSink() = default;
+    virtual ~ILevelEventSink() = default;
 
     ///  Stores or forwards one captured level value.
     ///  @param level Captured level, or no value when unavailable.

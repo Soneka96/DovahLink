@@ -1,3 +1,4 @@
+#include "application/active_play_context.hpp"
 #include "application/handshake_handler.hpp"
 
 #include "application/application_test_support.hpp"

@@ -1,7 +1,7 @@
 #pragma once
 
+#include "application/active_play_context.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
@@ -58,7 +58,7 @@ void RunConnectionSession(
     security::TrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, ConnectionId connection,
-    const ActivePlayContext& activePlayContext,
+    const IActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

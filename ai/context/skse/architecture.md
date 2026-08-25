@@ -83,14 +83,16 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 
 ### Application ports and ownership
 
-- Define a narrow interface only at a behavior-bearing substitution boundary where a consumer needs
-  to isolate a collaborator. Do not add interfaces for DTOs, value objects, enums, pure functions,
-  or stateless leaf logic solely for testing.
+- Define one narrow interface for every behavior-bearing type, including a leaf type with one caller
+  or no current collaborator. Do not add interfaces for DTOs, value objects, enums, or pure
+  functions; those data-only or function-only types remain exempt.
 - A port contains only the capability required by its consumer; it must not mechanically mirror a
   larger concrete class. Use the existing `I`-prefix convention for true injectable C++ ports.
-- Keep a small port declaration in the existing owning production header when that keeps the module
-  cohesive. The implementation remains in its existing implementation file; do not create one
-  header per tiny interface unless a separate file is required for clear ownership or reuse.
+- Put each DovahLink port beside its one concrete implementation in the implementation's owning
+  production header. Do not place unrelated public types in that header; structs, result types, and
+  values own their own files. Every C++ port uses the `I<ClassName>` name matching its concrete
+  implementation. A class may inherit from one required CommonLib/Skyrim framework base in a
+  runtime adapter; that framework base is not a DovahLink port.
 - Testability changes must preserve the dependency edges above. Application ports must use
   DovahLink-owned values and must never expose CommonLib or Skyrim runtime types.
 

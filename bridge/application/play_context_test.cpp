@@ -1,4 +1,5 @@
-#include "application/play_context.hpp"
+#include "application/active_play_context.hpp"
+#include "application/active_play_context_level_sink.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -6,12 +7,14 @@ using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
+using dovahlink::application::IActivePlayContext;
 using dovahlink::application::PlayContext;
 
 TEST_CASE("AcquireCurrent is nullptr before any context begins",
           "[application][play_context]") {
     ActivePlayContext active;
-    CHECK_FALSE(active.AcquireCurrent());
+    IActivePlayContext& activeContract = active;
+    CHECK_FALSE(activeContract.AcquireCurrent());
 }
 
 TEST_CASE(
@@ -174,6 +177,18 @@ TEST_CASE("ActivePlayContextLevelSink forwards a capture into the currently "
 
     REQUIRE(context->characterState.CurrentCharacterSnapshot().level.has_value());
     CHECK(*context->characterState.CurrentCharacterSnapshot().level == 12);
+}
+
+TEST_CASE("ActivePlayContextLevelSink forwards an unavailable capture into the "
+          "currently active context",
+          "[application][play_context]") {
+    ActivePlayContext active;
+    auto context = active.Begin("ctx-1");
+    ActivePlayContextLevelSink sink(active);
+
+    sink.OnLevelCaptured(std::nullopt);
+
+    CHECK_FALSE(context->characterState.CurrentCharacterSnapshot().level.has_value());
 }
 
 TEST_CASE(

@@ -49,7 +49,8 @@ add_library(dovahlink_bridge_core STATIC
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
     application/pairing_handler.cpp
-    application/play_context.cpp
+    application/active_play_context.cpp
+    application/active_play_context_level_sink.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp

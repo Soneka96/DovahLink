@@ -13,7 +13,7 @@ class CommonLibLevelIncreaseSink
   public:
     ///  Binds the sink to the handler that captures and publishes current level
     ///  state.
-    explicit CommonLibLevelIncreaseSink(LevelIncreaseHandler& handler);
+    explicit CommonLibLevelIncreaseSink(ILevelIncreaseHandler& handler);
 
     ///  Unregisters the sink as a final fallback before its dependent handler is
     ///  destroyed.
@@ -33,7 +33,7 @@ class CommonLibLevelIncreaseSink
 
   private:
     ///  Handler that owns the application-facing level-capture behavior.
-    LevelIncreaseHandler& handler_;
+    ILevelIncreaseHandler& handler_;
 
     ///  Coordinator-owned admission and exception boundary for runtime callbacks.
     application::ContainedWorkRunner callbackRunner_;

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "application/active_play_context.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
-#include "application/play_context.hpp"
 
 #include "SKSE/SKSE.h"
 
@@ -25,10 +25,10 @@ class CommonLibGameLifecycleSink {
   public:
     ///  Binds the sink to the tracker it drives and the play context it updates.
     ///  @param tracker Lifecycle state machine driven by decoded SKSE signals.
-    ///  @param activePlayContext Play context ownership updated by every resulting
-    ///  transition.
+    ///  @param activePlayContext Play context capability updated by every
+    ///  resulting transition.
     CommonLibGameLifecycleSink(application::GameLifecycleTracker& tracker,
-                               application::ActivePlayContext& activePlayContext);
+                               application::IActivePlayContext& activePlayContext);
 
     ///  Binds the containment boundary used by every subsequent callback.
     ///  Must be called once, before SKSE can deliver any callback.
@@ -57,7 +57,7 @@ class CommonLibGameLifecycleSink {
     application::GameLifecycleTracker& tracker_;
 
     ///  Play context ownership updated by every processed transition.
-    application::ActivePlayContext& activePlayContext_;
+    application::IActivePlayContext& activePlayContext_;
 
     ///  Coordinator-owned admission and exception boundary for runtime callbacks.
     application::ContainedWorkRunner callbackRunner_;

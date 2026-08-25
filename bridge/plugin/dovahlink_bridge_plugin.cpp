@@ -4,6 +4,8 @@
 
 #include "SKSE/SKSE.h"
 
+#include "application/active_play_context.hpp"
+#include "application/active_play_context_level_sink.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -12,7 +14,6 @@
 #include "application/game_behavior_config.hpp"
 #include "application/game_lifecycle_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"

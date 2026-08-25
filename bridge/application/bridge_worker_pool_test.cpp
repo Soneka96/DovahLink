@@ -1,3 +1,4 @@
+#include "application/active_play_context.hpp"
 #include "application/bridge_worker_pool.hpp"
 
 #include "application/application_test_support.hpp"

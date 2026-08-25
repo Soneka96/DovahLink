@@ -1,3 +1,4 @@
+#include "application/active_play_context.hpp"
 #include "application/connection_session.hpp"
 
 #include "application/application_test_support.hpp"
@@ -29,6 +30,7 @@
 #include <vector>
 
 using dovahlink::application::ActivePlayContext;
+using dovahlink::application::IActivePlayContext;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
@@ -165,7 +167,7 @@ void RunConnectionSession(
     FailedTokenThrottle& tokenThrottle, TrustStore& trustStore,
     FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
     dovahlink::application::ConnectionId connection,
-    const ActivePlayContext& activePlayContext, PairingSession& pairingSession,
+    const IActivePlayContext& activePlayContext, PairingSession& pairingSession,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     const std::string& bridgeVersion,

@@ -18,7 +18,7 @@ BridgeWorkerPool::BridgeWorkerPool(
     security::FailedTokenThrottle& tokenThrottle,
     security::TrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager, const ActivePlayContext& activePlayContext,
+    SessionManager& sessionManager, const IActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

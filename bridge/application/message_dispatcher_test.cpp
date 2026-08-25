@@ -1,3 +1,4 @@
+#include "application/active_play_context.hpp"
 #include "application/message_dispatcher.hpp"
 
 #include "application/application_test_support.hpp"

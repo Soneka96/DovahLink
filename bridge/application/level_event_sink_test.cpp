@@ -9,9 +9,9 @@
 namespace {
 
 ///  Captures pushed level values without exposing a polling accessor.
-class FakeLevelEventSink : public dovahlink::application::LevelEventSink {
+class FakeLevelEventSink : public dovahlink::application::ILevelEventSink {
   public:
-    ///  @copydoc dovahlink::application::LevelEventSink::OnLevelCaptured
+    ///  @copydoc dovahlink::application::ILevelEventSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override {
         received.push_back(level);
     }

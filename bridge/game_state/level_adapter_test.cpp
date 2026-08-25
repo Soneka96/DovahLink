@@ -6,18 +6,18 @@
 #include <optional>
 
 using dovahlink::game_state::CaptureLevel;
-using dovahlink::game_state::LevelAccessor;
+using dovahlink::game_state::ILevelAccessor;
 
 namespace {
 
 ///  Returns the configured raw level for adapter tests.
-class FakeLevelAccessor : public LevelAccessor {
+class FakeLevelAccessor : public ILevelAccessor {
   public:
     ///  Stores the raw level value returned by ReadLevel.
     explicit FakeLevelAccessor(std::optional<std::int64_t> value)
         : value_(value) {}
 
-    ///  @copydoc LevelAccessor::ReadLevel
+    ///  @copydoc ILevelAccessor::ReadLevel
     [[nodiscard]] std::optional<std::int64_t> ReadLevel() const override {
         return value_;
     }

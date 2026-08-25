@@ -32,7 +32,7 @@ void RunConnectionSession(transport::WebSocketSession& ws,
                           security::FailedTokenThrottle& credentialThrottle,
                           SessionManager& sessionManager,
                           ConnectionId connection,
-                          const ActivePlayContext& activePlayContext,
+                          const IActivePlayContext& activePlayContext,
                           security::PairingSession& pairingSession,
                           ITrustMutationCoordinator& mutationCoordinator,
                           PairingNotificationSink& pairingNotificationSink,
@@ -75,7 +75,7 @@ void RunConnectionSession(transport::WebSocketSession& ws,
     auto handshake = HandleHello(
         *helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
-        activePlayContext, bridgeVersion);
+        &activePlayContext, bridgeVersion);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();

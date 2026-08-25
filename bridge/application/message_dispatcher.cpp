@@ -163,7 +163,7 @@ DispatchResult ProcessInboundMessage(
     security::ViolationTracker& violations,
     security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
-    const ActivePlayContext& activePlayContext,
+    const IActivePlayContext& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

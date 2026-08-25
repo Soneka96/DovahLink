@@ -1,5 +1,7 @@
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 
+#include "application/active_play_context.hpp"
+
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -19,7 +21,7 @@ std::string ThreadIdString() {
 
 CommonLibGameLifecycleSink::CommonLibGameLifecycleSink(
     application::GameLifecycleTracker& tracker,
-    application::ActivePlayContext& activePlayContext)
+    application::IActivePlayContext& activePlayContext)
     : tracker_(tracker), activePlayContext_(activePlayContext) {}
 
 void CommonLibGameLifecycleSink::Register(

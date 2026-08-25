@@ -62,6 +62,12 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - Every behavior-bearing implementation receives every collaborator through constructor injection
   or the language's direct equivalent. Production code must not construct or resolve a collaborator
   internally through a service locator, hidden singleton, or private dependency factory.
+- Every behavior-bearing implementation has exactly one project-owned contract. A project-owned
+  contract must not inherit from, extend, or combine another project-owned contract. When a
+  consumer needs multiple capabilities, define a focused capability class or a separate adapter;
+  do not accumulate interfaces on one implementation or create an interface hierarchy to reuse
+  method declarations. Framework-required base classes are not project-owned contracts and are the
+  only inheritance exception to this rule.
 - This rule is phased: it applies to the language or area when its approved implementation work
   begins. A
   later convention change does not reopen a completed phase or enlarge an already-open pull request;
@@ -94,11 +100,14 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 
 ## File organization
 
-Keep one primary public type (class, struct, record, interface, enum, or similar) per file as the
-default, across every language in this repository. Two narrow exceptions exist because they would
-otherwise scatter many tiny, closely-related declarations across a large number of near-empty
-files: enums, and small cross-cutting constant values (timeouts, limits, and similar non-secret
-fixed values). Each language area groups these into its own shared file(s) within one compilation
+Keep one primary public type (class, struct, record, interface, enum, or similar) per file across
+every language in this repository. A DovahLink interface and its one concrete implementation are
+the one additional paired exception: they share the implementation's owning file and no unrelated
+public type may be placed there. Structs, result types, and value types each own their own file.
+No interface/value pair or collection of small types may share a file merely because the declarations
+are related or short. Two narrow exceptions exist because they would otherwise scatter many
+closely-related declarations across a large number of near-empty files: enums, and small
+cross-cutting constant values (timeouts, limits, and similar non-secret fixed values). Each language area groups these into its own shared file(s) within one compilation
 unit/package/project -- not across a package or project boundary, and not one repository-wide
 dumping ground -- ordered and separated into clearly labeled groups rather than left as a flat
 unordered list. Every other rule (documentation, naming, layering) still applies inside these files
