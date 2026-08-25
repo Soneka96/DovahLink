@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SUPPORTED_SUFFIXES = {
@@ -218,6 +218,11 @@ def formatter_commands(
     return commands
 
 
+def is_windows_batch_wrapper(executable: str) -> bool:
+    """Return whether an executable path is a Windows batch wrapper."""
+    return os.name == "nt" and Path(executable).suffix.lower() in {".bat", ".cmd"}
+
+
 def execute_commands(
     repository_root: Path,
     commands: list[list[str]],
@@ -239,7 +244,16 @@ def execute_commands(
         return 127
     for command in resolved_commands:
         try:
-            result = subprocess.run(command, cwd=repository_root, check=False)
+            if is_windows_batch_wrapper(command[0]):
+                # Python's Windows subprocess implementation otherwise lets the
+                # OS invoke batch wrappers through cmd.exe without escaping the
+                # argument list. `shell=True` asks Python to apply the required
+                # Windows quoting for staged paths before the wrapper runs.
+                result = subprocess.run(
+                    command, cwd=repository_root, check=False, shell=True
+                )
+            else:
+                result = subprocess.run(command, cwd=repository_root, check=False)
         except OSError as error:
             print(str(error), file=sys.stderr)
             return 127

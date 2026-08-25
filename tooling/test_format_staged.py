@@ -1,10 +1,10 @@
 """Test staged-file selection and formatter command construction."""
 
-from contextlib import redirect_stderr
-from io import StringIO
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -65,10 +65,11 @@ class FormatStagedTests(unittest.TestCase):
         self.assertEqual(result, 127)
         run.assert_not_called()
 
-    def test_execute_commands_runs_the_resolved_batch_wrapper_path(self) -> None:
-        """Launch a Windows batch formatter through the path found by `which`."""
+    def test_execute_commands_uses_shell_quoting_for_batch_wrapper_paths(self) -> None:
+        """Quote staged metacharacters when launching a Windows batch formatter."""
         resolved_dart = r"C:\Dart\flutter\bin\dart.BAT"
         with (
+            patch.object(format_staged.os, "name", "nt"),
             patch.object(format_staged.shutil, "which", return_value=resolved_dart),
             patch.object(
                 format_staged.subprocess,
@@ -77,15 +78,50 @@ class FormatStagedTests(unittest.TestCase):
             ) as run,
         ):
             result = format_staged.execute_commands(
-                Path("."), [["dart", "format", "file.dart"]]
+                Path("."), [["dart", "format", "tooling/format&safe.py"]]
+            )
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(
+            [resolved_dart, "format", "tooling/format&safe.py"],
+            cwd=Path("."),
+            check=False,
+            shell=True,
+        )
+
+    def test_execute_commands_keeps_normal_executables_shell_free(self) -> None:
+        """Run ordinary formatter executables without introducing a shell."""
+        resolved_dart = r"C:\Dart\flutter\bin\dart.exe"
+        with (
+            patch.object(format_staged.os, "name", "posix"),
+            patch.object(format_staged.shutil, "which", return_value=resolved_dart),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ) as run,
+        ):
+            repository_root = Path(".")
+            result = format_staged.execute_commands(
+                repository_root, [["dart", "format", "file.dart"]]
             )
 
         self.assertEqual(result, 0)
         run.assert_called_once_with(
             [resolved_dart, "format", "file.dart"],
-            cwd=Path("."),
+            cwd=repository_root,
             check=False,
         )
+
+    def test_is_windows_batch_wrapper_recognizes_bat_and_cmd_only_on_windows(
+        self,
+    ) -> None:
+        """Recognize both Windows wrapper extensions without affecting other hosts."""
+        with patch.object(format_staged.os, "name", "nt"):
+            self.assertTrue(format_staged.is_windows_batch_wrapper("dart.BAT"))
+            self.assertTrue(format_staged.is_windows_batch_wrapper("dart.cmd"))
+        with patch.object(format_staged.os, "name", "posix"):
+            self.assertFalse(format_staged.is_windows_batch_wrapper("dart.BAT"))
 
     def test_powershell_command_fails_closed_when_no_shell_exists(self) -> None:
         """Reject PowerShell formatting when neither supported shell executable exists."""

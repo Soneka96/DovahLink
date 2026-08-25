@@ -103,6 +103,10 @@ The formatter matrix is:
 Other files remain outside this hook until the repository adopts a formatter for them. The same
 formatter entry point checks changed supported files in repository CI.
 
+On Windows, formatter paths that resolve to `.BAT` or `.CMD` wrappers are launched through Python's
+shell-quoting path so staged filenames are not parsed as command text. Ordinary formatter
+executables remain shell-free; staged paths must continue to be treated as untrusted arguments.
+
 ## AI-assisted development
 
 AI tools must follow `AGENTS.md`, which owns implementation authority, decision priority, and
