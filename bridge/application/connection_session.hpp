@@ -57,7 +57,7 @@ void RunConnectionSession(
     security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
     security::IFailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager, ConnectionId connection,
+    ISessionManager& sessionManager, ConnectionId connection,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,

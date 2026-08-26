@@ -21,7 +21,7 @@ struct HandshakeResult {
     protocol::Envelope response;
 
     ///  Ownership of the authenticated session on success.
-    std::optional<SessionManager::Lease> sessionLease;
+    std::optional<shared::ScopedRelease> sessionLease;
 
     ///  Whether the connection must close after sending `response`.
     bool closeConnection = false;
@@ -71,7 +71,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
             security::IFailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
             security::IFailedTokenThrottle& credentialThrottle,
-            SessionManager& sessionManager, ConnectionId connection,
+            ISessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,
             const std::optional<std::string>& bridgeInstanceId = std::nullopt,
@@ -86,7 +86,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
             security::IFailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
             security::IFailedTokenThrottle& credentialThrottle,
-            SessionManager& sessionManager, ConnectionId connection,
+            ISessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,
             const std::optional<std::string>& bridgeInstanceId,

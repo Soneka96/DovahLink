@@ -8,7 +8,7 @@
 namespace dovahlink::application {
 
 ActiveSessionController::ActiveSessionController(
-    SessionManager& sessionManager,
+    ISessionManager& sessionManager,
     IActiveSessionSocket& activeSessionSocket,
     const IActivePlayContextReader& activePlayContext,
     std::optional<std::string> bridgeInstanceId)

@@ -30,7 +30,7 @@ class IActiveSessionController {
 class ActiveSessionController final : public IActiveSessionController {
   public:
     ///  Binds session identity, context metadata, and active-socket ownership.
-    ActiveSessionController(SessionManager& sessionManager,
+    ActiveSessionController(ISessionManager& sessionManager,
                             IActiveSessionSocket& activeSessionSocket,
                             const IActivePlayContextReader& activePlayContext,
                             std::optional<std::string> bridgeInstanceId);
@@ -49,7 +49,7 @@ class ActiveSessionController final : public IActiveSessionController {
         std::optional<std::string> sessionId, std::string_view reason);
 
     ///  Session registry used to resolve and invalidate the captured connection.
-    SessionManager& sessionManager_;
+    ISessionManager& sessionManager_;
 
     ///  Socket lifecycle boundary shared with the worker pool.
     IActiveSessionSocket& activeSessionSocket_;

@@ -16,7 +16,7 @@ BridgeWorkerPool::BridgeWorkerPool(
     security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
     security::IFailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager,
+    ISessionManager& sessionManager,
     const IActivePlayContextReader& activePlayContext,
     IActiveSessionSocket& activeSessionSocket,
     security::IPairingSession& pairingSession,

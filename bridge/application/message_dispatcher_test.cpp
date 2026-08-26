@@ -47,6 +47,7 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::ViolationTracker;
+using dovahlink::shared::ScopedRelease;
 using testing::StrictMock;
 
 namespace {
@@ -107,7 +108,7 @@ struct Fixture {
     ///  Tracks the session used by the dispatcher.
     SessionManager sessions;
     ///  Owns the authenticated session for the fixture lifetime.
-    std::optional<SessionManager::Lease> sessionLease;
+    std::optional<ScopedRelease> sessionLease;
     ///  Rejects duplicate inbound message IDs.
     ReplayGuard replayGuard;
     ///  Tracks protocol violations for the session.

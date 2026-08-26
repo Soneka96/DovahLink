@@ -159,7 +159,7 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope,
 DispatchResult ProcessInboundMessage(
     const std::string& rawMessage, std::size_t& receivedMessageCount,
     const std::string& sessionId, ConnectionId connection,
-    SessionManager& sessionManager, ReplayGuard& replayGuard,
+    ISessionManager& sessionManager, ReplayGuard& replayGuard,
     security::IViolationTracker& violations,
     security::IInboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,

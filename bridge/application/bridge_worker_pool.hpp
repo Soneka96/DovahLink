@@ -81,7 +81,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
                      security::IFailedTokenThrottle& tokenThrottle,
                      security::ITrustStore& trustStore,
                      security::IFailedTokenThrottle& credentialThrottle,
-                     SessionManager& sessionManager,
+                     ISessionManager& sessionManager,
                      const IActivePlayContextReader& activePlayContext,
                      IActiveSessionSocket& activeSessionSocket,
                      security::IPairingSession& pairingSession,
@@ -168,7 +168,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     security::IFailedTokenThrottle& credentialThrottle_;
 
     ///  Session manager shared by accepted connections.
-    SessionManager& sessionManager_;
+    ISessionManager& sessionManager_;
 
     ///  Source of the current play-context identity for connection responses.
     const IActivePlayContextReader& activePlayContext_;

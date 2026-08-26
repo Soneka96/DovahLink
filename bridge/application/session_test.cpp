@@ -6,7 +6,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -15,11 +14,7 @@ using dovahlink::application::ConnectionId;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
-
-static_assert(!std::is_copy_constructible_v<SessionManager::Lease>);
-static_assert(!std::is_copy_assignable_v<SessionManager::Lease>);
-static_assert(std::is_nothrow_move_constructible_v<SessionManager::Lease>);
-static_assert(std::is_nothrow_move_assignable_v<SessionManager::Lease>);
+using dovahlink::shared::ScopedRelease;
 
 namespace {
 constexpr ConnectionId kConnectionA = 1;
@@ -233,7 +228,7 @@ TEST_CASE("moving a lease transfers session ownership",
         SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
-    std::optional<SessionManager::Lease> moved{std::move(*lease)};
+    std::optional<ScopedRelease> moved{std::move(*lease)};
     lease.reset();
     CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 
