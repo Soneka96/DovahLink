@@ -1628,6 +1628,11 @@ TEST_CASE("an authentication exception releases its failed-attempt reservation",
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        auto reservation = credentialThrottle.TryReserve(now);
+        REQUIRE(reservation.has_value());
+        reservation->Commit();
+    }
     CHECK_THROWS_AS(
         HandleHello(BuildTrustedCredentialHelloEnvelope(kWrongHexToken),
                     tokenStore, tokenThrottle, trustStore, credentialThrottle,
