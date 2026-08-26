@@ -12,6 +12,7 @@
 #include "security/throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
+#include "shared/scoped_release.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -75,7 +76,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///      `hello_ack.bridgeVersion` (`ai/context/protocol/compatibility.md`).
     BridgeWorkerPool(transport::LoopbackListener& listenerV4,
                      transport::LoopbackListener& listenerV6,
-                     transport::ConnectionSlot& slot,
+                     transport::IConnectionSlot& slot,
                      security::ITokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle,
                      security::ITrustStore& trustStore,
@@ -143,7 +144,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     void RunSessionOnOwnThread(const ContainedWorkRunner& workerRunner,
                                ConnectionId connection,
                                boost::asio::ip::tcp::socket socket,
-                               transport::ConnectionSlot::Lease slotLease);
+                               shared::ScopedRelease slotLease);
 
     ///  IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;
@@ -152,7 +153,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     transport::LoopbackListener& listenerV6_;
 
     ///  Admission gate for the active connection.
-    transport::ConnectionSlot& slot_;
+    transport::IConnectionSlot& slot_;
 
     ///  Shared one-time authentication token store.
     security::ITokenStore& tokenStore_;

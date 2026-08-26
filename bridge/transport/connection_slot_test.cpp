@@ -5,16 +5,11 @@
 #include <atomic>
 #include <optional>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
+using dovahlink::shared::ScopedRelease;
 using dovahlink::transport::ConnectionSlot;
-
-static_assert(!std::is_copy_constructible_v<ConnectionSlot::Lease>);
-static_assert(!std::is_copy_assignable_v<ConnectionSlot::Lease>);
-static_assert(std::is_nothrow_move_constructible_v<ConnectionSlot::Lease>);
-static_assert(std::is_nothrow_move_assignable_v<ConnectionSlot::Lease>);
 
 TEST_CASE("a fresh slot is not occupied", "[transport][connection_slot]") {
     ConnectionSlot slot;
@@ -53,7 +48,7 @@ TEST_CASE("moving a lease transfers ownership without releasing the slot",
     auto lease = slot.TryAcquire();
     REQUIRE(lease.has_value());
 
-    std::optional<ConnectionSlot::Lease> movedLease{std::move(*lease)};
+    std::optional<ScopedRelease> movedLease{std::move(*lease)};
     lease.reset();
 
     CHECK(slot.IsOccupied());
@@ -81,6 +76,26 @@ TEST_CASE("move-assigning a lease releases its previous slot",
     CHECK(secondSlot.IsOccupied());
     firstLease.reset();
     CHECK_FALSE(secondSlot.IsOccupied());
+}
+
+TEST_CASE("dismissing the release keeps the slot permanently occupied",
+          "[transport][connection_slot]") {
+    ConnectionSlot slot;
+    auto lease = slot.TryAcquire();
+    REQUIRE(lease.has_value());
+    lease->Dismiss();
+    lease.reset();
+    CHECK(slot.IsOccupied());
+}
+
+TEST_CASE("triggering the release frees the slot immediately",
+          "[transport][connection_slot]") {
+    ConnectionSlot slot;
+    auto lease = slot.TryAcquire();
+    REQUIRE(lease.has_value());
+    lease->Trigger();
+    CHECK_FALSE(slot.IsOccupied());
+    CHECK(slot.TryAcquire().has_value());
 }
 
 TEST_CASE("exactly one concurrent TryAcquire attempt succeeds",
