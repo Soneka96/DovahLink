@@ -97,3 +97,21 @@ TEST_CASE("Trust-admin Papyrus registration exposes Reset Trust and Factory "
     CHECK(source.find("g_trustResetService->ResetTrust()") !=
           std::string::npos);
 }
+
+TEST_CASE("Trust-admin Papyrus adapter stores service contracts",
+          "[game_state][registration]") {
+    const std::string source = ReadTrustAdminAdapterSource();
+
+    CHECK(source.find(
+              "application::ITrustDeviceAdminService* g_trustDeviceAdminService") !=
+          std::string::npos);
+    CHECK(source.find(
+              "application::ITrustResetService* g_trustResetService") !=
+          std::string::npos);
+    CHECK(source.find(
+              "application::TrustDeviceAdminService* g_trustDeviceAdminService") ==
+          std::string::npos);
+    CHECK(source.find(
+              "application::TrustResetService* g_trustResetService") ==
+          std::string::npos);
+}

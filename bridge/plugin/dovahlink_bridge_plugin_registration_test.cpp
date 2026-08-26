@@ -143,3 +143,17 @@ TEST_CASE("SKSEPluginLoad wires the callback registry through the sink contract"
     CHECK(source.find("void UnregisterAll() override { sink_.Unregister(); }") !=
           std::string::npos);
 }
+
+TEST_CASE("SKSEPluginLoad passes trust administration through service contracts",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    CHECK(source.find(
+              "ITrustDeviceAdminService&\n        trustDeviceAdminServiceContract") !=
+          std::string::npos);
+    CHECK(source.find("ITrustResetService& trustResetServiceContract") !=
+          std::string::npos);
+    CHECK(source.find(
+              "trustDeviceAdminServiceContract, trustResetServiceContract") !=
+          std::string::npos);
+}

@@ -15,8 +15,8 @@ namespace {
 ///  function. Papyrus native functions must be plain function pointers, not
 ///  captures, so these file-local pointers are the standard SKSE-ecosystem idiom
 ///  for reaching plugin-lifetime state from them.
-application::TrustDeviceAdminService* g_trustDeviceAdminService = nullptr;
-application::TrustResetService* g_trustResetService = nullptr;
+application::ITrustDeviceAdminService* g_trustDeviceAdminService = nullptr;
+application::ITrustResetService* g_trustResetService = nullptr;
 
 ///  Result returned when a native function runs before
 ///  `InstallTrustAdminPapyrusAdapter` set the focused service pointers --
@@ -177,8 +177,8 @@ bool RegisterFunctions(RE::BSScript::IVirtualMachine* vm) {
 } //  namespace
 
 void InstallTrustAdminPapyrusAdapter(
-    application::TrustDeviceAdminService& deviceService,
-    application::TrustResetService& resetService) {
+    application::ITrustDeviceAdminService& deviceService,
+    application::ITrustResetService& resetService) {
     g_trustDeviceAdminService = &deviceService;
     g_trustResetService = &resetService;
 

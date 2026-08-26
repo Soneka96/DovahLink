@@ -11,6 +11,7 @@
 
 using dovahlink::application::ActiveSessionDisconnector;
 using dovahlink::application::ConnectionId;
+using dovahlink::application::ITrustDeviceAdminService;
 using dovahlink::application::ITrustMutationCoordinator;
 using dovahlink::application::PairingCommitResult;
 using dovahlink::application::TrustDeviceAdminService;
@@ -42,8 +43,9 @@ TEST_CASE("TrustDeviceAdminService lists trusted devices through its port",
 
     TrustDeviceAdminService service(deviceStore, sessionDisconnector,
                                     mutationCoordinator);
+    ITrustDeviceAdminService& serviceContract = service;
 
-    CHECK(service.List("trust") == "1 trusted client:\n11111  Phone");
+    CHECK(serviceContract.List("trust") == "1 trusted client:\n11111  Phone");
 }
 
 TEST_CASE("TrustDeviceAdminService revokes and disconnects a trusted device",

@@ -333,11 +333,15 @@ SKSEPluginInfo(
     static dovahlink::application::TrustDeviceAdminService
         trustDeviceAdminService(trustStore, bridgeWorkerPool,
                                 trustMutationCoordinator);
+    static dovahlink::application::ITrustDeviceAdminService&
+        trustDeviceAdminServiceContract = trustDeviceAdminService;
     static dovahlink::application::TrustResetService trustResetService(
         trustStore, bridgeWorkerPool, trustMutationCoordinator,
         factoryResetChallenge);
+    static dovahlink::application::ITrustResetService& trustResetServiceContract =
+        trustResetService;
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
-        trustDeviceAdminService, trustResetService);
+        trustDeviceAdminServiceContract, trustResetServiceContract);
 
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);

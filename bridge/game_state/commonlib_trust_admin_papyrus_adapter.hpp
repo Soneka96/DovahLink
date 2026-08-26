@@ -19,7 +19,7 @@ namespace dovahlink::game_state {
 ///      Papyrus VM (in practice, the plugin's lifetime).
 ///  @param resetService Trust reset service; must outlive the Papyrus VM.
 void InstallTrustAdminPapyrusAdapter(
-    application::TrustDeviceAdminService& deviceService,
-    application::TrustResetService& resetService);
+    application::ITrustDeviceAdminService& deviceService,
+    application::ITrustResetService& resetService);
 
 } //  namespace dovahlink::game_state
