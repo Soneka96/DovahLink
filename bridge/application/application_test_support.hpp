@@ -7,7 +7,6 @@
 #include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "application/trust_mutation_coordinator.hpp"
-#include "game_state/level_adapter.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"
 #include "security/known_device_record.hpp"
@@ -191,13 +190,6 @@ class MockPlayContextLifecycle : public IPlayContextLifecycle {
                 (const, override));
     MOCK_METHOD(LifecycleState, CurrentState, (), (const, override));
     MOCK_METHOD(void, CaptureLevel, (std::optional<std::int64_t>), (override));
-};
-
-///  GoogleMock player-level accessor contract double.
-class MockPlayerLevelAccessor : public game_state::IPlayerLevelAccessor {
-  public:
-    MOCK_METHOD(std::optional<std::int64_t>, ReadLevel, (),
-                (const, override));
 };
 
 ///  GoogleMock active-context level-sink contract double.

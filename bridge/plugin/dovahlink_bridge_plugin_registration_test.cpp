@@ -125,3 +125,21 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     REQUIRE(revertCallbackPos != std::string::npos);
     CHECK(lifecycleRegisterPos < revertCallbackPos);
 }
+
+TEST_CASE("SKSEPluginLoad wires the callback registry through the sink contract",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    CHECK(dovahlink::test_support::FindSourceText(
+              source,
+              "dovahlink::game_state::ICommonLibLevelIncreaseSink& sink") !=
+          std::string::npos);
+    CHECK(dovahlink::test_support::FindSourceText(
+              source,
+              "dovahlink::game_state::CommonLibLevelIncreaseSink& sink") ==
+          std::string::npos);
+    CHECK(source.find("sink_.Register(std::move(callbackRunner));") !=
+          std::string::npos);
+    CHECK(source.find("void UnregisterAll() override { sink_.Unregister(); }") !=
+          std::string::npos);
+}

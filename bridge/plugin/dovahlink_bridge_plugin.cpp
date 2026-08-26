@@ -88,7 +88,7 @@ class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
   public:
     ///  Binds the registry to the runtime level-increase sink.
     explicit BridgeCallbackRegistry(
-        dovahlink::game_state::CommonLibLevelIncreaseSink& sink)
+        dovahlink::game_state::ICommonLibLevelIncreaseSink& sink)
         : sink_(sink) {}
 
     ///  @copydoc dovahlink::application::CallbackRegistry::RegisterAll
@@ -101,7 +101,7 @@ class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
 
   private:
     ///  Runtime event sink controlled by the coordinator lifecycle.
-    dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
+    dovahlink::game_state::ICommonLibLevelIncreaseSink& sink_;
 };
 
 } //  namespace
