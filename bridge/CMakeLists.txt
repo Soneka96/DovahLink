@@ -13,11 +13,6 @@ endif()
 # dependency libraries instead of letting CMake select the first configuration.
 set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 
-# DovahLink targets Windows 10 APIs and rejects older Windows runtimes during plugin startup.
-if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00)
-endif()
-
 # Toolchain and dependency versions pinned for the reproducible build are
 # recorded in bridge/README.md; this file only declares the floor CMake
 # needs to understand the presets and dependencies below.
@@ -103,6 +98,11 @@ add_library(dovahlink_bridge_core STATIC
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
+if(WIN32)
+    # Keep DovahLink-owned core sources on the Windows 10 SDK surface without
+    # overriding CommonLibSSE's runtime-target compile contract.
+    target_compile_definitions(dovahlink_bridge_core PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 if(MSVC)
     target_compile_options(dovahlink_bridge_core PUBLIC /EHsc)
 endif()
@@ -153,6 +153,9 @@ target_link_libraries(dovahlink_bridge_plugin PRIVATE dovahlink_bridge_game_stat
 # to connect to without requiring Skyrim. Links dovahlink_bridge_core only,
 # same as the test binary -- no CommonLibSSE-NG dependency.
 add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)
+if(WIN32)
+    target_compile_definitions(dovahlink_bridge_harness PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 target_link_libraries(dovahlink_bridge_harness PRIVATE dovahlink_bridge_core)
 
 add_executable(dovahlink_bridge_tests
@@ -256,6 +259,9 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_CALLBACK_REGISTRY_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.hpp"
     DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
 )
+if(WIN32)
+    target_compile_definitions(dovahlink_bridge_tests PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 
 include(CTest)
 include(Catch)
