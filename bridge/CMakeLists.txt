@@ -46,6 +46,7 @@ add_library(dovahlink_bridge_core STATIC
     application/coordinator.cpp
     application/game_behavior_config.cpp
     application/game_lifecycle_tracker.cpp
+    application/lifecycle_transition_coordinator.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
     application/pairing_handler.cpp
@@ -163,6 +164,7 @@ add_executable(dovahlink_bridge_tests
     application/coordinator_test.cpp
     application/game_behavior_config_test.cpp
     application/game_lifecycle_tracker_test.cpp
+    application/lifecycle_transition_coordinator_test.cpp
     application/handshake_handler_test.cpp
     application/active_play_context_reader_test.cpp
     application/active_play_context_level_sink_test.cpp
