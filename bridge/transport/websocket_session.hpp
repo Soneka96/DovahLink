@@ -16,10 +16,47 @@
 
 namespace dovahlink::transport {
 
+///  The synchronous per-connection WebSocket capability consumed by session
+///  orchestration: accept the handshake, switch to the authenticated idle
+///  timeout, exchange text messages, and close.
+class IWebSocketSession {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IWebSocketSession() = default;
+
+    ///  Performs a compression-disabled, size-bounded WebSocket handshake.
+    ///  Starts the handshake timeout; callers must switch to the idle timeout
+    ///  after authentication succeeds.
+    [[nodiscard]] virtual std::expected<void, SessionError> Accept() = 0;
+
+    ///  Replaces the handshake timeout with the authenticated idle timeout.
+    virtual void SwitchToIdleTimeout() = 0;
+
+    ///  Reads one text message, rejecting binary frames and oversized frames.
+    ///  @param idleDeadline When supplied, arms a watchdog that closes the
+    ///  connection if this read
+    ///      does not complete by this absolute time, independent of Beast's own
+    ///      per-operation timeout -- needed because WebSocket-level keep-alive
+    ///      pings can otherwise keep that timeout from ever firing against a peer
+    ///      that answers pings but sends no application message. Canceled the
+    ///      instant this read completes, successfully or not. Omitted, this
+    ///      behaves exactly as before.
+    [[nodiscard]] virtual std::expected<std::string, SessionError> ReadMessage(
+        std::optional<std::chrono::steady_clock::time_point> idleDeadline =
+            std::nullopt) = 0;
+
+    ///  Writes one UTF-8 text message.
+    [[nodiscard]] virtual std::expected<void, SessionError>
+    WriteMessage(const std::string& text) = 0;
+
+    ///  Closes the WebSocket with a normal close code.
+    virtual void Close() = 0;
+};
+
 ///  Owns one accepted TCP connection and applies the Phase 1 WebSocket rules:
 ///  compression and WebSocket keep-alive pings are disabled, only text frames
 ///  are accepted, and handshake/idle I/O timeouts are enforced.
-class WebSocketSession {
+class WebSocketSession final : public IWebSocketSession {
   public:
     ///  Owns the TCP socket shared between the worker and shutdown path.
     class Socket : public std::enable_shared_from_this<Socket> {
@@ -83,33 +120,23 @@ class WebSocketSession {
     [[nodiscard]] static SocketHandle
     CreateSocket(boost::asio::ip::tcp::socket socket);
 
-    ///  Performs a compression-disabled, size-bounded WebSocket handshake.
-    ///  Starts the handshake timeout; callers must switch to the idle timeout
-    ///  after authentication succeeds.
-    [[nodiscard]] std::expected<void, SessionError> Accept();
+    ///  @copydoc IWebSocketSession::Accept
+    [[nodiscard]] std::expected<void, SessionError> Accept() override;
 
-    ///  Replaces the handshake timeout with the authenticated idle timeout.
-    void SwitchToIdleTimeout();
+    ///  @copydoc IWebSocketSession::SwitchToIdleTimeout
+    void SwitchToIdleTimeout() override;
 
-    ///  Reads one text message, rejecting binary frames and oversized frames.
-    ///  @param idleDeadline When supplied, arms a watchdog that closes the
-    ///  connection if this read
-    ///      does not complete by this absolute time, independent of Beast's own
-    ///      per-operation timeout -- needed because WebSocket-level keep-alive
-    ///      pings can otherwise keep that timeout from ever firing against a peer
-    ///      that answers pings but sends no application message. Canceled the
-    ///      instant this read completes, successfully or not. Omitted, this
-    ///      behaves exactly as before.
+    ///  @copydoc IWebSocketSession::ReadMessage
     [[nodiscard]] std::expected<std::string, SessionError> ReadMessage(
-        std::optional<std::chrono::steady_clock::time_point> idleDeadline =
-            std::nullopt);
+        std::optional<std::chrono::steady_clock::time_point> idleDeadline)
+        override;
 
-    ///  Writes one UTF-8 text message.
+    ///  @copydoc IWebSocketSession::WriteMessage
     [[nodiscard]] std::expected<void, SessionError>
-    WriteMessage(const std::string& text);
+    WriteMessage(const std::string& text) override;
 
-    ///  Closes the WebSocket with a normal close code.
-    void Close();
+    ///  @copydoc IWebSocketSession::Close
+    void Close() override;
 
   private:
     ///  Returns the referenced socket state or rejects an invalid shared handle.

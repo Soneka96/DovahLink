@@ -23,6 +23,7 @@
 #include <string>
 #include <utility>
 
+using dovahlink::transport::IWebSocketSession;
 using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
 using dovahlink::transport::test_support::LoopbackWebSocketServer;
@@ -1343,4 +1344,100 @@ TEST_CASE("ShutdownWithNotification encodes an empty message as a zero-length "
 
     REQUIRE(serverHandshakeResult.has_value());
     CHECK_FALSE(serverReadResult.has_value());
+}
+
+TEST_CASE("WebSocketSession's real behavior is reachable through "
+          "IWebSocketSession",
+          "[transport][websocket_session][i_web_socket_session]") {
+    std::expected<void, SessionError> serverHandshakeResult =
+        std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult =
+        std::unexpected(SessionError::kReadFailed);
+    std::expected<void, SessionError> serverWriteResult =
+        std::unexpected(SessionError::kWriteFailed);
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        IWebSocketSession& contract = session;
+        serverHandshakeResult = contract.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        contract.SwitchToIdleTimeout();
+        serverReadResult = contract.ReadMessage();
+        if (!serverReadResult.has_value()) {
+            return;
+        }
+        serverWriteResult = contract.WriteMessage("echo");
+        contract.Close();
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    clientWs.text(true);
+    boost::system::error_code writeEc;
+    clientWs.write(boost::asio::buffer(std::string("hello")), writeEc);
+    REQUIRE_FALSE(writeEc);
+
+    boost::beast::flat_buffer buffer;
+    boost::system::error_code readEc;
+    clientWs.read(buffer, readEc);
+    REQUIRE_FALSE(readEc);
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    REQUIRE(serverReadResult.has_value());
+    CHECK(*serverReadResult == "hello");
+    CHECK(serverWriteResult.has_value());
+    CHECK(boost::beast::buffers_to_string(buffer.data()) == "echo");
+}
+
+TEST_CASE("a ReadMessage failure through IWebSocketSession reports the same "
+          "error as the concrete type",
+          "[transport][websocket_session][i_web_socket_session]") {
+    std::expected<void, SessionError> serverHandshakeResult =
+        std::unexpected(SessionError::kHandshakeFailed);
+    std::expected<std::string, SessionError> serverReadResult =
+        std::string{"should not remain unset"};
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        IWebSocketSession& contract = session;
+        serverHandshakeResult = contract.Accept();
+        if (!serverHandshakeResult.has_value()) {
+            return;
+        }
+        serverReadResult = contract.ReadMessage();
+    });
+
+    boost::asio::io_context ioc;
+    boost::asio::ip::tcp::socket clientSocket(ioc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+
+    //  Tear down the underlying TCP connection directly, bypassing the
+    //  WebSocket close handshake, so the server's blocked read fails instead
+    //  of completing normally.
+    boost::system::error_code closeEc;
+    clientWs.next_layer().close(closeEc);
+
+    server.Join();
+
+    REQUIRE(serverHandshakeResult.has_value());
+    CHECK_FALSE(serverReadResult.has_value());
+    CHECK(serverReadResult.error() == SessionError::kReadFailed);
 }
