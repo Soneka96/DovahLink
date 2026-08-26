@@ -69,6 +69,22 @@
 - Keep game-runtime types out of neutral application and protocol headers.
 - Use explicit names for runtime adapters, application values, wire messages, and transport errors.
 - Keep protocol serialization in dedicated mapping code rather than spreading it through game adapters.
+- A DovahLink port and its one concrete implementation may split into two independent files --
+  interface alone in one, implementation alone in the other -- only when a real CMake-target
+  dependency wall makes the normal paired-file rule impossible to satisfy, never as a default
+  alternative to it. The condition: the implementation depends on a CommonLib-touching type paired
+  with its own CommonLib-dependent sibling in one file (so it can only be compiled into a target
+  linked against `CommonLibSSE::CommonLibSSE`), while the port's consumer lives in the
+  Skyrim-independent core (so the port itself must stay includable without `RE/Skyrim.h`).
+  `IBridgeCallbackRegistry` (`application/i_bridge_callback_registry.hpp`, CommonLib-free) and
+  `BridgeCallbackRegistry` (`application/bridge_callback_registry.hpp`/`.cpp`, compiled into
+  `dovahlink_bridge_game_state`) are the one instance of this today -- confirmed necessary
+  empirically, not merely convenient: compiling `BridgeCallbackRegistry` into the
+  Skyrim-independent core produced over 100 cascading errors from `RE/Skyrim.h` requiring
+  `CommonLibSSE::CommonLibSSE`'s own compile setup. Do not reach for this split to avoid writing a
+  file-placement justification, to keep a file shorter, or for any port whose implementation could
+  simply live beside it in one file; a false positive here quietly refragments the paired-file rule
+  this exception exists to preserve everywhere else.
 
 ## Parameter grouping and context objects
 
