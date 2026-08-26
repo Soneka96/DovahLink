@@ -19,7 +19,7 @@ class ILevelIncreaseHandler {
 class LevelIncreaseHandler : public ILevelIncreaseHandler {
   public:
     ///  Binds the level source and active-context level sink.
-    LevelIncreaseHandler(const ILevelAccessor& accessor,
+    LevelIncreaseHandler(const IPlayerLevelAccessor& accessor,
                          application::IActivePlayContextLevelSink& sink);
 
     ///  @copydoc ILevelIncreaseHandler::HandleLevelIncrease
@@ -27,7 +27,7 @@ class LevelIncreaseHandler : public ILevelIncreaseHandler {
 
   private:
     ///  Source for the current raw level reading.
-    const ILevelAccessor& accessor_;
+    const IPlayerLevelAccessor& accessor_;
     ///  Receives the captured level, including unavailable values.
     application::IActivePlayContextLevelSink& sink_;
 };

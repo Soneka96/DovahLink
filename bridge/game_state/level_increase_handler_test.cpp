@@ -7,15 +7,15 @@
 #include <optional>
 
 using dovahlink::application::IActivePlayContextLevelSink;
-using dovahlink::game_state::ILevelAccessor;
 using dovahlink::game_state::ILevelIncreaseHandler;
+using dovahlink::game_state::IPlayerLevelAccessor;
 using dovahlink::game_state::LevelIncreaseHandler;
 using testing::StrictMock;
 
 namespace {
 
 ///  GoogleMock level-accessor contract double.
-class MockLevelAccessor : public ILevelAccessor {
+class MockPlayerLevelAccessor : public IPlayerLevelAccessor {
   public:
     MOCK_METHOD(std::optional<std::int64_t>, ReadLevel, (), (const, override));
 };
@@ -31,7 +31,7 @@ class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
 
 TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",
           "[game_state][level_increase_handler]") {
-    StrictMock<MockLevelAccessor> accessor;
+    StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{15}));
@@ -45,7 +45,7 @@ TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",
 TEST_CASE("HandleLevelIncrease pushes nullopt when the accessor has no "
           "trustworthy level",
           "[game_state][level_increase_handler]") {
-    StrictMock<MockLevelAccessor> accessor;
+    StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
     EXPECT_CALL(accessor, ReadLevel()).WillOnce(testing::Return(std::nullopt));
     EXPECT_CALL(sink, OnLevelCaptured(std::optional<std::int64_t>{}));
@@ -57,7 +57,7 @@ TEST_CASE("HandleLevelIncrease pushes nullopt when the accessor has no "
 TEST_CASE("HandleLevelIncrease re-reads the accessor on every call rather than "
           "caching",
           "[game_state][level_increase_handler]") {
-    StrictMock<MockLevelAccessor> accessor;
+    StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{10}))
@@ -79,7 +79,7 @@ TEST_CASE("HandleLevelIncrease routes an untrustworthy raw value through "
     //  Zero is CaptureLevel's own "untrustworthy" sentinel (level_adapter.hpp);
     //  proving the handler goes through CaptureLevel rather than forwarding
     //  the accessor's raw value directly.
-    StrictMock<MockLevelAccessor> accessor;
+    StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{0}));

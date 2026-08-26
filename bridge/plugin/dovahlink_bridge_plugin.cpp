@@ -20,11 +20,11 @@
 #include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
-#include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/commonlib_pairing_notification_sink.hpp"
 #include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
+#include "game_state/player_level_accessor.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -303,7 +303,7 @@ SKSEPluginInfo(
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
         activePlayContextReader);
-    static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
+    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
     static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
         levelAccessor, levelSink);
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(

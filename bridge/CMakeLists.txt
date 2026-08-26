@@ -115,7 +115,7 @@ find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_game_behavior_compatibility.cpp
     game_state/commonlib_game_lifecycle_sink.cpp
-    game_state/commonlib_level_accessor.cpp
+    game_state/player_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
     game_state/commonlib_pairing_notification_sink.cpp
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
