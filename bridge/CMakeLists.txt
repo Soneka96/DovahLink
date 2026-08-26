@@ -90,6 +90,8 @@ add_library(dovahlink_bridge_core STATIC
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
+    security/trust_device_store.cpp
+    security/trust_reset_store.cpp
     security/trust_store.cpp
     security/windows_trust_store_persistence.cpp
     transport/connection_slot.cpp

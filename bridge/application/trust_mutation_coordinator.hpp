@@ -84,8 +84,8 @@ class ITrustMutationCoordinator {
 class TrustMutationCoordinator final : public ITrustMutationCoordinator {
   public:
     ///  Binds durable trust, pairing, and session-promotion capabilities.
-    TrustMutationCoordinator(security::TrustStore& trustStore,
-                             security::PairingSession& pairingSession,
+    TrustMutationCoordinator(security::ITrustStore& trustStore,
+                             security::IPairingSession& pairingSession,
                              ISessionPromotion& sessionPromotion);
 
     ///  @copydoc ITrustMutationCoordinator::ConfirmPairing
@@ -138,10 +138,10 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
 
   private:
     ///  Durable trust state owned by the Bridge lifetime.
-    security::TrustStore& trustStore_;
+    security::ITrustStore& trustStore_;
 
     ///  In-memory pairing state owned by the Bridge lifetime.
-    security::PairingSession& pairingSession_;
+    security::IPairingSession& pairingSession_;
 
     ///  Promotes sessions after trust finalization.
     ISessionPromotion& sessionPromotion_;

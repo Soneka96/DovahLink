@@ -63,11 +63,11 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                      transport::ConnectionSlot& slot,
                      security::TokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle,
-                     security::TrustStore& trustStore,
+                     security::ITrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle,
                      SessionManager& sessionManager,
                      const IActivePlayContextReader& activePlayContext,
-                     security::PairingSession& pairingSession,
+                     security::IPairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& pairingNotificationSink,
                      std::optional<std::string> bridgeInstanceId,
@@ -178,7 +178,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     security::FailedTokenThrottle& tokenThrottle_;
 
     ///  Shared persistent trust store.
-    security::TrustStore& trustStore_;
+    security::ITrustStore& trustStore_;
 
     ///  Shared failed device-credential attempt throttle.
     security::FailedTokenThrottle& credentialThrottle_;
@@ -190,7 +190,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     const IActivePlayContextReader& activePlayContext_;
 
     ///  Shared pairing challenge/pending-credential state machine.
-    security::PairingSession& pairingSession_;
+    security::IPairingSession& pairingSession_;
 
     ///  Serializes pairing finalization with administrative trust mutations.
     ITrustMutationCoordinator& mutationCoordinator_;

@@ -3,7 +3,7 @@
 #include "application/active_session_disconnector.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "security/factory_reset_challenge.hpp"
-#include "security/trust_store.hpp"
+#include "security/trust_reset_store.hpp"
 
 #include <string>
 #include <string_view>

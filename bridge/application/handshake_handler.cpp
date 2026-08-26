@@ -93,7 +93,7 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope,
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                             security::TokenStore& tokenStore,
                             security::FailedTokenThrottle& tokenThrottle,
-                            security::TrustStore& trustStore,
+                            security::ITrustStore& trustStore,
                             security::FailedTokenThrottle& credentialThrottle,
                             SessionManager& sessionManager,
                             ConnectionId connection,
@@ -245,7 +245,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
 HandshakeResult HandleHello(
     const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
     security::FailedTokenThrottle& tokenThrottle,
-    security::TrustStore& trustStore,
+    security::ITrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, ConnectionId connection,
     ConnectionTimeoutTracker& timeoutTracker,
@@ -260,7 +260,7 @@ HandshakeResult HandleHello(
 }
 
 std::optional<std::string_view>
-TrustLossAfterAdmission(security::TrustStore& trustStore,
+TrustLossAfterAdmission(security::ITrustStore& trustStore,
                         const std::string& clientId,
                         SessionAuthMethod authMethod) {
     if (authMethod == SessionAuthMethod::kDeveloperToken) {

@@ -16,11 +16,11 @@ BridgeWorkerPool::BridgeWorkerPool(
     transport::LoopbackListener& listenerV6, transport::ConnectionSlot& slot,
     security::TokenStore& tokenStore,
     security::FailedTokenThrottle& tokenThrottle,
-    security::TrustStore& trustStore,
+    security::ITrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager,
     const IActivePlayContextReader& activePlayContext,
-    security::PairingSession& pairingSession,
+    security::IPairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)

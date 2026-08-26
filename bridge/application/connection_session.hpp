@@ -55,11 +55,11 @@ using SteadyNowProvider =
 void RunConnectionSession(
     transport::WebSocketSession& ws, security::TokenStore& tokenStore,
     security::FailedTokenThrottle& tokenThrottle,
-    security::TrustStore& trustStore,
+    security::ITrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, ConnectionId connection,
     const IActivePlayContextReader& activePlayContext,
-    security::PairingSession& pairingSession,
+    security::IPairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,

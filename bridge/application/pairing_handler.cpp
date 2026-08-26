@@ -52,7 +52,7 @@ ToWireSeconds(std::optional<std::chrono::seconds> duration) {
 protocol::Envelope
 HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
                      const std::string& sessionId, const std::string& clientId,
-                     security::PairingSession& pairingSession,
+                     security::IPairingSession& pairingSession,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now) {
     auto result = pairingSession.TryStartChallenge(clientId, now);
@@ -96,7 +96,7 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 protocol::Envelope
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
-                     security::PairingSession& pairingSession,
+                     security::IPairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now) {
@@ -238,7 +238,7 @@ protocol::Envelope HandlePairingAck(
 protocol::Envelope
 HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
                       const std::string& sessionId, const std::string& clientId,
-                      security::PairingSession& pairingSession,
+                      security::IPairingSession& pairingSession,
                       PairingNotificationSink& notificationSink,
                       std::chrono::steady_clock::time_point now) {
     auto result = pairingSession.TryRenotify(clientId, now);

@@ -278,6 +278,8 @@ SKSEPluginInfo(
         trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore =
         dovahlink::security::TrustStore::Load(trustStorePersistence);
+    static dovahlink::security::TrustDeviceStore deviceStore(trustStore);
+    static dovahlink::security::TrustResetStore resetStore(trustStore);
 
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
@@ -331,12 +333,12 @@ SKSEPluginInfo(
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
     static dovahlink::application::TrustDeviceAdminService
-        trustDeviceAdminService(trustStore, bridgeWorkerPool,
+        trustDeviceAdminService(deviceStore, bridgeWorkerPool,
                                 trustMutationCoordinator);
     static dovahlink::application::ITrustDeviceAdminService&
         trustDeviceAdminServiceContract = trustDeviceAdminService;
     static dovahlink::application::TrustResetService trustResetService(
-        trustStore, bridgeWorkerPool, trustMutationCoordinator,
+        resetStore, bridgeWorkerPool, trustMutationCoordinator,
         factoryResetChallenge);
     static dovahlink::application::ITrustResetService& trustResetServiceContract =
         trustResetService;

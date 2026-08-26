@@ -2,7 +2,7 @@
 
 #include "application/active_session_disconnector.hpp"
 #include "application/trust_mutation_coordinator.hpp"
-#include "security/trust_store.hpp"
+#include "security/trust_device_store.hpp"
 
 #include <chrono>
 #include <string>

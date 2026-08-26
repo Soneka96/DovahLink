@@ -11,6 +11,8 @@
 #include "security/factory_reset_challenge.hpp"
 #include "security/known_device_record.hpp"
 #include "security/test_token.hpp"
+#include "security/trust_device_store.hpp"
+#include "security/trust_reset_store.hpp"
 #include "security/trust_store.hpp"
 
 #include <boost/json/object.hpp>
@@ -216,9 +218,6 @@ class MockTrustDeviceStore : public security::ITrustDeviceStore {
                 (override));
     MOCK_METHOD(std::optional<security::KnownDeviceRecord>, FindByShortId,
                 (std::string_view), (override));
-    MOCK_METHOD(bool, Revoke, (const std::string&), (override));
-    MOCK_METHOD(security::BlockOutcome, Block, (const std::string&),
-                (override));
     MOCK_METHOD(security::UnblockOutcome, Unblock, (const std::string&),
                 (override));
     MOCK_METHOD(security::ForgetOutcome, Forget, (const std::string&),
@@ -230,8 +229,6 @@ class MockTrustResetStore : public security::ITrustResetStore {
   public:
     MOCK_METHOD(std::vector<security::KnownDeviceRecord>, ListTrusted, (),
                 (override));
-    MOCK_METHOD(bool, Reset, (), (override));
-    MOCK_METHOD(bool, ResetTrust, (), (override));
 };
 
 ///  GoogleMock trust-mutation coordination contract double.

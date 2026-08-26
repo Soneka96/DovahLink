@@ -1,3 +1,5 @@
+#include "security/trust_device_store.hpp"
+#include "security/trust_reset_store.hpp"
 #include "security/trust_store.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -16,11 +18,15 @@
 
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::ForgetOutcome;
+using dovahlink::security::ITrustDeviceStore;
+using dovahlink::security::ITrustResetStore;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
 using dovahlink::security::RenameOutcome;
+using dovahlink::security::TrustDeviceStore;
 using dovahlink::security::TrustMutationGeneration;
+using dovahlink::security::TrustResetStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::UnblockOutcome;
@@ -1612,4 +1618,40 @@ TEST_CASE("ResetTrust surfaces a Save failure without corrupting in-memory "
     CHECK_FALSE(store.IsRevoked("client-1"));
     CHECK_FALSE(store.IsRevoked("client-2"));
     CHECK(store.CurrentMutationGeneration("client-1") == beforeMutation);
+}
+
+TEST_CASE("TrustDeviceStore forwards the per-device capability",
+          "[security][trust_device_store]") {
+    FakePersistence persistence;
+    auto store = TrustStore::Load(persistence, QueuedShortIds({"11111"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), "Phone").has_value());
+
+    TrustDeviceStore adapter(store);
+    ITrustDeviceStore& deviceStore = adapter;
+
+    REQUIRE(deviceStore.ListTrusted().size() == 1);
+    CHECK(deviceStore.ListTrusted().front().clientId == "client-1");
+    CHECK(deviceStore.ListAll().size() == 1);
+    CHECK(deviceStore.FindByShortId("11111")->clientId == "client-1");
+    CHECK(deviceStore.ListTrusted().front().shortId == "11111");
+}
+
+TEST_CASE("TrustResetStore forwards bulk reset capabilities",
+          "[security][trust_reset_store]") {
+    FakePersistence persistence;
+    auto store =
+        TrustStore::Load(persistence, QueuedShortIds({"11111", "22222"}));
+    REQUIRE(store.Persist("client-1", MakeCredential(1), std::nullopt)
+                .has_value());
+    REQUIRE(store.Persist("client-2", MakeCredential(2), std::nullopt)
+                .has_value());
+
+    TrustResetStore adapter(store);
+    ITrustResetStore& resetStore = adapter;
+
+    CHECK(resetStore.ListTrusted().size() == 2);
+    CHECK(store.ResetTrust());
+    CHECK(resetStore.ListTrusted().empty());
+    CHECK(store.Reset());
+    CHECK(store.ListAll().empty());
 }

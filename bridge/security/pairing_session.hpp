@@ -17,21 +17,6 @@
 
 namespace dovahlink::security {
 
-///  The pairing-session operations required by administrative cancellation.
-class IPairingCancellation {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~IPairingCancellation() = default;
-
-    ///  Cancels the challenge or pending credential owned by `clientId`.
-    [[nodiscard]] virtual CancelOutcome
-    TryCancel(const std::string& clientId,
-              std::chrono::steady_clock::time_point now) = 0;
-
-    ///  Cancels every active challenge and pending credential.
-    virtual void CancelAll() = 0;
-};
-
 ///  The credential-issuance data a successful `PairingSession::TryFinalize`
 ///  returns, ready for the caller to commit via `TrustStore::Persist`.
 struct PendingCredential {
@@ -50,6 +35,61 @@ struct PendingCredential {
     std::chrono::steady_clock::time_point pendingSince;
 };
 
+///  The complete in-memory pairing-session capability used by Bridge consumers.
+class IPairingSession {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IPairingSession() = default;
+
+    ///  Starts or resumes a pairing challenge.
+    [[nodiscard]] virtual StartChallengeResult
+    TryStartChallenge(const std::string& clientId,
+                      std::chrono::steady_clock::time_point now) = 0;
+    ///  Returns the active challenge's remaining validity.
+    [[nodiscard]] virtual std::optional<std::chrono::seconds>
+    RemainingSeconds(std::chrono::steady_clock::time_point now) = 0;
+    ///  Returns the active challenge code when redisplay is allowed.
+    [[nodiscard]] virtual std::optional<std::string>
+    CurrentCode(std::chrono::steady_clock::time_point now) = 0;
+    ///  Records an owner's disconnect.
+    virtual void NotifyDisconnected(
+        const std::string& clientId,
+        std::chrono::steady_clock::time_point now) = 0;
+    ///  Records an owner's reconnect.
+    virtual void NotifyReconnected(
+        const std::string& clientId,
+        std::chrono::steady_clock::time_point now) = 0;
+    ///  Confirms a pairing code and holds its credential for finalization.
+    [[nodiscard]] virtual ConfirmCodeResult
+    TryConfirmCode(const std::string& presentedCode,
+                   std::chrono::steady_clock::time_point now,
+                   std::string clientId, std::vector<std::uint8_t> credential,
+                   std::optional<std::string> displayName,
+                   TrustMutationGeneration mutationGeneration) = 0;
+    ///  Returns a matching pending credential without consuming it.
+    [[nodiscard]] virtual std::optional<PendingCredential>
+    PeekPending(const std::string& clientId,
+                const std::vector<std::uint8_t>& credential,
+                std::chrono::steady_clock::time_point now) = 0;
+    ///  Consumes a matching pending credential.
+    [[nodiscard]] virtual bool
+    CommitPending(const std::string& clientId,
+                  const std::vector<std::uint8_t>& credential,
+                  std::chrono::steady_clock::time_point now) = 0;
+    ///  Restores a pending credential after transient persistence failure.
+    [[nodiscard]] virtual bool RestorePending(PendingCredential pending) = 0;
+    ///  Requests a manual code redisplay.
+    [[nodiscard]] virtual RenotifyResult
+    TryRenotify(const std::string& clientId,
+                std::chrono::steady_clock::time_point now) = 0;
+    ///  Cancels the challenge or pending credential owned by `clientId`.
+    [[nodiscard]] virtual CancelOutcome
+    TryCancel(const std::string& clientId,
+              std::chrono::steady_clock::time_point now) = 0;
+    ///  Cancels every active challenge and pending credential.
+    virtual void CancelAll() = 0;
+};
+
 ///  In-memory `NONE -> CHALLENGE_ACTIVE -> PENDING_CREDENTIAL -> NONE` pairing
 ///  lifecycle, per `ai/context/protocol/security.md`'s "Persistent local trust"
 ///  state machine and wire-message mapping. Knows nothing about wire messages,
@@ -57,7 +97,7 @@ struct PendingCredential {
 ///  generated credential and commits a successful `TryFinalize`'s result to
 ///  `TrustStore` itself. Never persists across a Bridge restart -- "Incomplete
 ///  pending pairing does not need to survive a bridge restart."
-class PairingSession : public IPairingCancellation {
+class PairingSession final : public IPairingSession {
   public:
     ///  Produces one six-digit pairing-code candidate, or `std::nullopt` when the
     ///  underlying random source fails.
@@ -93,7 +133,7 @@ class PairingSession : public IPairingCancellation {
     ///      underlying random source fails.
     [[nodiscard]] StartChallengeResult
     TryStartChallenge(const std::string& clientId,
-                      std::chrono::steady_clock::time_point now);
+                      std::chrono::steady_clock::time_point now) override;
 
     ///  Returns the active challenge's remaining code validity, applying the same
     ///  reconnect-grace lazy-expiry check as `TryStartChallenge`.
@@ -103,7 +143,7 @@ class PairingSession : public IPairingCancellation {
     ///  active (including a
     ///      `PENDING_CREDENTIAL` state, which has no code left to redisplay).
     [[nodiscard]] std::optional<std::chrono::seconds>
-    RemainingSeconds(std::chrono::steady_clock::time_point now);
+    RemainingSeconds(std::chrono::steady_clock::time_point now) override;
 
     ///  Returns the active challenge's own six-digit code, applying the same
     ///  reconnect-grace lazy-expiry check as `TryStartChallenge`. Exists so the
@@ -116,7 +156,7 @@ class PairingSession : public IPairingCancellation {
     ///  check.
     ///  @return The six-digit code, or `std::nullopt` when no challenge is active.
     [[nodiscard]] std::optional<std::string>
-    CurrentCode(std::chrono::steady_clock::time_point now);
+    CurrentCode(std::chrono::steady_clock::time_point now) override;
 
     ///  Records that `clientId`'s connection has just disconnected, starting the
     ///  reconnect-grace countdown, if and only if `clientId` currently owns an
@@ -127,7 +167,7 @@ class PairingSession : public IPairingCancellation {
     ///  @param clientId The disconnecting client's identity.
     ///  @param now Current monotonic time, stamped as the disconnect moment.
     void NotifyDisconnected(const std::string& clientId,
-                            std::chrono::steady_clock::time_point now);
+                            std::chrono::steady_clock::time_point now) override;
 
     ///  Clears a pending reconnect-grace countdown for `clientId`, if it owns the
     ///  active challenge and was mid-countdown. Applies the lazy-expiry check
@@ -137,7 +177,7 @@ class PairingSession : public IPairingCancellation {
     ///  @param now Current monotonic time, for the reconnect-grace lazy-expiry
     ///  check.
     void NotifyReconnected(const std::string& clientId,
-                           std::chrono::steady_clock::time_point now);
+                           std::chrono::steady_clock::time_point now) override;
 
     ///  Validates `presentedCode` against the active challenge (constant-time,
     ///  single-use). Applies the reconnect-grace lazy-expiry check first, then
@@ -168,7 +208,7 @@ class PairingSession : public IPairingCancellation {
                    std::chrono::steady_clock::time_point now,
                    std::string clientId, std::vector<std::uint8_t> credential,
                    std::optional<std::string> displayName,
-                   TrustMutationGeneration mutationGeneration);
+                   TrustMutationGeneration mutationGeneration) override;
 
     ///  Matches `clientId` and `credential` against the pending credential without
     ///  consuming it, so a caller can attempt `TrustStore::Persist` before
@@ -183,7 +223,7 @@ class PairingSession : public IPairingCancellation {
     [[nodiscard]] std::optional<PendingCredential>
     PeekPending(const std::string& clientId,
                 const std::vector<std::uint8_t>& credential,
-                std::chrono::steady_clock::time_point now);
+                std::chrono::steady_clock::time_point now) override;
 
     ///  Re-matches `clientId` and `credential` against the pending credential and,
     ///  on a match, transitions `PENDING_CREDENTIAL -> NONE`. Call only after
@@ -198,11 +238,11 @@ class PairingSession : public IPairingCancellation {
     ///      match, was expired, or none is pending.
     [[nodiscard]] bool CommitPending(const std::string& clientId,
                                      const std::vector<std::uint8_t>& credential,
-                                     std::chrono::steady_clock::time_point now);
+                                     std::chrono::steady_clock::time_point now) override;
 
     ///  Restores a pending credential consumed before a transient persistence
     ///  failure. Returns false if another pending credential already exists.
-    [[nodiscard]] bool RestorePending(PendingCredential pending);
+    [[nodiscard]] bool RestorePending(PendingCredential pending) override;
 
     ///  "Show code again": if `clientId` owns the active challenge and its own
     ///  `kPairingRenotifyCooldown` has elapsed, starts a fresh cooldown and
@@ -221,7 +261,7 @@ class PairingSession : public IPairingCancellation {
     ///     when it owns no active challenge or pending credential.
     [[nodiscard]] RenotifyResult
     TryRenotify(const std::string& clientId,
-                std::chrono::steady_clock::time_point now);
+                std::chrono::steady_clock::time_point now) override;
 
     ///  Cancels `clientId`'s owned active challenge or pending credential,
     ///  whichever is currently held. Idempotent without pretending work occurred:

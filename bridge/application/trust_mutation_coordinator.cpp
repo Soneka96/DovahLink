@@ -5,7 +5,8 @@
 namespace dovahlink::application {
 
 TrustMutationCoordinator::TrustMutationCoordinator(
-    security::TrustStore& trustStore, security::PairingSession& pairingSession,
+    security::ITrustStore& trustStore,
+    security::IPairingSession& pairingSession,
     ISessionPromotion& sessionPromotion)
     : trustStore_(trustStore), pairingSession_(pairingSession),
       sessionPromotion_(sessionPromotion) {}
