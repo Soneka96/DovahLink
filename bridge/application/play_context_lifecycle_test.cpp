@@ -5,6 +5,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
+#include <barrier>
+#include <latch>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -327,36 +329,47 @@ TEST_CASE("PlayContextLifecycle forwards unavailable levels to active state",
 
 TEST_CASE("PlayContextLifecycle serializes concurrent lifecycle events",
           "[application][play_context_lifecycle]") {
+    constexpr int kConcurrentCallers = 16;
     std::atomic<int> nextId{1};
     std::atomic<int> activeFactories{0};
     std::atomic<int> maximumFactories{0};
+    std::atomic<int> completedCalls{0};
+    std::latch callersReady(kConcurrentCallers);
     PlayContextLifecycle lifecycle(
         [&nextId] {
             return std::optional<std::string>(
                 "context-" + std::to_string(nextId.fetch_add(1)));
         },
-        [&activeFactories, &maximumFactories](std::string id) {
+        [&activeFactories, &maximumFactories, &callersReady](std::string id) {
             const int active = activeFactories.fetch_add(1) + 1;
             int maximum = maximumFactories.load();
             while (maximum < active &&
                    !maximumFactories.compare_exchange_weak(maximum, active)) {
             }
-            std::this_thread::yield();
+            callersReady.wait();
             auto context = BuildPlayContext(std::move(id));
             activeFactories.fetch_sub(1);
             return context;
         });
 
+    std::barrier startBarrier(kConcurrentCallers + 1);
     std::vector<std::thread> threads;
-    for (int i = 0; i < 16; ++i) {
-        threads.emplace_back([&lifecycle] {
-            lifecycle.HandleEvent(LifecycleEvent::kNewGame);
-        });
+    for (int i = 0; i < kConcurrentCallers; ++i) {
+        threads.emplace_back(
+            [&lifecycle, &startBarrier, &callersReady, &completedCalls] {
+                startBarrier.arrive_and_wait();
+                callersReady.count_down();
+                lifecycle.HandleEvent(LifecycleEvent::kNewGame);
+                completedCalls.fetch_add(1, std::memory_order_release);
+            });
     }
+    startBarrier.arrive_and_wait();
     for (auto& thread : threads) {
         thread.join();
     }
 
     CHECK(maximumFactories == 1);
+    CHECK(completedCalls == kConcurrentCallers);
+    CHECK(lifecycle.CurrentState() == LifecycleState::kActive);
     REQUIRE(lifecycle.CurrentPlayContextId().has_value());
 }
