@@ -41,6 +41,9 @@
   hide a missing equality override; non-`const` catalog calls must surface that gap through the
   failing `verify()` or `expect()`.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
+- Consumer tests use mocks for behavior-bearing dependencies and do not re-prove those dependencies'
+  internal behavior through real objects. Update the consumer test in the same change that changes
+  its contract; keep real multi-object wiring in the approved composition-root test only.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
 - Define `setUp` per group, or in `main` when setup is shared by the whole file.

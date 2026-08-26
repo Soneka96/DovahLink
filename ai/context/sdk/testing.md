@@ -69,6 +69,10 @@ an assumption accidentally shared only by the official Dart implementation.
 
 ## Service test boundaries
 
+Contract migrations and consumer-test migrations land together. Consumer tests remain black-box
+tests of the consumer's reaction; the dependency's own test file owns its internal behavior. The
+real object graph is reserved for the explicit composition-root integration test.
+
 Every constructor dependency of the class under test is mocked (`mocktail`'s `class MockX extends
 Mock implements X {}`), with no exceptions for plain, no-interface, or zero-dependency
 collaborators. This applies uniformly to every class this package tests, not only the seven

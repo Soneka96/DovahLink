@@ -28,7 +28,9 @@ Use explicit seams for runtime-dependent code: a fake callback registry for regi
 
 Use FakeIt as the first C++ mocking-framework candidate. It must pass a repository proof of concept
 through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference,
-`std::string_view`, and `std::optional` arguments, interface inheritance, and worker/thread tests.
+`std::string_view`, and `std::optional` arguments, required external framework inheritance, and
+worker/thread tests. Project-owned interface inheritance is prohibited and is not a framework
+capability to validate.
 If it cannot satisfy those requirements, use GoogleMock as the fallback. Do not retain multiple
 production mocking frameworks or build a project-specific mock generator.
 
