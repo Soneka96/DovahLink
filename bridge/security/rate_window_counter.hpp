@@ -21,6 +21,23 @@ class IRateWindowCounter {
     ///  Returns the active event count without recording a new event.
     [[nodiscard]] virtual std::size_t
     ActiveCount(std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Atomically reserves one active attempt slot when the limit allows it.
+    ///  @param now Timestamp used to prune expired events before admission.
+    ///  @param limit Maximum number of recorded or reserved attempts.
+    ///  @return `true` when one slot is reserved for the caller.
+    [[nodiscard]] virtual bool TryReserve(
+        std::chrono::steady_clock::time_point now, std::size_t limit) = 0;
+
+    ///  Converts one reservation into a recorded event.
+    ///  @param now Timestamp recorded for the committed event.
+    ///  @throws Any exception raised while storing the event. The reservation
+    ///      remains active when storage fails.
+    virtual void CommitReservation(
+        std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Releases one active reservation without recording an event.
+    virtual void ReleaseReservation() noexcept = 0;
 };
 
 ///  Thread-safe sliding-window counter with caller-supplied timestamps.
@@ -37,6 +54,17 @@ class RateWindowCounter : public IRateWindowCounter {
     [[nodiscard]] std::size_t
     ActiveCount(std::chrono::steady_clock::time_point now) override;
 
+    ///  @copydoc IRateWindowCounter::TryReserve
+    [[nodiscard]] bool TryReserve(std::chrono::steady_clock::time_point now,
+                                  std::size_t limit) override;
+
+    ///  @copydoc IRateWindowCounter::CommitReservation
+    void CommitReservation(
+        std::chrono::steady_clock::time_point now) override;
+
+    ///  @copydoc IRateWindowCounter::ReleaseReservation
+    void ReleaseReservation() noexcept override;
+
   private:
     ///  Removes timestamps outside the active window while locked.
     void PruneLocked(std::chrono::steady_clock::time_point now);
@@ -47,6 +75,9 @@ class RateWindowCounter : public IRateWindowCounter {
     std::chrono::steady_clock::duration window_;
     ///  Recorded event timestamps, including entries not yet pruned.
     std::deque<std::chrono::steady_clock::time_point> eventTimes_;
+
+    ///  Attempt slots reserved while credential validation is in progress.
+    std::size_t reservationCount_ = 0;
 };
 
 } //  namespace dovahlink::security

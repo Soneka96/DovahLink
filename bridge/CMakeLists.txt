@@ -83,6 +83,7 @@ add_library(dovahlink_bridge_core STATIC
     security/csprng.cpp
     security/dpapi.cpp
     security/factory_reset_challenge.cpp
+    security/failed_token_reservation.cpp
     security/failed_token_throttle.cpp
     security/hex.cpp
     security/inbound_message_rate_limiter.cpp
@@ -213,6 +214,7 @@ add_executable(dovahlink_bridge_tests
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/failed_token_reservation_test.cpp
     security/factory_reset_challenge_test.cpp
     security/failed_token_throttle_test.cpp
     security/hex_test.cpp

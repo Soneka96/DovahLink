@@ -16,4 +16,12 @@ void FailedTokenThrottle::RecordFailure(
     (void)counter_.RecordEvent(now);
 }
 
+std::optional<FailedTokenReservation>
+FailedTokenThrottle::TryReserve(std::chrono::steady_clock::time_point now) {
+    if (!counter_.TryReserve(now, kMaxFailedTokenAttempts)) {
+        return std::nullopt;
+    }
+    return FailedTokenReservation(counter_, now);
+}
+
 } //  namespace dovahlink::security

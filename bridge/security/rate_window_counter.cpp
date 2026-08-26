@@ -18,7 +18,34 @@ std::size_t
 RateWindowCounter::ActiveCount(std::chrono::steady_clock::time_point now) {
     std::lock_guard<std::mutex> lock(mutex_);
     PruneLocked(now);
-    return eventTimes_.size();
+    return eventTimes_.size() + reservationCount_;
+}
+
+bool RateWindowCounter::TryReserve(
+    std::chrono::steady_clock::time_point now, std::size_t limit) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    PruneLocked(now);
+    if (eventTimes_.size() >= limit ||
+        reservationCount_ >= limit - eventTimes_.size()) {
+        return false;
+    }
+    ++reservationCount_;
+    return true;
+}
+
+void RateWindowCounter::CommitReservation(
+    std::chrono::steady_clock::time_point now) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    PruneLocked(now);
+    eventTimes_.push_back(now);
+    --reservationCount_;
+}
+
+void RateWindowCounter::ReleaseReservation() noexcept {
+    std::lock_guard<std::mutex> lock(mutex_);
+    --reservationCount_;
 }
 
 void RateWindowCounter::PruneLocked(std::chrono::steady_clock::time_point now) {
