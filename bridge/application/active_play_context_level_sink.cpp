@@ -3,7 +3,7 @@
 namespace dovahlink::application {
 
 ActivePlayContextLevelSink::ActivePlayContextLevelSink(
-    const IActivePlayContext& activePlayContext)
+    const IActivePlayContextReader& activePlayContext)
     : activePlayContext_(activePlayContext) {}
 
 void ActivePlayContextLevelSink::OnLevelCaptured(

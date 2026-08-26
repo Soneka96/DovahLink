@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
@@ -67,7 +67,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                      security::TrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle,
                      SessionManager& sessionManager,
-                     const IActivePlayContext& activePlayContext,
+                     const IActivePlayContextReader& activePlayContext,
                      security::PairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& pairingNotificationSink,
@@ -189,7 +189,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
 
     ///  Source of the acquired play context each connection's state and revisions
     ///  belong to.
-    const IActivePlayContext& activePlayContext_;
+    const IActivePlayContextReader& activePlayContext_;
 
     ///  Shared pairing challenge/pending-credential state machine.
     security::PairingSession& pairingSession_;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/session.hpp"
 #include "protocol/envelope.hpp"
@@ -75,7 +75,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,
             const std::optional<std::string>& bridgeInstanceId = std::nullopt,
-            const IActivePlayContext* activePlayContext = nullptr,
+            const IActivePlayContextReader* activePlayContext = nullptr,
             const std::string& bridgeVersion = "0.0.0");
 
 ///  Compatibility overload for callers that have an active play-context
@@ -90,7 +90,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,
             const std::optional<std::string>& bridgeInstanceId,
-            const IActivePlayContext& activePlayContext,
+            const IActivePlayContextReader& activePlayContext,
             const std::string& bridgeVersion = "0.0.0");
 
 ///  Reports why `clientId`'s trust, re-read from `trustStore` after session

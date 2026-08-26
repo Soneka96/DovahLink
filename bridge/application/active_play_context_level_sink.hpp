@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/level_event_sink.hpp"
 
 #include <cstdint>
@@ -14,14 +14,14 @@ class ActivePlayContextLevelSink final : public ILevelEventSink {
   public:
     ///  Binds the sink to the active play-context capability.
     explicit ActivePlayContextLevelSink(
-        const IActivePlayContext& activePlayContext);
+        const IActivePlayContextReader& activePlayContext);
 
     ///  @copydoc ILevelEventSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override;
 
   private:
     ///  Source of the currently active play context.
-    const IActivePlayContext& activePlayContext_;
+    const IActivePlayContextReader& activePlayContext_;
 };
 
 } //  namespace dovahlink::application

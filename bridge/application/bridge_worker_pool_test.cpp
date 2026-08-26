@@ -1,4 +1,4 @@
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_worker_pool.hpp"
 
 #include "application/application_test_support.hpp"
@@ -57,7 +57,8 @@ using testing::StrictMock;
 namespace {
 
 ///  GoogleMock active-play-context contract double for worker-thread tests.
-class MockActivePlayContext : public dovahlink::application::IActivePlayContext {
+class MockActivePlayContext
+    : public dovahlink::application::IActivePlayContextReader {
   public:
     ///  Allows repeated worker-thread context reads while rejecting mutations.
     MockActivePlayContext() {
@@ -68,9 +69,6 @@ class MockActivePlayContext : public dovahlink::application::IActivePlayContext 
 
     MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
                 AcquireCurrent, (), (const, override));
-    MOCK_METHOD(void, Reset, (), (override));
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>, Begin,
-                (std::string), (override));
 };
 
 ///  Builds the valid client hello used by real worker-pool sessions.

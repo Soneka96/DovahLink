@@ -100,7 +100,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                             ConnectionTimeoutTracker& timeoutTracker,
                             std::chrono::steady_clock::time_point now,
                             const std::optional<std::string>& bridgeInstanceId,
-                            const IActivePlayContext* activePlayContext,
+                            const IActivePlayContextReader* activePlayContext,
                             const std::string& bridgeVersion) {
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
@@ -251,7 +251,7 @@ HandshakeResult HandleHello(
     ConnectionTimeoutTracker& timeoutTracker,
     std::chrono::steady_clock::time_point now,
     const std::optional<std::string>& bridgeInstanceId,
-    const IActivePlayContext& activePlayContext,
+    const IActivePlayContextReader& activePlayContext,
     const std::string& bridgeVersion) {
     return HandleHello(helloEnvelope, tokenStore, tokenThrottle, trustStore,
                        credentialThrottle, sessionManager, connection,

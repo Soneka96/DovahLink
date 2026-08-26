@@ -1,4 +1,4 @@
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/message_dispatcher.hpp"
 
 #include "application/application_test_support.hpp"
@@ -23,7 +23,7 @@
 
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
-using dovahlink::application::IActivePlayContext;
+using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
@@ -50,13 +50,10 @@ using testing::StrictMock;
 namespace {
 
 ///  GoogleMock active-play-context contract double.
-class MockActivePlayContext : public IActivePlayContext {
+class MockActivePlayContext : public IActivePlayContextReader {
   public:
     MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
                 AcquireCurrent, (), (const, override));
-    MOCK_METHOD(void, Reset, (), (override));
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>, Begin,
-                (std::string), (override));
 };
 
 ///  Clock type used for deterministic dispatcher timeout assertions.
@@ -109,20 +106,11 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
 
 ///  Supplies no active context for dispatcher scenarios that do not exercise
 ///  context identity; focused context tests use a strict mock instead.
-class EmptyActivePlayContext final : public IActivePlayContext {
+class EmptyActivePlayContext final : public IActivePlayContextReader {
   public:
     ///  Reports that no context is active.
     [[nodiscard]] std::shared_ptr<dovahlink::application::PlayContext>
     AcquireCurrent() const override {
-        return nullptr;
-    }
-
-    ///  Keeps the empty test state empty.
-    void Reset() override {}
-
-    ///  Does not create a context in the empty test double.
-    [[nodiscard]] std::shared_ptr<dovahlink::application::PlayContext>
-    Begin(std::string) override {
         return nullptr;
     }
 };
@@ -191,7 +179,7 @@ struct Fixture {
 
     ///  Processes one raw message through a supplied active-context contract.
     DispatchResult ProcessWithContext(
-        const IActivePlayContext& activeContext,
+        const IActivePlayContextReader& activeContext,
         const std::string& rawMessage,
         SteadyClock::time_point steadyNow = SteadyClock::now()) {
         return ProcessInboundMessage(

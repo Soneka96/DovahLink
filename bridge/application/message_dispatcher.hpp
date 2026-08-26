@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/replay_guard.hpp"
@@ -75,7 +75,7 @@ struct DispatchResult {
     security::ViolationTracker& violations,
     security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
-    const IActivePlayContext& activePlayContext,
+    const IActivePlayContextReader& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

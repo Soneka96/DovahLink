@@ -1,4 +1,4 @@
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/handshake_handler.hpp"
 
 #include "application/application_test_support.hpp"
@@ -19,7 +19,7 @@
 
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
-using dovahlink::application::IActivePlayContext;
+using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
@@ -39,13 +39,10 @@ using testing::StrictMock;
 namespace {
 
 ///  GoogleMock active-play-context contract double.
-class MockActivePlayContext : public IActivePlayContext {
+class MockActivePlayContext : public IActivePlayContextReader {
   public:
     MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
                 AcquireCurrent, (), (const, override));
-    MOCK_METHOD(void, Reset, (), (override));
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>, Begin,
-                (std::string), (override));
 };
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- for

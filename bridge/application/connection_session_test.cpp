@@ -1,4 +1,4 @@
-#include "application/active_play_context.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/connection_session.hpp"
 
 #include "application/application_test_support.hpp"
@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-using dovahlink::application::IActivePlayContext;
+using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::PlayContext;
@@ -68,7 +68,7 @@ namespace {
 ///  GoogleMock contract double used by socket-session tests. GoogleMock's
 ///  invocation bookkeeping supports calls from the session thread; the real
 ///  ActivePlayContext owns the state behavior tests.
-class MockActivePlayContext : public IActivePlayContext {
+class MockActivePlayContext : public IActivePlayContextReader {
   public:
     ///  Allows any number of context reads while rejecting other calls.
     MockActivePlayContext() {
@@ -79,9 +79,6 @@ class MockActivePlayContext : public IActivePlayContext {
 
     MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
                 (const, override));
-    MOCK_METHOD(void, Reset, (), (override));
-    MOCK_METHOD(std::shared_ptr<PlayContext>, Begin, (std::string id),
-                (override));
 };
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- these
@@ -189,7 +186,8 @@ void RunConnectionSession(
     FailedTokenThrottle& tokenThrottle, TrustStore& trustStore,
     FailedTokenThrottle& credentialThrottle, SessionManager& sessionManager,
     dovahlink::application::ConnectionId connection,
-    const IActivePlayContext& activePlayContext, PairingSession& pairingSession,
+    const IActivePlayContextReader& activePlayContext,
+    PairingSession& pairingSession,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     const std::string& bridgeVersion,
