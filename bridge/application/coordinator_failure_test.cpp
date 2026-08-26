@@ -1,5 +1,8 @@
 #include "application/coordinator.hpp"
 
+#include "application/bridge_transport.hpp"
+#include "application/bridge_worker_pool.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>

@@ -1,10 +1,16 @@
 #include "application/coordinator.hpp"
 
+#include "application/bridge_transport.hpp"
+#include "application/bridge_worker_pool.hpp"
+#include "test_support/source_text_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstddef>
+#include <fstream>
 #include <memory>
 #include <semaphore>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -17,6 +23,15 @@ using dovahlink::application::IBridgeWorkerPool;
 using dovahlink::application::LifetimeToken;
 
 namespace {
+
+///  Reads the Coordinator header for structural include-boundary assertions.
+std::string ReadCoordinatorHeader() {
+    std::ifstream file(DOVAHLINK_COORDINATOR_HEADER_FILE);
+    REQUIRE(file.is_open());
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 
 ///  Records callback lifecycle calls in the shared test log.
 class RecordingCallbackRegistry : public IBridgeCallbackRegistry {
@@ -116,6 +131,20 @@ struct Fixture {
 };
 
 } //  namespace
+
+TEST_CASE("Coordinator header depends only on lifecycle contracts",
+          "[application][coordinator][includes]") {
+    const std::string header = ReadCoordinatorHeader();
+
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        header, "class IBridgeWorkerPool;"));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        header, "class IBridgeTransport;"));
+    CHECK_FALSE(dovahlink::test_support::ContainsSourceText(
+        header, "#include application/bridge_worker_pool.hpp"));
+    CHECK_FALSE(dovahlink::test_support::ContainsSourceText(
+        header, "#include application/bridge_transport.hpp"));
+}
 
 TEST_CASE(
     "Start registers callbacks, then starts workers, then starts transport",

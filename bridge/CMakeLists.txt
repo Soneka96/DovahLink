@@ -258,6 +258,7 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_CALLBACK_REGISTRY_CONTRACT_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/i_bridge_callback_registry.hpp"
     DOVAHLINK_CALLBACK_REGISTRY_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.hpp"
     DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
+    DOVAHLINK_COORDINATOR_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/coordinator.hpp"
 )
 if(WIN32)
     target_compile_definitions(dovahlink_bridge_tests PRIVATE _WIN32_WINNT=0x0A00)

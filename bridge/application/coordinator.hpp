@@ -1,7 +1,5 @@
 #pragma once
 
-#include "application/bridge_transport.hpp"
-#include "application/bridge_worker_pool.hpp"
 #include "application/contained_work.hpp"
 #include "application/i_bridge_callback_registry.hpp"
 #include "application/lifetime_token.hpp"
@@ -12,6 +10,9 @@
 #include <mutex>
 
 namespace dovahlink::application {
+
+class IBridgeWorkerPool;
+class IBridgeTransport;
 
 ///  Owns callback, worker, and transport lifecycle and provides idempotent
 ///  shutdown.
