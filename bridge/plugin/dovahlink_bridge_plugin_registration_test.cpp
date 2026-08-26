@@ -86,7 +86,7 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::string source = ReadPluginSource();
 
     std::size_t readerPos =
-        source.find("activePlayContextReader(activePlayContext)");
+        source.find("activePlayContextReader(playContextLifecycle)");
     REQUIRE(readerPos != std::string::npos);
 
     std::size_t levelSinkPos =
@@ -105,11 +105,11 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::size_t lifecycleSinkPos =
         source.find("CommonLibGameLifecycleSink lifecycleSink");
     REQUIRE(lifecycleSinkPos != std::string::npos);
-    std::size_t lifecycleCoordinatorPos =
-        source.find("lifecycleCoordinator(lifecycleTracker, activePlayContext);");
-    REQUIRE(lifecycleCoordinatorPos != std::string::npos);
-    CHECK(lifecycleCoordinatorPos < lifecycleSinkPos);
-    CHECK(source.find("lifecycleCoordinator);", lifecycleSinkPos) !=
+    std::size_t lifecyclePos =
+        source.find("PlayContextLifecycle playContextLifecycle;");
+    REQUIRE(lifecyclePos != std::string::npos);
+    CHECK(lifecyclePos < lifecycleSinkPos);
+    CHECK(source.find("playContextLifecycle);", lifecycleSinkPos) !=
           std::string::npos);
 
     std::size_t lifecycleRegisterPos =

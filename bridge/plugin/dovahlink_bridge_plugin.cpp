@@ -4,7 +4,6 @@
 
 #include "SKSE/SKSE.h"
 
-#include "application/active_play_context.hpp"
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/bridge_config.hpp"
@@ -13,9 +12,8 @@
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_behavior_config.hpp"
-#include "application/game_lifecycle_tracker.hpp"
-#include "application/lifecycle_transition_coordinator.hpp"
 #include "application/pairing_notification_sink.hpp"
+#include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
@@ -289,20 +287,17 @@ SKSEPluginInfo(
     static dovahlink::application::SessionManager sessionManager;
 
     //  The authoritative, play-context-owned identity and state per
-    //  ARCHITECTURE.md's runtime/identity model. `activePlayContext` is
-    //  lifecycle-driven -- GameLifecycleTracker transitions create and
-    //  invalidate its play contexts -- while `activePlayContextReader` is the
-    //  read-only capability passed to connection-facing consumers. Declared
+    //  ARCHITECTURE.md's runtime/identity model. `playContextLifecycle` owns
+    //  lifecycle state and context publication atomically, while
+    //  `activePlayContextReader` is the read-only capability passed to
+    //  connection-facing consumers. Declared
     //  before `levelIncreaseHandler` below, which routes its captures into
     //  whichever context is active through `ActivePlayContextLevelSink`.
-    static dovahlink::application::GameLifecycleTracker lifecycleTracker;
-    static dovahlink::application::ActivePlayContext activePlayContext;
-    static dovahlink::application::LifecycleTransitionCoordinator
-        lifecycleCoordinator(lifecycleTracker, activePlayContext);
+    static dovahlink::application::PlayContextLifecycle playContextLifecycle;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
-        lifecycleCoordinator);
+        playContextLifecycle);
     static dovahlink::application::ActivePlayContextReader
-        activePlayContextReader(activePlayContext);
+        activePlayContextReader(playContextLifecycle);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
         activePlayContextReader);

@@ -649,7 +649,7 @@ TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands "
     (void)ReadBridgeInstanceId(harness);
     (void)ReadHarnessPort(harness);
 
-    //  No context before any load, matching GameLifecycleTracker's fresh
+    //  No context before any load, matching PlayContextLifecycle's fresh
     //  kNoContext state; revert is idempotent there.
     harness.WriteLine("revert");
     CHECK(ReadPlayContext(harness) == "(none)");
@@ -660,7 +660,7 @@ TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands "
     CHECK(newGameContext != "(none)");
 
     //  A second new_game with no intervening revert still invalidates the
-    //  first context and mints a distinct one (GameLifecycleTracker's own
+    //  first context and mints a distinct one (PlayContextLifecycle's own
     //  "invalidate-if-active" rule for kNewGame).
     harness.WriteLine("new_game");
     std::string secondNewGameContext = ReadPlayContext(harness);

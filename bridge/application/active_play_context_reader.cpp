@@ -3,12 +3,12 @@
 namespace dovahlink::application {
 
 ActivePlayContextReader::ActivePlayContextReader(
-    const IActivePlayContext& activePlayContext)
-    : activePlayContext_(activePlayContext) {}
+    const IPlayContextLifecycle& playContextLifecycle)
+    : playContextLifecycle_(playContextLifecycle) {}
 
 std::shared_ptr<PlayContext>
 ActivePlayContextReader::AcquireCurrent() const {
-    return activePlayContext_.AcquireCurrent();
+    return playContextLifecycle_.AcquireCurrent();
 }
 
 } //  namespace dovahlink::application

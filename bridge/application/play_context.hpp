@@ -17,7 +17,7 @@ namespace dovahlink::application {
 struct PlayContext {
     ///  Creates a play context with the given identifier and empty state.
     ///  @param id Opaque play-context identifier assigned by
-    ///  `GameLifecycleTracker`.
+    ///  `PlayContextLifecycle`.
     explicit PlayContext(std::string id) : id(std::move(id)) {}
 
     ///  Opaque identifier of this play context.

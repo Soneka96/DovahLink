@@ -46,7 +46,7 @@ enum class LifecycleState {
     kActive,
 };
 
-///  Raw Skyrim/SKSE lifecycle signals recognized by GameLifecycleTracker.
+///  Raw Skyrim/SKSE lifecycle signals recognized by PlayContextLifecycle.
 enum class LifecycleEvent {
     ///  SKSE's serialization revert callback: unconditional teardown of any
     ///  current runtime game state. Fires before every load and new game, not

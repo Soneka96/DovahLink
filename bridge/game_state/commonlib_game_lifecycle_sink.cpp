@@ -18,8 +18,8 @@ std::string ThreadIdString() {
 } //  namespace
 
 CommonLibGameLifecycleSink::CommonLibGameLifecycleSink(
-    application::ILifecycleTransitionCoordinator& lifecycleCoordinator)
-    : lifecycleCoordinator_(lifecycleCoordinator) {}
+    application::IPlayContextLifecycle& playContextLifecycle)
+    : playContextLifecycle_(playContextLifecycle) {}
 
 void CommonLibGameLifecycleSink::Register(
     application::ContainedWorkRunner callbackRunner) {
@@ -94,8 +94,8 @@ void CommonLibGameLifecycleSink::HandleEvent(application::LifecycleEvent event,
     SKSE::log::info("[lifecycle #{} thread {}] raw={}", sequence, thread,
                     rawDescription);
 
-    application::GameLifecycleTracker::Transition transition =
-        lifecycleCoordinator_.HandleEvent(event);
+    application::IPlayContextLifecycle::Transition transition =
+        playContextLifecycle_.HandleEvent(event);
 
     SKSE::log::info(
         "[lifecycle #{} thread {}] invalidated={} newPlayContextId={}", sequence,

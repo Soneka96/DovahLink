@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::application::DecodePostLoadGameSuccess;
 using dovahlink::application::IPlayContextLifecycle;
 using dovahlink::application::LifecycleEvent;
 using dovahlink::application::LifecycleState;
@@ -18,6 +19,12 @@ using dovahlink::application::PlayContext;
 using dovahlink::application::PlayContextFactory;
 using dovahlink::application::PlayContextLifecycle;
 using dovahlink::application::PlayContextLifecycleIdGenerator;
+
+TEST_CASE("DecodePostLoadGameSuccess accepts only a non-null success payload",
+          "[application][play_context_lifecycle]") {
+    CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(1)));
+    CHECK_FALSE(DecodePostLoadGameSuccess(nullptr));
+}
 
 TEST_CASE("PlayContextLifecycle starts without an active context",
           "[application][play_context_lifecycle]") {

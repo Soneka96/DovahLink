@@ -19,6 +19,10 @@ using PlayContextLifecycleIdGenerator =
 using PlayContextFactory =
     std::function<std::shared_ptr<PlayContext>(std::string)>;
 
+///  Decodes SKSE's post-load success signal without fabricating success for a
+///  null payload.
+[[nodiscard]] bool DecodePostLoadGameSuccess(const void* rawData);
+
 ///  Owns the lifecycle state, identity, and authoritative state for one
 ///  currently loaded Skyrim play context.
 class IPlayContextLifecycle {

@@ -7,6 +7,10 @@
 
 namespace dovahlink::application {
 
+bool DecodePostLoadGameSuccess(const void* rawData) {
+    return rawData != nullptr;
+}
+
 PlayContextLifecycleIdGenerator PlayContextLifecycle::DefaultGenerator() {
     return &security::GenerateOpaqueId;
 }

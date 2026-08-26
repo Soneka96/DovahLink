@@ -56,10 +56,11 @@ Read supported Skyrim state through the approved runtime API and convert it into
 
 Coordinates snapshots, updates, connection-facing capabilities, and read-only behavior. It must be testable without a running Skyrim process.
 
-Lifecycle transition coordination belongs in the application layer: one coordinator serializes the
-`GameLifecycleTracker` update with publication or invalidation of the active play context. Runtime
-adapters decode Skyrim/SKSE callbacks and delegate the resulting application event; they do not
-own a second lifecycle transition state machine.
+Lifecycle transition coordination belongs in the application layer: one play-context lifecycle
+aggregate owns the lifecycle state, play-context identity, and publication or invalidation of the
+active play context as one synchronized state machine. Runtime adapters decode Skyrim/SKSE callbacks
+and delegate the resulting application event; they do not own a second lifecycle transition state
+machine.
 
 Behavior-bearing application services own one coherent responsibility and coordinate through
 explicit, DovahLink-owned capability ports supplied by constructor injection. They must not

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
+#include "application/play_context_lifecycle.hpp"
 
 #include <memory>
 
@@ -21,17 +21,17 @@ class IActivePlayContextReader {
 class ActivePlayContextReader final : public IActivePlayContextReader {
   public:
     ///  Binds the reader to the lifecycle-owned context.
-    ///  @param activePlayContext Context owner used as the read source.
+    ///  @param playContextLifecycle Lifecycle aggregate used as the read source.
     explicit ActivePlayContextReader(
-        const IActivePlayContext& activePlayContext);
+        const IPlayContextLifecycle& playContextLifecycle);
 
     ///  @copydoc IActivePlayContextReader::AcquireCurrent
     [[nodiscard]] std::shared_ptr<PlayContext>
     AcquireCurrent() const override;
 
   private:
-    ///  Lifecycle owner whose current context is exposed read-only.
-    const IActivePlayContext& activePlayContext_;
+    ///  Lifecycle aggregate whose current context is exposed read-only.
+    const IPlayContextLifecycle& playContextLifecycle_;
 };
 
 } //  namespace dovahlink::application

@@ -28,7 +28,7 @@ std::string ReadLifecycleSinkHeader() {
 
 } //  namespace
 
-//  The application coordinator owns executable lifecycle serialization tests.
+//  The application aggregate owns executable lifecycle serialization tests.
 //  This structural test protects the runtime adapter's decode/delegate boundary
 //  without linking CommonLib into the Skyrim-independent application test target.
 TEST_CASE("CommonLibGameLifecycleSink delegates lifecycle transitions",
@@ -37,12 +37,12 @@ TEST_CASE("CommonLibGameLifecycleSink delegates lifecycle transitions",
     const std::string header = ReadLifecycleSinkHeader();
 
     CHECK(header.find(
-              "application::ILifecycleTransitionCoordinator& lifecycleCoordinator_") !=
+              "application::IPlayContextLifecycle& playContextLifecycle_") !=
           std::string::npos);
     CHECK(source.find(
-              "application::ILifecycleTransitionCoordinator& lifecycleCoordinator") !=
+              "application::IPlayContextLifecycle& playContextLifecycle") !=
           std::string::npos);
-    CHECK(source.find("lifecycleCoordinator_.HandleEvent(event);") !=
+    CHECK(source.find("playContextLifecycle_.HandleEvent(event);") !=
           std::string::npos);
     CHECK(source.find("tracker_.HandleEvent(event);") == std::string::npos);
     CHECK(source.find("ApplyLifecycleTransition") == std::string::npos);
