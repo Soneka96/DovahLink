@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/bridge_worker_pool.hpp"
 #include "application/contained_work.hpp"
 #include "application/lifetime_token.hpp"
 
@@ -22,23 +23,6 @@ class CallbackRegistry {
 
     ///  Unregisters all callbacks before owned state is destroyed.
     virtual void UnregisterAll() = 0;
-};
-
-///  Controls worker startup and shutdown.
-class WorkerPool {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~WorkerPool() = default;
-
-    ///  Starts worker processing.
-    ///  @param workerRunner Containment boundary retained by worker threads.
-    virtual void Start(ContainedWorkRunner workerRunner) = 0;
-
-    ///  Stops workers and drains or cancels queued work without joining them.
-    virtual void Stop() = 0;
-
-    ///  Waits until every worker has exited.
-    virtual void Join() = 0;
 };
 
 ///  Controls transport startup, completion cancellation, and closure.
@@ -65,7 +49,7 @@ class Coordinator {
     ///  @param callbacks Callback registration boundary.
     ///  @param workers Worker lifecycle boundary.
     ///  @param transport Transport lifecycle boundary.
-    Coordinator(CallbackRegistry& callbacks, WorkerPool& workers,
+    Coordinator(CallbackRegistry& callbacks, IBridgeWorkerPool& workers,
                 TransportLifecycle& transport);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
@@ -162,7 +146,7 @@ class Coordinator {
     CallbackRegistry& callbacks_;
 
     ///  Worker lifecycle boundary.
-    WorkerPool& workers_;
+    IBridgeWorkerPool& workers_;
 
     ///  Transport lifecycle boundary.
     TransportLifecycle& transport_;

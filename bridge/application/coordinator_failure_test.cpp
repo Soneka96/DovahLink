@@ -17,8 +17,8 @@
 using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
+using dovahlink::application::IBridgeWorkerPool;
 using dovahlink::application::TransportLifecycle;
-using dovahlink::application::WorkerPool;
 
 namespace {
 
@@ -95,9 +95,9 @@ class NoopCallbackRegistry : public CallbackRegistry {
 };
 
 ///  Provides a worker pool with configurable shutdown behavior.
-class NoopWorkerPool : public WorkerPool {
+class NoopWorkerPool : public IBridgeWorkerPool {
   public:
-    ///  @copydoc WorkerPool::Start
+    ///  @copydoc IBridgeWorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -105,7 +105,7 @@ class NoopWorkerPool : public WorkerPool {
         }
         workerRunner_ = std::move(workerRunner);
     }
-    ///  @copydoc WorkerPool::Stop
+    ///  @copydoc IBridgeWorkerPool::Stop
     void Stop() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Stop");
@@ -116,7 +116,7 @@ class NoopWorkerPool : public WorkerPool {
         }
         ThrowAtStage(failureStage_, ShutdownFailureStage::kStopWorkers);
     }
-    ///  @copydoc WorkerPool::Join
+    ///  @copydoc IBridgeWorkerPool::Join
     void Join() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Join");

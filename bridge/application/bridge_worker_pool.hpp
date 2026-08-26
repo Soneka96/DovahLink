@@ -3,7 +3,7 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_socket.hpp"
 #include "application/connection_session.hpp"
-#include "application/coordinator.hpp"
+#include "application/contained_work.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
@@ -27,11 +27,28 @@
 
 namespace dovahlink::application {
 
+///  Controls worker startup and shutdown.
+class IBridgeWorkerPool {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IBridgeWorkerPool() = default;
+
+    ///  Starts worker processing.
+    ///  @param workerRunner Containment boundary retained by worker threads.
+    virtual void Start(ContainedWorkRunner workerRunner) = 0;
+
+    ///  Stops workers and drains or cancels queued work without joining them.
+    virtual void Stop() = 0;
+
+    ///  Waits until every worker has exited.
+    virtual void Join() = 0;
+};
+
 ///  Owns one accept worker per loopback listener and enforces one active client.
 ///  `Stop()` closes listeners and shuts down the active session socket before
 ///  `Join()` so blocked accepts, handshakes, and reads can finish. Also the
 ///  owns the worker lifecycle for one active client.
-class BridgeWorkerPool final : public WorkerPool {
+class BridgeWorkerPool final : public IBridgeWorkerPool {
   public:
     ///  Creates workers for the two loopback listeners.
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.
@@ -81,13 +98,13 @@ class BridgeWorkerPool final : public WorkerPool {
     ///  Copy assignment is not supported.
     BridgeWorkerPool& operator=(const BridgeWorkerPool&) = delete;
 
-    ///  @copydoc WorkerPool::Start
+    ///  @copydoc IBridgeWorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override;
 
-    ///  @copydoc WorkerPool::Stop
+    ///  @copydoc IBridgeWorkerPool::Stop
     void Stop() override;
 
-    ///  @copydoc WorkerPool::Join
+    ///  @copydoc IBridgeWorkerPool::Join
     void Join() override;
 
   private:

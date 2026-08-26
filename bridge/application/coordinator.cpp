@@ -4,7 +4,7 @@
 
 namespace dovahlink::application {
 
-Coordinator::Coordinator(CallbackRegistry& callbacks, WorkerPool& workers,
+Coordinator::Coordinator(CallbackRegistry& callbacks, IBridgeWorkerPool& workers,
                          TransportLifecycle& transport)
     : callbacks_(callbacks), workers_(workers), transport_(transport) {}
 
@@ -60,7 +60,7 @@ void Coordinator::Shutdown() noexcept {
     }
 
     //  4. Stop and join workers. Draining/cancelling queued work is the
-    //     worker pool implementation's responsibility (see WorkerPool::Stop).
+    //     worker pool implementation's responsibility (see IBridgeWorkerPool::Stop).
     (void)RunContained([this] { workers_.Stop(); });
     (void)RunContained([this] { workers_.Join(); });
 
