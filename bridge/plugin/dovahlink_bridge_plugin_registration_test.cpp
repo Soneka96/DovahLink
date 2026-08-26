@@ -80,3 +80,31 @@ TEST_CASE("SKSEPluginLoad calls SKSE::Init before any interface registration "
         CHECK(initPos < callPos);
     }
 }
+
+TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    std::size_t readerPos =
+        source.find("activePlayContextReader(activePlayContext)");
+    REQUIRE(readerPos != std::string::npos);
+
+    std::size_t levelSinkPos =
+        source.find("ActivePlayContextLevelSink levelSink");
+    REQUIRE(levelSinkPos != std::string::npos);
+    CHECK(readerPos < levelSinkPos);
+    CHECK(source.find("activePlayContextReader);", levelSinkPos) !=
+          std::string::npos);
+
+    std::size_t workerPoolPos = source.find("BridgeWorkerPool bridgeWorkerPool");
+    REQUIRE(workerPoolPos != std::string::npos);
+    CHECK(readerPos < workerPoolPos);
+    CHECK(source.find("sessionManager, activePlayContextReader,", workerPoolPos) !=
+          std::string::npos);
+
+    std::size_t lifecycleSinkPos =
+        source.find("CommonLibGameLifecycleSink lifecycleSink");
+    REQUIRE(lifecycleSinkPos != std::string::npos);
+    CHECK(source.find("lifecycleTracker, activePlayContext);", lifecycleSinkPos) !=
+          std::string::npos);
+}

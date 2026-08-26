@@ -6,6 +6,7 @@
 
 #include "application/active_play_context.hpp"
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -289,17 +290,19 @@ SKSEPluginInfo(
     //  The authoritative, play-context-owned identity and state per
     //  ARCHITECTURE.md's runtime/identity model. `activePlayContext` is
     //  lifecycle-driven -- GameLifecycleTracker transitions create and
-    //  invalidate its play contexts -- and is the sole state message_dispatcher
-    //  and subscription_handler read from. Declared before
-    //  `levelIncreaseHandler` below, which routes its captures into whichever
-    //  context is active through `ActivePlayContextLevelSink`.
+    //  invalidate its play contexts -- while `activePlayContextReader` is the
+    //  read-only capability passed to connection-facing consumers. Declared
+    //  before `levelIncreaseHandler` below, which routes its captures into
+    //  whichever context is active through `ActivePlayContextLevelSink`.
     static dovahlink::application::GameLifecycleTracker lifecycleTracker;
     static dovahlink::application::ActivePlayContext activePlayContext;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
         lifecycleTracker, activePlayContext);
+    static dovahlink::application::ActivePlayContextReader
+        activePlayContextReader(activePlayContext);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContext);
+        activePlayContextReader);
     static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
     static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
         levelAccessor, levelSink);
@@ -313,7 +316,7 @@ SKSEPluginInfo(
         trustMutationCoordinator(trustStore, pairingSession, sessionManager);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContext,
+        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
         pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
 

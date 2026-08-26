@@ -8,6 +8,7 @@
 
 #include "application/active_play_context.hpp"
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -261,12 +262,14 @@ int main() {
             return dovahlink::security::GenerateOpaqueId();
         });
     dovahlink::application::ActivePlayContext activePlayContext;
+    dovahlink::application::ActivePlayContextReader activePlayContextReader(
+        activePlayContext);
     //  Routes "increase_level" captures below into whichever play context is
     //  active, the same seam dovahlink_bridge_plugin.cpp's real
     //  LevelIncreaseHandler uses; a capture with no active context is dropped,
     //  matching real play (main menu, before any load).
     dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContext);
+        activePlayContextReader);
 
     //  Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     //  generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
@@ -283,7 +286,7 @@ int main() {
         trustStore, pairingSession, sessionManager);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContext,
+        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
         pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(
