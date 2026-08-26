@@ -1,7 +1,7 @@
-#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
-
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
+
+#include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 
 #include <chrono>
 #include <string_view>

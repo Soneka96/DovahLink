@@ -35,7 +35,17 @@ TEST_CASE("CommonLibGameLifecycleSink delegates lifecycle transitions",
           "[game_state][lifecycle]") {
     const std::string source = ReadLifecycleSinkSource();
     const std::string header = ReadLifecycleSinkHeader();
+    const std::size_t skseInclude = header.find("#include \"SKSE/SKSE.h\"");
+    const std::size_t coordinatorInclude =
+        header.find("#include \"application/coordinator.hpp\"");
+    const std::size_t lifecycleInclude =
+        header.find("#include \"application/play_context_lifecycle.hpp\"");
 
+    REQUIRE(skseInclude != std::string::npos);
+    REQUIRE(coordinatorInclude != std::string::npos);
+    REQUIRE(lifecycleInclude != std::string::npos);
+    CHECK(skseInclude < coordinatorInclude);
+    CHECK(skseInclude < lifecycleInclude);
     CHECK(header.find(
               "application::IPlayContextLifecycle& playContextLifecycle_") !=
           std::string::npos);

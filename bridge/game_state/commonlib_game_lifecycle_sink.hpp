@@ -1,9 +1,9 @@
 #pragma once
 
+#include "SKSE/SKSE.h"
+
 #include "application/coordinator.hpp"
 #include "application/play_context_lifecycle.hpp"
-
-#include "SKSE/SKSE.h"
 
 #include <atomic>
 #include <cstdint>

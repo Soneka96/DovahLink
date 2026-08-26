@@ -194,6 +194,7 @@ add_executable(dovahlink_bridge_tests
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
     game_state/commonlib_game_lifecycle_sink_test.cpp
+    game_state/commonlib_runtime_include_order_test.cpp
     game_state/runtime_guard_test.cpp
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
