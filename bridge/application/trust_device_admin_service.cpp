@@ -71,7 +71,7 @@ FormatKnownDeviceListing(std::vector<security::KnownDeviceRecord> records,
 
 TrustDeviceAdminService::TrustDeviceAdminService(
     security::ITrustDeviceStore& deviceStore,
-    ActiveSessionDisconnector& sessionDisconnector,
+    IActiveSessionDisconnector& sessionDisconnector,
     ITrustMutationCoordinator& mutationCoordinator)
     : deviceStore_(deviceStore), sessionDisconnector_(sessionDisconnector),
       mutationCoordinator_(mutationCoordinator) {}

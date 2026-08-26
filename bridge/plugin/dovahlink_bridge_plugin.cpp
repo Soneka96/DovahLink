@@ -302,6 +302,10 @@ SKSEPluginInfo(
         lifecycleSinkContract = lifecycleSink;
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(playContextLifecycle);
+    static dovahlink::application::ActiveSessionSocket activeSessionSocket;
+    static dovahlink::application::ActiveSessionController
+        activeSessionController(sessionManager, activeSessionSocket,
+                                activePlayContextReader, bridgeInstanceId);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
         playContextLifecycle);
@@ -319,7 +323,8 @@ SKSEPluginInfo(
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        activeSessionSocket, pairingSession, trustMutationCoordinator,
+        pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
 
     //  Registers the optional trust-administration console adapter
@@ -327,18 +332,20 @@ SKSEPluginInfo(
     //  Registration is attempted unconditionally; a failure is logged and remains
     //  isolated to this optional adapter, while the native functions simply go
     //  unused if ConsoleUtil Extended and its Papyrus glue script are not
-    //  installed. Constructed after bridgeWorkerPool, which it depends on
-    //  as its ActiveSessionDisconnector -- the capability that enforces
+    //  installed. Constructed after bridgeWorkerPool, which is also wired to
+    //  the same active-session controller -- the capability that enforces
     //  "Revocation is immediate" (security.md's "Persistent local trust") against
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
+    static dovahlink::application::ActiveSessionDisconnector
+        trustSessionDisconnector(activeSessionController);
     static dovahlink::application::TrustDeviceAdminService
-        trustDeviceAdminService(deviceStore, bridgeWorkerPool,
+        trustDeviceAdminService(deviceStore, trustSessionDisconnector,
                                 trustMutationCoordinator);
     static dovahlink::application::ITrustDeviceAdminService&
         trustDeviceAdminServiceContract = trustDeviceAdminService;
     static dovahlink::application::TrustResetService trustResetService(
-        resetStore, bridgeWorkerPool, trustMutationCoordinator,
+        resetStore, trustSessionDisconnector, trustMutationCoordinator,
         factoryResetChallenge);
     static dovahlink::application::ITrustResetService& trustResetServiceContract =
         trustResetService;

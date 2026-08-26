@@ -38,6 +38,9 @@ find_package(boost_json CONFIG REQUIRED)
 # plugin entry point (added later) may depend on CommonLib/Skyrim runtime
 # types; nothing in this target may do so.
 add_library(dovahlink_bridge_core STATIC
+    application/active_session_controller.cpp
+    application/active_session_disconnector.cpp
+    application/active_session_socket.cpp
     application/bridge_transport.cpp
     application/bridge_worker_pool.cpp
     application/character_state_store.cpp
@@ -154,6 +157,9 @@ target_link_libraries(dovahlink_bridge_harness PRIVATE dovahlink_bridge_core)
 add_executable(dovahlink_bridge_tests
     test_support/source_text_test_support_test.cpp
     application/application_test_support_test.cpp
+    application/active_session_controller_test.cpp
+    application/active_session_disconnector_test.cpp
+    application/active_session_socket_test.cpp
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
     application/character_state_store_test.cpp

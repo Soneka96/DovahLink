@@ -7,7 +7,7 @@ namespace dovahlink::application {
 
 TrustResetService::TrustResetService(
     security::ITrustResetStore& resetStore,
-    ActiveSessionDisconnector& sessionDisconnector,
+    IActiveSessionDisconnector& sessionDisconnector,
     ITrustMutationCoordinator& mutationCoordinator,
     security::IFactoryResetChallenge& factoryResetChallenge)
     : resetStore_(resetStore), sessionDisconnector_(sessionDisconnector),

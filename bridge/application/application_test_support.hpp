@@ -2,6 +2,7 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
@@ -202,7 +203,15 @@ class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
 };
 
 ///  GoogleMock active-session disconnection contract double.
-class MockActiveSessionDisconnector : public ActiveSessionDisconnector {
+class MockActiveSessionDisconnector : public IActiveSessionDisconnector {
+  public:
+    MOCK_METHOD(void, DisconnectIfClientActive,
+                (std::string_view, std::string_view), (override));
+    MOCK_METHOD(void, DisconnectActive, (std::string_view), (override));
+};
+
+///  GoogleMock active-session controller contract double.
+class MockActiveSessionController : public IActiveSessionController {
   public:
     MOCK_METHOD(void, DisconnectIfClientActive,
                 (std::string_view, std::string_view), (override));

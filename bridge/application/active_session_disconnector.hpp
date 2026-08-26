@@ -1,5 +1,7 @@
 #pragma once
 
+#include "application/active_session_controller.hpp"
+
 #include <string_view>
 
 namespace dovahlink::application {
@@ -11,10 +13,10 @@ namespace dovahlink::application {
 ///  "Administrative session invalidation"); this seam owns only how the
 ///  transport that holds that connection is reached, notified, and torn down,
 ///  mirroring `PairingNotificationSink`'s existing seam pattern.
-class ActiveSessionDisconnector {
+class IActiveSessionDisconnector {
   public:
     ///  Releases the interface without performing work.
-    virtual ~ActiveSessionDisconnector() = default;
+    virtual ~IActiveSessionDisconnector() = default;
 
     ///  Force-closes the active session if the client identity bound to it is
     ///  `clientId`, after best-effort sending it a `session_invalidated(reason)`
@@ -58,6 +60,24 @@ class ActiveSessionDisconnector {
     ///  @param reason One of `"revoked"`, `"blocked"`, `"trust_reset"`,
     ///  `"factory_reset"`.
     virtual void DisconnectActive(std::string_view reason) = 0;
+};
+
+///  Exposes only the trust-facing disconnection capability of the active session.
+class ActiveSessionDisconnector final : public IActiveSessionDisconnector {
+  public:
+    ///  Binds the adapter to the active-session controller.
+    explicit ActiveSessionDisconnector(IActiveSessionController& controller);
+
+    ///  @copydoc IActiveSessionDisconnector::DisconnectIfClientActive
+    void DisconnectIfClientActive(std::string_view clientId,
+                                  std::string_view reason) override;
+
+    ///  @copydoc IActiveSessionDisconnector::DisconnectActive
+    void DisconnectActive(std::string_view reason) override;
+
+  private:
+    ///  Controller that owns active-session resolution and shutdown.
+    IActiveSessionController& controller_;
 };
 
 } //  namespace dovahlink::application

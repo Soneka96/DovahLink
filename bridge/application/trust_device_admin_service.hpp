@@ -53,7 +53,7 @@ class TrustDeviceAdminService final : public ITrustDeviceAdminService {
     ///  finalization.
     TrustDeviceAdminService(
         security::ITrustDeviceStore& deviceStore,
-        ActiveSessionDisconnector& sessionDisconnector,
+        IActiveSessionDisconnector& sessionDisconnector,
         ITrustMutationCoordinator& mutationCoordinator);
 
     ///  Lists known devices according to the console-facing scope.
@@ -95,7 +95,7 @@ class TrustDeviceAdminService final : public ITrustDeviceAdminService {
     security::ITrustDeviceStore& deviceStore_;
 
     ///  Disconnects a session after a successful revoke or block.
-    ActiveSessionDisconnector& sessionDisconnector_;
+    IActiveSessionDisconnector& sessionDisconnector_;
 
     ///  Coordinates blocking and revocation with pairing finalization.
     ITrustMutationCoordinator& mutationCoordinator_;

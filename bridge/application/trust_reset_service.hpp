@@ -38,7 +38,7 @@ class TrustResetService final : public ITrustResetService {
     ///  @param factoryResetChallenge Starts and confirms the local reset code.
     TrustResetService(
         security::ITrustResetStore& resetStore,
-        ActiveSessionDisconnector& sessionDisconnector,
+        IActiveSessionDisconnector& sessionDisconnector,
         ITrustMutationCoordinator& mutationCoordinator,
         security::IFactoryResetChallenge& factoryResetChallenge);
 
@@ -57,7 +57,7 @@ class TrustResetService final : public ITrustResetService {
     security::ITrustResetStore& resetStore_;
 
     ///  Disconnects targeted or all active sessions after reset.
-    ActiveSessionDisconnector& sessionDisconnector_;
+    IActiveSessionDisconnector& sessionDisconnector_;
 
     ///  Coordinates reset mutations with active pairing state.
     ITrustMutationCoordinator& mutationCoordinator_;

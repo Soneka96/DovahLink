@@ -1,4 +1,5 @@
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_disconnector.hpp"
 #include "application/bridge_worker_pool.hpp"
 
 #include "application/application_test_support.hpp"
@@ -29,6 +30,9 @@
 #include <thread>
 #include <vector>
 
+using dovahlink::application::ActiveSessionController;
+using dovahlink::application::ActiveSessionDisconnector;
+using dovahlink::application::ActiveSessionSocket;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ConnectionId;
 using dovahlink::application::ContainedWork;
@@ -146,6 +150,14 @@ struct Fixture {
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
     EmptyActivePlayContext activePlayContext;
+    ///  Owns publication and shutdown of the active test socket.
+    ActiveSessionSocket activeSessionSocket;
+    ///  Owns the active socket and administrative invalidation behavior.
+    ActiveSessionController activeSessionController{
+        sessionManager, activeSessionSocket, activePlayContext, std::nullopt};
+    ///  Exposes the trust-facing disconnection capability under test.
+    ActiveSessionDisconnector activeSessionDisconnector{
+        activeSessionController};
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4,
                           listenerV6,
@@ -156,6 +168,7 @@ struct Fixture {
                           credentialThrottle,
                           sessionManager,
                           activePlayContext,
+                          activeSessionSocket,
                           pairingSession,
                           mutationCoordinator,
                           pairingNotificationSink,
@@ -434,7 +447,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive is a no-op when no "
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
 
     fixture.pool.Stop();
     fixture.pool.Join();
@@ -465,7 +478,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not retroactively "
 
     REQUIRE(fixture.trustStore.Authenticate("client-1", credential));
     REQUIRE(fixture.trustStore.Revoke("client-1"));
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
 
     ConnectionId connection = 1;
     auto lease = fixture.sessionManager.TryCreateSession(
@@ -484,7 +497,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive is a no-op when no connection was "
     Fixture fixture;
     fixture.pool.Start(MakeContainedWorkRunner());
 
-    fixture.pool.DisconnectActive("trust_reset");
+    fixture.activeSessionDisconnector.DisconnectActive("trust_reset");
 
     fixture.pool.Stop();
     fixture.pool.Join();
@@ -535,7 +548,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves a "
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
 
     //  Proves the exemption genuinely left the session alone, rather than merely
     //  not yet having torn it down: a ping sent afterward still round-trips over
@@ -566,7 +579,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves a "
     //  exemption boundary directly on one live connection rather than only in
     //  separate tests.
     using namespace std::chrono_literals;
-    fixture.pool.DisconnectActive("factory_reset");
+    fixture.activeSessionDisconnector.DisconnectActive("factory_reset");
     auto deadline = std::chrono::steady_clock::now() + 5s;
     while (fixture.sessionManager.IsValidForConnection(sessionId, 1) &&
            std::chrono::steady_clock::now() < deadline) {
@@ -628,7 +641,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive interrupts a "
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
     //  Delivery is best-effort (`ai/context/protocol/security.md`'s
@@ -708,7 +721,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive leaves the active session "
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectIfClientActive("someone-else", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("someone-else", "revoked");
 
     //  Proves the mismatch genuinely left the session alone, rather than merely
     //  not yet having torn it down: a ping sent afterward still round-trips over
@@ -848,7 +861,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new "
     //  The stale identity from the connection that already ended above must not
     //  match the connection now active, even though both connections were
     //  published as activeSocket_ in turn.
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
 
     //  Proves the mismatch genuinely left the session alone, rather than merely
     //  not yet having torn it down: a ping sent afterward still round-trips over
@@ -877,7 +890,7 @@ TEST_CASE("BridgeWorkerPool DisconnectIfClientActive does not disconnect a new "
     //  The negative result above isn't proof activeConnectionId_ tracks the new
     //  connection at all -- confirm the matching id, "client-2", still tears the
     //  session down correctly.
-    fixture.pool.DisconnectIfClientActive("client-2", "revoked");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-2", "revoked");
 
     //  The session ID stamped into the notification must be the second
     //  connection's -- resolved under the same activeSocketMutex_ critical section
@@ -948,7 +961,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated "
     clientWs.read(capabilitiesBuffer, capabilitiesReadEc);
     REQUIRE_FALSE(capabilitiesReadEc);
 
-    fixture.pool.DisconnectActive("trust_reset");
+    fixture.activeSessionDisconnector.DisconnectActive("trust_reset");
     CHECK_FALSE(fixture.sessionManager.IsValidForConnection(sessionId, 1));
 
     //  Delivery is best-effort; see the equivalent comment above and in
@@ -979,8 +992,8 @@ TEST_CASE("BridgeWorkerPool DisconnectActive interrupts an authenticated "
     //  weak_ptr expired rather than merely unset -- a distinct guard path from
     //  "never had a connection at all," and must be just as safe to call again
     //  (for example a double revoke).
-    fixture.pool.DisconnectActive("trust_reset");
-    fixture.pool.DisconnectIfClientActive("client-1", "revoked");
+    fixture.activeSessionDisconnector.DisconnectActive("trust_reset");
+    fixture.activeSessionDisconnector.DisconnectIfClientActive("client-1", "revoked");
 
     fixture.pool.Stop();
     fixture.pool.Join();
@@ -1092,7 +1105,7 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's "
     secondClientWs.read(secondCapabilitiesBuffer, secondCapabilitiesReadEc);
     REQUIRE_FALSE(secondCapabilitiesReadEc);
 
-    fixture.pool.DisconnectActive("trust_reset");
+    fixture.activeSessionDisconnector.DisconnectActive("trust_reset");
 
     //  Delivery is best-effort; see the equivalent comment above and in
     //  websocket_session_test.cpp. The handoff property this test exists to prove
