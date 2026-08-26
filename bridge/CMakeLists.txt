@@ -161,6 +161,7 @@ add_executable(dovahlink_bridge_tests
     application/coordinator_test.cpp
     application/game_behavior_config_test.cpp
     application/play_context_lifecycle_test.cpp
+    application/play_context_transition_test.cpp
     application/handshake_handler_test.cpp
     application/active_play_context_reader_test.cpp
     application/active_play_context_level_sink_test.cpp

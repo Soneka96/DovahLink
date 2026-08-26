@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/play_context.hpp"
+#include "application/play_context_transition.hpp"
 #include "shared/enums.hpp"
 
 #include <cstdint>
@@ -28,15 +29,6 @@ using PlayContextFactory =
 ///  currently loaded Skyrim play context.
 class IPlayContextLifecycle {
   public:
-    ///  Reports the effect of one processed lifecycle event.
-    struct Transition {
-        ///  Whether a previously published play context was invalidated.
-        bool contextInvalidated = false;
-
-        ///  The freshly minted play-context identifier, when one was created.
-        std::optional<std::string> newPlayContextId;
-    };
-
     ///  Allows destruction through the interface.
     virtual ~IPlayContextLifecycle() = default;
 
@@ -44,7 +36,7 @@ class IPlayContextLifecycle {
     ///  the published play context.
     ///  @param event Signal received from the runtime adapter.
     ///  @return The resulting invalidation/creation effect.
-    virtual Transition HandleEvent(LifecycleEvent event) = 0;
+    virtual PlayContextTransition HandleEvent(LifecycleEvent event) = 0;
 
     ///  Returns the identifier of the currently active play context.
     [[nodiscard]] virtual std::optional<std::string>
@@ -73,7 +65,7 @@ class PlayContextLifecycle final : public IPlayContextLifecycle {
         PlayContextFactory createContext = DefaultFactory());
 
     ///  @copydoc IPlayContextLifecycle::HandleEvent
-    Transition HandleEvent(LifecycleEvent event) override;
+    PlayContextTransition HandleEvent(LifecycleEvent event) override;
 
     ///  @copydoc IPlayContextLifecycle::CurrentPlayContextId
     [[nodiscard]] std::optional<std::string>
@@ -93,10 +85,10 @@ class PlayContextLifecycle final : public IPlayContextLifecycle {
     static PlayContextFactory DefaultFactory();
 
     ///  Invalidates the aggregate while `mutex_` is held.
-    Transition InvalidateLocked();
+    PlayContextTransition InvalidateLocked();
 
     ///  Activates a new context while `mutex_` is held.
-    Transition ActivateLocked();
+    PlayContextTransition ActivateLocked();
 
     ///  Produces fresh play-context identifiers.
     PlayContextLifecycleIdGenerator generateId_;

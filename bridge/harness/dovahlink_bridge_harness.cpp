@@ -96,8 +96,7 @@ class StdoutPairingNotificationSink
 ///  game_state/commonlib_game_lifecycle_sink.cpp's per-signal handling without
 ///  any SKSE dependency.
 ///  @return The transition produced by this event.
-dovahlink::application::IPlayContextLifecycle::Transition
-ProcessLifecycleEvent(
+dovahlink::application::PlayContextTransition ProcessLifecycleEvent(
     dovahlink::application::IPlayContextLifecycle& playContextLifecycle,
     dovahlink::application::LifecycleEvent event) {
     return playContextLifecycle.HandleEvent(event);

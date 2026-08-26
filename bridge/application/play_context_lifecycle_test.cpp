@@ -65,17 +65,20 @@ TEST_CASE("PlayContextLifecycle invalidates state through load and revert events
 
     auto preLoad = contract.HandleEvent(LifecycleEvent::kPreLoadGame);
     CHECK(preLoad.contextInvalidated);
+    CHECK_FALSE(preLoad.newPlayContextId.has_value());
     CHECK(contract.CurrentState() == LifecycleState::kLoading);
 
     auto failedLoad =
         contract.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
     CHECK_FALSE(failedLoad.contextInvalidated);
+    CHECK_FALSE(failedLoad.newPlayContextId.has_value());
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(contract.CurrentPlayContextId());
 
     contract.HandleEvent(LifecycleEvent::kNewGame);
     auto revert = contract.HandleEvent(LifecycleEvent::kRevert);
     CHECK(revert.contextInvalidated);
+    CHECK_FALSE(revert.newPlayContextId.has_value());
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
 }
 
@@ -116,6 +119,7 @@ TEST_CASE("PlayContextLifecycle treats repeated and out-of-order invalidation as
 
     auto loadingRevert = contract.HandleEvent(LifecycleEvent::kRevert);
     CHECK(loadingRevert.contextInvalidated);
+    CHECK_FALSE(loadingRevert.newPlayContextId.has_value());
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
 }
 

@@ -94,7 +94,7 @@ void CommonLibGameLifecycleSink::HandleEvent(application::LifecycleEvent event,
     SKSE::log::info("[lifecycle #{} thread {}] raw={}", sequence, thread,
                     rawDescription);
 
-    application::IPlayContextLifecycle::Transition transition =
+    application::PlayContextTransition transition =
         playContextLifecycle_.HandleEvent(event);
 
     SKSE::log::info(

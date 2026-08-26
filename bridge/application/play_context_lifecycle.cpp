@@ -27,22 +27,22 @@ PlayContextLifecycle::PlayContextLifecycle(
     : generateId_(std::move(generateId)),
       createContext_(std::move(createContext)) {}
 
-IPlayContextLifecycle::Transition PlayContextLifecycle::InvalidateLocked() {
+PlayContextTransition PlayContextLifecycle::InvalidateLocked() {
     const bool hadContext = state_ != LifecycleState::kNoContext;
     state_ = LifecycleState::kNoContext;
     currentPlayContextId_.reset();
     current_.reset();
-    return Transition{.contextInvalidated = hadContext};
+    return PlayContextTransition{.contextInvalidated = hadContext};
 }
 
-IPlayContextLifecycle::Transition PlayContextLifecycle::ActivateLocked() {
+PlayContextTransition PlayContextLifecycle::ActivateLocked() {
     const bool hadActiveContext = state_ == LifecycleState::kActive;
     std::optional<std::string> id = generateId_ ? generateId_() : std::nullopt;
     if (!id.has_value()) {
         state_ = LifecycleState::kNoContext;
         currentPlayContextId_.reset();
         current_.reset();
-        return Transition{.contextInvalidated = hadActiveContext};
+        return PlayContextTransition{.contextInvalidated = hadActiveContext};
     }
 
     if (!createContext_) {
@@ -56,15 +56,15 @@ IPlayContextLifecycle::Transition PlayContextLifecycle::ActivateLocked() {
     //  All potentially-throwing work is complete before any aggregate member is
     //  changed. The remaining moves and scalar assignment preserve the previous
     //  consistent state if context creation fails.
-    Transition transition{.contextInvalidated = hadActiveContext,
-                          .newPlayContextId = id};
+    PlayContextTransition transition{.contextInvalidated = hadActiveContext,
+                                     .newPlayContextId = id};
     state_ = LifecycleState::kActive;
     currentPlayContextId_ = std::move(id);
     current_ = std::move(context);
     return transition;
 }
 
-IPlayContextLifecycle::Transition PlayContextLifecycle::HandleEvent(
+PlayContextTransition PlayContextLifecycle::HandleEvent(
     LifecycleEvent event) {
     std::lock_guard<std::mutex> lock(mutex_);
     switch (event) {
@@ -76,7 +76,7 @@ IPlayContextLifecycle::Transition PlayContextLifecycle::HandleEvent(
         state_ = LifecycleState::kLoading;
         currentPlayContextId_.reset();
         current_.reset();
-        return Transition{.contextInvalidated = hadActiveContext};
+        return PlayContextTransition{.contextInvalidated = hadActiveContext};
     }
 
     case LifecycleEvent::kPostLoadGameSuccess:
@@ -88,10 +88,10 @@ IPlayContextLifecycle::Transition PlayContextLifecycle::HandleEvent(
         state_ = LifecycleState::kNoContext;
         currentPlayContextId_.reset();
         current_.reset();
-        return Transition{.contextInvalidated = hadActiveContext};
+        return PlayContextTransition{.contextInvalidated = hadActiveContext};
     }
     }
-    return Transition{};
+    return PlayContextTransition{};
 }
 
 std::optional<std::string>

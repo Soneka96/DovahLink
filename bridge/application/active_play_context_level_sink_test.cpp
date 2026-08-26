@@ -19,7 +19,7 @@ namespace {
 ///  GoogleMock lifecycle aggregate double for the level-writing adapter.
 class MockPlayContextLifecycle : public IPlayContextLifecycle {
   public:
-    MOCK_METHOD(IPlayContextLifecycle::Transition, HandleEvent,
+    MOCK_METHOD(dovahlink::application::PlayContextTransition, HandleEvent,
                 (LifecycleEvent), (override));
     MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
                 (const, override));
