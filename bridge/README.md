@@ -95,8 +95,9 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
   `std::uint16_t`) from `RE::Actor`, confirmed by reading both headers at the pinned commit.
 
 No dependency here duplicates a production role already covered by Boost or CommonLibSSE-NG's own
-dependencies. GoogleTest/GoogleMock is test-only and provides the Bridge's single mocking policy
-for synchronous and cross-thread contract tests.
+dependencies. GoogleTest/GoogleMock is test-only and provides the Bridge's mock-based contract
+testing; controllable thread-safe fakes remain the required double when timing, lifetime,
+synchronization, or mutable state is under test.
 
 `bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same step that
 first consumes it, rather than all at once: `catch2` landed with the build scaffolding, `boost-json`

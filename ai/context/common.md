@@ -92,10 +92,14 @@ pull request workflow belongs to `CONTRIBUTING.md`.
 - Consumer tests prove the consumer's behavior through test doubles for behavior-bearing
   collaborators, including calls, arguments, failure handling, and contractually important
   ordering.
+- Choose the test double from the behavior under test, not from the language or package. Use a
+  strict mock for synchronous, stateless interaction-only behavior. Use a controllable,
+  thread-safe fake when timing, lifetime, cross-thread access, synchronization, or mutable state
+  is part of the behavior being controlled or asserted. Area conventions may require a stricter
+  choice, but must not weaken this rule; framework-specific mock guidance does not replace it.
 - When a consumer changes to depend on a new contract, its isolated consumer test changes in the
-  same implementation step. Synchronous consumers use strict mocks; worker, callback, transport,
-  and lifetime consumers use controllable thread-safe fakes. Real collaborator composition belongs
-  only in a small explicit composition test.
+  same implementation step. Real collaborator composition belongs only in a small explicit
+  composition test.
 - A collaborator's behavior remains owned by that collaborator's own tests. Do not mock DTOs,
   value objects, pure conversion functions, or other logic whose behavior is the subject of the
   test.

@@ -41,9 +41,12 @@
   hide a missing equality override; non-`const` catalog calls must surface that gap through the
   failing `verify()` or `expect()`.
 - Mock the interface the code depends on; do not mock a concrete implementation when an interface exists.
-- Consumer tests use mocks for behavior-bearing dependencies and do not re-prove those dependencies'
-  internal behavior through real objects. Update the consumer test in the same change that changes
-  its contract; keep real multi-object wiring in the approved composition-root test only.
+- Consumer tests use contract doubles: mocktail mocks for synchronous, stateless interaction-only
+  dependencies and controllable thread-safe fakes when timing, lifetime, cross-thread access,
+  synchronization, or mutable state is part of the behavior under test. Do not re-prove those
+  dependencies' internal behavior through real objects. Update the consumer test in the same
+  change that changes its contract; keep real multi-object wiring in the approved composition-root
+  test only.
 - Assert exact arguments for delegated calls.
 - Test both the action/call path and the matching no-action/no-call path when behavior is conditional.
 - Define `setUp` per group, or in `main` when setup is shared by the whole file.
@@ -105,15 +108,16 @@
 ## Widget tests
 
 - Test behavior through stable keys or semantics, not incidental widget types.
-- Stub every dependency the widget reads during build, with no exception for infrastructure that
-  feels like "just wiring." A screen resolves its ViewModel through `sl<ViewModel>(param1: store)`
-  like any other DI-resolved dependency, so mock it the same way, unconditionally, in every test
-  for that screen: a mocktail `class MockFooViewModel extends Mock implements FooViewModel {}`.
-  Never a hand-built literal ViewModel instance, and never a real store driven through the reducer
-  just to reach the phase/state a test wants -- reducer correctness and ViewModel derivation
-  already have their own test files; a screen test's job is only "given this ViewModel, does the
-  screen render/call the right thing." The `Store<AppState>` passed to `StoreProvider` is mocked
-  too (`class MockStore extends Mock implements Store<AppState> {}`) -- the same
+- Stub every dependency the widget reads during build. A screen resolves its ViewModel through
+  `sl<ViewModel>(param1: store)` like any other DI-resolved dependency, so use a mocktail mock for
+  synchronous, stateless interaction-only behavior: `class MockFooViewModel extends Mock implements FooViewModel {}`.
+  Use a controllable thread-safe fake when timing, lifetime, cross-thread access,
+  synchronization, or mutable state is part of the behavior under test. Never use a real store
+  driven through the reducer just to reach the phase/state a test wants -- reducer correctness and
+  ViewModel derivation already have their own test files; a screen test's job is only "given this
+  ViewModel, does the screen render/call the right thing." The `Store<AppState>` passed to
+  `StoreProvider` is normally mocked for this synchronous wiring test
+  (`class MockStore extends Mock implements Store<AppState> {}`) -- the same
   `MockStore`/action-log pattern this project's middleware tests already use
   (`when(() => store.dispatch(any())).thenAnswer((i) => actionLog.add(i.positionalArguments[0]))`),
   plus `when(() => store.onChange).thenAnswer((_) => const Stream<AppState>.empty());` so
