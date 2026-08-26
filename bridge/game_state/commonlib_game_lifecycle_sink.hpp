@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string_view>
 
 namespace dovahlink::game_state {
@@ -58,6 +59,10 @@ class CommonLibGameLifecycleSink {
 
     ///  Play context ownership updated by every processed transition.
     application::IActivePlayContext& activePlayContext_;
+
+    ///  Serializes decoded lifecycle transitions from all runtime callback
+    ///  sources so tracker and active-context updates remain one operation.
+    std::mutex lifecycleMutex_;
 
     ///  Coordinator-owned admission and exception boundary for runtime callbacks.
     application::ContainedWorkRunner callbackRunner_;

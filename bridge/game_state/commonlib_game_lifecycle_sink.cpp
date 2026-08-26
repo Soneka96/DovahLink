@@ -92,6 +92,7 @@ void CommonLibGameLifecycleSink::OnRevert() {
 
 void CommonLibGameLifecycleSink::HandleEvent(application::LifecycleEvent event,
                                              std::string_view rawDescription) {
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     std::uint64_t sequence = sequence_.fetch_add(1, std::memory_order_relaxed);
     std::string thread = ThreadIdString();
     SKSE::log::info("[lifecycle #{} thread {}] raw={}", sequence, thread,

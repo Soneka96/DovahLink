@@ -182,6 +182,7 @@ add_executable(dovahlink_bridge_tests
     application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
+    game_state/commonlib_game_lifecycle_sink_test.cpp
     game_state/runtime_guard_test.cpp
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
@@ -234,6 +235,8 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
     DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
+    DOVAHLINK_LIFECYCLE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.hpp"
+    DOVAHLINK_LIFECYCLE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
 )
 
