@@ -92,6 +92,7 @@ add_library(dovahlink_bridge_core STATIC
     security/trust_reset_store.cpp
     security/trust_store.cpp
     security/windows_trust_store_persistence.cpp
+    shared/scoped_release.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
     transport/websocket_session.cpp
@@ -235,6 +236,7 @@ add_executable(dovahlink_bridge_tests
     protocol/state_snapshot_payload_test.cpp
     protocol/subscribe_payload_test.cpp
     protocol/subscription_ack_payload_test.cpp
+    shared/scoped_release_test.cpp
     transport/connection_slot_test.cpp
     transport/inbound_limit_test.cpp
     transport/listener_test.cpp

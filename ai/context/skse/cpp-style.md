@@ -60,9 +60,10 @@
   concepts from domains it is already allowed to depend on (for example `bridge/transport/` must
   not start depending on a `bridge/security/`-owned enum merely because it is easier to reach from
   one shared header). This is enforced by reviewing usage sites, not by file structure -- C++ has
-  no per-symbol include restriction. `bridge/shared/` holds only `enums.hpp` for now; it is not a
-  general-purpose utilities location, and adding anything else there needs its own maintainer
-  decision.
+  no per-symbol include restriction. `bridge/shared/` holds `enums.hpp` and `scoped_release.hpp`/
+  `.cpp` (the `ScopedRelease` RAII utility, genuinely used across `application/`, `security/`, and
+  `transport/` and owned by none of them); it is not a general-purpose utilities location, and
+  adding anything else there needs its own maintainer decision.
 - Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
   own `constants.hpp`, per module directory as listed above -- never shared across module
   directories, and not consolidated bridge-wide like enums are. Group entries within it by the
