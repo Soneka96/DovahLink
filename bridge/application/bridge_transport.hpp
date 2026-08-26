@@ -1,14 +1,29 @@
 #pragma once
 
-#include "application/coordinator.hpp"
 #include "transport/listener.hpp"
 
 namespace dovahlink::application {
 
+///  Controls transport startup, completion cancellation, and closure.
+class IBridgeTransport {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IBridgeTransport() = default;
+
+    ///  Starts transport handling.
+    virtual void Start() = 0;
+
+    ///  Cancels transport completions that can still run.
+    virtual void CancelCompletions() = 0;
+
+    ///  Closes transport resources.
+    virtual void Close() = 0;
+};
+
 ///  Provides the coordinator's transport lifecycle for two already-bound
 ///  loopback listeners. The synchronous bridge has no asynchronous completions,
 ///  and accept workers own admission.
-class BridgeTransport : public TransportLifecycle {
+class BridgeTransport : public IBridgeTransport {
   public:
     ///  Keeps references to the already-bound IPv4 and IPv6 listeners.
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.

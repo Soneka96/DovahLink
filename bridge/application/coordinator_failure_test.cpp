@@ -17,8 +17,8 @@
 using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
+using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
-using dovahlink::application::TransportLifecycle;
 
 namespace {
 
@@ -148,16 +148,16 @@ class NoopWorkerPool : public IBridgeWorkerPool {
 };
 
 ///  Provides a transport lifecycle with configurable shutdown behavior.
-class NoopTransportLifecycle : public TransportLifecycle {
+class NoopTransportLifecycle : public IBridgeTransport {
   public:
-    ///  @copydoc TransportLifecycle::Start
+    ///  @copydoc IBridgeTransport::Start
     void Start() override {
         ++startCalls_;
         if (throwOnStart_) {
             throw std::runtime_error("configured transport startup failure");
         }
     }
-    ///  @copydoc TransportLifecycle::CancelCompletions
+    ///  @copydoc IBridgeTransport::CancelCompletions
     void CancelCompletions() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.CancelCompletions");
@@ -165,7 +165,7 @@ class NoopTransportLifecycle : public TransportLifecycle {
         ThrowAtStage(failureStage_,
                      ShutdownFailureStage::kCancelTransportCompletions);
     }
-    ///  @copydoc TransportLifecycle::Close
+    ///  @copydoc IBridgeTransport::Close
     void Close() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.Close");

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/contained_work.hpp"
 #include "application/lifetime_token.hpp"
@@ -25,22 +26,6 @@ class CallbackRegistry {
     virtual void UnregisterAll() = 0;
 };
 
-///  Controls transport startup, completion cancellation, and closure.
-class TransportLifecycle {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~TransportLifecycle() = default;
-
-    ///  Starts transport handling.
-    virtual void Start() = 0;
-
-    ///  Cancels transport completions that can still run.
-    virtual void CancelCompletions() = 0;
-
-    ///  Closes transport resources.
-    virtual void Close() = 0;
-};
-
 ///  Owns callback, worker, and transport lifecycle and provides idempotent
 ///  shutdown.
 class Coordinator {
@@ -50,7 +35,7 @@ class Coordinator {
     ///  @param workers Worker lifecycle boundary.
     ///  @param transport Transport lifecycle boundary.
     Coordinator(CallbackRegistry& callbacks, IBridgeWorkerPool& workers,
-                TransportLifecycle& transport);
+                IBridgeTransport& transport);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
     ~Coordinator() noexcept;
@@ -149,7 +134,7 @@ class Coordinator {
     IBridgeWorkerPool& workers_;
 
     ///  Transport lifecycle boundary.
-    TransportLifecycle& transport_;
+    IBridgeTransport& transport_;
 
     ///  Lifetime token shared with transport completions.
     std::shared_ptr<LifetimeToken> transportToken_ =

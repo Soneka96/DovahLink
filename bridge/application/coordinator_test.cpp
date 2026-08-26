@@ -12,9 +12,9 @@
 using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
+using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
 using dovahlink::application::LifetimeToken;
-using dovahlink::application::TransportLifecycle;
 
 namespace {
 
@@ -82,18 +82,18 @@ class RecordingWorkerPool : public IBridgeWorkerPool {
 };
 
 ///  Records transport lifecycle calls in the shared test log.
-class RecordingTransportLifecycle : public TransportLifecycle {
+class RecordingTransportLifecycle : public IBridgeTransport {
   public:
     ///  Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingTransportLifecycle(std::vector<std::string>& log)
         : log_(log) {}
-    ///  @copydoc TransportLifecycle::Start
+    ///  @copydoc IBridgeTransport::Start
     void Start() override { log_.push_back("transport.Start"); }
-    ///  @copydoc TransportLifecycle::CancelCompletions
+    ///  @copydoc IBridgeTransport::CancelCompletions
     void CancelCompletions() override {
         log_.push_back("transport.CancelCompletions");
     }
-    ///  @copydoc TransportLifecycle::Close
+    ///  @copydoc IBridgeTransport::Close
     void Close() override { log_.push_back("transport.Close"); }
 
   private:
