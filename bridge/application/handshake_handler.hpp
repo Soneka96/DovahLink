@@ -28,8 +28,10 @@ struct HandshakeResult {
 };
 
 ///  Validates one decoded hello and consumes the presented credential only after
-///  session admission succeeds. Successful handshakes bind a new session to
-///  `connection`; failures close the connection. Branches on
+///  session admission succeeds. Credentialed attempts reserve one failed-auth
+///  slot before validation; invalid credentials commit that slot, while
+///  successful or abandoned attempts release it. Successful handshakes bind a
+///  new session to `connection`; failures close the connection. Branches on
 ///  `hello.auth.method`: `one_time_local_token` (developer authentication,
 ///  admits `kFull`) and `trusted_device_credential` (a persisted pairing
 ///  credential checked via `trustStore.Authenticate`, admits `kFull`) both
@@ -40,12 +42,14 @@ struct HandshakeResult {
 ///  @param helloEnvelope Decoded client hello envelope.
 ///  @param tokenStore One-time token store, consulted for `auth.method:
 ///  "one_time_local_token"`.
-///  @param tokenThrottle Global failed one-time-token attempt throttle.
+///  @param tokenThrottle Global failed one-time-token attempt throttle; its
+///      reservation is held through validation and session admission.
 ///  @param trustStore Persistent trust store, consulted for `auth.method:
 ///      "trusted_device_credential"`.
 ///  @param credentialThrottle Global failed device-credential attempt throttle,
-///  separate from
-///      `tokenThrottle` so guessing one cannot block or be blocked by the other.
+///      separate from `tokenThrottle` so guessing one cannot block or be blocked
+///      by the other; its reservation is held through validation and session
+///      admission.
 ///  @param sessionManager Session registry.
 ///  @param connection Transport connection identifier.
 ///  @param timeoutTracker Connection timeout tracker.

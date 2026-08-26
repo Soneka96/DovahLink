@@ -129,9 +129,11 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     SessionTrustTier trustTier;
     SessionAuthMethod authMethod;
     std::optional<security::TokenReservation> tokenReservation;
+    std::optional<security::FailedTokenReservation> throttleReservation;
 
     if (hello->authMethod == "one_time_local_token") {
-        if (tokenThrottle.IsBlocked(now)) {
+        throttleReservation = tokenThrottle.TryReserve(now);
+        if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed token attempts", true);
         }
@@ -140,7 +142,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
                                ? tokenStore.TryReserve(*bytes)
                                : std::optional<security::TokenReservation>{};
         if (!tokenReservation.has_value()) {
-            tokenThrottle.RecordFailure(now);
+            throttleReservation->Commit();
             return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated",
                         "Invalid or expired one-time token", false);
         }
@@ -155,7 +157,8 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     } else {
         //  Only "trusted_device_credential" remains, per DecodeHelloPayload's
         //  validated set.
-        if (credentialThrottle.IsBlocked(now)) {
+        throttleReservation = credentialThrottle.TryReserve(now);
+        if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed credential attempts", true);
         }
@@ -163,7 +166,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         bool authenticated =
             bytes.has_value() && trustStore.Authenticate(hello->clientId, *bytes);
         if (!authenticated) {
-            credentialThrottle.RecordFailure(now);
+            throttleReservation->Commit();
             if (trustStore.IsRevoked(hello->clientId)) {
                 return Fail(helloEnvelope, bridgeInstanceId, "revoked",
                             "This device's trust was revoked", false);
