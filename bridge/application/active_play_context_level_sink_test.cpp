@@ -1,5 +1,7 @@
 #include "application/active_play_context_level_sink.hpp"
 
+#include "application/application_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
 
@@ -9,25 +11,8 @@
 
 using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::IActivePlayContextLevelSink;
-using dovahlink::application::IPlayContextLifecycle;
-using dovahlink::application::LifecycleEvent;
-using dovahlink::application::LifecycleState;
+using dovahlink::application::test_support::MockPlayContextLifecycle;
 using testing::StrictMock;
-
-namespace {
-
-///  GoogleMock lifecycle aggregate double for the level-writing adapter.
-class MockPlayContextLifecycle : public IPlayContextLifecycle {
-  public:
-    MOCK_METHOD(dovahlink::application::PlayContextTransition, HandleEvent,
-                (LifecycleEvent), (override));
-    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
-                (const, override));
-    MOCK_METHOD(LifecycleState, CurrentState, (), (const, override));
-    MOCK_METHOD(void, CaptureLevel, (std::optional<std::int64_t>), (override));
-};
-
-} //  namespace
 
 TEST_CASE("ActivePlayContextLevelSink forwards a captured level",
           "[application][active_play_context_level_sink]") {

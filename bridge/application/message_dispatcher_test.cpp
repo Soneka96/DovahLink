@@ -38,6 +38,8 @@ using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
 using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
 using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::application::test_support::BuildRenameRequestEnvelope;
+using dovahlink::application::test_support::EmptyActivePlayContext;
+using dovahlink::application::test_support::MockActivePlayContext;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ITrustStorePersistence;
@@ -48,13 +50,6 @@ using dovahlink::security::ViolationTracker;
 using testing::StrictMock;
 
 namespace {
-
-///  GoogleMock active-play-context ID contract double.
-class MockActivePlayContext : public IActivePlayContextReader {
-  public:
-    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
-                (const, override));
-};
 
 ///  Clock type used for deterministic dispatcher timeout assertions.
 using SteadyClock = std::chrono::steady_clock;
@@ -102,17 +97,6 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
 
     ///  Number of times the wrong-attempt hard limit was reached.
     int attemptsExhaustedCount = 0;
-};
-
-///  Supplies no active context ID for dispatcher scenarios that do not exercise
-///  context identity; focused context tests use a strict mock instead.
-class EmptyActivePlayContext final : public IActivePlayContextReader {
-  public:
-    ///  Reports that no context ID is active.
-    [[nodiscard]] std::optional<std::string>
-    CurrentPlayContextId() const override {
-        return std::nullopt;
-    }
 };
 
 ///  Bundles an authenticated dispatcher session and its production

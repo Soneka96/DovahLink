@@ -1,5 +1,7 @@
 #include "application/play_context_lifecycle.hpp"
 
+#include "application/application_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <atomic>
@@ -20,6 +22,7 @@ using dovahlink::application::PlayContextFactory;
 using dovahlink::application::PlayContextLifecycle;
 using dovahlink::application::PlayContextLifecycleIdGenerator;
 using dovahlink::application::RunContainedLifecycleWork;
+using dovahlink::application::test_support::BuildPlayContext;
 
 TEST_CASE("DecodePostLoadGameSuccess accepts only a non-null success payload",
           "[application][play_context_lifecycle]") {
@@ -183,7 +186,7 @@ TEST_CASE("PlayContextLifecycle preserves consistency when context creation fail
             if (failCreation) {
                 throw std::runtime_error("context creation failed");
             }
-            return std::make_shared<PlayContext>(std::move(id));
+            return BuildPlayContext(std::move(id));
         });
     IPlayContextLifecycle& contract = lifecycle;
     contract.HandleEvent(LifecycleEvent::kNewGame);
@@ -284,7 +287,7 @@ TEST_CASE("PlayContextLifecycle clears state when ID generation fails",
 
 TEST_CASE("PlayContextLifecycle captures levels only in the active context",
           "[application][play_context_lifecycle]") {
-    auto context = std::make_shared<PlayContext>("context-1");
+    auto context = BuildPlayContext("context-1");
     PlayContextLifecycle lifecycle(
         [] { return std::optional<std::string>("context-1"); },
         [context](std::string) { return context; });
@@ -310,7 +313,7 @@ TEST_CASE("PlayContextLifecycle captures levels only in the active context",
 
 TEST_CASE("PlayContextLifecycle forwards unavailable levels to active state",
           "[application][play_context_lifecycle]") {
-    auto context = std::make_shared<PlayContext>("context-1");
+    auto context = BuildPlayContext("context-1");
     PlayContextLifecycle lifecycle(
         [] { return std::optional<std::string>("context-1"); },
         [context](std::string) { return context; });
@@ -339,7 +342,7 @@ TEST_CASE("PlayContextLifecycle serializes concurrent lifecycle events",
                    !maximumFactories.compare_exchange_weak(maximum, active)) {
             }
             std::this_thread::yield();
-            auto context = std::make_shared<PlayContext>(std::move(id));
+            auto context = BuildPlayContext(std::move(id));
             activeFactories.fetch_sub(1);
             return context;
         });

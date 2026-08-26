@@ -1,4 +1,5 @@
 #include "application/active_play_context_level_sink.hpp"
+#include "application/application_test_support.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "game_state/level_increase_handler.hpp"
 
@@ -14,27 +15,13 @@ using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::IActivePlayContextLevelSink;
 using dovahlink::application::PlayContext;
 using dovahlink::application::PlayContextLifecycle;
+using dovahlink::application::test_support::BuildPlayContext;
+using dovahlink::application::test_support::MockActivePlayContextLevelSink;
+using dovahlink::application::test_support::MockPlayerLevelAccessor;
 using dovahlink::game_state::ILevelIncreaseHandler;
 using dovahlink::game_state::IPlayerLevelAccessor;
 using dovahlink::game_state::LevelIncreaseHandler;
 using testing::StrictMock;
-
-namespace {
-
-///  GoogleMock level-accessor contract double.
-class MockPlayerLevelAccessor : public IPlayerLevelAccessor {
-  public:
-    MOCK_METHOD(std::optional<std::int64_t>, ReadLevel, (), (const, override));
-};
-
-///  GoogleMock active-play-context level-sink contract double.
-class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
-  public:
-    MOCK_METHOD(void, OnLevelCaptured, (std::optional<std::int64_t>),
-                (override));
-};
-
-} //  namespace
 
 TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",
           "[game_state][level_increase_handler]") {
@@ -98,7 +85,7 @@ TEST_CASE("HandleLevelIncrease routes an untrustworthy raw value through "
 
 TEST_CASE("HandleLevelIncrease composes with the active play-context writer",
           "[game_state][level_increase_handler]") {
-    auto context = std::make_shared<PlayContext>("context-1");
+    auto context = BuildPlayContext("context-1");
     PlayContextLifecycle lifecycle(
         [] { return std::optional<std::string>("context-1"); },
         [context](std::string) { return context; });

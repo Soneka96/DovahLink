@@ -1,13 +1,12 @@
 #include "application/trust_reset_service.hpp"
 
+#include "application/application_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
 
-#include <chrono>
-#include <cstdint>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 using dovahlink::application::ActiveSessionDisconnector;
@@ -15,6 +14,11 @@ using dovahlink::application::ConnectionId;
 using dovahlink::application::ITrustMutationCoordinator;
 using dovahlink::application::PairingCommitResult;
 using dovahlink::application::TrustResetService;
+using dovahlink::application::test_support::BuildKnownDeviceRecord;
+using dovahlink::application::test_support::MockActiveSessionDisconnector;
+using dovahlink::application::test_support::MockFactoryResetChallenge;
+using dovahlink::application::test_support::MockTrustMutationCoordinator;
+using dovahlink::application::test_support::MockTrustResetStore;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::CancelOutcome;
 using dovahlink::security::ConfirmCodeResult;
@@ -25,82 +29,6 @@ using dovahlink::security::KnownDeviceRecord;
 using dovahlink::security::KnownDeviceState;
 using dovahlink::security::PairingCommitOutcome;
 using testing::StrictMock;
-
-namespace {
-
-///  Builds a representative trusted record for reset-count assertions.
-KnownDeviceRecord MakeTrustedDevice(std::string clientId, std::string shortId,
-                                    int createdAtSeconds) {
-    return KnownDeviceRecord{
-        .clientId = std::move(clientId),
-        .credential = std::vector<std::uint8_t>{1, 2},
-        .shortId = std::move(shortId),
-        .displayName = std::nullopt,
-        .state = KnownDeviceState::kTrusted,
-        .createdAt = std::chrono::system_clock::time_point(
-            std::chrono::seconds(createdAtSeconds)),
-    };
-}
-
-///  GoogleMock bulk trust-store port double.
-class MockTrustResetStore : public ITrustResetStore {
-  public:
-    MOCK_METHOD(std::vector<KnownDeviceRecord>, ListTrusted, (), (override));
-    MOCK_METHOD(bool, Reset, (), (override));
-    MOCK_METHOD(bool, ResetTrust, (), (override));
-};
-
-///  GoogleMock active-session disconnection port double.
-class MockActiveSessionDisconnector : public ActiveSessionDisconnector {
-  public:
-    MOCK_METHOD(void, DisconnectIfClientActive,
-                (std::string_view, std::string_view), (override));
-    MOCK_METHOD(void, DisconnectActive, (std::string_view), (override));
-};
-
-///  GoogleMock trust-mutation coordination port double.
-class MockTrustMutationCoordinator : public ITrustMutationCoordinator {
-  public:
-    MOCK_METHOD(ConfirmCodeResult, ConfirmPairing,
-                (const std::string&, std::chrono::steady_clock::time_point,
-                 std::string, std::vector<std::uint8_t>,
-                 std::optional<std::string>),
-                (override));
-    MOCK_METHOD(PairingCommitResult, CommitPairing,
-                (const std::string&, const std::vector<std::uint8_t>&,
-                 std::chrono::steady_clock::time_point, ConnectionId,
-                 const std::string&),
-                (override));
-    MOCK_METHOD(std::optional<KnownDeviceRecord>, PromoteAlreadyTrusted,
-                (const std::string&, const std::vector<std::uint8_t>&,
-                 ConnectionId, const std::string&),
-                (override));
-    MOCK_METHOD(CancelOutcome, TryCancel,
-                (const std::string&, std::chrono::steady_clock::time_point),
-                (override));
-    MOCK_METHOD(void, CancelAll, (), (override));
-    MOCK_METHOD(BlockOutcome, Block,
-                (const std::string&, std::chrono::steady_clock::time_point),
-                (override));
-    MOCK_METHOD(bool, Revoke,
-                (const std::string&, std::chrono::steady_clock::time_point),
-                (override));
-    MOCK_METHOD(std::optional<std::vector<std::string>>, ResetTrust, (),
-                (override));
-    MOCK_METHOD(bool, FactoryReset, (), (override));
-};
-
-///  GoogleMock Factory Reset challenge port double.
-class MockFactoryResetChallenge : public IFactoryResetChallenge {
-  public:
-    MOCK_METHOD(std::optional<std::string>, TryStart, (), (override));
-    MOCK_METHOD(std::chrono::steady_clock::duration, CodeTimeToLive, (),
-                (const, override));
-    MOCK_METHOD(FactoryResetConfirmOutcome, TryConfirm,
-                (const std::string&), (override));
-};
-
-} //  namespace
 
 TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
           "[application][trust_reset_service]") {
@@ -243,7 +171,8 @@ TEST_CASE("TrustResetService confirmed Factory Reset performs cleanup",
         .WillOnce(testing::Return(FactoryResetConfirmOutcome::kConfirmed));
     EXPECT_CALL(resetStore, ListTrusted())
         .WillOnce(testing::Return(std::vector<KnownDeviceRecord>{
-            MakeTrustedDevice("client-1", "11111", 1)}));
+            BuildKnownDeviceRecord("client-1", "11111", std::nullopt,
+                                   KnownDeviceState::kTrusted, 1)}));
     EXPECT_CALL(mutationCoordinator, FactoryReset()).WillOnce(testing::Return(true));
     EXPECT_CALL(sessionDisconnector, DisconnectActive("factory_reset"));
 

@@ -6,15 +6,20 @@
 
 #include <boost/json/parse.hpp>
 
+#include <chrono>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildHelloEnvelope;
+using dovahlink::application::test_support::BuildKnownDeviceRecord;
 using dovahlink::application::test_support::BuildPairingAckEnvelope;
 using dovahlink::application::test_support::BuildPairingCancelEnvelope;
 using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
 using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
 using dovahlink::application::test_support::BuildPairingRequestEnvelope;
+using dovahlink::application::test_support::BuildPlayContext;
 using dovahlink::application::test_support::BuildRenameRequestEnvelope;
 
 TEST_CASE("BuildHelloEnvelope creates the representative one-time-token hello",
@@ -135,4 +140,34 @@ TEST_CASE("named application fixture builders use representative protocol shapes
     auto rename = BuildRenameRequestEnvelope("New Name");
     CHECK(rename.messageType == "rename_request");
     CHECK(rename.payload.at("displayName").as_string() == "New Name");
+}
+
+TEST_CASE("BuildPlayContext returns a fresh context with the requested ID",
+          "[application][test_support]") {
+    auto first = BuildPlayContext("context-1");
+    auto second = BuildPlayContext("context-1");
+
+    REQUIRE(first);
+    REQUIRE(second);
+    CHECK(first->id == "context-1");
+    CHECK(second->id == "context-1");
+    CHECK(first.get() != second.get());
+}
+
+TEST_CASE("BuildKnownDeviceRecord applies representative state defaults",
+          "[application][test_support]") {
+    auto trusted = BuildKnownDeviceRecord();
+    auto blocked = BuildKnownDeviceRecord(
+        "client-2", "22222", std::nullopt,
+        dovahlink::security::KnownDeviceState::kBlocked, 2);
+
+    CHECK(trusted.clientId == "client-1");
+    CHECK(trusted.shortId == "11111");
+    CHECK(trusted.credential == std::vector<std::uint8_t>{1, 2});
+    CHECK(trusted.state == dovahlink::security::KnownDeviceState::kTrusted);
+    CHECK(blocked.clientId == "client-2");
+    CHECK(blocked.credential.empty());
+    CHECK(blocked.state == dovahlink::security::KnownDeviceState::kBlocked);
+    CHECK(blocked.createdAt ==
+          std::chrono::system_clock::time_point(std::chrono::seconds(2)));
 }

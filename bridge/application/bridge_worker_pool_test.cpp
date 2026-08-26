@@ -11,7 +11,6 @@
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <gmock/gmock.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -40,6 +39,7 @@ using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::TrustMutationCoordinator;
+using dovahlink::application::test_support::EmptyActivePlayContext;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -52,24 +52,8 @@ using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::transport::ConnectionSlot;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
-using testing::StrictMock;
 
 namespace {
-
-///  GoogleMock active-play-context contract double for worker-thread tests.
-class MockActivePlayContext
-    : public dovahlink::application::IActivePlayContextReader {
-  public:
-    ///  Allows repeated worker-thread context-ID reads while rejecting mutations.
-    MockActivePlayContext() {
-        EXPECT_CALL(*this, CurrentPlayContextId())
-            .Times(testing::AnyNumber())
-            .WillRepeatedly(testing::Return(std::optional<std::string>{}));
-    }
-
-    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
-                (const, override));
-};
 
 ///  Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {
@@ -161,7 +145,7 @@ struct Fixture {
     ///  Records pairing codes displayed to the user; unused by these tests.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
-    StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4,
                           listenerV6,

@@ -25,6 +25,7 @@ using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::TrustLossAfterAdmission;
 using dovahlink::application::test_support::BuildHelloEnvelope;
+using dovahlink::application::test_support::MockActivePlayContext;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
@@ -37,13 +38,6 @@ using dovahlink::security::TrustStoreSnapshot;
 using testing::StrictMock;
 
 namespace {
-
-///  GoogleMock active-play-context contract double.
-class MockActivePlayContext : public IActivePlayContextReader {
-  public:
-    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
-                (const, override));
-};
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- for
 ///  tests that only exercise the one_time_local_token/unpaired auth paths and

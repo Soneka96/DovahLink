@@ -39,6 +39,8 @@ using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildPairingAckEnvelope;
 using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
 using dovahlink::application::test_support::BuildPairingRequestEnvelope;
+using dovahlink::application::test_support::EmptyActivePlayContext;
+using dovahlink::application::test_support::MockActivePlayContext;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -63,22 +65,6 @@ using testing::Return;
 //  matching transport/websocket_session_test.cpp's own precedent.
 
 namespace {
-
-///  GoogleMock contract double used by socket-session tests. GoogleMock's
-///  invocation bookkeeping supports calls from the session thread; the real
-///  PlayContextLifecycle owns the state behavior tests.
-class MockActivePlayContext : public IActivePlayContextReader {
-  public:
-    ///  Allows any number of context-ID reads while rejecting other calls.
-    MockActivePlayContext() {
-        EXPECT_CALL(*this, CurrentPlayContextId())
-            .Times(testing::AnyNumber())
-            .WillRepeatedly(testing::Return(std::optional<std::string>{}));
-    }
-
-    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
-                (const, override));
-};
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- these
 ///  tests only exercise the one_time_local_token auth path and never touch the
@@ -222,7 +208,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     int clockCalls = 0;
     //  Simulate a hello completing at +4s, then authenticated traffic at
@@ -318,7 +304,7 @@ TEST_CASE("RunConnectionSession completes pairing through the mutation coordinat
         []() -> std::optional<std::string> { return std::string("123456"); });
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -404,7 +390,7 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     std::optional<std::string> bridgeInstanceId = "bridge-1";
 
     boost::system::error_code serverAcceptEc;
@@ -583,7 +569,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     for (int failure = 0; failure < 4; ++failure) {
         tokenThrottle.RecordFailure(start + std::chrono::seconds(4));
@@ -674,7 +660,7 @@ TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     auto start = std::chrono::steady_clock::now();
     int clockCalls = 0;
     //  The hello read itself must not be rejected as late (postReadNow must stay
@@ -764,7 +750,7 @@ TEST_CASE(
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     //  The handshake deadline (constructor time + 5s) is already 5s in the past
     //  the moment the tracker is built, so the very first ReadMessage's watchdog
     //  has nothing to wait out.
@@ -832,7 +818,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     boost::system::error_code serverAcceptEc;
     std::thread serverThread([&] {
@@ -910,7 +896,7 @@ TEST_CASE("RunConnectionSession's disconnect notifies PairingSession, keeping "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     auto start = std::chrono::steady_clock::now();
     //  Established directly through PairingSession's own API -- this test proves
@@ -998,7 +984,7 @@ TEST_CASE("RunConnectionSession's disconnect notification lets an owned "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     auto start = std::chrono::steady_clock::now();
     REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome ==
@@ -1077,7 +1063,7 @@ TEST_CASE("RunConnectionSession's successful hello notifies PairingSession of "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     auto start = std::chrono::steady_clock::now();
     REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome ==
@@ -1154,7 +1140,7 @@ TEST_CASE("RunConnectionSession's disconnect/reconnect wiring works on an "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     auto start = std::chrono::steady_clock::now();
     REQUIRE(pairingSession.TryStartChallenge("client-1", start).outcome ==
@@ -1234,7 +1220,7 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
     PairingSession pairingSession;
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
-    testing::StrictMock<MockActivePlayContext> activePlayContext;
+    EmptyActivePlayContext activePlayContext;
 
     auto start = std::chrono::steady_clock::now();
     //  "client-1" owns an active challenge; the connection under test
