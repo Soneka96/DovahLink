@@ -76,10 +76,12 @@ class IPairingSession {
 ///  In-memory `NONE -> CHALLENGE_ACTIVE -> PENDING_CREDENTIAL -> NONE` pairing
 ///  lifecycle, per `ai/context/protocol/security.md`'s "Persistent local trust"
 ///  state machine and wire-message mapping. Knows nothing about wire messages,
-///  `TrustStore`, or Skyrim; a caller (the pairing handler) supplies the
-///  generated credential and commits a successful `TryFinalize`'s result to
-///  `TrustStore` itself. Never persists across a Bridge restart -- "Incomplete
-///  pending pairing does not need to survive a bridge restart."
+///  `TrustStore`, or Skyrim; a caller supplies the generated credential, reads a
+///  copy of the pending result through `PeekPending`, consumes the matching
+///  pending state through `CommitPending`, and persists the copy. If persistence
+///  fails without a trust mutation, the caller may restore the pending state
+///  through `RestorePending`. Never persists across a Bridge restart --
+///  "Incomplete pending pairing does not need to survive a bridge restart."
 class PairingSession final : public IPairingSession {
   public:
     ///  Produces one six-digit pairing-code candidate, or `std::nullopt` when the
@@ -173,7 +175,8 @@ class PairingSession final : public IPairingSession {
     ///  attempt that reaches it cancels the challenge outright
     ///  (`kHardLimitReached`) instead of leaving it guessable further. On a match,
     ///  transitions `CHALLENGE_ACTIVE -> PENDING_CREDENTIAL`, holding `clientId`,
-    ///  `credential`, and `displayName` for a later `TryFinalize`.
+    ///  `credential`, and `displayName` for a later `PeekPending` and
+    ///  `CommitPending`.
     ///  @param presentedCode The code the client submitted.
     ///  @param now Current monotonic time, used for the lazy-expiry checks and
     ///  pacing/attempt
@@ -194,9 +197,9 @@ class PairingSession final : public IPairingSession {
                    TrustMutationGeneration mutationGeneration) override;
 
     ///  Matches `clientId` and `credential` against the pending credential without
-    ///  consuming it, so a caller can attempt `TrustStore::Persist` before
-    ///  committing. A mismatch leaves the pending credential untouched, allowing a
-    ///  correct retry. Applies the pending-credential lazy-expiry check first.
+    ///  consuming it and returns a copy for the caller's persistence attempt. A
+    ///  mismatch leaves the pending credential untouched, allowing a correct
+    ///  retry. Applies the pending-credential lazy-expiry check first.
     ///  @param now Current monotonic time, for the pending-credential lazy-expiry
     ///  check.
     ///  @return A copy of the pending credential, or `std::nullopt` when it does
@@ -210,10 +213,10 @@ class PairingSession final : public IPairingSession {
 
     ///  Re-matches `clientId` and `credential` against the pending credential and,
     ///  on a match, transitions `PENDING_CREDENTIAL -> NONE`. Call only after
-    ///  `PeekPending` and a successful `TrustStore::Persist`: a caller that skips
-    ///  committing on a failed persist leaves the pending credential in place for
-    ///  a retry instead of losing it. Applies the pending-credential lazy-expiry
-    ///  check first.
+    ///  `PeekPending`. The caller persists the returned copy after this succeeds;
+    ///  if persistence fails without a trust mutation, it may restore the pending
+    ///  credential through `RestorePending` for a retry instead of losing it.
+    ///  Applies the pending-credential lazy-expiry check first.
     ///  @param now Current monotonic time, for the pending-credential lazy-expiry
     ///  check.
     ///  @return `true` if the pending credential matched and was cleared; `false`
@@ -365,8 +368,8 @@ class PairingSession final : public IPairingSession {
     std::optional<std::chrono::steady_clock::time_point>
         autoRenotifyCooldownUntil_;
 
-    ///  The credential-issuance data awaiting `TryFinalize`, or no value when not
-    ///  `PENDING_CREDENTIAL`.
+    ///  The credential-issuance data awaiting `PeekPending`/`CommitPending`, or no
+    ///  value when not `PENDING_CREDENTIAL`.
     std::optional<PendingCredential> pendingCredential_;
 };
 

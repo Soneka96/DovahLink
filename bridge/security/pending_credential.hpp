@@ -10,8 +10,10 @@
 
 namespace dovahlink::security {
 
-///  The credential-issuance data a successful `PairingSession::TryFinalize`
-///  returns, ready for the caller to commit via `TrustStore::Persist`.
+///  The credential-issuance data created by `PairingSession::TryConfirmCode` and
+///  returned as a copy by `PairingSession::PeekPending` for the caller to persist
+///  while the matching pending state is consumed through
+///  `PairingSession::CommitPending`.
 struct PendingCredential {
     ///  The pairing client's stable protocol identity.
     std::string clientId;
