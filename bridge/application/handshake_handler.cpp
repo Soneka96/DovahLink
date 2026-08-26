@@ -28,7 +28,7 @@
 //  - All three of protocol/fixtures/errors/error-unauthenticated-*.json use
 //    the same wire `code: "unauthenticated"`; only their diagnostic
 //    `message` text differs, and message text is explicitly "not for
-//    branching" (protocol/schema/README.md). security::TokenStore::TryReserve
+//    branching" (protocol/schema/README.md). security::ITokenStore::TryReserve
 //    itself intentionally does not distinguish invalid/expired/reused, so a
 //    single generic message covers all three without losing any
 //    client-observable information.
@@ -36,7 +36,7 @@
 //    to `unauthorized`: the presented token was valid, but this connection
 //    is not currently permitted to hold a session. No canonical error code
 //    names this exact case; `unauthorized` is the closest semantic fit among
-//    protocol/schema/README.md's registered codes. TokenStore::Reservation
+//    protocol/schema/README.md's registered codes. TokenReservation
 //    keeps the matching token unchanged until session admission commits, so
 //    this retryable failure does not spend the one-time token.
 //  - A rejected trusted_device_credential gets `revoked` instead of the generic
@@ -128,7 +128,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
 
     SessionTrustTier trustTier;
     SessionAuthMethod authMethod;
-    std::optional<security::TokenStore::Reservation> tokenReservation;
+    std::optional<security::TokenReservation> tokenReservation;
 
     if (hello->authMethod == "one_time_local_token") {
         if (tokenThrottle.IsBlocked(now)) {
@@ -138,7 +138,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         auto bytes = presentedBytes();
         tokenReservation = bytes.has_value()
                                ? tokenStore.TryReserve(*bytes)
-                               : std::optional<security::TokenStore::Reservation>{};
+                               : std::optional<security::TokenReservation>{};
         if (!tokenReservation.has_value()) {
             tokenThrottle.RecordFailure(now);
             return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated",

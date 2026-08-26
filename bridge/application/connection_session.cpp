@@ -26,7 +26,7 @@ void SendIfPossible(transport::WebSocketSession& ws,
 } //  namespace
 
 void RunConnectionSession(transport::WebSocketSession& ws,
-                          security::TokenStore& tokenStore,
+                          security::ITokenStore& tokenStore,
                           security::FailedTokenThrottle& tokenThrottle,
                           security::ITrustStore& trustStore,
                           security::FailedTokenThrottle& credentialThrottle,

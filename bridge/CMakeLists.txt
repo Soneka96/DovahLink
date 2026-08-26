@@ -87,6 +87,7 @@ add_library(dovahlink_bridge_core STATIC
     security/pairing_session.cpp
     security/throttle.cpp
     security/token_provider.cpp
+    security/token_reservation.cpp
     security/token_store.cpp
     security/trust_device_store.cpp
     security/trust_reset_store.cpp
@@ -214,6 +215,7 @@ add_executable(dovahlink_bridge_tests
     security/pairing_session_test.cpp
     security/throttle_test.cpp
     security/token_provider_test.cpp
+    security/token_reservation_test.cpp
     security/token_store_test.cpp
     security/trust_store_test.cpp
     security/windows_trust_store_persistence_test.cpp

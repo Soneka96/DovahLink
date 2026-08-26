@@ -76,7 +76,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     BridgeWorkerPool(transport::LoopbackListener& listenerV4,
                      transport::LoopbackListener& listenerV6,
                      transport::ConnectionSlot& slot,
-                     security::TokenStore& tokenStore,
+                     security::ITokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle,
                      security::ITrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle,
@@ -155,7 +155,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     transport::ConnectionSlot& slot_;
 
     ///  Shared one-time authentication token store.
-    security::TokenStore& tokenStore_;
+    security::ITokenStore& tokenStore_;
 
     ///  Shared failed-token throttle.
     security::FailedTokenThrottle& tokenThrottle_;

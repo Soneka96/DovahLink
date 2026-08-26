@@ -53,7 +53,7 @@ using SteadyNowProvider =
 ///  @param steadyNow Supplies current monotonic time; injectable for
 ///  deterministic timeout tests.
 void RunConnectionSession(
-    transport::WebSocketSession& ws, security::TokenStore& tokenStore,
+    transport::WebSocketSession& ws, security::ITokenStore& tokenStore,
     security::FailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,

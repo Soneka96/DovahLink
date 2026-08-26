@@ -67,7 +67,7 @@ struct HandshakeResult {
 ///  @return Response envelope and close decision for the connection.
 [[nodiscard]] HandshakeResult
 HandleHello(const protocol::Envelope& helloEnvelope,
-            security::TokenStore& tokenStore,
+            security::ITokenStore& tokenStore,
             security::FailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
             security::FailedTokenThrottle& credentialThrottle,
@@ -82,7 +82,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
 ///  capability available.
 [[nodiscard]] HandshakeResult
 HandleHello(const protocol::Envelope& helloEnvelope,
-            security::TokenStore& tokenStore,
+            security::ITokenStore& tokenStore,
             security::FailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
             security::FailedTokenThrottle& credentialThrottle,

@@ -12,7 +12,7 @@ namespace dovahlink::application {
 BridgeWorkerPool::BridgeWorkerPool(
     transport::LoopbackListener& listenerV4,
     transport::LoopbackListener& listenerV6, transport::ConnectionSlot& slot,
-    security::TokenStore& tokenStore,
+    security::ITokenStore& tokenStore,
     security::FailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
