@@ -16,9 +16,10 @@
   pure-virtual contract, even when it currently has one implementation. Consumers depend on that
   interface rather than the concrete type.
 - A C++ behavior-bearing implementation implements exactly one DovahLink-owned interface, named
-  `I<ClassName>`, and that interface is declared in the same owning header as the concrete class.
-  DovahLink-owned interfaces never inherit from one another. A required CommonLib/Skyrim framework
-  base is the only inheritance exception.
+  `I<ClassName>`, and that interface is declared in the same owning header as the concrete class,
+  except for the narrowly defined CommonLib target dependency-wall case documented below for
+  `IBridgeCallbackRegistry` and `BridgeCallbackRegistry`. DovahLink-owned interfaces never inherit
+  from one another. A required CommonLib/Skyrim framework base is the only inheritance exception.
 - Every collaborator is supplied through the constructor. Do not construct or resolve a
   behavior-bearing collaborator inside another class.
 - DTOs, protocol/value types, enums, pure functions, and other data-only types are not wrapped in
