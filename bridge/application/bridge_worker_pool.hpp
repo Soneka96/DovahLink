@@ -8,10 +8,11 @@
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
+#include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
-#include "security/throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
+#include "shared/scoped_release.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
 
@@ -75,12 +76,12 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///      `hello_ack.bridgeVersion` (`ai/context/protocol/compatibility.md`).
     BridgeWorkerPool(transport::LoopbackListener& listenerV4,
                      transport::LoopbackListener& listenerV6,
-                     transport::ConnectionSlot& slot,
-                     security::TokenStore& tokenStore,
-                     security::FailedTokenThrottle& tokenThrottle,
+                     transport::IConnectionSlot& slot,
+                     security::ITokenStore& tokenStore,
+                     security::IFailedTokenThrottle& tokenThrottle,
                      security::ITrustStore& trustStore,
-                     security::FailedTokenThrottle& credentialThrottle,
-                     SessionManager& sessionManager,
+                     security::IFailedTokenThrottle& credentialThrottle,
+                     ISessionManager& sessionManager,
                      const IActivePlayContextReader& activePlayContext,
                      IActiveSessionSocket& activeSessionSocket,
                      security::IPairingSession& pairingSession,
@@ -143,7 +144,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     void RunSessionOnOwnThread(const ContainedWorkRunner& workerRunner,
                                ConnectionId connection,
                                boost::asio::ip::tcp::socket socket,
-                               transport::ConnectionSlot::Lease slotLease);
+                               shared::ScopedRelease slotLease);
 
     ///  IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;
@@ -152,22 +153,22 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     transport::LoopbackListener& listenerV6_;
 
     ///  Admission gate for the active connection.
-    transport::ConnectionSlot& slot_;
+    transport::IConnectionSlot& slot_;
 
     ///  Shared one-time authentication token store.
-    security::TokenStore& tokenStore_;
+    security::ITokenStore& tokenStore_;
 
     ///  Shared failed-token throttle.
-    security::FailedTokenThrottle& tokenThrottle_;
+    security::IFailedTokenThrottle& tokenThrottle_;
 
     ///  Shared persistent trust store.
     security::ITrustStore& trustStore_;
 
     ///  Shared failed device-credential attempt throttle.
-    security::FailedTokenThrottle& credentialThrottle_;
+    security::IFailedTokenThrottle& credentialThrottle_;
 
     ///  Session manager shared by accepted connections.
-    SessionManager& sessionManager_;
+    ISessionManager& sessionManager_;
 
     ///  Source of the current play-context identity for connection responses.
     const IActivePlayContextReader& activePlayContext_;

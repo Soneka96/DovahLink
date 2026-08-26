@@ -1,54 +1,38 @@
 #pragma once
 
+#include "shared/scoped_release.hpp"
+
 #include <atomic>
 #include <optional>
 
 namespace dovahlink::transport {
 
-///  Thread-safe single-connection occupancy guard.
-class ConnectionSlot {
+///  Narrow capability for admitting at most one connection at a time.
+class IConnectionSlot {
   public:
-    ///  Move-only ownership of an acquired connection slot.
-    ///
-    ///  The originating @ref ConnectionSlot must outlive the lease.
-    class Lease {
-      public:
-        ///  Prevents two leases from owning the same acquired slot.
-        Lease(const Lease&) = delete;
+    ///  Releases the interface without performing work.
+    virtual ~IConnectionSlot() = default;
 
-        ///  Prevents copying ownership of an acquired slot.
-        Lease& operator=(const Lease&) = delete;
+    ///  Atomically claims the slot, returning no release when already
+    ///  occupied. The returned @ref dovahlink::shared::ScopedRelease frees
+    ///  the slot when it is destroyed or triggered.
+    [[nodiscard]] virtual std::optional<shared::ScopedRelease> TryAcquire() = 0;
 
-        ///  Transfers ownership of an acquired slot.
-        Lease(Lease&& other) noexcept;
+    ///  Returns whether the slot is currently occupied.
+    [[nodiscard]] virtual bool IsOccupied() const = 0;
+};
 
-        ///  Releases the currently owned slot, then transfers ownership.
-        Lease& operator=(Lease&& other) noexcept;
-
-        ///  Releases the acquired slot.
-        ~Lease();
-
-      private:
-        friend class ConnectionSlot;
-
-        ///  Creates a lease that owns `slot` until destruction.
-        explicit Lease(ConnectionSlot& slot) noexcept;
-
-        ///  Releases the owned slot, if any.
-        void Reset() noexcept;
-
-        ///  Borrowed slot released when this lease is destroyed.
-        ConnectionSlot* slot_;
-    };
-
+///  Thread-safe single-connection occupancy guard.
+class ConnectionSlot : public IConnectionSlot {
+  public:
     ///  Creates an unoccupied slot.
     ConnectionSlot() = default;
 
-    ///  Atomically claims the slot, returning no lease when already occupied.
-    [[nodiscard]] std::optional<Lease> TryAcquire();
+    ///  @copydoc IConnectionSlot::TryAcquire
+    [[nodiscard]] std::optional<shared::ScopedRelease> TryAcquire() override;
 
-    ///  Returns whether the slot is currently occupied.
-    [[nodiscard]] bool IsOccupied() const;
+    ///  @copydoc IConnectionSlot::IsOccupied
+    [[nodiscard]] bool IsOccupied() const override;
 
   private:
     ///  Releases a slot owned by a live lease.

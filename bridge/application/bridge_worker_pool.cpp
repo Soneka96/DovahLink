@@ -11,12 +11,12 @@ namespace dovahlink::application {
 
 BridgeWorkerPool::BridgeWorkerPool(
     transport::LoopbackListener& listenerV4,
-    transport::LoopbackListener& listenerV6, transport::ConnectionSlot& slot,
-    security::TokenStore& tokenStore,
-    security::FailedTokenThrottle& tokenThrottle,
+    transport::LoopbackListener& listenerV6, transport::IConnectionSlot& slot,
+    security::ITokenStore& tokenStore,
+    security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
-    security::FailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager,
+    security::IFailedTokenThrottle& credentialThrottle,
+    ISessionManager& sessionManager,
     const IActivePlayContextReader& activePlayContext,
     IActiveSessionSocket& activeSessionSocket,
     security::IPairingSession& pairingSession,
@@ -82,8 +82,7 @@ void BridgeWorkerPool::JoinConnectionThreadLocked() {
 
 void BridgeWorkerPool::RunSessionOnOwnThread(
     const ContainedWorkRunner& workerRunner, ConnectionId connection,
-    boost::asio::ip::tcp::socket socket,
-    transport::ConnectionSlot::Lease slotLease) {
+    boost::asio::ip::tcp::socket socket, shared::ScopedRelease slotLease) {
     std::lock_guard<std::mutex> connectionThreadLock(connectionThreadMutex_);
     JoinConnectionThreadLocked();
     connectionThread_ =

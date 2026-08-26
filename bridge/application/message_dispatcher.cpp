@@ -103,7 +103,7 @@ bool IsAllowedMessageType(std::string_view messageType,
 DispatchResult Reject(std::optional<std::string> correlationId,
                       const std::string& sessionId, std::string code,
                       std::string message, bool retryable,
-                      security::ViolationTracker& violations,
+                      security::IViolationTracker& violations,
                       std::chrono::steady_clock::time_point steadyNow,
                       const std::optional<std::string>& bridgeInstanceId,
                       const std::optional<std::string>& currentContextId) {
@@ -124,7 +124,7 @@ DispatchResult Reject(std::optional<std::string> correlationId,
 ///  Wraps a handler response and counts an error response as a violation.
 DispatchResult
 FromHandlerResponse(protocol::Envelope firstResponse,
-                    security::ViolationTracker& violations,
+                    security::IViolationTracker& violations,
                     std::chrono::steady_clock::time_point steadyNow) {
     bool isError = firstResponse.messageType == protocol::message_type::kError;
     bool closeConnection =
@@ -159,9 +159,9 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope,
 DispatchResult ProcessInboundMessage(
     const std::string& rawMessage, std::size_t& receivedMessageCount,
     const std::string& sessionId, ConnectionId connection,
-    SessionManager& sessionManager, ReplayGuard& replayGuard,
-    security::ViolationTracker& violations,
-    security::InboundMessageRateLimiter& rateLimiter,
+    ISessionManager& sessionManager, ReplayGuard& replayGuard,
+    security::IViolationTracker& violations,
+    security::IInboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession, security::ITrustStore& trustStore,

@@ -35,9 +35,17 @@
   gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is
   consolidated into `bridge/shared/enums.hpp`. "Inseparable" means genuine structural coupling a
   file boundary cannot express, such as a `friend`-only RAII helper that manipulates its owner's
-  private state: `TokenStore::Reservation` and `SessionManager::Lease` are the two carve-outs in
-  this codebase today, and they stay nested for that reason. A plain data-only result struct such
-  as `PairingSession`'s `StartChallengeResult` has no such coupling and does not qualify.
+  private state. This codebase has no current instance of that carve-out: `TokenStore::Reservation`,
+  `SessionManager::Lease`, and `ConnectionSlot::Lease` were its three examples, and each has since
+  been replaced by a publicly-constructible type instead (the shared `ScopedRelease` RAII utility
+  for the latter two; a standalone, non-nested `TokenReservation` for the former, since its
+  hold-a-lock-then-explicit-`Commit` shape differs from `ScopedRelease`'s auto-release-on-drop
+  shape) precisely so an interface's test double can construct one without `friend` access -- a
+  `friend`-only nested type cannot satisfy `common.md`'s "Behavioral boundaries and test isolation"
+  rule, since a mock implementing the owning interface has no way to construct one. The carve-out
+  itself remains available for a genuine future case meeting the same bar; it is not retired. A
+  plain data-only result struct such as `PairingSession`'s `StartChallengeResult` has no such
+  coupling and does not qualify.
 - Every enum in `bridge/` is a single Bridge-wide exception to the file-organization rule, per
   `ai/context/common.md`'s "not a repository-wide dumping ground" -- `bridge/` is one compilation
   unit/project (one CMake target), not several, so the module subdirectories
@@ -60,9 +68,10 @@
   concepts from domains it is already allowed to depend on (for example `bridge/transport/` must
   not start depending on a `bridge/security/`-owned enum merely because it is easier to reach from
   one shared header). This is enforced by reviewing usage sites, not by file structure -- C++ has
-  no per-symbol include restriction. `bridge/shared/` holds only `enums.hpp` for now; it is not a
-  general-purpose utilities location, and adding anything else there needs its own maintainer
-  decision.
+  no per-symbol include restriction. `bridge/shared/` holds `enums.hpp` and `scoped_release.hpp`/
+  `.cpp` (the `ScopedRelease` RAII utility, genuinely used across `application/`, `security/`, and
+  `transport/` and owned by none of them); it is not a general-purpose utilities location, and
+  adding anything else there needs its own maintainer decision.
 - Every small cross-cutting constant value (timeouts, limits, and similar) belongs in that module's
   own `constants.hpp`, per module directory as listed above -- never shared across module
   directories, and not consolidated bridge-wide like enums are. Group entries within it by the

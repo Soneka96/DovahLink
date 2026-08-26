@@ -28,7 +28,7 @@
 //  - All three of protocol/fixtures/errors/error-unauthenticated-*.json use
 //    the same wire `code: "unauthenticated"`; only their diagnostic
 //    `message` text differs, and message text is explicitly "not for
-//    branching" (protocol/schema/README.md). security::TokenStore::TryReserve
+//    branching" (protocol/schema/README.md). security::ITokenStore::TryReserve
 //    itself intentionally does not distinguish invalid/expired/reused, so a
 //    single generic message covers all three without losing any
 //    client-observable information.
@@ -36,7 +36,7 @@
 //    to `unauthorized`: the presented token was valid, but this connection
 //    is not currently permitted to hold a session. No canonical error code
 //    names this exact case; `unauthorized` is the closest semantic fit among
-//    protocol/schema/README.md's registered codes. TokenStore::Reservation
+//    protocol/schema/README.md's registered codes. TokenReservation
 //    keeps the matching token unchanged until session admission commits, so
 //    this retryable failure does not spend the one-time token.
 //  - A rejected trusted_device_credential gets `revoked` instead of the generic
@@ -91,11 +91,11 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope,
 } //  namespace
 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
-                            security::TokenStore& tokenStore,
-                            security::FailedTokenThrottle& tokenThrottle,
+                            security::ITokenStore& tokenStore,
+                            security::IFailedTokenThrottle& tokenThrottle,
                             security::ITrustStore& trustStore,
-                            security::FailedTokenThrottle& credentialThrottle,
-                            SessionManager& sessionManager,
+                            security::IFailedTokenThrottle& credentialThrottle,
+                            ISessionManager& sessionManager,
                             ConnectionId connection,
                             ConnectionTimeoutTracker& timeoutTracker,
                             std::chrono::steady_clock::time_point now,
@@ -128,19 +128,21 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
 
     SessionTrustTier trustTier;
     SessionAuthMethod authMethod;
-    std::optional<security::TokenStore::Reservation> tokenReservation;
+    std::optional<security::TokenReservation> tokenReservation;
+    std::optional<security::FailedTokenReservation> throttleReservation;
 
     if (hello->authMethod == "one_time_local_token") {
-        if (tokenThrottle.IsBlocked(now)) {
+        throttleReservation = tokenThrottle.TryReserve(now);
+        if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed token attempts", true);
         }
         auto bytes = presentedBytes();
         tokenReservation = bytes.has_value()
                                ? tokenStore.TryReserve(*bytes)
-                               : std::optional<security::TokenStore::Reservation>{};
+                               : std::optional<security::TokenReservation>{};
         if (!tokenReservation.has_value()) {
-            tokenThrottle.RecordFailure(now);
+            throttleReservation->Commit();
             return Fail(helloEnvelope, bridgeInstanceId, "unauthenticated",
                         "Invalid or expired one-time token", false);
         }
@@ -155,7 +157,8 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     } else {
         //  Only "trusted_device_credential" remains, per DecodeHelloPayload's
         //  validated set.
-        if (credentialThrottle.IsBlocked(now)) {
+        throttleReservation = credentialThrottle.TryReserve(now);
+        if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed credential attempts", true);
         }
@@ -163,7 +166,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         bool authenticated =
             bytes.has_value() && trustStore.Authenticate(hello->clientId, *bytes);
         if (!authenticated) {
-            credentialThrottle.RecordFailure(now);
+            throttleReservation->Commit();
             if (trustStore.IsRevoked(hello->clientId)) {
                 return Fail(helloEnvelope, bridgeInstanceId, "revoked",
                             "This device's trust was revoked", false);
@@ -243,11 +246,11 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
 }
 
 HandshakeResult HandleHello(
-    const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
-    security::FailedTokenThrottle& tokenThrottle,
+    const protocol::Envelope& helloEnvelope, security::ITokenStore& tokenStore,
+    security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
-    security::FailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager, ConnectionId connection,
+    security::IFailedTokenThrottle& credentialThrottle,
+    ISessionManager& sessionManager, ConnectionId connection,
     ConnectionTimeoutTracker& timeoutTracker,
     std::chrono::steady_clock::time_point now,
     const std::optional<std::string>& bridgeInstanceId,

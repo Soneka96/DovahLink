@@ -44,36 +44,7 @@ bool TokenStore::IsAvailableLocked() {
     return true;
 }
 
-TokenStore::Reservation::Reservation(TokenStore& store,
-                                     std::unique_lock<std::mutex> lock) noexcept
-    : store_(&store), lock_(std::move(lock)) {}
-
-TokenStore::Reservation::Reservation(Reservation&& other) noexcept
-    : store_(other.store_), lock_(std::move(other.lock_)) {
-    other.store_ = nullptr;
-}
-
-TokenStore::Reservation&
-TokenStore::Reservation::operator=(Reservation&& other) noexcept {
-    if (this != &other) {
-        lock_ = std::move(other.lock_);
-        store_ = other.store_;
-        other.store_ = nullptr;
-    }
-    return *this;
-}
-
-void TokenStore::Reservation::Commit() {
-    if (store_ == nullptr) {
-        return;
-    }
-    store_->consumed_ = true;
-    SecureClear(store_->token_);
-    store_ = nullptr;
-    lock_.unlock();
-}
-
-std::optional<TokenStore::Reservation>
+std::optional<TokenReservation>
 TokenStore::TryReserve(const std::vector<std::uint8_t>& presented) {
     std::unique_lock<std::mutex> lock(mutex_);
 
@@ -91,7 +62,10 @@ TokenStore::TryReserve(const std::vector<std::uint8_t>& presented) {
         return std::nullopt;
     }
 
-    return Reservation(*this, std::move(lock));
+    return TokenReservation(std::move(lock), [this] {
+        consumed_ = true;
+        SecureClear(token_);
+    });
 }
 
 bool TokenStore::IsAvailable() {

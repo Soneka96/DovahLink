@@ -11,12 +11,13 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::security::TokenReservation;
 using dovahlink::security::TokenStore;
 
-static_assert(!std::is_copy_constructible_v<TokenStore::Reservation>);
-static_assert(!std::is_copy_assignable_v<TokenStore::Reservation>);
-static_assert(std::is_nothrow_move_constructible_v<TokenStore::Reservation>);
-static_assert(std::is_nothrow_move_assignable_v<TokenStore::Reservation>);
+static_assert(!std::is_copy_constructible_v<TokenReservation>);
+static_assert(!std::is_copy_assignable_v<TokenReservation>);
+static_assert(std::is_nothrow_move_constructible_v<TokenReservation>);
+static_assert(std::is_nothrow_move_assignable_v<TokenReservation>);
 
 namespace {
 
@@ -49,11 +50,13 @@ TEST_CASE(
     CHECK(store.IsAvailable());
 }
 
-TEST_CASE("a token of the wrong length creates no reservation",
+TEST_CASE("a token of the wrong length creates no reservation and leaves "
+          "the store available",
           "[security][token_store]") {
     TokenStore store(MakeToken(1));
     std::vector<std::uint8_t> shortToken{1, 2, 3};
     CHECK_FALSE(store.TryReserve(shortToken).has_value());
+    CHECK(store.IsAvailable());
 }
 
 TEST_CASE("a wrong guess does not block a later correct guess",
@@ -115,6 +118,12 @@ TEST_CASE("RemainingSeconds reports no value once the token has expired",
     CHECK_FALSE(store.RemainingSeconds().has_value());
 }
 
+TEST_CASE("RemainingSeconds reports no value for an empty configured token",
+          "[security][token_store]") {
+    TokenStore store(std::vector<std::uint8_t>{});
+    CHECK_FALSE(store.RemainingSeconds().has_value());
+}
+
 TEST_CASE("RemainingSeconds reports no value after a successful consume",
           "[security][token_store]") {
     auto token = MakeToken(1);
@@ -154,7 +163,7 @@ TEST_CASE("moving a reservation transfers commit authority",
     auto reservation = store.TryReserve(token);
     REQUIRE(reservation.has_value());
 
-    std::optional<TokenStore::Reservation> moved{std::move(*reservation)};
+    std::optional<TokenReservation> moved{std::move(*reservation)};
     reservation.reset();
     moved->Commit();
     CHECK_FALSE(store.IsAvailable());

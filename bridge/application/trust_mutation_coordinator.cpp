@@ -7,9 +7,9 @@ namespace dovahlink::application {
 TrustMutationCoordinator::TrustMutationCoordinator(
     security::ITrustStore& trustStore,
     security::IPairingSession& pairingSession,
-    ISessionPromotion& sessionPromotion)
+    ISessionManager& sessionManager)
     : trustStore_(trustStore), pairingSession_(pairingSession),
-      sessionPromotion_(sessionPromotion) {}
+      sessionManager_(sessionManager) {}
 
 security::ConfirmCodeResult TrustMutationCoordinator::ConfirmPairing(
     const std::string& presentedCode,
@@ -43,7 +43,7 @@ PairingCommitResult TrustMutationCoordinator::CommitPairing(
         pending->mutationGeneration, pending->clientId,
         pending->credential, pending->displayName);
     if (persisted.has_value()) {
-        sessionPromotion_.UpgradeToFullTrust(connection, sessionId);
+        sessionManager_.UpgradeToFullTrust(connection, sessionId);
         return PairingCommitResult::Committed(std::move(*persisted));
     }
 
@@ -72,7 +72,7 @@ TrustMutationCoordinator::PromoteAlreadyTrusted(
     if (!existing.has_value()) {
         return std::nullopt;
     }
-    sessionPromotion_.UpgradeToFullTrust(connection, sessionId);
+    sessionManager_.UpgradeToFullTrust(connection, sessionId);
     return existing;
 }
 

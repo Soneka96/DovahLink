@@ -4,39 +4,7 @@
 
 namespace dovahlink::application {
 
-SessionManager::Lease::Lease(SessionManager& manager, ConnectionId connection,
-                             std::string sessionId) noexcept
-    : manager_(&manager), connection_(connection),
-      sessionId_(std::move(sessionId)) {}
-
-SessionManager::Lease::Lease(Lease&& other) noexcept
-    : manager_(other.manager_), connection_(other.connection_),
-      sessionId_(std::move(other.sessionId_)) {
-    other.manager_ = nullptr;
-}
-
-SessionManager::Lease&
-SessionManager::Lease::operator=(Lease&& other) noexcept {
-    if (this != &other) {
-        Reset();
-        manager_ = other.manager_;
-        connection_ = other.connection_;
-        sessionId_ = std::move(other.sessionId_);
-        other.manager_ = nullptr;
-    }
-    return *this;
-}
-
-SessionManager::Lease::~Lease() { Reset(); }
-
-void SessionManager::Lease::Reset() noexcept {
-    if (manager_ != nullptr) {
-        static_cast<void>(manager_->InvalidateSession(connection_, sessionId_));
-        manager_ = nullptr;
-    }
-}
-
-std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
+std::optional<shared::ScopedRelease> SessionManager::TryCreateSession(
     ConnectionId connection, const std::string& sessionId, std::string clientId,
     SessionTrustTier trustTier, SessionAuthMethod authMethod) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -44,9 +12,14 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
         return std::nullopt;
     }
 
-    //  Complete every fallible allocation before mutating registry state so
-    //  admission either returns an owning lease or changes nothing.
-    std::string leaseSessionId = sessionId;
+    //  Build the release action before publishing registry state. If creating
+    //  the active record throws, the release object's cleanup sees no session
+    //  and admission leaves the registry unchanged.
+    std::string releaseSessionId = sessionId;
+    shared::ScopedRelease release(
+        [this, connection, sessionId = std::move(releaseSessionId)] {
+            static_cast<void>(InvalidateSession(connection, sessionId));
+        });
     activeSession_ = ActiveSession{
         .connectionId = connection,
         .sessionId = sessionId,
@@ -54,7 +27,7 @@ std::optional<SessionManager::Lease> SessionManager::TryCreateSession(
         .trustTier = trustTier,
         .authMethod = authMethod,
     };
-    return Lease(*this, connection, std::move(leaseSessionId));
+    return release;
 }
 
 bool SessionManager::IsValidForConnection(const std::string& sessionId,

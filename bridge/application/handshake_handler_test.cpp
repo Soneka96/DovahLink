@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -80,6 +81,48 @@ BuildTrustedCredentialHelloEnvelope(const std::string& credential,
         std::string(credential), std::move(messageId), std::move(clientId),
         "trusted_device_credential");
 }
+
+///  GoogleMock trust-store double used to prove rate limiting happens before
+///  credential validation.
+class MockTrustStore : public dovahlink::security::ITrustStore {
+  public:
+    MOCK_METHOD(bool, WasCorruptOnLoad, (), (const, noexcept, override));
+    MOCK_METHOD(dovahlink::security::TrustMutationGeneration,
+                CurrentMutationGeneration, (const std::string&), (override));
+    MOCK_METHOD(std::optional<dovahlink::security::KnownDeviceRecord>, Query,
+                (const std::string&), (override));
+    MOCK_METHOD(std::vector<dovahlink::security::KnownDeviceRecord>, ListTrusted,
+                (), (override));
+    MOCK_METHOD(std::vector<dovahlink::security::KnownDeviceRecord>, ListAll,
+                (), (override));
+    MOCK_METHOD(std::optional<dovahlink::security::KnownDeviceRecord>,
+                FindByShortId, (std::string_view), (override));
+    MOCK_METHOD(bool, IsRevoked, (const std::string&), (override));
+    MOCK_METHOD(bool, IsBlocked, (const std::string&), (override));
+    MOCK_METHOD(bool, Authenticate,
+                (const std::string&, const std::vector<std::uint8_t>&),
+                (override));
+    MOCK_METHOD(std::optional<dovahlink::security::KnownDeviceRecord>, Persist,
+                (std::string, std::vector<std::uint8_t>,
+                 std::optional<std::string>),
+                (override));
+    MOCK_METHOD(std::optional<dovahlink::security::KnownDeviceRecord>,
+                PersistIfGeneration,
+                (dovahlink::security::TrustMutationGeneration, std::string,
+                 std::vector<std::uint8_t>, std::optional<std::string>),
+                (override));
+    MOCK_METHOD(bool, Revoke, (const std::string&), (override));
+    MOCK_METHOD(dovahlink::security::BlockOutcome, Block,
+                (const std::string&), (override));
+    MOCK_METHOD(dovahlink::security::UnblockOutcome, Unblock,
+                (const std::string&), (override));
+    MOCK_METHOD(dovahlink::security::ForgetOutcome, Forget,
+                (const std::string&), (override));
+    MOCK_METHOD(bool, Reset, (), (override));
+    MOCK_METHOD(dovahlink::security::RenameOutcome, Rename,
+                (const std::string&, std::string), (override));
+    MOCK_METHOD(bool, ResetTrust, (), (override));
+};
 
 } //  namespace
 
@@ -1365,4 +1408,237 @@ TEST_CASE("HandleHello's post-admission trust recheck does not reject a "
     REQUIRE(result.response.sessionId.has_value());
     CHECK(sessions.IsValidForConnection(*result.response.sessionId,
                                         /*connection=*/1));
+}
+
+TEST_CASE("a rate-limited trusted credential hello does not validate the "
+          "credential",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    FailedTokenThrottle credentialThrottle;
+    auto now = std::chrono::steady_clock::now();
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        auto reservation = credentialThrottle.TryReserve(now);
+        REQUIRE(reservation.has_value());
+        reservation->Commit();
+    }
+
+    StrictMock<MockTrustStore> trustStore;
+    EXPECT_CALL(trustStore, IsBlocked("client-1"))
+        .WillOnce(testing::Return(false));
+    EXPECT_CALL(trustStore, Authenticate(testing::_, testing::_)).Times(0);
+    EXPECT_CALL(trustStore, IsRevoked(testing::_)).Times(0);
+
+    SessionManager sessions;
+    ConnectionTimeoutTracker timeout(now);
+    auto result = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(kWrongHexToken), tokenStore,
+        tokenThrottle, trustStore, credentialThrottle, sessions, 1, timeout,
+        now);
+
+    CHECK(result.closeConnection);
+    auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "rate_limited");
+}
+
+TEST_CASE("an invalid trusted-device credential commits a failed attempt",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    const std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt)
+                .has_value());
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    FailedTokenThrottle credentialThrottle;
+    auto now = std::chrono::steady_clock::now();
+    const std::string wrongCredential =
+        dovahlink::security::EncodeHex(std::vector<std::uint8_t>{9, 9, 9, 9});
+
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        SessionManager sessions;
+        ConnectionTimeoutTracker timeout(now);
+        auto result = HandleHello(
+            BuildTrustedCredentialHelloEnvelope(wrongCredential,
+                                                "message-wrong-" +
+                                                    std::to_string(attempt)),
+            tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions,
+            1, timeout, now);
+        auto error =
+            dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+        REQUIRE(error.has_value());
+        CHECK(error->code == "unauthenticated");
+    }
+
+    SessionManager sessions;
+    ConnectionTimeoutTracker timeout(now);
+    auto result = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(
+            dovahlink::security::EncodeHex(credentialBytes), "message-valid"),
+        tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions, 1,
+        timeout, now);
+    auto error =
+        dovahlink::protocol::DecodeErrorPayload(result.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "rate_limited");
+}
+
+TEST_CASE("valid developer authentication releases its failed-attempt slot",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    auto now = std::chrono::steady_clock::now();
+
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        SessionManager sessions;
+        ConnectionTimeoutTracker timeout(now);
+        auto result = HandleHello(
+            BuildHelloEnvelope(kWrongHexToken,
+                               "message-wrong-" + std::to_string(attempt)),
+            tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions,
+            1, timeout, now);
+        CHECK(result.response.messageType == "error");
+    }
+
+    SessionManager sessions;
+    ConnectionTimeoutTracker timeout(now);
+    auto success = HandleHello(BuildHelloEnvelope(kValidHexToken, "message-valid"),
+                               tokenStore, tokenThrottle, trustStore,
+                               credentialThrottle, sessions, 1, timeout, now);
+    REQUIRE(success.sessionLease.has_value());
+    success.sessionLease.reset();
+
+    ConnectionTimeoutTracker retryTimeout(now);
+    auto retry = HandleHello(
+        BuildHelloEnvelope(kWrongHexToken, "message-after-success"), tokenStore,
+        tokenThrottle, trustStore, credentialThrottle, sessions, 1, retryTimeout,
+        now);
+    auto error = dovahlink::protocol::DecodeErrorPayload(retry.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+}
+
+TEST_CASE("valid trusted-device authentication releases its slot when session "
+          "admission fails",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    const std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt)
+                .has_value());
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    FailedTokenThrottle credentialThrottle;
+    auto now = std::chrono::steady_clock::now();
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        auto reservation = credentialThrottle.TryReserve(now);
+        REQUIRE(reservation.has_value());
+        reservation->Commit();
+    }
+
+    SessionManager sessions;
+    auto existingLease = sessions.TryCreateSession(
+        2, "existing-session", "existing-client", SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(existingLease.has_value());
+
+    ConnectionTimeoutTracker timeout(now);
+    auto rejected = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(
+            dovahlink::security::EncodeHex(credentialBytes), "message-valid"),
+        tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions, 1,
+        timeout, now);
+    auto rejectedError =
+        dovahlink::protocol::DecodeErrorPayload(rejected.response.payload);
+    REQUIRE(rejectedError.has_value());
+    CHECK(rejectedError->code == "unauthorized");
+    existingLease.reset();
+
+    ConnectionTimeoutTracker retryTimeout(now);
+    auto retry = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(kWrongHexToken,
+                                            "message-after-rejection"),
+        tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions, 1,
+        retryTimeout, now);
+    auto retryError =
+        dovahlink::protocol::DecodeErrorPayload(retry.response.payload);
+    REQUIRE(retryError.has_value());
+    CHECK(retryError->code == "unauthenticated");
+}
+
+TEST_CASE("valid trusted-device authentication releases its failed-attempt "
+          "slot",
+          "[application][handshake_handler]") {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    const std::vector<std::uint8_t> credentialBytes{1, 2, 3, 4};
+    REQUIRE(trustStore.Persist("client-1", credentialBytes, std::nullopt)
+                .has_value());
+
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    FailedTokenThrottle credentialThrottle;
+    auto now = std::chrono::steady_clock::now();
+    const std::string wrongCredential =
+        dovahlink::security::EncodeHex(std::vector<std::uint8_t>{9, 9, 9, 9});
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        auto reservation = credentialThrottle.TryReserve(now);
+        REQUIRE(reservation.has_value());
+        reservation->Commit();
+    }
+
+    SessionManager sessions;
+    ConnectionTimeoutTracker timeout(now);
+    auto success = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(
+            dovahlink::security::EncodeHex(credentialBytes), "message-valid"),
+        tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions, 1,
+        timeout, now);
+    REQUIRE(success.sessionLease.has_value());
+    success.sessionLease.reset();
+
+    ConnectionTimeoutTracker retryTimeout(now);
+    auto retry = HandleHello(
+        BuildTrustedCredentialHelloEnvelope(wrongCredential,
+                                            "message-after-success"),
+        tokenStore, tokenThrottle, trustStore, credentialThrottle, sessions, 1,
+        retryTimeout, now);
+    auto error = dovahlink::protocol::DecodeErrorPayload(retry.response.payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "unauthenticated");
+}
+
+TEST_CASE("an authentication exception releases its failed-attempt reservation",
+          "[application][handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle tokenThrottle;
+    FailedTokenThrottle credentialThrottle;
+    StrictMock<MockTrustStore> trustStore;
+    EXPECT_CALL(trustStore, IsBlocked("client-1"))
+        .WillOnce(testing::Return(false));
+    EXPECT_CALL(trustStore, Authenticate(testing::_, testing::_))
+        .WillOnce(testing::Throw(std::runtime_error("validation failed")));
+
+    SessionManager sessions;
+    auto now = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(now);
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        auto reservation = credentialThrottle.TryReserve(now);
+        REQUIRE(reservation.has_value());
+        reservation->Commit();
+    }
+    CHECK_THROWS_AS(
+        HandleHello(BuildTrustedCredentialHelloEnvelope(kWrongHexToken),
+                    tokenStore, tokenThrottle, trustStore, credentialThrottle,
+                    sessions, 1, timeout, now),
+        std::runtime_error);
+
+    auto retryReservation = credentialThrottle.TryReserve(now);
+    CHECK(retryReservation.has_value());
 }

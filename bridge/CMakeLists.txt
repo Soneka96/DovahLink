@@ -83,15 +83,21 @@ add_library(dovahlink_bridge_core STATIC
     security/csprng.cpp
     security/dpapi.cpp
     security/factory_reset_challenge.cpp
+    security/failed_token_reservation.cpp
+    security/failed_token_throttle.cpp
     security/hex.cpp
+    security/inbound_message_rate_limiter.cpp
     security/pairing_session.cpp
-    security/throttle.cpp
+    security/rate_window_counter.cpp
     security/token_provider.cpp
+    security/token_reservation.cpp
     security/token_store.cpp
     security/trust_device_store.cpp
     security/trust_reset_store.cpp
     security/trust_store.cpp
+    security/violation_tracker.cpp
     security/windows_trust_store_persistence.cpp
+    shared/scoped_release.cpp
     transport/connection_slot.cpp
     transport/listener.cpp
     transport/websocket_session.cpp
@@ -208,13 +214,18 @@ add_executable(dovahlink_bridge_tests
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/failed_token_reservation_test.cpp
     security/factory_reset_challenge_test.cpp
+    security/failed_token_throttle_test.cpp
     security/hex_test.cpp
+    security/inbound_message_rate_limiter_test.cpp
     security/pairing_session_test.cpp
-    security/throttle_test.cpp
+    security/rate_window_counter_test.cpp
     security/token_provider_test.cpp
+    security/token_reservation_test.cpp
     security/token_store_test.cpp
     security/trust_store_test.cpp
+    security/violation_tracker_test.cpp
     security/windows_trust_store_persistence_test.cpp
     protocol/bounded_json_test.cpp
     protocol/capabilities_payload_test.cpp
@@ -235,6 +246,7 @@ add_executable(dovahlink_bridge_tests
     protocol/state_snapshot_payload_test.cpp
     protocol/subscribe_payload_test.cpp
     protocol/subscription_ack_payload_test.cpp
+    shared/scoped_release_test.cpp
     transport/connection_slot_test.cpp
     transport/inbound_limit_test.cpp
     transport/listener_test.cpp

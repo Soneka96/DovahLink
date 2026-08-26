@@ -6,7 +6,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -15,11 +14,7 @@ using dovahlink::application::ConnectionId;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
-
-static_assert(!std::is_copy_constructible_v<SessionManager::Lease>);
-static_assert(!std::is_copy_assignable_v<SessionManager::Lease>);
-static_assert(std::is_nothrow_move_constructible_v<SessionManager::Lease>);
-static_assert(std::is_nothrow_move_assignable_v<SessionManager::Lease>);
+using dovahlink::shared::ScopedRelease;
 
 namespace {
 constexpr ConnectionId kConnectionA = 1;
@@ -125,6 +120,25 @@ TEST_CASE("destroying a lease invalidates its session",
     REQUIRE(lease.has_value());
     lease.reset();
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+}
+
+TEST_CASE("a released admission leaves the session slot available",
+          "[application][session]") {
+    SessionManager sessions;
+    {
+        auto lease = sessions.TryCreateSession(
+            kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+            SessionAuthMethod::kTrustedDeviceCredential);
+        REQUIRE(lease.has_value());
+        CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    }
+
+    CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    auto replacement = sessions.TryCreateSession(
+        kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(replacement.has_value());
+    CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
 }
 
 TEST_CASE("the same connection can create a fresh session after its prior one "
@@ -233,7 +247,7 @@ TEST_CASE("moving a lease transfers session ownership",
         SessionAuthMethod::kTrustedDeviceCredential);
     REQUIRE(lease.has_value());
 
-    std::optional<SessionManager::Lease> moved{std::move(*lease)};
+    std::optional<ScopedRelease> moved{std::move(*lease)};
     lease.reset();
     CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 

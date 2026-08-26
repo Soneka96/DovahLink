@@ -1,5 +1,7 @@
 #pragma once
 
+#include "security/token_reservation.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <mutex>
@@ -8,72 +10,54 @@
 
 namespace dovahlink::security {
 
-///  Thread-safe one-time token store with expiry and secure memory clearing.
-class TokenStore {
+///  Narrow capability for reserving and inspecting one plugin-lifetime
+///  one-time authentication token.
+class ITokenStore {
   public:
-    ///  Move-only reservation of a matching token pending session admission.
-    ///
-    ///  The originating @ref TokenStore must outlive the reservation.
-    class Reservation {
-      public:
-        ///  Prevents two reservations from controlling the same token.
-        Reservation(const Reservation&) = delete;
+    ///  Releases the interface without performing work.
+    virtual ~ITokenStore() = default;
 
-        ///  Prevents copying control of reserved token material.
-        Reservation& operator=(const Reservation&) = delete;
+    ///  Compares and atomically reserves a matching, unexpired token.
+    ///  Comparison is constant-time for equal-length values; mismatches,
+    ///  expiry, prior consumption, and empty configured tokens return no
+    ///  reservation.
+    [[nodiscard]] virtual std::optional<TokenReservation>
+    TryReserve(const std::vector<std::uint8_t>& presented) = 0;
 
-        ///  Transfers control of a matching token reservation.
-        Reservation(Reservation&& other) noexcept;
+    ///  Reports whether the token remains available, clearing it on expiry.
+    [[nodiscard]] virtual bool IsAvailable() = 0;
 
-        ///  Releases any current reservation, then transfers control.
-        Reservation& operator=(Reservation&& other) noexcept;
+    ///  Returns the token's remaining validity, or `std::nullopt` if consumed
+    ///  or expired (clearing it on expiry, matching @ref IsAvailable).
+    [[nodiscard]] virtual std::optional<std::chrono::seconds>
+    RemainingSeconds() = 0;
+};
 
-        ///  Releases the token unchanged when the reservation was not committed.
-        ~Reservation() = default;
-
-        ///  Permanently consumes and securely clears the reserved token; repeated
-        ///  calls are harmless.
-        void Commit();
-
-      private:
-        friend class TokenStore;
-
-        ///  Creates a reservation while holding exclusive access to `store`.
-        Reservation(TokenStore& store, std::unique_lock<std::mutex> lock) noexcept;
-
-        ///  Store whose token is reserved, or null after move or commit.
-        TokenStore* store_;
-
-        ///  Exclusive store access retained until rollback or commit.
-        std::unique_lock<std::mutex> lock_;
-    };
-
+///  Thread-safe one-time token store with expiry and secure memory clearing.
+class TokenStore : public ITokenStore {
+  public:
     ///  Stores the expected token and starts its time-to-live countdown.
     explicit TokenStore(
         std::vector<std::uint8_t> expectedToken,
         std::chrono::steady_clock::duration timeToLive = std::chrono::minutes(5));
 
     ///  Clears any remaining token material.
-    ~TokenStore();
+    ~TokenStore() override;
 
     ///  Prevents copying token material between stores.
     TokenStore(const TokenStore&) = delete;
     ///  Prevents assigning token material between stores.
     TokenStore& operator=(const TokenStore&) = delete;
 
-    ///  Compares and atomically reserves a matching, unexpired token.
-    ///  Comparison is constant-time for equal-length values; mismatches,
-    ///  expiry, prior consumption, and empty configured tokens return no
-    ///  reservation.
-    [[nodiscard]] std::optional<Reservation>
-    TryReserve(const std::vector<std::uint8_t>& presented);
+    ///  @copydoc ITokenStore::TryReserve
+    [[nodiscard]] std::optional<TokenReservation>
+    TryReserve(const std::vector<std::uint8_t>& presented) override;
 
-    ///  Reports whether the token remains available, clearing it on expiry.
-    [[nodiscard]] bool IsAvailable();
+    ///  @copydoc ITokenStore::IsAvailable
+    [[nodiscard]] bool IsAvailable() override;
 
-    ///  Returns the token's remaining validity, or `std::nullopt` if consumed or
-    ///  expired (clearing it on expiry, matching @ref IsAvailable).
-    [[nodiscard]] std::optional<std::chrono::seconds> RemainingSeconds();
+    ///  @copydoc ITokenStore::RemainingSeconds
+    [[nodiscard]] std::optional<std::chrono::seconds> RemainingSeconds() override;
 
   private:
     ///  Checks availability and clears expired token material while locked.

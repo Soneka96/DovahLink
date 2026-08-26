@@ -8,7 +8,7 @@
 #include "transport/websocket_session.hpp"
 
 #include "security/limits.hpp"
-#include "security/throttle.hpp"
+#include "security/violation_tracker.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

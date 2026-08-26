@@ -8,9 +8,10 @@
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
+#include "security/inbound_message_rate_limiter.hpp"
 #include "security/pairing_session.hpp"
-#include "security/throttle.hpp"
 #include "security/trust_store.hpp"
+#include "security/violation_tracker.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -70,9 +71,9 @@ struct DispatchResult {
 [[nodiscard]] DispatchResult ProcessInboundMessage(
     const std::string& rawMessage, std::size_t& receivedMessageCount,
     const std::string& sessionId, ConnectionId connection,
-    SessionManager& sessionManager, ReplayGuard& replayGuard,
-    security::ViolationTracker& violations,
-    security::InboundMessageRateLimiter& rateLimiter,
+    ISessionManager& sessionManager, ReplayGuard& replayGuard,
+    security::IViolationTracker& violations,
+    security::IInboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession, security::ITrustStore& trustStore,

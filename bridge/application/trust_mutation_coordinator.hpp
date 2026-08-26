@@ -1,7 +1,7 @@
 #pragma once
 
 #include "application/pairing_commit_result.hpp"
-#include "application/session_promotion.hpp"
+#include "application/session.hpp"
 #include "security/pairing_session.hpp"
 #include "security/trust_mutation_generation.hpp"
 #include "security/trust_store.hpp"
@@ -83,10 +83,10 @@ class ITrustMutationCoordinator {
 ///  Real trust-mutation coordinator used by the Bridge composition root.
 class TrustMutationCoordinator final : public ITrustMutationCoordinator {
   public:
-    ///  Binds durable trust, pairing, and session-promotion capabilities.
+    ///  Binds durable trust, pairing, and session-management capabilities.
     TrustMutationCoordinator(security::ITrustStore& trustStore,
                              security::IPairingSession& pairingSession,
-                             ISessionPromotion& sessionPromotion);
+                             ISessionManager& sessionManager);
 
     ///  @copydoc ITrustMutationCoordinator::ConfirmPairing
     [[nodiscard]] security::ConfirmCodeResult
@@ -144,7 +144,7 @@ class TrustMutationCoordinator final : public ITrustMutationCoordinator {
     security::IPairingSession& pairingSession_;
 
     ///  Promotes sessions after trust finalization.
-    ISessionPromotion& sessionPromotion_;
+    ISessionManager& sessionManager_;
 
     ///  Serializes all coordinator operations that can consume or invalidate
     ///  pending pairing state.

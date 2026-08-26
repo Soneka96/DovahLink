@@ -5,8 +5,8 @@
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
+#include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
-#include "security/throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
 #include "transport/websocket_session.hpp"
@@ -53,11 +53,11 @@ using SteadyNowProvider =
 ///  @param steadyNow Supplies current monotonic time; injectable for
 ///  deterministic timeout tests.
 void RunConnectionSession(
-    transport::WebSocketSession& ws, security::TokenStore& tokenStore,
-    security::FailedTokenThrottle& tokenThrottle,
+    transport::WebSocketSession& ws, security::ITokenStore& tokenStore,
+    security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
-    security::FailedTokenThrottle& credentialThrottle,
-    SessionManager& sessionManager, ConnectionId connection,
+    security::IFailedTokenThrottle& credentialThrottle,
+    ISessionManager& sessionManager, ConnectionId connection,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
