@@ -153,6 +153,23 @@ TEST_CASE("PlayContextLifecycle activates after a successful load",
     CHECK(contract.CurrentPlayContextId() == success.newPlayContextId);
 }
 
+TEST_CASE("PlayContextLifecycle failure while active invalidates the current context",
+          "[application][play_context_lifecycle]") {
+    PlayContextLifecycle lifecycle([] {
+        return std::optional<std::string>("context-1");
+    });
+    IPlayContextLifecycle& contract = lifecycle;
+    contract.HandleEvent(LifecycleEvent::kNewGame);
+
+    auto failure =
+        contract.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
+
+    CHECK(failure.contextInvalidated);
+    CHECK_FALSE(failure.newPlayContextId.has_value());
+    CHECK(contract.CurrentState() == LifecycleState::kNoContext);
+    CHECK_FALSE(contract.CurrentPlayContextId());
+}
+
 TEST_CASE("PlayContextLifecycle treats repeated and out-of-order invalidation as safe",
           "[application][play_context_lifecycle]") {
     PlayContextLifecycle lifecycle([] {
