@@ -8,6 +8,9 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_controller.hpp"
+#include "application/active_session_disconnector.hpp"
+#include "application/active_session_socket.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -56,11 +59,12 @@ constexpr std::string_view kTrustResetCommandPrefix = "trust_reset ";
 constexpr std::string_view kFactoryResetCommand = "factory_reset";
 
 ///  Provides no-op callback registration for the Skyrim-independent harness.
-class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
+class NoOpCallbackRegistry
+    : public dovahlink::application::IBridgeCallbackRegistry {
   public:
-    ///  @copydoc dovahlink::application::CallbackRegistry::RegisterAll
+    ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
-    ///  @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
+    ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
 
@@ -272,6 +276,12 @@ int main() {
     //  test can observe it changing across a kill-and-relaunch cycle without
     //  a running Skyrim.
     auto bridgeInstanceId = dovahlink::security::GenerateOpaqueId();
+    dovahlink::application::ActiveSessionSocket activeSessionSocket;
+    dovahlink::application::ActiveSessionController activeSessionController(
+        sessionManager, activeSessionSocket, activePlayContextReader,
+        bridgeInstanceId);
+    dovahlink::application::ActiveSessionDisconnector activeSessionDisconnector(
+        activeSessionController);
 
     NoOpCallbackRegistry callbackRegistry;
     dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
@@ -281,7 +291,8 @@ int main() {
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        activeSessionSocket, pairingSession, trustMutationCoordinator,
+        pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);
@@ -350,7 +361,8 @@ int main() {
             //  immediately, not just the next reconnect attempt.
             std::string revokedClientId = line.substr(kRevokeCommandPrefix.size());
             if (trustStore.Revoke(revokedClientId)) {
-                bridgeWorkerPool.DisconnectIfClientActive(revokedClientId, "revoked");
+                activeSessionDisconnector.DisconnectIfClientActive(revokedClientId,
+                                                                   "revoked");
                 std::cout << "REVOKED " << revokedClientId << std::endl;
             } else {
                 std::cout << "REVOKE_FAILED " << revokedClientId << std::endl;
@@ -369,7 +381,8 @@ int main() {
                 dovahlink::security::BlockOutcome::kBlocked) {
                 (void)pairingSession.TryCancel(blockedClientId,
                                                std::chrono::steady_clock::now());
-                bridgeWorkerPool.DisconnectIfClientActive(blockedClientId, "blocked");
+                activeSessionDisconnector.DisconnectIfClientActive(blockedClientId,
+                                                                   "blocked");
                 std::cout << "BLOCKED " << blockedClientId << std::endl;
             } else {
                 std::cout << "BLOCK_FAILED " << blockedClientId << std::endl;
@@ -396,8 +409,8 @@ int main() {
             std::string trustResetClientId =
                 line.substr(kTrustResetCommandPrefix.size());
             if (trustStore.ResetTrust()) {
-                bridgeWorkerPool.DisconnectIfClientActive(trustResetClientId,
-                                                          "trust_reset");
+                activeSessionDisconnector.DisconnectIfClientActive(
+                    trustResetClientId, "trust_reset");
                 std::cout << "TRUST_RESET " << trustResetClientId << std::endl;
             } else {
                 std::cout << "TRUST_RESET_FAILED " << trustResetClientId << std::endl;
@@ -411,7 +424,7 @@ int main() {
             //  every known device record unconditionally, so any active session --
             //  trusted or not -- is disconnected, unlike trust_reset above.
             if (trustStore.Reset()) {
-                bridgeWorkerPool.DisconnectActive("factory_reset");
+                activeSessionDisconnector.DisconnectActive("factory_reset");
                 std::cout << "FACTORY_RESET" << std::endl;
             } else {
                 std::cout << "FACTORY_RESET_FAILED" << std::endl;

@@ -12,6 +12,7 @@
 using dovahlink::application::ActiveSessionDisconnector;
 using dovahlink::application::ConnectionId;
 using dovahlink::application::ITrustMutationCoordinator;
+using dovahlink::application::ITrustResetService;
 using dovahlink::application::PairingCommitResult;
 using dovahlink::application::TrustResetService;
 using dovahlink::application::test_support::BuildKnownDeviceRecord;
@@ -43,8 +44,9 @@ TEST_CASE("TrustResetService starts a Factory Reset through its challenge port",
 
     TrustResetService service(resetStore, sessionDisconnector,
                               mutationCoordinator, factoryResetChallenge);
+    ITrustResetService& serviceContract = service;
 
-    CHECK(service.StartFactoryReset() ==
+    CHECK(serviceContract.StartFactoryReset() ==
           "Factory Reset requested. Confirm with code 654321 within 60 "
           "seconds to permanently erase all trust.");
 }
@@ -181,6 +183,29 @@ TEST_CASE("TrustResetService confirmed Factory Reset performs cleanup",
 
     CHECK(service.ConfirmFactoryReset("654321") ==
           "Factory Reset complete (1 trusted device erased).");
+}
+
+TEST_CASE("TrustResetService does not disconnect when Factory Reset persistence fails",
+          "[application][trust_reset_service]") {
+    StrictMock<MockTrustResetStore> resetStore;
+    StrictMock<MockActiveSessionDisconnector> sessionDisconnector;
+    StrictMock<MockTrustMutationCoordinator> mutationCoordinator;
+    StrictMock<MockFactoryResetChallenge> factoryResetChallenge;
+    testing::InSequence sequence;
+    EXPECT_CALL(factoryResetChallenge, TryConfirm("654321"))
+        .WillOnce(testing::Return(FactoryResetConfirmOutcome::kConfirmed));
+    EXPECT_CALL(resetStore, ListTrusted())
+        .WillOnce(testing::Return(std::vector<KnownDeviceRecord>{
+            BuildKnownDeviceRecord("client-1", "11111", std::nullopt,
+                                   KnownDeviceState::kTrusted, 1)}));
+    EXPECT_CALL(mutationCoordinator, FactoryReset())
+        .WillOnce(testing::Return(false));
+
+    TrustResetService service(resetStore, sessionDisconnector,
+                              mutationCoordinator, factoryResetChallenge);
+
+    CHECK(service.ConfirmFactoryReset("654321") ==
+          "Failed to complete Factory Reset: trust-store save failed.");
 }
 
 TEST_CASE("TrustResetService Reset Trust cancels and disconnects trusted clients",

@@ -16,53 +16,6 @@
 
 namespace dovahlink::security {
 
-///  Trust-store operations needed by per-device administration.
-class ITrustDeviceStore {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~ITrustDeviceStore() = default;
-
-    ///  Returns every currently trusted device.
-    [[nodiscard]] virtual std::vector<KnownDeviceRecord> ListTrusted() = 0;
-
-    ///  Returns every known device regardless of state.
-    [[nodiscard]] virtual std::vector<KnownDeviceRecord> ListAll() = 0;
-
-    ///  Finds a known device by its administration-only short identifier.
-    [[nodiscard]] virtual std::optional<KnownDeviceRecord>
-    FindByShortId(std::string_view shortId) = 0;
-
-    ///  Revokes a currently trusted client.
-    [[nodiscard]] virtual bool Revoke(const std::string& clientId) = 0;
-
-    ///  Blocks a known client.
-    [[nodiscard]] virtual BlockOutcome Block(const std::string& clientId) = 0;
-
-    ///  Unblocks a known client.
-    [[nodiscard]] virtual UnblockOutcome
-    Unblock(const std::string& clientId) = 0;
-
-    ///  Forgets an eligible known client.
-    [[nodiscard]] virtual ForgetOutcome
-    Forget(const std::string& clientId) = 0;
-};
-
-///  Trust-store operations needed by bulk trust administration.
-class ITrustResetStore {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~ITrustResetStore() = default;
-
-    ///  Returns every currently trusted device.
-    [[nodiscard]] virtual std::vector<KnownDeviceRecord> ListTrusted() = 0;
-
-    ///  Permanently removes every known device.
-    [[nodiscard]] virtual bool Reset() = 0;
-
-    ///  Revokes every trusted device while preserving its identity record.
-    [[nodiscard]] virtual bool ResetTrust() = 0;
-};
-
 ///  Thread-safe persistent-trust domain service: load, persist, revoke, reset,
 ///  query. Fails closed on corrupt or inaccessible persistence -- it never
 ///  crashes, never silently trusts a client, and always supports a clean
@@ -70,7 +23,66 @@ class ITrustResetStore {
 ///  character invariants are enforced only by `Persist`, the sole production
 ///  construction path; records obtained any other way are trusted as already
 ///  valid.
-class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
+class ITrustStore {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~ITrustStore() = default;
+
+    ///  Reports whether the most recent load fell back to an empty store.
+    [[nodiscard]] virtual bool WasCorruptOnLoad() const noexcept = 0;
+    ///  Returns the current mutation generations for a client.
+    [[nodiscard]] virtual TrustMutationGeneration
+    CurrentMutationGeneration(const std::string& clientId) = 0;
+    ///  Returns a currently trusted record by client ID.
+    [[nodiscard]] virtual std::optional<KnownDeviceRecord>
+    Query(const std::string& clientId) = 0;
+    ///  Returns every currently trusted device.
+    [[nodiscard]] virtual std::vector<KnownDeviceRecord> ListTrusted() = 0;
+    ///  Returns every known device.
+    [[nodiscard]] virtual std::vector<KnownDeviceRecord> ListAll() = 0;
+    ///  Finds a known device by its administration-only short identifier.
+    [[nodiscard]] virtual std::optional<KnownDeviceRecord>
+    FindByShortId(std::string_view shortId) = 0;
+    ///  Reports whether a client is currently revoked.
+    [[nodiscard]] virtual bool IsRevoked(const std::string& clientId) = 0;
+    ///  Reports whether a client is currently blocked.
+    [[nodiscard]] virtual bool IsBlocked(const std::string& clientId) = 0;
+    ///  Authenticates a trusted client credential.
+    [[nodiscard]] virtual bool
+    Authenticate(const std::string& clientId,
+                 const std::vector<std::uint8_t>& presentedCredential) = 0;
+    ///  Persists a newly trusted device.
+    [[nodiscard]] virtual std::optional<KnownDeviceRecord>
+    Persist(std::string clientId, std::vector<std::uint8_t> credential,
+            std::optional<std::string> displayName) = 0;
+    ///  Persists a pairing result after a mutation-fence check.
+    [[nodiscard]] virtual std::optional<KnownDeviceRecord>
+    PersistIfGeneration(TrustMutationGeneration expectedGeneration,
+                        std::string clientId,
+                        std::vector<std::uint8_t> credential,
+                        std::optional<std::string> displayName) = 0;
+    ///  Revokes a trusted client.
+    [[nodiscard]] virtual bool Revoke(const std::string& clientId) = 0;
+    ///  Blocks a known client.
+    [[nodiscard]] virtual BlockOutcome Block(const std::string& clientId) = 0;
+    ///  Unblocks a blocked client.
+    [[nodiscard]] virtual UnblockOutcome
+    Unblock(const std::string& clientId) = 0;
+    ///  Removes an eligible known client.
+    [[nodiscard]] virtual ForgetOutcome
+    Forget(const std::string& clientId) = 0;
+    ///  Permanently removes every known device.
+    [[nodiscard]] virtual bool Reset() = 0;
+    ///  Renames a trusted client.
+    [[nodiscard]] virtual RenameOutcome Rename(const std::string& clientId,
+                                               std::string displayName) = 0;
+    ///  Revokes every trusted client while preserving its record.
+    [[nodiscard]] virtual bool ResetTrust() = 0;
+};
+
+///  Thread-safe persistent-trust domain service implementing the full trust-store
+///  domain contract.
+class TrustStore final : public ITrustStore {
   public:
     ///  Produces one five-digit `shortId` candidate, or `std::nullopt` when the
     ///  underlying random source fails. `Persist` retries this on collision with a
@@ -94,19 +106,19 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
 
     ///  Reports whether the most recent load found persistence corrupt or
     ///  inaccessible and fell back to an empty store.
-    [[nodiscard]] bool WasCorruptOnLoad() const noexcept;
+    [[nodiscard]] bool WasCorruptOnLoad() const noexcept override;
 
     ///  Returns the current global and client-scoped generations for `clientId`.
     ///  @param clientId Client identity whose block generation is included.
     ///  Pairing code captures this fence when it becomes pending and supplies it
     ///  to `PersistIfGeneration` before trust is saved.
     [[nodiscard]] TrustMutationGeneration
-    CurrentMutationGeneration(const std::string& clientId);
+    CurrentMutationGeneration(const std::string& clientId) override;
 
     ///  Returns the known device record for `clientId`, if it is currently in the
     ///  `kTrusted` state.
     [[nodiscard]] std::optional<KnownDeviceRecord>
-    Query(const std::string& clientId);
+    Query(const std::string& clientId) override;
 
     ///  Returns every currently trusted (`kTrusted`) device, for administration
     ///  listings.
@@ -118,11 +130,11 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
 
     ///  Reports whether `clientId` is a known device currently in the `kRevoked`
     ///  state.
-    [[nodiscard]] bool IsRevoked(const std::string& clientId);
+    [[nodiscard]] bool IsRevoked(const std::string& clientId) override;
 
     ///  Reports whether `clientId` is a known device currently in the `kBlocked`
     ///  state.
-    [[nodiscard]] bool IsBlocked(const std::string& clientId);
+    [[nodiscard]] bool IsBlocked(const std::string& clientId) override;
 
     ///  Returns the known device record for `shortId`, regardless of its current
     ///  state. Unlike `Query`/`ListTrusted`, this is not restricted to `kTrusted`
@@ -137,7 +149,7 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///  `presentedCredential`.
     [[nodiscard]] bool
     Authenticate(const std::string& clientId,
-                 const std::vector<std::uint8_t>& presentedCredential);
+                 const std::vector<std::uint8_t>& presentedCredential) override;
 
     ///  Binds `credential` to `clientId` and transitions it to `kTrusted`. When
     ///  `clientId` already has a known device record (in any prior state except
@@ -159,7 +171,7 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///      unchanged.
     [[nodiscard]] std::optional<KnownDeviceRecord>
     Persist(std::string clientId, std::vector<std::uint8_t> credential,
-            std::optional<std::string> displayName);
+            std::optional<std::string> displayName) override;
 
     ///  Persists a pairing result only when neither a global nor a client-scoped
     ///  administrative trust mutation has occurred since `expectedGeneration`
@@ -171,7 +183,7 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     PersistIfGeneration(TrustMutationGeneration expectedGeneration,
                         std::string clientId,
                         std::vector<std::uint8_t> credential,
-                        std::optional<std::string> displayName);
+                        std::optional<std::string> displayName) override;
 
     ///  Transitions a currently `kTrusted` `clientId` to `kRevoked`, securely
     ///  clearing its credential while keeping its record (identity, `shortId`,
@@ -233,7 +245,7 @@ class TrustStore : public ITrustDeviceStore, public ITrustResetStore {
     ///      `kSaveFailed` otherwise. On any non-`kRenamed` outcome the in-memory
     ///      state is unchanged.
     [[nodiscard]] RenameOutcome Rename(const std::string& clientId,
-                                       std::string displayName);
+                                       std::string displayName) override;
 
     ///  Transitions every currently `kTrusted` device to `kRevoked`, securely
     ///  clearing each credential, while leaving every `kRevoked`, `kBlocked`, and

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/coordinator.hpp"
+#include "application/contained_work.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_transition.hpp"
 #include "shared/enums.hpp"

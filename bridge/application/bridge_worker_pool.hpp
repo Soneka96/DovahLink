@@ -1,9 +1,9 @@
 #pragma once
 
 #include "application/active_play_context_reader.hpp"
-#include "application/active_session_disconnector.hpp"
+#include "application/active_session_socket.hpp"
 #include "application/connection_session.hpp"
-#include "application/coordinator.hpp"
+#include "application/contained_work.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
@@ -27,13 +27,28 @@
 
 namespace dovahlink::application {
 
+///  Controls worker startup and shutdown.
+class IBridgeWorkerPool {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IBridgeWorkerPool() = default;
+
+    ///  Starts worker processing.
+    ///  @param workerRunner Containment boundary retained by worker threads.
+    virtual void Start(ContainedWorkRunner workerRunner) = 0;
+
+    ///  Stops workers and drains or cancels queued work without joining them.
+    virtual void Stop() = 0;
+
+    ///  Waits until every worker has exited.
+    virtual void Join() = 0;
+};
+
 ///  Owns one accept worker per loopback listener and enforces one active client.
 ///  `Stop()` closes listeners and shuts down the active session socket before
 ///  `Join()` so blocked accepts, handshakes, and reads can finish. Also the
-///  reusable `ActiveSessionDisconnector` implementation for trust
-///  administration, since it is the only component that ever holds a live
-///  session's socket handle.
-class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
+///  owns the worker lifecycle for one active client.
+class BridgeWorkerPool final : public IBridgeWorkerPool {
   public:
     ///  Creates workers for the two loopback listeners.
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.
@@ -63,11 +78,12 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                      transport::ConnectionSlot& slot,
                      security::TokenStore& tokenStore,
                      security::FailedTokenThrottle& tokenThrottle,
-                     security::TrustStore& trustStore,
+                     security::ITrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle,
                      SessionManager& sessionManager,
                      const IActivePlayContextReader& activePlayContext,
-                     security::PairingSession& pairingSession,
+                     IActiveSessionSocket& activeSessionSocket,
+                     security::IPairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& pairingNotificationSink,
                      std::optional<std::string> bridgeInstanceId,
@@ -82,21 +98,14 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Copy assignment is not supported.
     BridgeWorkerPool& operator=(const BridgeWorkerPool&) = delete;
 
-    ///  @copydoc WorkerPool::Start
+    ///  @copydoc IBridgeWorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override;
 
-    ///  @copydoc WorkerPool::Stop
+    ///  @copydoc IBridgeWorkerPool::Stop
     void Stop() override;
 
-    ///  @copydoc WorkerPool::Join
+    ///  @copydoc IBridgeWorkerPool::Join
     void Join() override;
-
-    ///  @copydoc ActiveSessionDisconnector::DisconnectIfClientActive
-    void DisconnectIfClientActive(std::string_view clientId,
-                                  std::string_view reason) override;
-
-    ///  @copydoc ActiveSessionDisconnector::DisconnectActive
-    void DisconnectActive(std::string_view reason) override;
 
   private:
     ///  Accepts connections from one loopback listener until stopping.
@@ -136,32 +145,6 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                                boost::asio::ip::tcp::socket socket,
                                transport::ConnectionSlot::Lease slotLease);
 
-    ///  Shuts down the active session socket, if one is currently published,
-    ///  independent of the caller's thread -- the same cross-thread-safe path
-    ///  `Socket::Shutdown()` itself provides. Used only by `Stop()`: ordinary
-    ///  plugin/transport shutdown is not an administrative invalidation and sends
-    ///  no `session_invalidated` notice, unlike `NotifyAndShutdownActiveSocket()`
-    ///  below.
-    void ShutdownActiveSocket();
-
-    ///  Best-effort sends the active session a `session_invalidated(reason)`
-    ///  event, then shuts it down -- the same cross-thread-safe path
-    ///  `Socket::ShutdownWithNotification()` provides. Shared by
-    ///  `DisconnectIfClientActive()` and `DisconnectActive()` so both tear down
-    ///  the active socket, after the same notification, exactly the same way.
-    ///  @param socket The active session's socket, already resolved and locked by
-    ///  the caller.
-    ///  @param sessionId The session identifier to invalidate, resolved by the
-    ///  caller under the same
-    ///      `activeSocketMutex_` critical section that resolved `socket` -- never
-    ///      re-queried here, since a fresh query could by then belong to a
-    ///      different session than the one `socket` was just resolved for.
-    ///  @param reason One of `"revoked"`, `"blocked"`, `"trust_reset"`,
-    ///  `"factory_reset"`.
-    void NotifyAndShutdownActiveSocket(
-        const transport::WebSocketSession::SocketHandle& socket,
-        std::optional<std::string> sessionId, std::string_view reason);
-
     ///  IPv4 listener used by one accept worker.
     transport::LoopbackListener& listenerV4_;
 
@@ -178,7 +161,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     security::FailedTokenThrottle& tokenThrottle_;
 
     ///  Shared persistent trust store.
-    security::TrustStore& trustStore_;
+    security::ITrustStore& trustStore_;
 
     ///  Shared failed device-credential attempt throttle.
     security::FailedTokenThrottle& credentialThrottle_;
@@ -189,8 +172,11 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Source of the current play-context identity for connection responses.
     const IActivePlayContextReader& activePlayContext_;
 
+    ///  Owns active-socket publication, shutdown, and administrative invalidation.
+    IActiveSessionSocket& activeSessionSocket_;
+
     ///  Shared pairing challenge/pending-credential state machine.
-    security::PairingSession& pairingSession_;
+    security::IPairingSession& pairingSession_;
 
     ///  Serializes pairing finalization with administrative trust mutations.
     ITrustMutationCoordinator& mutationCoordinator_;
@@ -211,25 +197,6 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Next transport connection identifier.
     std::atomic<ConnectionId> nextConnectionId_{1};
 
-    ///  Serializes active-socket publication with shutdown lookup.
-    std::mutex activeSocketMutex_;
-
-    ///  Non-owning handle to the active session socket, when one exists.
-    std::weak_ptr<transport::WebSocketSession::Socket> activeSocket_;
-
-    ///  Connection identifier `activeSocket_` was published for, read together
-    ///  with it under `activeSocketMutex_`. `DisconnectIfClientActive` asks
-    ///  `sessionManager_` "who owns *this* connection" (a connection-scoped query)
-    ///  instead of "who is active right now" (an unscoped query, independent of
-    ///  which connection): the latter can change between an unsynchronized read
-    ///  and the shutdown call, letting a stale revoke for a just-ended session hit
-    ///  a new connection that raced into its place. Meaningless while
-    ///  `activeSocket_.lock()` is null; the single-connected-client limit means
-    ///  this can stay one field instead of a registry -- see
-    ///  roadmap/09-multi-client-runtime-foundation.md Phase 9 for generalizing it
-    ///  once that limit is lifted.
-    ConnectionId activeConnectionId_{};
-
     ///  IPv4 accept worker.
     std::thread threadV4_;
 
@@ -243,9 +210,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Runs the most recently accepted connection's full session.
     ///  `ConnectionSlot`'s exclusivity means at most one of these is ever doing
     ///  meaningful work at a time -- see `JoinConnectionThreadLocked`'s own doc
-    ///  comment for why a single field suffices here, the same reasoning
-    ///  `activeConnectionId_` above already documents for the
-    ///  single-connected-client model.
+    ///  comment for why a single field suffices here.
     std::thread connectionThread_;
 };
 

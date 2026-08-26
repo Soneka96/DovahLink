@@ -1,6 +1,7 @@
 #include "application/active_play_context_level_sink.hpp"
 #include "application/application_test_support.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "game_state/game_state_test_support.hpp"
 #include "game_state/level_increase_handler.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -17,10 +18,10 @@ using dovahlink::application::PlayContext;
 using dovahlink::application::PlayContextLifecycle;
 using dovahlink::application::test_support::BuildPlayContext;
 using dovahlink::application::test_support::MockActivePlayContextLevelSink;
-using dovahlink::application::test_support::MockPlayerLevelAccessor;
 using dovahlink::game_state::ILevelIncreaseHandler;
 using dovahlink::game_state::IPlayerLevelAccessor;
 using dovahlink::game_state::LevelIncreaseHandler;
+using dovahlink::game_state::test_support::MockPlayerLevelAccessor;
 using testing::StrictMock;
 
 TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",

@@ -164,7 +164,7 @@ DispatchResult ProcessInboundMessage(
     security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
     const IActivePlayContextReader& activePlayContext,
-    security::PairingSession& pairingSession, security::TrustStore& trustStore,
+    security::IPairingSession& pairingSession, security::ITrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,

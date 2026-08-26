@@ -19,6 +19,6 @@ namespace dovahlink::application {
 [[nodiscard]] protocol::Envelope
 HandleRenameRequest(const protocol::Envelope& renameRequestEnvelope,
                     const std::string& sessionId, const std::string& clientId,
-                    security::TrustStore& trustStore);
+                    security::ITrustStore& trustStore);
 
 } //  namespace dovahlink::application

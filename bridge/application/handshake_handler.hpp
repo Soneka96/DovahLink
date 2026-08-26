@@ -69,7 +69,7 @@ struct HandshakeResult {
 HandleHello(const protocol::Envelope& helloEnvelope,
             security::TokenStore& tokenStore,
             security::FailedTokenThrottle& tokenThrottle,
-            security::TrustStore& trustStore,
+            security::ITrustStore& trustStore,
             security::FailedTokenThrottle& credentialThrottle,
             SessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
@@ -84,7 +84,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
 HandleHello(const protocol::Envelope& helloEnvelope,
             security::TokenStore& tokenStore,
             security::FailedTokenThrottle& tokenThrottle,
-            security::TrustStore& trustStore,
+            security::ITrustStore& trustStore,
             security::FailedTokenThrottle& credentialThrottle,
             SessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
@@ -124,7 +124,7 @@ HandleHello(const protocol::Envelope& helloEnvelope,
 ///      `kDeveloperToken` -- developer-token sessions are never Known Devices
 ///      (`ai/context/protocol/security.md`'s "Developer authentication").
 [[nodiscard]] std::optional<std::string_view>
-TrustLossAfterAdmission(security::TrustStore& trustStore,
+TrustLossAfterAdmission(security::ITrustStore& trustStore,
                         const std::string& clientId,
                         SessionAuthMethod authMethod);
 

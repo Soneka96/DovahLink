@@ -6,6 +6,7 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/bridge_callback_registry.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -82,27 +83,6 @@ void SetupLogging() {
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
 }
-
-///  Connects coordinator callback lifecycle calls to the runtime event sink.
-class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
-  public:
-    ///  Binds the registry to the runtime level-increase sink.
-    explicit BridgeCallbackRegistry(
-        dovahlink::game_state::CommonLibLevelIncreaseSink& sink)
-        : sink_(sink) {}
-
-    ///  @copydoc dovahlink::application::CallbackRegistry::RegisterAll
-    void RegisterAll(
-        dovahlink::application::ContainedWorkRunner callbackRunner) override {
-        sink_.Register(std::move(callbackRunner));
-    }
-    ///  @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
-    void UnregisterAll() override { sink_.Unregister(); }
-
-  private:
-    ///  Runtime event sink controlled by the coordinator lifecycle.
-    dovahlink::game_state::CommonLibLevelIncreaseSink& sink_;
-};
 
 } //  namespace
 
@@ -278,6 +258,8 @@ SKSEPluginInfo(
         trustStorePersistence(*trustStorePath);
     static dovahlink::security::TrustStore trustStore =
         dovahlink::security::TrustStore::Load(trustStorePersistence);
+    static dovahlink::security::TrustDeviceStore deviceStore(trustStore);
+    static dovahlink::security::TrustResetStore resetStore(trustStore);
 
     static dovahlink::security::FailedTokenThrottle credentialThrottle;
     static dovahlink::security::PairingSession pairingSession;
@@ -300,6 +282,10 @@ SKSEPluginInfo(
         lifecycleSinkContract = lifecycleSink;
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(playContextLifecycle);
+    static dovahlink::application::ActiveSessionSocket activeSessionSocket;
+    static dovahlink::application::ActiveSessionController
+        activeSessionController(sessionManager, activeSessionSocket,
+                                activePlayContextReader, bridgeInstanceId);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
         playContextLifecycle);
@@ -308,7 +294,8 @@ SKSEPluginInfo(
         levelAccessor, levelSink);
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
         levelIncreaseHandler);
-    static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
+    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
+        levelIncreaseSink);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
@@ -317,7 +304,8 @@ SKSEPluginInfo(
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
         trustStore, credentialThrottle, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
+        activeSessionSocket, pairingSession, trustMutationCoordinator,
+        pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
 
     //  Registers the optional trust-administration console adapter
@@ -325,19 +313,25 @@ SKSEPluginInfo(
     //  Registration is attempted unconditionally; a failure is logged and remains
     //  isolated to this optional adapter, while the native functions simply go
     //  unused if ConsoleUtil Extended and its Papyrus glue script are not
-    //  installed. Constructed after bridgeWorkerPool, which it depends on
-    //  as its ActiveSessionDisconnector -- the capability that enforces
+    //  installed. Constructed after bridgeWorkerPool, which is also wired to
+    //  the same active-session controller -- the capability that enforces
     //  "Revocation is immediate" (security.md's "Persistent local trust") against
     //  an already-connected session, not just the persisted trust record.
     static dovahlink::security::FactoryResetChallenge factoryResetChallenge;
+    static dovahlink::application::ActiveSessionDisconnector
+        trustSessionDisconnector(activeSessionController);
     static dovahlink::application::TrustDeviceAdminService
-        trustDeviceAdminService(trustStore, bridgeWorkerPool,
+        trustDeviceAdminService(deviceStore, trustSessionDisconnector,
                                 trustMutationCoordinator);
+    static dovahlink::application::ITrustDeviceAdminService&
+        trustDeviceAdminServiceContract = trustDeviceAdminService;
     static dovahlink::application::TrustResetService trustResetService(
-        trustStore, bridgeWorkerPool, trustMutationCoordinator,
+        resetStore, trustSessionDisconnector, trustMutationCoordinator,
         factoryResetChallenge);
+    static dovahlink::application::ITrustResetService& trustResetServiceContract =
+        trustResetService;
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
-        trustDeviceAdminService, trustResetService);
+        trustDeviceAdminServiceContract, trustResetServiceContract);
 
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);

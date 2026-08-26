@@ -1,69 +1,18 @@
 #pragma once
 
+#include "application/contained_work.hpp"
+#include "application/i_bridge_callback_registry.hpp"
 #include "application/lifetime_token.hpp"
 
 #include <atomic>
 #include <condition_variable>
-#include <functional>
 #include <memory>
 #include <mutex>
 
 namespace dovahlink::application {
 
-///  Owns one potentially move-only operation submitted at a runtime boundary.
-using ContainedWork = std::move_only_function<void()>;
-
-///  Executes one synchronous runtime-boundary operation without allowing an
-///  exception to escape.
-///  @return `true` when the operation was admitted and completed successfully.
-using ContainedWorkRunner = std::function<bool(ContainedWork)>;
-
-///  Registers and unregisters runtime callbacks owned by the coordinator.
-class CallbackRegistry {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~CallbackRegistry() = default;
-
-    ///  Registers all callbacks required by the bridge.
-    ///  @param callbackRunner Guarded containment boundary retained by callbacks.
-    virtual void RegisterAll(ContainedWorkRunner callbackRunner) = 0;
-
-    ///  Unregisters all callbacks before owned state is destroyed.
-    virtual void UnregisterAll() = 0;
-};
-
-///  Controls worker startup and shutdown.
-class WorkerPool {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~WorkerPool() = default;
-
-    ///  Starts worker processing.
-    ///  @param workerRunner Containment boundary retained by worker threads.
-    virtual void Start(ContainedWorkRunner workerRunner) = 0;
-
-    ///  Stops workers and drains or cancels queued work without joining them.
-    virtual void Stop() = 0;
-
-    ///  Waits until every worker has exited.
-    virtual void Join() = 0;
-};
-
-///  Controls transport startup, completion cancellation, and closure.
-class TransportLifecycle {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~TransportLifecycle() = default;
-
-    ///  Starts transport handling.
-    virtual void Start() = 0;
-
-    ///  Cancels transport completions that can still run.
-    virtual void CancelCompletions() = 0;
-
-    ///  Closes transport resources.
-    virtual void Close() = 0;
-};
+class IBridgeWorkerPool;
+class IBridgeTransport;
 
 ///  Owns callback, worker, and transport lifecycle and provides idempotent
 ///  shutdown.
@@ -73,8 +22,8 @@ class Coordinator {
     ///  @param callbacks Callback registration boundary.
     ///  @param workers Worker lifecycle boundary.
     ///  @param transport Transport lifecycle boundary.
-    Coordinator(CallbackRegistry& callbacks, WorkerPool& workers,
-                TransportLifecycle& transport);
+    Coordinator(IBridgeCallbackRegistry& callbacks, IBridgeWorkerPool& workers,
+                IBridgeTransport& transport);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
     ~Coordinator() noexcept;
@@ -167,13 +116,13 @@ class Coordinator {
     };
 
     ///  Callback registration boundary.
-    CallbackRegistry& callbacks_;
+    IBridgeCallbackRegistry& callbacks_;
 
     ///  Worker lifecycle boundary.
-    WorkerPool& workers_;
+    IBridgeWorkerPool& workers_;
 
     ///  Transport lifecycle boundary.
-    TransportLifecycle& transport_;
+    IBridgeTransport& transport_;
 
     ///  Lifetime token shared with transport completions.
     std::shared_ptr<LifetimeToken> transportToken_ =

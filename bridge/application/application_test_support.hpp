@@ -2,16 +2,18 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "application/trust_mutation_coordinator.hpp"
-#include "game_state/level_adapter.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"
 #include "security/known_device_record.hpp"
 #include "security/test_token.hpp"
+#include "security/trust_device_store.hpp"
+#include "security/trust_reset_store.hpp"
 #include "security/trust_store.hpp"
 
 #include <boost/json/object.hpp>
@@ -193,13 +195,6 @@ class MockPlayContextLifecycle : public IPlayContextLifecycle {
     MOCK_METHOD(void, CaptureLevel, (std::optional<std::int64_t>), (override));
 };
 
-///  GoogleMock player-level accessor contract double.
-class MockPlayerLevelAccessor : public game_state::IPlayerLevelAccessor {
-  public:
-    MOCK_METHOD(std::optional<std::int64_t>, ReadLevel, (),
-                (const, override));
-};
-
 ///  GoogleMock active-context level-sink contract double.
 class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
   public:
@@ -208,7 +203,15 @@ class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
 };
 
 ///  GoogleMock active-session disconnection contract double.
-class MockActiveSessionDisconnector : public ActiveSessionDisconnector {
+class MockActiveSessionDisconnector : public IActiveSessionDisconnector {
+  public:
+    MOCK_METHOD(void, DisconnectIfClientActive,
+                (std::string_view, std::string_view), (override));
+    MOCK_METHOD(void, DisconnectActive, (std::string_view), (override));
+};
+
+///  GoogleMock active-session controller contract double.
+class MockActiveSessionController : public IActiveSessionController {
   public:
     MOCK_METHOD(void, DisconnectIfClientActive,
                 (std::string_view, std::string_view), (override));
@@ -224,9 +227,6 @@ class MockTrustDeviceStore : public security::ITrustDeviceStore {
                 (override));
     MOCK_METHOD(std::optional<security::KnownDeviceRecord>, FindByShortId,
                 (std::string_view), (override));
-    MOCK_METHOD(bool, Revoke, (const std::string&), (override));
-    MOCK_METHOD(security::BlockOutcome, Block, (const std::string&),
-                (override));
     MOCK_METHOD(security::UnblockOutcome, Unblock, (const std::string&),
                 (override));
     MOCK_METHOD(security::ForgetOutcome, Forget, (const std::string&),
@@ -238,8 +238,6 @@ class MockTrustResetStore : public security::ITrustResetStore {
   public:
     MOCK_METHOD(std::vector<security::KnownDeviceRecord>, ListTrusted, (),
                 (override));
-    MOCK_METHOD(bool, Reset, (), (override));
-    MOCK_METHOD(bool, ResetTrust, (), (override));
 };
 
 ///  GoogleMock trust-mutation coordination contract double.

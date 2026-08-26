@@ -34,7 +34,7 @@ namespace dovahlink::application {
 [[nodiscard]] protocol::Envelope
 HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
                      const std::string& sessionId, const std::string& clientId,
-                     security::PairingSession& pairingSession,
+                     security::IPairingSession& pairingSession,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now);
 
@@ -67,7 +67,7 @@ HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
 [[nodiscard]] protocol::Envelope
 HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
                      const std::string& sessionId, const std::string& clientId,
-                     security::PairingSession& pairingSession,
+                     security::IPairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& notificationSink,
                      std::chrono::steady_clock::time_point now);
@@ -122,7 +122,7 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
 [[nodiscard]] protocol::Envelope
 HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
                       const std::string& sessionId, const std::string& clientId,
-                      security::PairingSession& pairingSession,
+                      security::IPairingSession& pairingSession,
                       PairingNotificationSink& notificationSink,
                       std::chrono::steady_clock::time_point now);
 

@@ -125,3 +125,28 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     REQUIRE(revertCallbackPos != std::string::npos);
     CHECK(lifecycleRegisterPos < revertCallbackPos);
 }
+
+//  BridgeCallbackRegistry's own contract and forwarding behavior are proven
+//  directly by application/bridge_callback_registry_test.cpp. This structural
+//  check only proves the composition root wires it to the runtime sink.
+TEST_CASE("SKSEPluginLoad wires the callback registry to the runtime sink",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    CHECK(source.find("BridgeCallbackRegistry callbackRegistry(\n        "
+                      "levelIncreaseSink);") != std::string::npos);
+}
+
+TEST_CASE("SKSEPluginLoad passes trust administration through service contracts",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    CHECK(source.find(
+              "ITrustDeviceAdminService&\n        trustDeviceAdminServiceContract") !=
+          std::string::npos);
+    CHECK(source.find("ITrustResetService& trustResetServiceContract") !=
+          std::string::npos);
+    CHECK(source.find(
+              "trustDeviceAdminServiceContract, trustResetServiceContract") !=
+          std::string::npos);
+}

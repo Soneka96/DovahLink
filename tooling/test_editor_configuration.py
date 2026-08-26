@@ -100,6 +100,52 @@ class EditorConfigurationTests(unittest.TestCase):
             # defeat the sharing and reintroduce a separate vcpkg install per preset.
             self.assertNotIn("VCPKG_INSTALLED_DIR", preset["cacheVariables"])
 
+    def test_cmake_scopes_windows_sdk_definitions_away_from_commonlib(
+        self,
+    ) -> None:
+        """Keep CommonLibSSE's runtime compile definitions authoritative."""
+        cmake_lists = (REPOSITORY_ROOT / "bridge" / "CMakeLists.txt").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn(
+            "add_compile_definitions(_WIN32_WINNT=0x0A00)",
+            cmake_lists,
+        )
+        for target_name in (
+            "dovahlink_bridge_core",
+            "dovahlink_bridge_harness",
+            "dovahlink_bridge_tests",
+        ):
+            definition = (
+                f"target_compile_definitions({target_name} PRIVATE _WIN32_WINNT=0x0A00)"
+            )
+            definition_position = cmake_lists.index(definition)
+            guard_position = cmake_lists.rfind("if(WIN32)", 0, definition_position)
+            guard_end = cmake_lists.index("endif()", definition_position)
+            self.assertGreaterEqual(guard_position, 0)
+            self.assertLess(guard_position, definition_position)
+            self.assertGreater(definition_position, guard_position)
+            self.assertGreater(guard_end, definition_position)
+
+        game_state_start = cmake_lists.index("add_library(dovahlink_bridge_game_state")
+        plugin_start = cmake_lists.index(
+            "add_library(dovahlink_bridge_plugin",
+            game_state_start,
+        )
+        harness_start = cmake_lists.index(
+            "add_executable(dovahlink_bridge_harness",
+            plugin_start,
+        )
+        self.assertNotIn(
+            "_WIN32_WINNT=0x0A00",
+            cmake_lists[game_state_start:plugin_start],
+        )
+        self.assertNotIn(
+            "_WIN32_WINNT=0x0A00",
+            cmake_lists[plugin_start:harness_start],
+        )
+
     def test_workspace_recommends_language_servers_for_repository_languages(
         self,
     ) -> None:

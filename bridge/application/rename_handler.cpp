@@ -36,7 +36,7 @@ BuildRenameOutcome(const std::string& sessionId,
 protocol::Envelope
 HandleRenameRequest(const protocol::Envelope& renameRequestEnvelope,
                     const std::string& sessionId, const std::string& clientId,
-                    security::TrustStore& trustStore) {
+                    security::ITrustStore& trustStore) {
     auto request =
         protocol::DecodeRenameRequestPayload(renameRequestEnvelope.payload);
     if (!request.has_value()) {

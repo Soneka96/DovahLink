@@ -13,11 +13,6 @@ endif()
 # dependency libraries instead of letting CMake select the first configuration.
 set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 
-# DovahLink targets Windows 10 APIs and rejects older Windows runtimes during plugin startup.
-if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00)
-endif()
-
 # Toolchain and dependency versions pinned for the reproducible build are
 # recorded in bridge/README.md; this file only declares the floor CMake
 # needs to understand the presets and dependencies below.
@@ -38,6 +33,9 @@ find_package(boost_json CONFIG REQUIRED)
 # plugin entry point (added later) may depend on CommonLib/Skyrim runtime
 # types; nothing in this target may do so.
 add_library(dovahlink_bridge_core STATIC
+    application/active_session_controller.cpp
+    application/active_session_disconnector.cpp
+    application/active_session_socket.cpp
     application/bridge_transport.cpp
     application/bridge_worker_pool.cpp
     application/character_state_store.cpp
@@ -90,6 +88,8 @@ add_library(dovahlink_bridge_core STATIC
     security/throttle.cpp
     security/token_provider.cpp
     security/token_store.cpp
+    security/trust_device_store.cpp
+    security/trust_reset_store.cpp
     security/trust_store.cpp
     security/windows_trust_store_persistence.cpp
     transport/connection_slot.cpp
@@ -98,6 +98,11 @@ add_library(dovahlink_bridge_core STATIC
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_bridge_core PUBLIC cxx_std_23)
+if(WIN32)
+    # Keep DovahLink-owned core sources on the Windows 10 SDK surface without
+    # overriding CommonLibSSE's runtime-target compile contract.
+    target_compile_definitions(dovahlink_bridge_core PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 if(MSVC)
     target_compile_options(dovahlink_bridge_core PUBLIC /EHsc)
 endif()
@@ -117,6 +122,7 @@ add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_level_increase_sink.cpp
     game_state/commonlib_pairing_notification_sink.cpp
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
+    application/bridge_callback_registry.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
@@ -147,11 +153,18 @@ target_link_libraries(dovahlink_bridge_plugin PRIVATE dovahlink_bridge_game_stat
 # to connect to without requiring Skyrim. Links dovahlink_bridge_core only,
 # same as the test binary -- no CommonLibSSE-NG dependency.
 add_executable(dovahlink_bridge_harness harness/dovahlink_bridge_harness.cpp)
+if(WIN32)
+    target_compile_definitions(dovahlink_bridge_harness PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 target_link_libraries(dovahlink_bridge_harness PRIVATE dovahlink_bridge_core)
 
 add_executable(dovahlink_bridge_tests
     test_support/source_text_test_support_test.cpp
     application/application_test_support_test.cpp
+    application/active_session_controller_test.cpp
+    application/active_session_disconnector_test.cpp
+    application/active_session_socket_test.cpp
+    application/bridge_callback_registry_test.cpp
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
     application/character_state_store_test.cpp
@@ -182,7 +195,9 @@ add_executable(dovahlink_bridge_tests
     application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
+    game_state/commonlib_level_increase_sink_test.cpp
     game_state/commonlib_game_lifecycle_sink_test.cpp
+    game_state/commonlib_runtime_include_order_test.cpp
     game_state/runtime_guard_test.cpp
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
@@ -237,8 +252,17 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
     DOVAHLINK_LIFECYCLE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.hpp"
     DOVAHLINK_LIFECYCLE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.cpp"
+    DOVAHLINK_LEVEL_INCREASE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_level_increase_sink.hpp"
+    DOVAHLINK_LEVEL_INCREASE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_level_increase_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
+    DOVAHLINK_CALLBACK_REGISTRY_CONTRACT_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/i_bridge_callback_registry.hpp"
+    DOVAHLINK_CALLBACK_REGISTRY_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.hpp"
+    DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
+    DOVAHLINK_COORDINATOR_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/coordinator.hpp"
 )
+if(WIN32)
+    target_compile_definitions(dovahlink_bridge_tests PRIVATE _WIN32_WINNT=0x0A00)
+endif()
 
 include(CTest)
 include(Catch)

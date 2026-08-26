@@ -1,5 +1,8 @@
 #include "application/coordinator.hpp"
 
+#include "application/bridge_transport.hpp"
+#include "application/bridge_worker_pool.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
@@ -14,11 +17,11 @@
 #include <utility>
 #include <vector>
 
-using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
-using dovahlink::application::TransportLifecycle;
-using dovahlink::application::WorkerPool;
+using dovahlink::application::IBridgeCallbackRegistry;
+using dovahlink::application::IBridgeTransport;
+using dovahlink::application::IBridgeWorkerPool;
 
 namespace {
 
@@ -53,9 +56,9 @@ void ThrowAtStage(ShutdownFailureStage configuredStage,
 }
 
 ///  Provides a callback registry with configurable shutdown behavior.
-class NoopCallbackRegistry : public CallbackRegistry {
+class NoopCallbackRegistry : public IBridgeCallbackRegistry {
   public:
-    ///  @copydoc CallbackRegistry::RegisterAll
+    ///  @copydoc IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner callbackRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -63,7 +66,7 @@ class NoopCallbackRegistry : public CallbackRegistry {
         }
         callbackRunner_ = std::move(callbackRunner);
     }
-    ///  @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("callbacks.UnregisterAll");
@@ -95,9 +98,9 @@ class NoopCallbackRegistry : public CallbackRegistry {
 };
 
 ///  Provides a worker pool with configurable shutdown behavior.
-class NoopWorkerPool : public WorkerPool {
+class NoopWorkerPool : public IBridgeWorkerPool {
   public:
-    ///  @copydoc WorkerPool::Start
+    ///  @copydoc IBridgeWorkerPool::Start
     void Start(ContainedWorkRunner workerRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -105,7 +108,7 @@ class NoopWorkerPool : public WorkerPool {
         }
         workerRunner_ = std::move(workerRunner);
     }
-    ///  @copydoc WorkerPool::Stop
+    ///  @copydoc IBridgeWorkerPool::Stop
     void Stop() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Stop");
@@ -116,7 +119,7 @@ class NoopWorkerPool : public WorkerPool {
         }
         ThrowAtStage(failureStage_, ShutdownFailureStage::kStopWorkers);
     }
-    ///  @copydoc WorkerPool::Join
+    ///  @copydoc IBridgeWorkerPool::Join
     void Join() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("workers.Join");
@@ -148,16 +151,16 @@ class NoopWorkerPool : public WorkerPool {
 };
 
 ///  Provides a transport lifecycle with configurable shutdown behavior.
-class NoopTransportLifecycle : public TransportLifecycle {
+class NoopTransportLifecycle : public IBridgeTransport {
   public:
-    ///  @copydoc TransportLifecycle::Start
+    ///  @copydoc IBridgeTransport::Start
     void Start() override {
         ++startCalls_;
         if (throwOnStart_) {
             throw std::runtime_error("configured transport startup failure");
         }
     }
-    ///  @copydoc TransportLifecycle::CancelCompletions
+    ///  @copydoc IBridgeTransport::CancelCompletions
     void CancelCompletions() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.CancelCompletions");
@@ -165,7 +168,7 @@ class NoopTransportLifecycle : public TransportLifecycle {
         ThrowAtStage(failureStage_,
                      ShutdownFailureStage::kCancelTransportCompletions);
     }
-    ///  @copydoc TransportLifecycle::Close
+    ///  @copydoc IBridgeTransport::Close
     void Close() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("transport.Close");

@@ -95,10 +95,12 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 - A port contains only the capability required by its consumer; it must not mechanically mirror a
   larger concrete class. Use the existing `I`-prefix convention for true injectable C++ ports.
 - Put each DovahLink port beside its one concrete implementation in the implementation's owning
-  production header. Do not place unrelated public types in that header; structs, result types, and
-  values own their own files. Every C++ port uses the `I<ClassName>` name matching its concrete
-  implementation. A class may inherit from one required CommonLib/Skyrim framework base in a
-  runtime adapter; that framework base is not a DovahLink port.
+  production header by default. The narrowly defined CommonLib target dependency-wall exception
+  documented in `ai/context/skse/cpp-style.md` applies to `IBridgeCallbackRegistry` and
+  `BridgeCallbackRegistry`. Do not place unrelated public types in that header; structs, result
+  types, and values own their own files. Every C++ port uses the `I<ClassName>` name matching its
+  concrete implementation. A class may inherit from one required CommonLib/Skyrim framework base
+  in a runtime adapter; that framework base is not a DovahLink port.
 - Testability changes must preserve the dependency edges above. Application ports must use
   DovahLink-owned values and must never expose CommonLib or Skyrim runtime types.
 
