@@ -12,9 +12,14 @@ std::optional<shared::ScopedRelease> SessionManager::TryCreateSession(
         return std::nullopt;
     }
 
-    //  Complete every fallible allocation before mutating registry state so
-    //  admission either returns an owning release or changes nothing.
+    //  Build the release action before publishing registry state. If creating
+    //  the active record throws, the release object's cleanup sees no session
+    //  and admission leaves the registry unchanged.
     std::string releaseSessionId = sessionId;
+    shared::ScopedRelease release(
+        [this, connection, sessionId = std::move(releaseSessionId)] {
+            static_cast<void>(InvalidateSession(connection, sessionId));
+        });
     activeSession_ = ActiveSession{
         .connectionId = connection,
         .sessionId = sessionId,
@@ -22,10 +27,7 @@ std::optional<shared::ScopedRelease> SessionManager::TryCreateSession(
         .trustTier = trustTier,
         .authMethod = authMethod,
     };
-    return shared::ScopedRelease(
-        [this, connection, sessionId = std::move(releaseSessionId)] {
-            static_cast<void>(InvalidateSession(connection, sessionId));
-        });
+    return release;
 }
 
 bool SessionManager::IsValidForConnection(const std::string& sessionId,

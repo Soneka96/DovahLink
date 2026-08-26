@@ -122,6 +122,25 @@ TEST_CASE("destroying a lease invalidates its session",
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 }
 
+TEST_CASE("a released admission leaves the session slot available",
+          "[application][session]") {
+    SessionManager sessions;
+    {
+        auto lease = sessions.TryCreateSession(
+            kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+            SessionAuthMethod::kTrustedDeviceCredential);
+        REQUIRE(lease.has_value());
+        CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    }
+
+    CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    auto replacement = sessions.TryCreateSession(
+        kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(replacement.has_value());
+    CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
+}
+
 TEST_CASE("the same connection can create a fresh session after its prior one "
           "is invalidated",
           "[application][session]") {
