@@ -65,6 +65,7 @@ Pinned package versions resolved at that baseline:
 | Boost (Asio, Beast, JSON — one release for all three) | `1.91.0` |
 | Catch2 | `3.15.3` |
 | FakeIt (test-only, Catch2 integration) | `2.5.0` |
+| GoogleTest/GoogleMock (test-only, Catch2 target integration) | `1.18.0` |
 
 CommonLibSSE-NG (`commonlibsse-ng-flatrim`, SE/AE-capable, VR excluded) comes from the
 Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
@@ -94,14 +95,15 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
   reachable via the umbrella header `RE/Skyrim.h`) inherits `GetLevel() const` (returns
   `std::uint16_t`) from `RE::Actor`, confirmed by reading both headers at the pinned commit.
 
-No dependency here duplicates a role already covered by Boost, Catch2, or CommonLibSSE-NG's own
-dependencies; no second JSON, WebSocket, logging, cryptography, or test library is introduced.
+No dependency here duplicates a production role already covered by Boost or CommonLibSSE-NG's own
+dependencies. FakeIt remains the synchronous mocking framework; GoogleMock is a test-only,
+cross-thread contract-testing exception and is not a second production mocking policy.
 
 `bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same step that
 first consumes it, rather than all at once: `catch2` landed with the build scaffolding, `boost-json`
 with the bounded JSON decoder, `boost-asio` with the loopback listener, `boost-beast` with WebSocket
-framing, and `commonlibsse-ng-flatrim` (via `bridge/vcpkg-configuration.json`) lands with the
-game-state adapter.
+framing, `gtest` with the C1 cross-thread contract test, and `commonlibsse-ng-flatrim` (via
+`bridge/vcpkg-configuration.json`) lands with the game-state adapter.
 This keeps every step's build from compiling dependencies it doesn't use yet.
 
 ## Default loopback port

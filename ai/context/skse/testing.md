@@ -26,21 +26,27 @@ Use explicit seams for runtime-dependent code: a fake callback registry for regi
   thread-safe fakes for worker, callback, transport, and lifetime consumers. Keep real composition
   tests separately when they prove production wiring.
 
-Use FakeIt as the first C++ mocking-framework candidate. It must pass a repository proof of concept
-through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference,
-`std::string_view`, and `std::optional` arguments, required external framework inheritance, and
-worker/thread tests. Project-owned interface inheritance is prohibited and is not a framework
-capability to validate.
-If it cannot satisfy those requirements, use GoogleMock as the fallback. Do not retain multiple
-production mocking frameworks or build a project-specific mock generator.
+Use FakeIt for synchronous interaction tests. It passed the repository proof of concept through the
+real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference, `std::string_view`,
+and `std::optional` arguments. FakeIt is not thread-safe and must not be called from production
+worker, callback, transport, or lifetime threads.
+
+GoogleMock is approved as a narrow, test-only exception for contract calls that must cross a
+test-controlled worker/session thread. Its use must be proven through the real MSVC, C++23, CMake,
+vcpkg, and Catch2 target, and every custom action or captured test state remains the test author's
+responsibility to synchronize. Do not migrate synchronous tests to GoogleMock or create a second
+general-purpose production mocking policy. Project-owned interface inheritance is prohibited and
+is not a framework capability to validate.
 
 The Bridge pilot selected FakeIt `2.5.0` through the pinned vcpkg baseline for synchronous
 interaction tests. The Catch2 configuration passed the supported MSVC/C++23 build, `const`
 methods, `std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
 unexpected-call diagnostics, and Catch2 failure reporting. FakeIt remains test-only: its mocks are
 not thread-safe and do not support multiple or virtual inheritance, so worker, callback, transport,
-and other concurrency/lifetime tests continue to use controllable stateful fakes. GoogleMock is a
-fallback to evaluate only if a later in-scope synchronous boundary cannot satisfy these constraints.
+and other concurrency/lifetime tests continue to use controllable stateful fakes. The
+ConnectionSession contract test separately proved GoogleMock `1.18.0` through `GTest::gmock` on the
+supported MSVC/C++23 target; this exception is limited to cross-thread contract calls and does not
+replace FakeIt for synchronous tests.
 
 Unexpected interactions must be detectable by default. Verify ordering only when it is part of the
 service contract; do not impose global ordering on incidental calls. Keep framework syntax visible
