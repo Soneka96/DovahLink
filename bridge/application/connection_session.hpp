@@ -28,7 +28,8 @@ using SteadyNowProvider =
 ///  credential it owns can apply the reconnect-grace lazy-expiry rules in
 ///  `ai/context/protocol/security.md`'s Phase 3.1 ownership model. A harmless
 ///  no-op when `clientId` owns nothing.
-///  @param ws Accepted WebSocket session.
+///  @param ws Accepted WebSocket session, consumed through its
+///  `IWebSocketSession` contract.
 ///  @param tokenStore Plugin-lifetime one-time token store.
 ///  @param tokenThrottle Plugin-lifetime failed-token throttle.
 ///  @param trustStore Plugin-lifetime persistent trust store.
@@ -53,7 +54,7 @@ using SteadyNowProvider =
 ///  @param steadyNow Supplies current monotonic time; injectable for
 ///  deterministic timeout tests.
 void RunConnectionSession(
-    transport::WebSocketSession& ws, security::ITokenStore& tokenStore,
+    transport::IWebSocketSession& ws, security::ITokenStore& tokenStore,
     security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
     security::IFailedTokenThrottle& credentialThrottle,

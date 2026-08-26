@@ -20,14 +20,14 @@ namespace {
 //  which ends the session loop.
 ///  Sends an encoded envelope and leaves write failures to the read-loop
 ///  cleanup.
-void SendIfPossible(transport::WebSocketSession& ws,
+void SendIfPossible(transport::IWebSocketSession& ws,
                     const protocol::Envelope& envelope) {
     (void)ws.WriteMessage(protocol::EncodeEnvelope(envelope));
 }
 
 } //  namespace
 
-void RunConnectionSession(transport::WebSocketSession& ws,
+void RunConnectionSession(transport::IWebSocketSession& ws,
                           security::ITokenStore& tokenStore,
                           security::IFailedTokenThrottle& tokenThrottle,
                           security::ITrustStore& trustStore,

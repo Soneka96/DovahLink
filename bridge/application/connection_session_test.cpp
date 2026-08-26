@@ -24,6 +24,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <chrono>
+#include <expected>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -51,9 +52,12 @@ using dovahlink::security::StartChallengeOutcome;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using dovahlink::transport::IWebSocketSession;
 using dovahlink::transport::LoopbackListener;
+using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
 using testing::Return;
+using testing::StrictMock;
 
 //  These tests use two real loopback sockets (client and server) with a real
 //  Boost.Beast WebSocket handshake and application-level protocol exchange,
@@ -101,6 +105,20 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
 
     ///  Every code this sink has been given, in order.
     std::vector<std::string> codes;
+};
+
+///  `IWebSocketSession` mock used to prove `RunConnectionSession`'s own
+///  early-return orchestration branches without a real socket.
+class MockWebSocketSession : public IWebSocketSession {
+  public:
+    MOCK_METHOD((std::expected<void, SessionError>), Accept, (), (override));
+    MOCK_METHOD(void, SwitchToIdleTimeout, (), (override));
+    MOCK_METHOD((std::expected<std::string, SessionError>), ReadMessage,
+                (std::optional<std::chrono::steady_clock::time_point>),
+                (override));
+    MOCK_METHOD((std::expected<void, SessionError>), WriteMessage,
+                (const std::string&), (override));
+    MOCK_METHOD(void, Close, (), (override));
 };
 
 ///  Reads and decodes one protocol envelope from the test WebSocket.
@@ -1275,4 +1293,61 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
     clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
     serverThread.join();
     REQUIRE_FALSE(serverAcceptEc);
+}
+
+TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
+          "[application][connection_session][i_web_socket_session]") {
+    StrictMock<MockWebSocketSession> mockWs;
+    EXPECT_CALL(mockWs, Accept())
+        .WillOnce(Return(std::unexpected(SessionError::kHandshakeFailed)));
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::TrustMutationCoordinator mutationCoordinator(
+        trustStore, pairingSession, sessionManager);
+
+    dovahlink::application::RunConnectionSession(
+        mockWs, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, /*connection=*/1, activePlayContext, pairingSession,
+        mutationCoordinator, pairingNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+}
+
+TEST_CASE("RunConnectionSession closes without writing when the hello read "
+          "fails",
+          "[application][connection_session][i_web_socket_session]") {
+    StrictMock<MockWebSocketSession> mockWs;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(mockWs, Accept())
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(std::unexpected(SessionError::kReadFailed)));
+        EXPECT_CALL(mockWs, Close());
+    }
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::TrustMutationCoordinator mutationCoordinator(
+        trustStore, pairingSession, sessionManager);
+
+    dovahlink::application::RunConnectionSession(
+        mockWs, tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, /*connection=*/1, activePlayContext, pairingSession,
+        mutationCoordinator, pairingNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
 }
