@@ -7,6 +7,7 @@
 #include "security/test_token.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <fakeit.hpp>
 
 #include <boost/json/parse.hpp>
 
@@ -16,9 +17,9 @@
 #include <string>
 #include <vector>
 
-using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandleHello;
+using dovahlink::application::IActivePlayContext;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
@@ -33,6 +34,10 @@ using dovahlink::security::kValidHexToken;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using fakeit::Mock;
+using fakeit::Verify;
+using fakeit::VerifyNoOtherInvocations;
+using fakeit::When;
 
 namespace {
 
@@ -147,19 +152,23 @@ TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto the response",
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    ActivePlayContext activePlayContext;
+    Mock<IActivePlayContext> activePlayContext;
+    When(Method(activePlayContext, AcquireCurrent))
+        .Return(std::shared_ptr<dovahlink::application::PlayContext>{});
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext.get());
 
     REQUIRE(result.response.bridgeInstanceId.has_value());
     CHECK(*result.response.bridgeInstanceId == "bridge-1");
     //  No context has been begun, so playContextId stays null even though
     //  bridgeInstanceId is present.
     CHECK_FALSE(result.response.playContextId.has_value());
+    Verify(Method(activePlayContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activePlayContext);
 }
 
 TEST_CASE("HandleHello stamps the play context already active at connect time "
@@ -176,17 +185,21 @@ TEST_CASE("HandleHello stamps the play context already active at connect time "
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    ActivePlayContext activePlayContext;
-    activePlayContext.Begin("context-1");
+    Mock<IActivePlayContext> activePlayContext;
+    auto context = std::make_shared<dovahlink::application::PlayContext>(
+        "context-1");
+    When(Method(activePlayContext, AcquireCurrent)).Return(context);
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext.get());
 
     REQUIRE(result.response.playContextId.has_value());
     CHECK(*result.response.playContextId == "context-1");
+    Verify(Method(activePlayContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activePlayContext);
 }
 
 TEST_CASE("HandleHello uses the supplied bridgeVersion in hello_ack",
@@ -199,13 +212,11 @@ TEST_CASE("HandleHello uses the supplied bridgeVersion in hello_ack",
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    ActivePlayContext activePlayContext;
-
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::nullopt, activePlayContext,
+        /*bridgeInstanceId=*/std::nullopt, nullptr,
         /*bridgeVersion=*/"0.1.0");
 
     auto ack =
@@ -251,8 +262,6 @@ TEST_CASE("HandleHello rejects a structurally malformed payload",
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    ActivePlayContext activePlayContext;
-
     Envelope hello{
         .messageType = "hello",
         .messageId = "message-hello-1",
@@ -266,8 +275,7 @@ TEST_CASE("HandleHello rejects a structurally malformed payload",
     //  bridgeInstanceId stamping at the structurally-first possible point.
     auto result = HandleHello(hello, tokenStore, throttle, trustStore,
                               credentialThrottle, sessions, 1, timeout, now,
-                              /*bridgeInstanceId=*/std::string("bridge-1"),
-                              activePlayContext);
+                              /*bridgeInstanceId=*/std::string("bridge-1"));
 
     CHECK(result.closeConnection);
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);
@@ -314,13 +322,11 @@ TEST_CASE("HandleHello stamps a supplied bridgeInstanceId onto a "
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    ActivePlayContext activePlayContext;
-
     auto hello = BuildHelloEnvelope(kWrongHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
+        /*bridgeInstanceId=*/std::string("bridge-1"));
 
     CHECK(result.closeConnection);
     auto error = dovahlink::protocol::DecodeErrorPayload(result.response.payload);

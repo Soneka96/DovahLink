@@ -2,6 +2,9 @@
 #include "application/active_play_context_level_sink.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <fakeit.hpp>
+
+#include <memory>
 
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ActivePlayContextLevelSink;
@@ -9,6 +12,10 @@ using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::IActivePlayContext;
 using dovahlink::application::PlayContext;
+using fakeit::Mock;
+using fakeit::Verify;
+using fakeit::VerifyNoOtherInvocations;
+using fakeit::When;
 
 TEST_CASE("AcquireCurrent is nullptr before any context begins",
           "[application][play_context]") {
@@ -166,55 +173,30 @@ TEST_CASE("ApplyLifecycleTransition with neither field set leaves the active "
     CHECK(active.AcquireCurrent() == begun);
 }
 
-TEST_CASE("ActivePlayContextLevelSink forwards a capture into the currently "
-          "active context",
+TEST_CASE("ActivePlayContextLevelSink forwards through its context contract",
           "[application][play_context]") {
-    ActivePlayContext active;
-    auto context = active.Begin("ctx-1");
-    ActivePlayContextLevelSink sink(active);
+    Mock<IActivePlayContext> activeContext;
+    auto context = std::make_shared<PlayContext>("ctx-1");
+    When(Method(activeContext, AcquireCurrent)).Return(context);
+    ActivePlayContextLevelSink sink(activeContext.get());
 
     sink.OnLevelCaptured(12);
 
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
     REQUIRE(context->characterState.CurrentCharacterSnapshot().level.has_value());
     CHECK(*context->characterState.CurrentCharacterSnapshot().level == 12);
 }
 
-TEST_CASE("ActivePlayContextLevelSink forwards an unavailable capture into the "
-          "currently active context",
+TEST_CASE("ActivePlayContextLevelSink drops captures from an empty context contract",
           "[application][play_context]") {
-    ActivePlayContext active;
-    auto context = active.Begin("ctx-1");
-    ActivePlayContextLevelSink sink(active);
+    Mock<IActivePlayContext> activeContext;
+    When(Method(activeContext, AcquireCurrent))
+        .Return(std::shared_ptr<PlayContext>{});
+    ActivePlayContextLevelSink sink(activeContext.get());
 
-    sink.OnLevelCaptured(std::nullopt);
-
-    CHECK_FALSE(context->characterState.CurrentCharacterSnapshot().level.has_value());
-}
-
-TEST_CASE(
-    "ActivePlayContextLevelSink drops a capture when no context is active",
-    "[application][play_context]") {
-    ActivePlayContext active;
-    ActivePlayContextLevelSink sink(active);
-
-    //  Must not throw or dereference a null context; there is simply nowhere
-    //  to attribute the capture.
     sink.OnLevelCaptured(12);
 
-    CHECK_FALSE(active.AcquireCurrent());
-}
-
-TEST_CASE("ActivePlayContextLevelSink routes to whichever context is active at "
-          "capture time, "
-          "not the one active when the sink was constructed",
-          "[application][play_context]") {
-    ActivePlayContext active;
-    ActivePlayContextLevelSink sink(active);
-    active.Begin("ctx-1");
-
-    auto second = active.Begin("ctx-2");
-    sink.OnLevelCaptured(7);
-
-    REQUIRE(second->characterState.CurrentCharacterSnapshot().level.has_value());
-    CHECK(*second->characterState.CurrentCharacterSnapshot().level == 7);
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
 }

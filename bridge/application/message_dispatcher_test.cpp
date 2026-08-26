@@ -9,6 +9,7 @@
 #include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <fakeit.hpp>
 
 #include <boost/json/parse.hpp>
 
@@ -20,9 +21,9 @@
 #include <utility>
 #include <vector>
 
-using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
+using dovahlink::application::IActivePlayContext;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
@@ -44,6 +45,10 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::ViolationTracker;
+using fakeit::Mock;
+using fakeit::Verify;
+using fakeit::VerifyNoOtherInvocations;
+using fakeit::When;
 
 namespace {
 
@@ -95,6 +100,26 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     int attemptsExhaustedCount = 0;
 };
 
+///  Supplies no active context for dispatcher scenarios that do not exercise
+///  context identity; focused context tests use a strict mock instead.
+class EmptyActivePlayContext final : public IActivePlayContext {
+  public:
+    ///  Reports that no context is active.
+    [[nodiscard]] std::shared_ptr<dovahlink::application::PlayContext>
+    AcquireCurrent() const override {
+        return nullptr;
+    }
+
+    ///  Keeps the empty test state empty.
+    void Reset() override {}
+
+    ///  Does not create a context in the empty test double.
+    [[nodiscard]] std::shared_ptr<dovahlink::application::PlayContext>
+    Begin(std::string) override {
+        return nullptr;
+    }
+};
+
 ///  Bundles an authenticated dispatcher session and its production
 ///  collaborators.
 struct Fixture {
@@ -114,7 +139,7 @@ struct Fixture {
     ConnectionTimeoutTracker timeout{SteadyClock::now()};
     ///  Source of the acquired play context; empty (kNoContext) until a test
     ///  begins one.
-    ActivePlayContext activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     ///  Backing store for `trustStore`, empty at fixture construction.
     EmptyPersistence persistence;
     ///  Persistent trust store, for pairing_ack's idempotent-retry check and
@@ -153,6 +178,18 @@ struct Fixture {
         return ProcessInboundMessage(
             rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
             replayGuard, violations, rateLimiter, timeout, activePlayContext,
+            pairingSession, trustStore, mutationCoordinator,
+            pairingNotificationSink, bridgeInstanceId, steadyNow);
+    }
+
+    ///  Processes one raw message through a supplied active-context contract.
+    DispatchResult ProcessWithContext(
+        const IActivePlayContext& activeContext,
+        const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessInboundMessage(
+            rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
+            replayGuard, violations, rateLimiter, timeout, activeContext,
             pairingSession, trustStore, mutationCoordinator,
             pairingNotificationSink, bridgeInstanceId, steadyNow);
     }
@@ -283,9 +320,12 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
+    Mock<IActivePlayContext> activeContext;
+    auto context = std::make_shared<dovahlink::application::PlayContext>(
+        "context-1");
+    When(Method(activeContext, AcquireCurrent)).AlwaysDo([&]() { return context; });
 
-    auto result = fixture.Process(PingMessage());
+    auto result = fixture.ProcessWithContext(activeContext.get(), PingMessage());
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -296,6 +336,8 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     //  (SessionManager::ClientIdForConnection) once a session exists, not a
     //  value repeated on every response.
     CHECK_FALSE(result.responses[0].clientId.has_value());
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
 }
 
 TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when "
@@ -303,13 +345,18 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
+    Mock<IActivePlayContext> activeContext;
+    When(Method(activeContext, AcquireCurrent))
+        .Return(std::shared_ptr<dovahlink::application::PlayContext>{});
 
-    auto result = fixture.Process(PingMessage());
+    auto result = fixture.ProcessWithContext(activeContext.get(), PingMessage());
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
     CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
     CHECK_FALSE(result.responses[0].playContextId.has_value());
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
 }
 
 TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
@@ -325,9 +372,13 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     //  error-stale-session.json, which all carry a real bridgeInstanceId.
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
+    Mock<IActivePlayContext> activeContext;
+    auto context = std::make_shared<dovahlink::application::PlayContext>(
+        "context-1");
+    When(Method(activeContext, AcquireCurrent)).AlwaysDo([&]() { return context; });
 
-    auto result = fixture.Process("not json at all {{{");
+    auto result = fixture.ProcessWithContext(activeContext.get(),
+                                             "not json at all {{{");
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -335,6 +386,8 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     REQUIRE(result.responses[0].playContextId.has_value());
     CHECK(*result.responses[0].playContextId == "context-1");
     CHECK_FALSE(result.responses[0].clientId.has_value());
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
 }
 
 TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early "
@@ -343,13 +396,19 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
+    Mock<IActivePlayContext> activeContext;
+    When(Method(activeContext, AcquireCurrent))
+        .Return(std::shared_ptr<dovahlink::application::PlayContext>{});
 
-    auto result = fixture.Process("not json at all {{{");
+    auto result = fixture.ProcessWithContext(activeContext.get(),
+                                             "not json at all {{{");
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
     CHECK(*result.responses[0].bridgeInstanceId == "bridge-1");
     CHECK_FALSE(result.responses[0].playContextId.has_value());
+    Verify(Method(activeContext, AcquireCurrent)).Once();
+    VerifyNoOtherInvocations(activeContext);
 }
 
 TEST_CASE("ProcessInboundMessage stamps a null bridgeInstanceId onto an early "
@@ -949,9 +1008,13 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on "
           "pairing_cancel responses too, never clientId",
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
-    fixture.activePlayContext.Begin("context-1");
+    Mock<IActivePlayContext> activeContext;
+    auto context = std::make_shared<dovahlink::application::PlayContext>(
+        "context-1");
+    When(Method(activeContext, AcquireCurrent)).AlwaysDo([&]() { return context; });
 
-    auto renotify = fixture.Process(PairingRenotifyMessage());
+    auto renotify = fixture.ProcessWithContext(activeContext.get(),
+                                               PairingRenotifyMessage());
     REQUIRE(renotify.responses.size() == 1);
     REQUIRE(renotify.responses[0].bridgeInstanceId.has_value());
     CHECK(*renotify.responses[0].bridgeInstanceId == "bridge-1");
@@ -959,13 +1022,16 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on "
     CHECK(*renotify.responses[0].playContextId == "context-1");
     CHECK_FALSE(renotify.responses[0].clientId.has_value());
 
-    auto cancel = fixture.Process(PairingCancelMessage());
+    auto cancel = fixture.ProcessWithContext(activeContext.get(),
+                                             PairingCancelMessage());
     REQUIRE(cancel.responses.size() == 1);
     REQUIRE(cancel.responses[0].bridgeInstanceId.has_value());
     CHECK(*cancel.responses[0].bridgeInstanceId == "bridge-1");
     REQUIRE(cancel.responses[0].playContextId.has_value());
     CHECK(*cancel.responses[0].playContextId == "context-1");
     CHECK_FALSE(cancel.responses[0].clientId.has_value());
+    Verify(Method(activeContext, AcquireCurrent)).Exactly(2);
+    VerifyNoOtherInvocations(activeContext);
 }
 
 TEST_CASE("ProcessInboundMessage's capabilities handling is unaffected by "
@@ -976,7 +1042,6 @@ TEST_CASE("ProcessInboundMessage's capabilities handling is unaffected by "
     //  than left as an unstated assumption.
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
     std::string message =
         R"({"messageType": "capabilities", "messageId": "message-cap-1", "sessionId": ")" +
         std::string(kSessionId) +
