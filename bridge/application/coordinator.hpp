@@ -1,22 +1,14 @@
 #pragma once
 
+#include "application/contained_work.hpp"
 #include "application/lifetime_token.hpp"
 
 #include <atomic>
 #include <condition_variable>
-#include <functional>
 #include <memory>
 #include <mutex>
 
 namespace dovahlink::application {
-
-///  Owns one potentially move-only operation submitted at a runtime boundary.
-using ContainedWork = std::move_only_function<void()>;
-
-///  Executes one synchronous runtime-boundary operation without allowing an
-///  exception to escape.
-///  @return `true` when the operation was admitted and completed successfully.
-using ContainedWorkRunner = std::function<bool(ContainedWork)>;
 
 ///  Registers and unregisters runtime callbacks owned by the coordinator.
 class CallbackRegistry {
