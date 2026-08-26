@@ -28,7 +28,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3.0 CONFIG REQUIRED)
-find_package(FakeIt CONFIG REQUIRED)
 find_package(GTest CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(boost_beast CONFIG REQUIRED)
@@ -227,7 +226,6 @@ add_executable(dovahlink_bridge_tests
 target_link_libraries(dovahlink_bridge_tests PRIVATE
     dovahlink_bridge_core
     Catch2::Catch2WithMain
-    FakeIt::FakeIt-catch
     GTest::gmock
 )
 target_compile_definitions(dovahlink_bridge_tests PRIVATE

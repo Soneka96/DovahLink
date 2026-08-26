@@ -7,7 +7,7 @@
 #include "security/test_token.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <fakeit.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/json/parse.hpp>
 
@@ -34,12 +34,19 @@ using dovahlink::security::kValidHexToken;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
-using fakeit::Mock;
-using fakeit::Verify;
-using fakeit::VerifyNoOtherInvocations;
-using fakeit::When;
+using testing::StrictMock;
 
 namespace {
+
+///  GoogleMock active-play-context contract double.
+class MockActivePlayContext : public IActivePlayContext {
+  public:
+    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
+                AcquireCurrent, (), (const, override));
+    MOCK_METHOD(void, Reset, (), (override));
+    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>, Begin,
+                (std::string), (override));
+};
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- for
 ///  tests that only exercise the one_time_local_token/unpaired auth paths and
@@ -152,23 +159,22 @@ TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto the response",
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    Mock<IActivePlayContext> activePlayContext;
-    When(Method(activePlayContext, AcquireCurrent))
-        .Return(std::shared_ptr<dovahlink::application::PlayContext>{});
+    StrictMock<MockActivePlayContext> activePlayContext;
+    EXPECT_CALL(activePlayContext, AcquireCurrent())
+        .WillOnce(testing::Return(
+            std::shared_ptr<dovahlink::application::PlayContext>{}));
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext.get());
+        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
 
     REQUIRE(result.response.bridgeInstanceId.has_value());
     CHECK(*result.response.bridgeInstanceId == "bridge-1");
     //  No context has been begun, so playContextId stays null even though
     //  bridgeInstanceId is present.
     CHECK_FALSE(result.response.playContextId.has_value());
-    Verify(Method(activePlayContext, AcquireCurrent)).Once();
-    VerifyNoOtherInvocations(activePlayContext);
 }
 
 TEST_CASE("HandleHello stamps the play context already active at connect time "
@@ -185,21 +191,20 @@ TEST_CASE("HandleHello stamps the play context already active at connect time "
     SessionManager sessions;
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
-    Mock<IActivePlayContext> activePlayContext;
+    StrictMock<MockActivePlayContext> activePlayContext;
     auto context = std::make_shared<dovahlink::application::PlayContext>(
         "context-1");
-    When(Method(activePlayContext, AcquireCurrent)).Return(context);
+    EXPECT_CALL(activePlayContext, AcquireCurrent())
+        .WillOnce(testing::Return(context));
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
         hello, tokenStore, throttle, trustStore, credentialThrottle, sessions,
         /*connection=*/1, timeout, now,
-        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext.get());
+        /*bridgeInstanceId=*/std::string("bridge-1"), activePlayContext);
 
     REQUIRE(result.response.playContextId.has_value());
     CHECK(*result.response.playContextId == "context-1");
-    Verify(Method(activePlayContext, AcquireCurrent)).Once();
-    VerifyNoOtherInvocations(activePlayContext);
 }
 
 TEST_CASE("HandleHello uses the supplied bridgeVersion in hello_ack",

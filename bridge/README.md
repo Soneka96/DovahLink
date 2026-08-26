@@ -64,7 +64,6 @@ Pinned package versions resolved at that baseline:
 |---|---|
 | Boost (Asio, Beast, JSON — one release for all three) | `1.91.0` |
 | Catch2 | `3.15.3` |
-| FakeIt (test-only, Catch2 integration) | `2.5.0` |
 | GoogleTest/GoogleMock (test-only, Catch2 target integration) | `1.18.0` |
 
 CommonLibSSE-NG (`commonlibsse-ng-flatrim`, SE/AE-capable, VR excluded) comes from the
@@ -96,8 +95,8 @@ Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
   `std::uint16_t`) from `RE::Actor`, confirmed by reading both headers at the pinned commit.
 
 No dependency here duplicates a production role already covered by Boost or CommonLibSSE-NG's own
-dependencies. FakeIt remains the synchronous mocking framework; GoogleMock is a test-only,
-cross-thread contract-testing exception and is not a second production mocking policy.
+dependencies. GoogleTest/GoogleMock is test-only and provides the Bridge's single mocking policy
+for synchronous and cross-thread contract tests.
 
 `bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same step that
 first consumes it, rather than all at once: `catch2` landed with the build scaffolding, `boost-json`

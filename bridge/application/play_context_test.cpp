@@ -2,7 +2,7 @@
 #include "application/active_play_context_level_sink.hpp"
 
 #include <catch2/catch_test_macros.hpp>
-#include <fakeit.hpp>
+#include <gmock/gmock.h>
 
 #include <memory>
 
@@ -12,10 +12,20 @@ using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::IActivePlayContext;
 using dovahlink::application::PlayContext;
-using fakeit::Mock;
-using fakeit::Verify;
-using fakeit::VerifyNoOtherInvocations;
-using fakeit::When;
+using testing::StrictMock;
+
+namespace {
+
+///  GoogleMock active-play-context contract double.
+class MockActivePlayContext : public IActivePlayContext {
+  public:
+    MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
+                (const, override));
+    MOCK_METHOD(void, Reset, (), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, Begin, (std::string), (override));
+};
+
+} //  namespace
 
 TEST_CASE("AcquireCurrent is nullptr before any context begins",
           "[application][play_context]") {
@@ -175,28 +185,24 @@ TEST_CASE("ApplyLifecycleTransition with neither field set leaves the active "
 
 TEST_CASE("ActivePlayContextLevelSink forwards through its context contract",
           "[application][play_context]") {
-    Mock<IActivePlayContext> activeContext;
+    StrictMock<MockActivePlayContext> activeContext;
     auto context = std::make_shared<PlayContext>("ctx-1");
-    When(Method(activeContext, AcquireCurrent)).Return(context);
-    ActivePlayContextLevelSink sink(activeContext.get());
+    EXPECT_CALL(activeContext, AcquireCurrent())
+        .WillOnce(testing::Return(context));
+    ActivePlayContextLevelSink sink(activeContext);
 
     sink.OnLevelCaptured(12);
 
-    Verify(Method(activeContext, AcquireCurrent)).Once();
-    VerifyNoOtherInvocations(activeContext);
     REQUIRE(context->characterState.CurrentCharacterSnapshot().level.has_value());
     CHECK(*context->characterState.CurrentCharacterSnapshot().level == 12);
 }
 
 TEST_CASE("ActivePlayContextLevelSink drops captures from an empty context contract",
           "[application][play_context]") {
-    Mock<IActivePlayContext> activeContext;
-    When(Method(activeContext, AcquireCurrent))
-        .Return(std::shared_ptr<PlayContext>{});
-    ActivePlayContextLevelSink sink(activeContext.get());
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, AcquireCurrent())
+        .WillOnce(testing::Return(std::shared_ptr<PlayContext>{}));
+    ActivePlayContextLevelSink sink(activeContext);
 
     sink.OnLevelCaptured(12);
-
-    Verify(Method(activeContext, AcquireCurrent)).Once();
-    VerifyNoOtherInvocations(activeContext);
 }
