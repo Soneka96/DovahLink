@@ -2,22 +2,23 @@
 
 #include "application/play_context_lifecycle.hpp"
 
-#include <memory>
+#include <optional>
+#include <string>
 
 namespace dovahlink::application {
 
-///  Read-only capability for consumers that need the currently active context.
+///  Read-only capability for consumers that need the current context identity.
 class IActivePlayContextReader {
   public:
     ///  Allows destruction through the interface.
     virtual ~IActivePlayContextReader() = default;
 
-    ///  Returns the currently active play context.
-    [[nodiscard]] virtual std::shared_ptr<PlayContext>
-    AcquireCurrent() const = 0;
+    ///  Returns a copy of the currently active play-context identifier.
+    [[nodiscard]] virtual std::optional<std::string>
+    CurrentPlayContextId() const = 0;
 };
 
-///  Adapts the lifecycle-owned context to its read-only consumer contract.
+///  Adapts the lifecycle aggregate to its read-only identity contract.
 class ActivePlayContextReader final : public IActivePlayContextReader {
   public:
     ///  Binds the reader to the lifecycle-owned context.
@@ -25,12 +26,12 @@ class ActivePlayContextReader final : public IActivePlayContextReader {
     explicit ActivePlayContextReader(
         const IPlayContextLifecycle& playContextLifecycle);
 
-    ///  @copydoc IActivePlayContextReader::AcquireCurrent
-    [[nodiscard]] std::shared_ptr<PlayContext>
-    AcquireCurrent() const override;
+    ///  @copydoc IActivePlayContextReader::CurrentPlayContextId
+    [[nodiscard]] std::optional<std::string>
+    CurrentPlayContextId() const override;
 
   private:
-    ///  Lifecycle aggregate whose current context is exposed read-only.
+    ///  Lifecycle aggregate whose current identity is exposed read-only.
     const IPlayContextLifecycle& playContextLifecycle_;
 };
 

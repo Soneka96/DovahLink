@@ -221,9 +221,7 @@ void BridgeWorkerPool::NotifyAndShutdownActiveSocket(
     auto envelope = protocol::BuildSessionInvalidatedEnvelope(
         std::move(sessionId), std::string(reason));
     envelope.bridgeInstanceId = bridgeInstanceId_;
-    auto context = activePlayContext_.AcquireCurrent();
-    envelope.playContextId =
-        context ? std::optional<std::string>(context->id) : std::nullopt;
+    envelope.playContextId = activePlayContext_.CurrentPlayContextId();
     socket->ShutdownWithNotification(protocol::EncodeEnvelope(envelope));
 }
 

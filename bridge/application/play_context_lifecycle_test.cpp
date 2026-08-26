@@ -33,7 +33,6 @@ TEST_CASE("PlayContextLifecycle starts without an active context",
 
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(contract.CurrentPlayContextId());
-    CHECK_FALSE(contract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle activates and replaces contexts atomically",
@@ -46,15 +45,14 @@ TEST_CASE("PlayContextLifecycle activates and replaces contexts atomically",
 
     auto first = contract.HandleEvent(LifecycleEvent::kNewGame);
     REQUIRE(first.newPlayContextId.has_value());
-    REQUIRE(contract.AcquireCurrent());
     CHECK(contract.CurrentPlayContextId() == first.newPlayContextId);
-    CHECK(contract.AcquireCurrent()->id == *first.newPlayContextId);
+    CHECK(contract.CurrentState() == LifecycleState::kActive);
 
     auto replacement = contract.HandleEvent(LifecycleEvent::kNewGame);
     CHECK(replacement.contextInvalidated);
     REQUIRE(replacement.newPlayContextId.has_value());
     CHECK(contract.CurrentPlayContextId() == replacement.newPlayContextId);
-    CHECK(contract.AcquireCurrent()->id == *replacement.newPlayContextId);
+    CHECK(contract.CurrentState() == LifecycleState::kActive);
 }
 
 TEST_CASE("PlayContextLifecycle invalidates state through load and revert events",
@@ -68,7 +66,6 @@ TEST_CASE("PlayContextLifecycle invalidates state through load and revert events
     auto preLoad = contract.HandleEvent(LifecycleEvent::kPreLoadGame);
     CHECK(preLoad.contextInvalidated);
     CHECK(contract.CurrentState() == LifecycleState::kLoading);
-    CHECK_FALSE(contract.AcquireCurrent());
 
     auto failedLoad =
         contract.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
@@ -80,7 +77,6 @@ TEST_CASE("PlayContextLifecycle invalidates state through load and revert events
     auto revert = contract.HandleEvent(LifecycleEvent::kRevert);
     CHECK(revert.contextInvalidated);
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
-    CHECK_FALSE(contract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle activates after a successful load",
@@ -93,7 +89,6 @@ TEST_CASE("PlayContextLifecycle activates after a successful load",
     auto preLoad = contract.HandleEvent(LifecycleEvent::kPreLoadGame);
     CHECK_FALSE(preLoad.contextInvalidated);
     CHECK(contract.CurrentState() == LifecycleState::kLoading);
-    CHECK_FALSE(contract.AcquireCurrent());
 
     auto success =
         contract.HandleEvent(LifecycleEvent::kPostLoadGameSuccess);
@@ -101,8 +96,6 @@ TEST_CASE("PlayContextLifecycle activates after a successful load",
     REQUIRE(success.newPlayContextId.has_value());
     CHECK(contract.CurrentState() == LifecycleState::kActive);
     CHECK(contract.CurrentPlayContextId() == success.newPlayContextId);
-    REQUIRE(contract.AcquireCurrent());
-    CHECK(contract.AcquireCurrent()->id == *success.newPlayContextId);
 }
 
 TEST_CASE("PlayContextLifecycle treats repeated and out-of-order invalidation as safe",
@@ -114,7 +107,6 @@ TEST_CASE("PlayContextLifecycle treats repeated and out-of-order invalidation as
 
     auto firstRevert = contract.HandleEvent(LifecycleEvent::kRevert);
     CHECK_FALSE(firstRevert.contextInvalidated);
-    CHECK_FALSE(contract.AcquireCurrent());
 
     auto preLoad = contract.HandleEvent(LifecycleEvent::kPreLoadGame);
     CHECK_FALSE(preLoad.contextInvalidated);
@@ -125,7 +117,6 @@ TEST_CASE("PlayContextLifecycle treats repeated and out-of-order invalidation as
     auto loadingRevert = contract.HandleEvent(LifecycleEvent::kRevert);
     CHECK(loadingRevert.contextInvalidated);
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
-    CHECK_FALSE(contract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle preserves consistency when context creation fails",
@@ -145,18 +136,16 @@ TEST_CASE("PlayContextLifecycle preserves consistency when context creation fail
         });
     IPlayContextLifecycle& contract = lifecycle;
     contract.HandleEvent(LifecycleEvent::kNewGame);
-    auto previous = contract.AcquireCurrent();
-    REQUIRE(previous);
-    CHECK(previous->id == "context-1");
+    auto previousId = contract.CurrentPlayContextId();
+    REQUIRE(previousId.has_value());
+    CHECK(*previousId == "context-1");
 
     failCreation = true;
     CHECK_THROWS_AS(contract.HandleEvent(LifecycleEvent::kNewGame),
                     std::runtime_error);
 
     CHECK(contract.CurrentState() == LifecycleState::kActive);
-    CHECK(contract.CurrentPlayContextId() ==
-          std::optional<std::string>{"context-1"});
-    CHECK(contract.AcquireCurrent() == previous);
+    CHECK(contract.CurrentPlayContextId() == previousId);
 
     failCreation = false;
     auto recovered = contract.HandleEvent(LifecycleEvent::kNewGame);
@@ -177,7 +166,6 @@ TEST_CASE("PlayContextLifecycle preserves an empty state when initial creation f
                     std::runtime_error);
     CHECK(contract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(contract.CurrentPlayContextId());
-    CHECK_FALSE(contract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle preserves loading state when load creation fails",
@@ -193,7 +181,6 @@ TEST_CASE("PlayContextLifecycle preserves loading state when load creation fails
         std::runtime_error);
     CHECK(contract.CurrentState() == LifecycleState::kLoading);
     CHECK_FALSE(contract.CurrentPlayContextId());
-    CHECK_FALSE(contract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle handles absent and throwing ID generators",
@@ -202,8 +189,7 @@ TEST_CASE("PlayContextLifecycle handles absent and throwing ID generators",
     IPlayContextLifecycle& absentContract = absentGenerator;
     auto absent = absentContract.HandleEvent(LifecycleEvent::kNewGame);
     CHECK_FALSE(absent.newPlayContextId);
-    CHECK(absentContract.CurrentState() == LifecycleState::kActive);
-    CHECK_FALSE(absentContract.AcquireCurrent());
+    CHECK(absentContract.CurrentState() == LifecycleState::kNoContext);
 
     PlayContextLifecycle throwingGenerator([]() -> std::optional<std::string> {
         throw std::runtime_error("ID generation failed");
@@ -214,7 +200,6 @@ TEST_CASE("PlayContextLifecycle handles absent and throwing ID generators",
         std::runtime_error);
     CHECK(throwingContract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(throwingContract.CurrentPlayContextId());
-    CHECK_FALSE(throwingContract.AcquireCurrent());
 
     PlayContextLifecycle unavailableFactory(
         [] { return std::optional<std::string>("context-1"); },
@@ -225,7 +210,6 @@ TEST_CASE("PlayContextLifecycle handles absent and throwing ID generators",
         std::runtime_error);
     CHECK(unavailableContract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(unavailableContract.CurrentPlayContextId());
-    CHECK_FALSE(unavailableContract.AcquireCurrent());
 }
 
 TEST_CASE("PlayContextLifecycle clears state when ID generation fails",
@@ -243,9 +227,48 @@ TEST_CASE("PlayContextLifecycle clears state when ID generation fails",
     auto transition = contract.HandleEvent(LifecycleEvent::kNewGame);
     CHECK(transition.contextInvalidated);
     CHECK_FALSE(transition.newPlayContextId);
-    CHECK(contract.CurrentState() == LifecycleState::kActive);
+    CHECK(contract.CurrentState() == LifecycleState::kNoContext);
     CHECK_FALSE(contract.CurrentPlayContextId());
-    CHECK_FALSE(contract.AcquireCurrent());
+}
+
+TEST_CASE("PlayContextLifecycle captures levels only in the active context",
+          "[application][play_context_lifecycle]") {
+    auto context = std::make_shared<PlayContext>("context-1");
+    PlayContextLifecycle lifecycle(
+        [] { return std::optional<std::string>("context-1"); },
+        [context](std::string) { return context; });
+    IPlayContextLifecycle& contract = lifecycle;
+
+    contract.CaptureLevel(12);
+    contract.HandleEvent(LifecycleEvent::kNewGame);
+    contract.CaptureLevel(13);
+
+    CHECK(context->characterState.CurrentCharacterSnapshot().level == 13);
+
+    contract.HandleEvent(LifecycleEvent::kPreLoadGame);
+    contract.CaptureLevel(14);
+    CHECK(context->characterState.CurrentCharacterSnapshot().level == 13);
+
+    contract.HandleEvent(LifecycleEvent::kPostLoadGameFailure);
+    contract.CaptureLevel(15);
+    CHECK(context->characterState.CurrentCharacterSnapshot().level == 13);
+
+    contract.HandleEvent(LifecycleEvent::kRevert);
+    contract.CaptureLevel(14);
+}
+
+TEST_CASE("PlayContextLifecycle forwards unavailable levels to active state",
+          "[application][play_context_lifecycle]") {
+    auto context = std::make_shared<PlayContext>("context-1");
+    PlayContextLifecycle lifecycle(
+        [] { return std::optional<std::string>("context-1"); },
+        [context](std::string) { return context; });
+    IPlayContextLifecycle& contract = lifecycle;
+    contract.HandleEvent(LifecycleEvent::kNewGame);
+    contract.CaptureLevel(12);
+    contract.CaptureLevel(std::nullopt);
+
+    CHECK_FALSE(context->characterState.CurrentCharacterSnapshot().level);
 }
 
 TEST_CASE("PlayContextLifecycle serializes concurrent lifecycle events",
@@ -282,6 +305,4 @@ TEST_CASE("PlayContextLifecycle serializes concurrent lifecycle events",
 
     CHECK(maximumFactories == 1);
     REQUIRE(lifecycle.CurrentPlayContextId().has_value());
-    REQUIRE(lifecycle.AcquireCurrent());
-    CHECK(lifecycle.AcquireCurrent()->id == *lifecycle.CurrentPlayContextId());
 }

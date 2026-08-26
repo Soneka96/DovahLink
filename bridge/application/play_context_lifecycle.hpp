@@ -3,6 +3,7 @@
 #include "application/play_context.hpp"
 #include "shared/enums.hpp"
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -29,7 +30,7 @@ class IPlayContextLifecycle {
   public:
     ///  Reports the effect of one processed lifecycle event.
     struct Transition {
-        ///  Whether a previously active or loading play context was invalidated.
+        ///  Whether a previously published play context was invalidated.
         bool contextInvalidated = false;
 
         ///  The freshly minted play-context identifier, when one was created.
@@ -45,16 +46,17 @@ class IPlayContextLifecycle {
     ///  @return The resulting invalidation/creation effect.
     virtual Transition HandleEvent(LifecycleEvent event) = 0;
 
-    ///  Returns the currently active play context, if any.
-    [[nodiscard]] virtual std::shared_ptr<PlayContext>
-    AcquireCurrent() const = 0;
-
     ///  Returns the identifier of the currently active play context.
     [[nodiscard]] virtual std::optional<std::string>
     CurrentPlayContextId() const = 0;
 
     ///  Returns the lifecycle state of the aggregate.
     [[nodiscard]] virtual LifecycleState CurrentState() const = 0;
+
+    ///  Captures one level value into the currently active play context, or
+    ///  drops it when no authoritative context exists.
+    ///  @param level Captured level, or no value when unavailable.
+    virtual void CaptureLevel(std::optional<std::int64_t> level) = 0;
 };
 
 ///  Keeps lifecycle state and its published play context as one synchronized
@@ -73,16 +75,15 @@ class PlayContextLifecycle final : public IPlayContextLifecycle {
     ///  @copydoc IPlayContextLifecycle::HandleEvent
     Transition HandleEvent(LifecycleEvent event) override;
 
-    ///  @copydoc IPlayContextLifecycle::AcquireCurrent
-    [[nodiscard]] std::shared_ptr<PlayContext>
-    AcquireCurrent() const override;
-
     ///  @copydoc IPlayContextLifecycle::CurrentPlayContextId
     [[nodiscard]] std::optional<std::string>
     CurrentPlayContextId() const override;
 
     ///  @copydoc IPlayContextLifecycle::CurrentState
     [[nodiscard]] LifecycleState CurrentState() const override;
+
+    ///  @copydoc IPlayContextLifecycle::CaptureLevel
+    void CaptureLevel(std::optional<std::int64_t> level) override;
 
   private:
     ///  Returns the default CSPRNG-backed identifier generator.

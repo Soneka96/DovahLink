@@ -34,7 +34,6 @@
 using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
-using dovahlink::application::PlayContext;
 using dovahlink::application::SessionManager;
 using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildPairingAckEnvelope;
@@ -67,17 +66,17 @@ namespace {
 
 ///  GoogleMock contract double used by socket-session tests. GoogleMock's
 ///  invocation bookkeeping supports calls from the session thread; the real
-///  ActivePlayContext owns the state behavior tests.
+///  PlayContextLifecycle owns the state behavior tests.
 class MockActivePlayContext : public IActivePlayContextReader {
   public:
-    ///  Allows any number of context reads while rejecting other calls.
+    ///  Allows any number of context-ID reads while rejecting other calls.
     MockActivePlayContext() {
-        EXPECT_CALL(*this, AcquireCurrent())
+        EXPECT_CALL(*this, CurrentPlayContextId())
             .Times(testing::AnyNumber())
-            .WillRepeatedly(testing::Return(nullptr));
+            .WillRepeatedly(testing::Return(std::optional<std::string>{}));
     }
 
-    MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
+    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
                 (const, override));
 };
 
@@ -518,10 +517,9 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a "
     RecordingPairingNotificationSink pairingNotificationSink;
     SessionManager sessionManager;
     testing::StrictMock<MockActivePlayContext> activePlayContext;
-    auto context = std::make_shared<PlayContext>("context-1");
-    EXPECT_CALL(activePlayContext, AcquireCurrent())
+    EXPECT_CALL(activePlayContext, CurrentPlayContextId())
         .Times(testing::AnyNumber())
-        .WillRepeatedly(Return(context));
+        .WillRepeatedly(Return(std::optional<std::string>{"context-1"}));
     std::optional<std::string> bridgeInstanceId = "bridge-1";
 
     boost::system::error_code serverAcceptEc;

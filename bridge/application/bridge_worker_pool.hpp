@@ -45,9 +45,8 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  @param credentialThrottle Failed device-credential attempt throttle shared
     ///  by connections.
     ///  @param sessionManager Session ownership manager.
-    ///  @param activePlayContext Source of the acquired play context each
-    ///  connection's state and
-    ///      revisions belong to.
+    ///  @param activePlayContext Source of the current play-context identity for
+    ///      connection responses.
     ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
     ///  state machine
     ///      shared by connections.
@@ -187,8 +186,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Session manager shared by accepted connections.
     SessionManager& sessionManager_;
 
-    ///  Source of the acquired play context each connection's state and revisions
-    ///  belong to.
+    ///  Source of the current play-context identity for connection responses.
     const IActivePlayContextReader& activePlayContext_;
 
     ///  Shared pairing challenge/pending-credential state machine.

@@ -39,7 +39,7 @@ IPlayContextLifecycle::Transition PlayContextLifecycle::ActivateLocked() {
     const bool hadActiveContext = state_ == LifecycleState::kActive;
     std::optional<std::string> id = generateId_ ? generateId_() : std::nullopt;
     if (!id.has_value()) {
-        state_ = LifecycleState::kActive;
+        state_ = LifecycleState::kNoContext;
         currentPlayContextId_.reset();
         current_.reset();
         return Transition{.contextInvalidated = hadActiveContext};
@@ -94,11 +94,6 @@ IPlayContextLifecycle::Transition PlayContextLifecycle::HandleEvent(
     return Transition{};
 }
 
-std::shared_ptr<PlayContext> PlayContextLifecycle::AcquireCurrent() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return current_;
-}
-
 std::optional<std::string>
 PlayContextLifecycle::CurrentPlayContextId() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -108,6 +103,13 @@ PlayContextLifecycle::CurrentPlayContextId() const {
 LifecycleState PlayContextLifecycle::CurrentState() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return state_;
+}
+
+void PlayContextLifecycle::CaptureLevel(std::optional<std::int64_t> level) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (current_) {
+        current_->characterState.OnLevelCaptured(level);
+    }
 }
 
 } //  namespace dovahlink::application

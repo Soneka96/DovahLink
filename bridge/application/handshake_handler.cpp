@@ -189,8 +189,9 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     std::string clientIdentityKind =
         hello->authMethod == "trusted_device_credential" ? "paired" : "unpaired";
 
-    auto context = activePlayContext ? activePlayContext->AcquireCurrent()
-                                     : std::shared_ptr<PlayContext>{};
+    auto currentContextId = activePlayContext
+                                ? activePlayContext->CurrentPlayContextId()
+                                : std::nullopt;
     protocol::Envelope response{
         .messageType = std::string(protocol::message_type::kHelloAck),
         .messageId = *responseMessageId,
@@ -205,8 +206,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         //  (e.g. a reconnect mid-game), which may be none. clientId echoes
         //  the identity the client just established in this same hello.
         .bridgeInstanceId = bridgeInstanceId,
-        .playContextId =
-            context ? std::optional<std::string>(context->id) : std::nullopt,
+        .playContextId = std::move(currentContextId),
         .clientId = hello->clientId,
     };
 

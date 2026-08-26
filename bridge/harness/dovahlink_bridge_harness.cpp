@@ -264,7 +264,7 @@ int main() {
     //  LevelIncreaseHandler uses; a capture with no active context is dropped,
     //  matching real play (main menu, before any load).
     dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContextReader);
+        playContextLifecycle);
 
     //  Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     //  generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness

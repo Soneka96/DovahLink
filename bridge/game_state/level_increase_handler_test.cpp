@@ -1,12 +1,19 @@
+#include "application/active_play_context_level_sink.hpp"
+#include "application/play_context_lifecycle.hpp"
 #include "game_state/level_increase_handler.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
+#include <string>
 
+using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::IActivePlayContextLevelSink;
+using dovahlink::application::PlayContext;
+using dovahlink::application::PlayContextLifecycle;
 using dovahlink::game_state::ILevelIncreaseHandler;
 using dovahlink::game_state::IPlayerLevelAccessor;
 using dovahlink::game_state::LevelIncreaseHandler;
@@ -87,4 +94,23 @@ TEST_CASE("HandleLevelIncrease routes an untrustworthy raw value through "
     LevelIncreaseHandler handler(accessor, sink);
 
     handler.HandleLevelIncrease();
+}
+
+TEST_CASE("HandleLevelIncrease composes with the active play-context writer",
+          "[game_state][level_increase_handler]") {
+    auto context = std::make_shared<PlayContext>("context-1");
+    PlayContextLifecycle lifecycle(
+        [] { return std::optional<std::string>("context-1"); },
+        [context](std::string) { return context; });
+    lifecycle.HandleEvent(dovahlink::application::LifecycleEvent::kNewGame);
+    ActivePlayContextLevelSink levelSink(lifecycle);
+    StrictMock<MockPlayerLevelAccessor> accessor;
+    EXPECT_CALL(accessor, ReadLevel())
+        .WillOnce(testing::Return(std::optional<std::int64_t>{15}));
+
+    LevelIncreaseHandler handler(accessor, levelSink);
+    ILevelIncreaseHandler& handlerContract = handler;
+    handlerContract.HandleLevelIncrease();
+
+    CHECK(context->characterState.CurrentCharacterSnapshot().level == 15);
 }

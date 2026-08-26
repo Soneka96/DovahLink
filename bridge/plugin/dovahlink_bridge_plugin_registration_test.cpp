@@ -92,8 +92,7 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::size_t levelSinkPos =
         source.find("ActivePlayContextLevelSink levelSink");
     REQUIRE(levelSinkPos != std::string::npos);
-    CHECK(readerPos < levelSinkPos);
-    CHECK(source.find("activePlayContextReader);", levelSinkPos) !=
+    CHECK(source.find("playContextLifecycle);", levelSinkPos) !=
           std::string::npos);
 
     std::size_t workerPoolPos = source.find("BridgeWorkerPool bridgeWorkerPool");

@@ -6,9 +6,9 @@ ActivePlayContextReader::ActivePlayContextReader(
     const IPlayContextLifecycle& playContextLifecycle)
     : playContextLifecycle_(playContextLifecycle) {}
 
-std::shared_ptr<PlayContext>
-ActivePlayContextReader::AcquireCurrent() const {
-    return playContextLifecycle_.AcquireCurrent();
+std::optional<std::string>
+ActivePlayContextReader::CurrentPlayContextId() const {
+    return playContextLifecycle_.CurrentPlayContextId();
 }
 
 } //  namespace dovahlink::application

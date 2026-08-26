@@ -1,13 +1,13 @@
 #pragma once
 
-#include "application/active_play_context_reader.hpp"
+#include "application/play_context_lifecycle.hpp"
 
 #include <cstdint>
 #include <optional>
 
 namespace dovahlink::application {
 
-///  Routes captured levels into the currently active play context.
+///  Provides the level-capture capability used by the game-state handler.
 class IActivePlayContextLevelSink {
   public:
     ///  Allows destruction through the interface.
@@ -18,20 +18,20 @@ class IActivePlayContextLevelSink {
     virtual void OnLevelCaptured(std::optional<std::int64_t> level) = 0;
 };
 
-///  Routes captured level values into whichever play context is currently
-///  active, dropping captures when no authoritative context exists.
+///  Routes captured level values into the lifecycle aggregate, which drops
+///  captures when no authoritative context exists.
 class ActivePlayContextLevelSink final : public IActivePlayContextLevelSink {
   public:
-    ///  Binds the sink to the active play-context capability.
+    ///  Binds the sink to the lifecycle aggregate's write capability.
     explicit ActivePlayContextLevelSink(
-        const IActivePlayContextReader& activePlayContext);
+        IPlayContextLifecycle& playContextLifecycle);
 
     ///  @copydoc IActivePlayContextLevelSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override;
 
   private:
-    ///  Source of the currently active play context.
-    const IActivePlayContextReader& activePlayContext_;
+    ///  Lifecycle aggregate receiving the captured level.
+    IPlayContextLifecycle& playContextLifecycle_;
 };
 
 } //  namespace dovahlink::application

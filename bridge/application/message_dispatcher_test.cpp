@@ -49,11 +49,11 @@ using testing::StrictMock;
 
 namespace {
 
-///  GoogleMock active-play-context contract double.
+///  GoogleMock active-play-context ID contract double.
 class MockActivePlayContext : public IActivePlayContextReader {
   public:
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
-                AcquireCurrent, (), (const, override));
+    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
+                (const, override));
 };
 
 ///  Clock type used for deterministic dispatcher timeout assertions.
@@ -104,14 +104,14 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     int attemptsExhaustedCount = 0;
 };
 
-///  Supplies no active context for dispatcher scenarios that do not exercise
+///  Supplies no active context ID for dispatcher scenarios that do not exercise
 ///  context identity; focused context tests use a strict mock instead.
 class EmptyActivePlayContext final : public IActivePlayContextReader {
   public:
-    ///  Reports that no context is active.
-    [[nodiscard]] std::shared_ptr<dovahlink::application::PlayContext>
-    AcquireCurrent() const override {
-        return nullptr;
+    ///  Reports that no context ID is active.
+    [[nodiscard]] std::optional<std::string>
+    CurrentPlayContextId() const override {
+        return std::nullopt;
     }
 };
 
@@ -316,10 +316,8 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
     StrictMock<MockActivePlayContext> activeContext;
-    auto context = std::make_shared<dovahlink::application::PlayContext>(
-        "context-1");
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(context));
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{"context-1"}));
 
     auto result = fixture.ProcessWithContext(activeContext, PingMessage());
 
@@ -340,9 +338,8 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when "
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
     StrictMock<MockActivePlayContext> activeContext;
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(
-            std::shared_ptr<dovahlink::application::PlayContext>{}));
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{}));
 
     auto result = fixture.ProcessWithContext(activeContext, PingMessage());
 
@@ -366,10 +363,8 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
     StrictMock<MockActivePlayContext> activeContext;
-    auto context = std::make_shared<dovahlink::application::PlayContext>(
-        "context-1");
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(context));
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{"context-1"}));
 
     auto result = fixture.ProcessWithContext(activeContext,
                                              "not json at all {{{");
@@ -389,9 +384,8 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early "
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
     StrictMock<MockActivePlayContext> activeContext;
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(
-            std::shared_ptr<dovahlink::application::PlayContext>{}));
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{}));
 
     auto result = fixture.ProcessWithContext(activeContext,
                                              "not json at all {{{");
@@ -1000,11 +994,10 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
     StrictMock<MockActivePlayContext> activeContext;
-    auto context = std::make_shared<dovahlink::application::PlayContext>(
-        "context-1");
-    EXPECT_CALL(activeContext, AcquireCurrent())
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
         .Times(2)
-        .WillRepeatedly(testing::Return(context));
+        .WillRepeatedly(
+            testing::Return(std::optional<std::string>{"context-1"}));
 
     auto renotify = fixture.ProcessWithContext(activeContext,
                                                PairingRenotifyMessage());

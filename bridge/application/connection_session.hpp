@@ -36,8 +36,8 @@ using SteadyNowProvider =
 ///  throttle.
 ///  @param sessionManager Session registry for the connection.
 ///  @param connection Transport connection identifier.
-///  @param activePlayContext Source of the acquired play context this
-///  connection's state belongs to.
+///  @param activePlayContext Source of the current play-context identity this
+///  connection reports.
 ///  @param pairingSession Plugin-lifetime pairing challenge/pending-credential
 ///  state machine.
 ///  @param mutationCoordinator Serializes pairing finalization and administrative

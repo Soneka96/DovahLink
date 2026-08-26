@@ -47,9 +47,8 @@ struct DispatchResult {
 ///  @param violations Per-connection protocol-violation tracker.
 ///  @param rateLimiter Per-connection inbound rate limiter.
 ///  @param timeoutTracker Connection timeout tracker.
-///  @param activePlayContext Source of the acquired play context, stamped onto
-///  every response as
-///      `playContextId`.
+///  @param activePlayContext Source of the current play-context identity, stamped
+///      onto every response as `playContextId`.
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine, for
 ///      the three pairing message types.

@@ -3,15 +3,12 @@
 namespace dovahlink::application {
 
 ActivePlayContextLevelSink::ActivePlayContextLevelSink(
-    const IActivePlayContextReader& activePlayContext)
-    : activePlayContext_(activePlayContext) {}
+    IPlayContextLifecycle& playContextLifecycle)
+    : playContextLifecycle_(playContextLifecycle) {}
 
 void ActivePlayContextLevelSink::OnLevelCaptured(
     std::optional<std::int64_t> level) {
-    auto context = activePlayContext_.AcquireCurrent();
-    if (context) {
-        context->characterState.OnLevelCaptured(level);
-    }
+    playContextLifecycle_.CaptureLevel(level);
 }
 
 } //  namespace dovahlink::application

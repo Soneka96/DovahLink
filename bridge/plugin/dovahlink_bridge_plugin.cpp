@@ -300,7 +300,7 @@ SKSEPluginInfo(
         activePlayContextReader(playContextLifecycle);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContextReader);
+        playContextLifecycle);
     static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
     static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
         levelAccessor, levelSink);

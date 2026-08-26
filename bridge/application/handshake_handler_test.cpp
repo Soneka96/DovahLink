@@ -41,8 +41,8 @@ namespace {
 ///  GoogleMock active-play-context contract double.
 class MockActivePlayContext : public IActivePlayContextReader {
   public:
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
-                AcquireCurrent, (), (const, override));
+    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
+                (const, override));
 };
 
 ///  `ITrustStorePersistence` double that always loads an empty snapshot -- for
@@ -157,9 +157,8 @@ TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto the response",
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
     StrictMock<MockActivePlayContext> activePlayContext;
-    EXPECT_CALL(activePlayContext, AcquireCurrent())
-        .WillOnce(testing::Return(
-            std::shared_ptr<dovahlink::application::PlayContext>{}));
+    EXPECT_CALL(activePlayContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{}));
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(
@@ -189,10 +188,8 @@ TEST_CASE("HandleHello stamps the play context already active at connect time "
     auto now = std::chrono::steady_clock::now();
     ConnectionTimeoutTracker timeout(now);
     StrictMock<MockActivePlayContext> activePlayContext;
-    auto context = std::make_shared<dovahlink::application::PlayContext>(
-        "context-1");
-    EXPECT_CALL(activePlayContext, AcquireCurrent())
-        .WillOnce(testing::Return(context));
+    EXPECT_CALL(activePlayContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{"context-1"}));
 
     auto hello = BuildHelloEnvelope(kValidHexToken);
     auto result = HandleHello(

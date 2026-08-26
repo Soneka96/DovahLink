@@ -60,15 +60,15 @@ namespace {
 class MockActivePlayContext
     : public dovahlink::application::IActivePlayContextReader {
   public:
-    ///  Allows repeated worker-thread context reads while rejecting mutations.
+    ///  Allows repeated worker-thread context-ID reads while rejecting mutations.
     MockActivePlayContext() {
-        EXPECT_CALL(*this, AcquireCurrent())
+        EXPECT_CALL(*this, CurrentPlayContextId())
             .Times(testing::AnyNumber())
-            .WillRepeatedly(testing::Return(nullptr));
+            .WillRepeatedly(testing::Return(std::optional<std::string>{}));
     }
 
-    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
-                AcquireCurrent, (), (const, override));
+    MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
+                (const, override));
 };
 
 ///  Builds the valid client hello used by real worker-pool sessions.
