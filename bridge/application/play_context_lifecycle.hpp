@@ -1,0 +1,115 @@
+#pragma once
+
+#include "application/play_context.hpp"
+#include "shared/enums.hpp"
+
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <string>
+
+namespace dovahlink::application {
+
+///  Generates a fresh opaque play-context identifier, or no value on failure.
+using PlayContextLifecycleIdGenerator =
+    std::function<std::optional<std::string>()>;
+
+///  Creates one empty play context for a freshly generated identifier.
+using PlayContextFactory =
+    std::function<std::shared_ptr<PlayContext>(std::string)>;
+
+///  Owns the lifecycle state, identity, and authoritative state for one
+///  currently loaded Skyrim play context.
+class IPlayContextLifecycle {
+  public:
+    ///  Reports the effect of one processed lifecycle event.
+    struct Transition {
+        ///  Whether a previously active or loading play context was invalidated.
+        bool contextInvalidated = false;
+
+        ///  The freshly minted play-context identifier, when one was created.
+        std::optional<std::string> newPlayContextId;
+    };
+
+    ///  Allows destruction through the interface.
+    virtual ~IPlayContextLifecycle() = default;
+
+    ///  Processes one lifecycle signal and atomically updates lifecycle state and
+    ///  the published play context.
+    ///  @param event Signal received from the runtime adapter.
+    ///  @return The resulting invalidation/creation effect.
+    virtual Transition HandleEvent(LifecycleEvent event) = 0;
+
+    ///  Returns the currently active play context, if any.
+    [[nodiscard]] virtual std::shared_ptr<PlayContext>
+    AcquireCurrent() const = 0;
+
+    ///  Returns the identifier of the currently active play context.
+    [[nodiscard]] virtual std::optional<std::string>
+    CurrentPlayContextId() const = 0;
+
+    ///  Returns the lifecycle state of the aggregate.
+    [[nodiscard]] virtual LifecycleState CurrentState() const = 0;
+};
+
+///  Keeps lifecycle state and its published play context as one synchronized
+///  aggregate. A failed context construction leaves the whole aggregate at its
+///  previous consistent state.
+class PlayContextLifecycle final : public IPlayContextLifecycle {
+  public:
+    ///  Creates an aggregate starting in `kNoContext`.
+    ///  @param generateId Generates a fresh play-context identifier.
+    ///  @param createContext Creates the authoritative state container for a new
+    ///      identifier.
+    explicit PlayContextLifecycle(
+        PlayContextLifecycleIdGenerator generateId = DefaultGenerator(),
+        PlayContextFactory createContext = DefaultFactory());
+
+    ///  @copydoc IPlayContextLifecycle::HandleEvent
+    Transition HandleEvent(LifecycleEvent event) override;
+
+    ///  @copydoc IPlayContextLifecycle::AcquireCurrent
+    [[nodiscard]] std::shared_ptr<PlayContext>
+    AcquireCurrent() const override;
+
+    ///  @copydoc IPlayContextLifecycle::CurrentPlayContextId
+    [[nodiscard]] std::optional<std::string>
+    CurrentPlayContextId() const override;
+
+    ///  @copydoc IPlayContextLifecycle::CurrentState
+    [[nodiscard]] LifecycleState CurrentState() const override;
+
+  private:
+    ///  Returns the default CSPRNG-backed identifier generator.
+    static PlayContextLifecycleIdGenerator DefaultGenerator();
+
+    ///  Returns the default play-context factory.
+    static PlayContextFactory DefaultFactory();
+
+    ///  Invalidates the aggregate while `mutex_` is held.
+    Transition InvalidateLocked();
+
+    ///  Activates a new context while `mutex_` is held.
+    Transition ActivateLocked();
+
+    ///  Produces fresh play-context identifiers.
+    PlayContextLifecycleIdGenerator generateId_;
+
+    ///  Creates the state container for a new play context.
+    PlayContextFactory createContext_;
+
+    ///  Synchronizes every lifecycle and context-state operation.
+    mutable std::mutex mutex_;
+
+    ///  Current lifecycle state.
+    LifecycleState state_ = LifecycleState::kNoContext;
+
+    ///  Identifier of the active play context, when one is present.
+    std::optional<std::string> currentPlayContextId_;
+
+    ///  Authoritative state for the current play context, when one is present.
+    std::shared_ptr<PlayContext> current_;
+};
+
+} //  namespace dovahlink::application
