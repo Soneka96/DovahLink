@@ -92,7 +92,8 @@ public sealed class BridgeBuildCoordinator
         VisualStudioToolchain toolchain = VisualStudioToolchainLocator.Validate(toolchainProvider());
         PapyrusToolchain papyrusToolchain = PapyrusToolchainLocator.Validate(papyrusToolchainProvider());
 
-        onOutput?.Invoke("Building the DovahLink bridge Release target...");
+        onOutput?.Invoke(
+            $"Building the DovahLink bridge Release binary for the {request.Channel} package...");
         var environmentLines = new List<string>();
         int environmentExitCode = await commandRunner.RunAsync(
             BuildCommand.CreateEnvironmentImport(toolchain),

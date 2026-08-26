@@ -23,7 +23,7 @@ public sealed class BuildTests
             configure =>
             {
                 Assert.Equal("cmake", configure.ExecutablePath);
-                Assert.Equal(["--preset", "windows-x64-release"], configure.Arguments);
+                Assert.Equal(["--fresh", "--preset", "windows-x64-release"], configure.Arguments);
                 Assert.Equal(Path.GetFullPath(@"C:\repository & workspace\bridge"), configure.WorkingDirectory);
                 Assert.Same(environment, configure.EnvironmentVariables);
             },
@@ -278,7 +278,7 @@ public sealed class BuildTests
         Assert.Equal(4, runner.Commands.Count);
         Assert.EndsWith("cmd.exe", runner.Commands[0].ExecutablePath, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("cmake", runner.Commands[1].ExecutablePath);
-        Assert.Equal(["--preset", "windows-x64-release"], runner.Commands[1].Arguments);
+        Assert.Equal(["--fresh", "--preset", "windows-x64-release"], runner.Commands[1].Arguments);
         Assert.Equal("cmake", runner.Commands[2].ExecutablePath);
         Assert.Equal(
             ["--build", "--preset", "windows-x64-release", "--target", "dovahlink_bridge_plugin"],
@@ -507,9 +507,13 @@ public sealed class BuildTests
         Assert.False(Directory.Exists(Path.Combine(temporaryDirectory.Path, "tooling", "out")));
     }
 
-    /// <summary>Reports build progress through the output callback.</summary>
-    [Fact]
-    public async Task ReportsBuildProgressThroughTheOutputCallback()
+    /// <summary>Reports the Release binary configuration and package channel through the output callback.</summary>
+    [Theory]
+    [InlineData(PackageChannel.Beta, "Beta")]
+    [InlineData(PackageChannel.Release, "Release")]
+    public async Task ReportsBuildProgressThroughTheOutputCallback(
+        PackageChannel channel,
+        string channelLabel)
     {
         using var temporaryDirectory = new TemporaryDirectory();
         CreateBuildInputs(temporaryDirectory.Path, includeAllArtifacts: true);
@@ -519,11 +523,14 @@ public sealed class BuildTests
             () => CreateToolchain(temporaryDirectory.Path),
             () => CreatePapyrusToolchain(temporaryDirectory.Path));
 
-        await coordinator.BuildAsync(
-            new BridgeBuildRequest(temporaryDirectory.Path, PackageChannel.Release),
+        BridgeBuildResult result = await coordinator.BuildAsync(
+            new BridgeBuildRequest(temporaryDirectory.Path, channel),
             output.Add);
 
-        Assert.Contains("Building the DovahLink bridge Release target...", output);
+        Assert.Equal(channel, result.Plan.Channel);
+        Assert.Contains(
+            $"Building the DovahLink bridge Release binary for the {channelLabel} package...",
+            output);
         Assert.Contains("Compiling the DovahLink admin console script...", output);
         Assert.Contains("fake build output", output);
         Assert.Contains(output, line => line.StartsWith("Created ", StringComparison.Ordinal));

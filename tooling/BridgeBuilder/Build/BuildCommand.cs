@@ -30,7 +30,7 @@ public sealed record BuildCommand(
             new Dictionary<string, string>());
     }
 
-    /// <summary>Creates the direct CMake configure and build commands for the Release bridge target.</summary>
+    /// <summary>Creates a fresh CMake configure and build command sequence for the Release bridge target.</summary>
     /// <param name="bridgeRoot">The bridge source directory containing the CMake presets.</param>
     /// <param name="environmentVariables">The imported Visual Studio environment, including vcpkg configuration.</param>
     /// <returns>The ordered configure and build commands.</returns>
@@ -43,7 +43,7 @@ public sealed record BuildCommand(
         [
             new BuildCommand(
                 "cmake",
-                ["--preset", "windows-x64-release"],
+                ["--fresh", "--preset", "windows-x64-release"],
                 workingDirectory,
                 environmentVariables),
             new BuildCommand(
