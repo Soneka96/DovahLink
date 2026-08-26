@@ -11,6 +11,7 @@
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -29,7 +30,6 @@
 #include <thread>
 #include <vector>
 
-using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ConnectionId;
 using dovahlink::application::ContainedWork;
@@ -52,8 +52,26 @@ using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::transport::ConnectionSlot;
 using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
+using testing::StrictMock;
 
 namespace {
+
+///  GoogleMock active-play-context contract double for worker-thread tests.
+class MockActivePlayContext : public dovahlink::application::IActivePlayContext {
+  public:
+    ///  Allows repeated worker-thread context reads while rejecting mutations.
+    MockActivePlayContext() {
+        EXPECT_CALL(*this, AcquireCurrent())
+            .Times(testing::AnyNumber())
+            .WillRepeatedly(testing::Return(nullptr));
+    }
+
+    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>,
+                AcquireCurrent, (), (const, override));
+    MOCK_METHOD(void, Reset, (), (override));
+    MOCK_METHOD(std::shared_ptr<dovahlink::application::PlayContext>, Begin,
+                (std::string), (override));
+};
 
 ///  Builds the valid client hello used by real worker-pool sessions.
 std::string ValidHello() {
@@ -145,7 +163,7 @@ struct Fixture {
     ///  Records pairing codes displayed to the user; unused by these tests.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
-    ActivePlayContext activePlayContext;
+    StrictMock<MockActivePlayContext> activePlayContext;
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4,
                           listenerV6,
