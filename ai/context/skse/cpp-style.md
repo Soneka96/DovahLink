@@ -15,6 +15,10 @@
 - Every behavior-bearing C++ class or equivalent type has an explicit narrow interface or
   pure-virtual contract, even when it currently has one implementation. Consumers depend on that
   interface rather than the concrete type.
+- A C++ behavior-bearing implementation implements exactly one DovahLink-owned interface, named
+  `I<ClassName>`, and that interface is declared in the same owning header as the concrete class.
+  DovahLink-owned interfaces never inherit from one another. A required CommonLib/Skyrim framework
+  base is the only inheritance exception.
 - Every collaborator is supplied through the constructor. Do not construct or resolve a
   behavior-bearing collaborator inside another class.
 - DTOs, protocol/value types, enums, pure functions, and other data-only types are not wrapped in
@@ -22,7 +26,9 @@
 
 ## Files and types
 
-- Keep one primary class or component per file unless the types are inseparable declarations and definitions.
+- Keep one primary class or component per file. A DovahLink interface and its one concrete
+  implementation are the single paired declaration exception; unrelated structs, result types, and
+  values remain in their own files.
 - Per `ai/context/common.md`'s file-organization rule, a small result/outcome value type is not
   automatically "inseparable" merely because it is currently returned by only one method: it still
   gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is

@@ -32,7 +32,7 @@ void RunConnectionSession(transport::WebSocketSession& ws,
                           security::FailedTokenThrottle& credentialThrottle,
                           SessionManager& sessionManager,
                           ConnectionId connection,
-                          const ActivePlayContext& activePlayContext,
+                          const IActivePlayContextReader& activePlayContext,
                           security::PairingSession& pairingSession,
                           ITrustMutationCoordinator& mutationCoordinator,
                           PairingNotificationSink& pairingNotificationSink,
@@ -75,7 +75,7 @@ void RunConnectionSession(transport::WebSocketSession& ws,
     auto handshake = HandleHello(
         *helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
-        activePlayContext, bridgeVersion);
+        &activePlayContext, bridgeVersion);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
@@ -105,10 +105,8 @@ void RunConnectionSession(transport::WebSocketSession& ws,
 
     auto capabilities = BuildBridgeCapabilities(sessionId);
     if (capabilities.has_value()) {
-        auto context = activePlayContext.AcquireCurrent();
         capabilities->bridgeInstanceId = bridgeInstanceId;
-        capabilities->playContextId =
-            context ? std::optional<std::string>(context->id) : std::nullopt;
+        capabilities->playContextId = activePlayContext.CurrentPlayContextId();
         SendIfPossible(ws, *capabilities);
     }
     //  If BuildBridgeCapabilities itself failed (the same unreachable-in-

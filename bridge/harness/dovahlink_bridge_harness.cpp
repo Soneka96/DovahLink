@@ -6,13 +6,14 @@
 //  block <clientId>, unblock <clientId>, trust_reset <clientId>,
 //  factory_reset, and quit commands on standard input.
 
+#include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/coordinator.hpp"
-#include "application/game_lifecycle_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
+#include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
 #include "security/pairing_session.hpp"
@@ -90,19 +91,15 @@ class StdoutPairingNotificationSink
     }
 };
 
-///  Processes one lifecycle event through the tracker and applies its
-///  resulting transition to the active play context, mirroring
+///  Processes one lifecycle event through the play-context lifecycle aggregate,
+///  mirroring
 ///  game_state/commonlib_game_lifecycle_sink.cpp's per-signal handling without
 ///  any SKSE dependency.
 ///  @return The transition produced by this event.
-dovahlink::application::GameLifecycleTracker::Transition ProcessLifecycleEvent(
-    dovahlink::application::GameLifecycleTracker& tracker,
-    dovahlink::application::ActivePlayContext& activePlayContext,
+dovahlink::application::PlayContextTransition ProcessLifecycleEvent(
+    dovahlink::application::IPlayContextLifecycle& playContextLifecycle,
     dovahlink::application::LifecycleEvent event) {
-    auto transition = tracker.HandleEvent(event);
-    dovahlink::application::ApplyLifecycleTransition(activePlayContext,
-                                                     transition);
-    return transition;
+    return playContextLifecycle.HandleEvent(event);
 }
 
 ///  Reads a positive harness-only token lifetime override from the environment.
@@ -252,20 +249,21 @@ int main() {
 
     dovahlink::application::SessionManager sessionManager;
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
-    dovahlink::application::GameLifecycleTracker lifecycleTracker(
+    dovahlink::application::PlayContextLifecycle playContextLifecycle(
         [playContextIdOverride]() -> std::optional<std::string> {
             if (playContextIdOverride.has_value()) {
                 return playContextIdOverride;
             }
             return dovahlink::security::GenerateOpaqueId();
         });
-    dovahlink::application::ActivePlayContext activePlayContext;
+    dovahlink::application::ActivePlayContextReader activePlayContextReader(
+        playContextLifecycle);
     //  Routes "increase_level" captures below into whichever play context is
     //  active, the same seam dovahlink_bridge_plugin.cpp's real
     //  LevelIncreaseHandler uses; a capture with no active context is dropped,
     //  matching real play (main menu, before any load).
     dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContext);
+        playContextLifecycle);
 
     //  Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     //  generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
@@ -282,7 +280,7 @@ int main() {
         trustStore, pairingSession, sessionManager);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContext,
+        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
         pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
     dovahlink::application::Coordinator coordinator(
@@ -304,7 +302,7 @@ int main() {
             std::cout << "LEVEL " << level << std::endl;
         } else if (line == "new_game") {
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kNewGame);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
@@ -313,12 +311,12 @@ int main() {
             //  save is selected (kPreLoadGame, invalidating any current
             //  context) before it finishes loading (kPostLoadGameSuccess,
             //  minting the new one). Only the final transition's ID is
-            //  reported; both are applied to activePlayContext.
+            //  reported; both are applied to playContextLifecycle.
             ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kPreLoadGame);
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kPostLoadGameSuccess);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
@@ -328,16 +326,16 @@ int main() {
             //  kPostLoadGameFailure settles into kNoContext without minting a
             //  replacement.
             ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kPreLoadGame);
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kPostLoadGameFailure);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
         } else if (line == "revert") {
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                playContextLifecycle,
                 dovahlink::application::LifecycleEvent::kRevert);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;

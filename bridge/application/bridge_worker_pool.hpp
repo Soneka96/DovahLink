@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/active_play_context_reader.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
@@ -44,9 +45,8 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  @param credentialThrottle Failed device-credential attempt throttle shared
     ///  by connections.
     ///  @param sessionManager Session ownership manager.
-    ///  @param activePlayContext Source of the acquired play context each
-    ///  connection's state and
-    ///      revisions belong to.
+    ///  @param activePlayContext Source of the current play-context identity for
+    ///      connection responses.
     ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
     ///  state machine
     ///      shared by connections.
@@ -66,7 +66,7 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
                      security::TrustStore& trustStore,
                      security::FailedTokenThrottle& credentialThrottle,
                      SessionManager& sessionManager,
-                     const ActivePlayContext& activePlayContext,
+                     const IActivePlayContextReader& activePlayContext,
                      security::PairingSession& pairingSession,
                      ITrustMutationCoordinator& mutationCoordinator,
                      PairingNotificationSink& pairingNotificationSink,
@@ -186,9 +186,8 @@ class BridgeWorkerPool : public WorkerPool, public ActiveSessionDisconnector {
     ///  Session manager shared by accepted connections.
     SessionManager& sessionManager_;
 
-    ///  Source of the acquired play context each connection's state and revisions
-    ///  belong to.
-    const ActivePlayContext& activePlayContext_;
+    ///  Source of the current play-context identity for connection responses.
+    const IActivePlayContextReader& activePlayContext_;
 
     ///  Shared pairing challenge/pending-credential state machine.
     security::PairingSession& pairingSession_;

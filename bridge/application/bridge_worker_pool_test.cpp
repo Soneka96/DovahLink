@@ -1,3 +1,4 @@
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_worker_pool.hpp"
 
 #include "application/application_test_support.hpp"
@@ -28,7 +29,6 @@
 #include <thread>
 #include <vector>
 
-using dovahlink::application::ActivePlayContext;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ConnectionId;
 using dovahlink::application::ContainedWork;
@@ -39,6 +39,7 @@ using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::TrustMutationCoordinator;
+using dovahlink::application::test_support::EmptyActivePlayContext;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::EncodeHex;
 using dovahlink::security::FailedTokenThrottle;
@@ -144,7 +145,7 @@ struct Fixture {
     ///  Records pairing codes displayed to the user; unused by these tests.
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  Source of the acquired play context; empty (kNoContext) for these tests.
-    ActivePlayContext activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4,
                           listenerV6,

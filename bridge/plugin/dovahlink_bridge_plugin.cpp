@@ -4,25 +4,26 @@
 
 #include "SKSE/SKSE.h"
 
+#include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_reader.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_behavior_config.hpp"
-#include "application/game_lifecycle_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
+#include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
-#include "game_state/commonlib_level_accessor.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/commonlib_pairing_notification_sink.hpp"
 #include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
+#include "game_state/player_level_accessor.hpp"
 #include "game_state/runtime_guard.hpp"
 #include "security/csprng.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -286,20 +287,23 @@ SKSEPluginInfo(
     static dovahlink::application::SessionManager sessionManager;
 
     //  The authoritative, play-context-owned identity and state per
-    //  ARCHITECTURE.md's runtime/identity model. `activePlayContext` is
-    //  lifecycle-driven -- GameLifecycleTracker transitions create and
-    //  invalidate its play contexts -- and is the sole state message_dispatcher
-    //  and subscription_handler read from. Declared before
-    //  `levelIncreaseHandler` below, which routes its captures into whichever
-    //  context is active through `ActivePlayContextLevelSink`.
-    static dovahlink::application::GameLifecycleTracker lifecycleTracker;
-    static dovahlink::application::ActivePlayContext activePlayContext;
+    //  ARCHITECTURE.md's runtime/identity model. `playContextLifecycle` owns
+    //  lifecycle state and context publication atomically, while
+    //  `activePlayContextReader` is the read-only capability passed to
+    //  connection-facing consumers. Declared
+    //  before `levelIncreaseHandler` below, which routes its captures into
+    //  whichever context is active through `ActivePlayContextLevelSink`.
+    static dovahlink::application::PlayContextLifecycle playContextLifecycle;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
-        lifecycleTracker, activePlayContext);
+        playContextLifecycle);
+    static dovahlink::game_state::ICommonLibGameLifecycleSink&
+        lifecycleSinkContract = lifecycleSink;
+    static dovahlink::application::ActivePlayContextReader
+        activePlayContextReader(playContextLifecycle);
 
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        activePlayContext);
-    static dovahlink::game_state::CommonLibLevelAccessor levelAccessor;
+        playContextLifecycle);
+    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
     static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
         levelAccessor, levelSink);
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
@@ -312,7 +316,7 @@ SKSEPluginInfo(
         trustMutationCoordinator(trustStore, pairingSession, sessionManager);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContext,
+        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
         pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
 
@@ -358,9 +362,10 @@ SKSEPluginInfo(
     //  registering their own. dovahlink_bridge_plugin_registration_test.cpp
     //  enforces this structurally (see ai/context/skse/testing.md); it fails
     //  if a second RegisterListener call is ever added to this file.
-    lifecycleSink.Register([](dovahlink::application::ContainedWork work) {
-        return coordinator.RunCallbackContained(std::move(work));
-    });
+    lifecycleSinkContract.Register(
+        [](dovahlink::application::ContainedWork work) {
+            return coordinator.RunCallbackContained(std::move(work));
+        });
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
         if (message->type == SKSE::MessagingInterface::kDataLoaded) {
             (void)coordinator.RunCallbackContained([] {
@@ -372,7 +377,7 @@ SKSEPluginInfo(
             });
             return;
         }
-        lifecycleSink.OnMessage(*message);
+        lifecycleSinkContract.OnMessage(*message);
     });
 
     auto* serialization = static_cast<SKSE::SerializationInterface*>(
@@ -382,7 +387,9 @@ SKSEPluginInfo(
                          "play-context revert events will not be logged.");
     } else {
         serialization->SetRevertCallback(
-            [](SKSE::SerializationInterface*) { lifecycleSink.OnRevert(); });
+            [](SKSE::SerializationInterface*) {
+                lifecycleSinkContract.OnRevert();
+            });
     }
 
     return true;

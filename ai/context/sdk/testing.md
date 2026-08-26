@@ -55,10 +55,10 @@ consume them rather than redefining equivalent examples.
 
 ## Transport fidelity
 
-Use a fake transport for state-machine, compatibility, session, and recovery tests; a real local
-connection check is required only when transport framing or platform networking changes, mirroring
-`ai/context/integration/testing.md`'s end-to-end boundary. Do not depend on a running Skyrim process
-for behavior that can be proven deterministically without Skyrim.
+Use a controllable, thread-safe fake transport for state-machine, compatibility, session, and
+recovery tests; a real local connection check is required only when transport framing or platform
+networking changes, mirroring `ai/context/integration/testing.md`'s end-to-end boundary. Do not
+depend on a running Skyrim process for behavior that can be proven deterministically without Skyrim.
 
 ## The independent validator stays independent
 
@@ -69,9 +69,15 @@ an assumption accidentally shared only by the official Dart implementation.
 
 ## Service test boundaries
 
-Every constructor dependency of the class under test is mocked (`mocktail`'s `class MockX extends
-Mock implements X {}`), with no exceptions for plain, no-interface, or zero-dependency
-collaborators. This applies uniformly to every class this package tests, not only the seven
+Contract migrations and consumer-test migrations land together. Consumer tests remain black-box
+tests of the consumer's reaction; the dependency's own test file owns its internal behavior. The
+real object graph is reserved for the explicit composition-root integration test.
+
+Every constructor dependency of the class under test is covered by a contract double. Use a
+mocktail mock (`class MockX extends Mock implements X {}`) for synchronous, stateless
+interaction-only dependencies; use a controllable thread-safe fake when timing, lifetime,
+cross-thread access, synchronization, or mutable state is part of the behavior under test. This
+applies uniformly to every class this package tests, not only the seven
 Services: `SessionServiceImpl`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
 `ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
 `PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks

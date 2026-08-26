@@ -28,7 +28,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Catch2 3.0 CONFIG REQUIRED)
-find_package(FakeIt CONFIG REQUIRED)
+find_package(GTest CONFIG REQUIRED)
 find_package(boost_asio CONFIG REQUIRED)
 find_package(boost_beast CONFIG REQUIRED)
 find_package(boost_json CONFIG REQUIRED)
@@ -45,11 +45,12 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
     application/game_behavior_config.cpp
-    application/game_lifecycle_tracker.cpp
+    application/play_context_lifecycle.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
     application/pairing_handler.cpp
-    application/play_context.cpp
+    application/active_play_context_reader.cpp
+    application/active_play_context_level_sink.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
     application/session.cpp
@@ -104,15 +105,15 @@ target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boos
 
 # CommonLib-dependent game-state adapters. Kept in a separate target from
 # dovahlink_bridge_core so dovahlink_bridge_tests never needs to link
-# CommonLibSSE-NG: nothing here is unit-tested (there is no Skyrim process
-# to run against), only the Skyrim-independent conversion logic each
-# adapter's header exposes is (see e.g. game_state/level_adapter.hpp). This
-# target is linked into the real SKSE plugin binary, added in a later step.
+# CommonLibSSE-NG: runtime-specific adapters are covered through their
+# Skyrim-independent conversion seams or structural checks (see e.g.
+# game_state/level_adapter.hpp). This target is linked into the real SKSE plugin
+# binary.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_game_behavior_compatibility.cpp
     game_state/commonlib_game_lifecycle_sink.cpp
-    game_state/commonlib_level_accessor.cpp
+    game_state/player_level_accessor.cpp
     game_state/commonlib_level_increase_sink.cpp
     game_state/commonlib_pairing_notification_sink.cpp
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
@@ -159,9 +160,11 @@ add_executable(dovahlink_bridge_tests
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
     application/game_behavior_config_test.cpp
-    application/game_lifecycle_tracker_test.cpp
+    application/play_context_lifecycle_test.cpp
+    application/play_context_transition_test.cpp
     application/handshake_handler_test.cpp
-    application/level_event_sink_test.cpp
+    application/active_play_context_reader_test.cpp
+    application/active_play_context_level_sink_test.cpp
     application/message_dispatcher_test.cpp
     application/pairing_handler_test.cpp
     application/pairing_notification_sink_test.cpp
@@ -179,6 +182,7 @@ add_executable(dovahlink_bridge_tests
     application/mock_framework_pilot_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
+    game_state/commonlib_game_lifecycle_sink_test.cpp
     game_state/runtime_guard_test.cpp
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
@@ -225,12 +229,14 @@ add_executable(dovahlink_bridge_tests
 target_link_libraries(dovahlink_bridge_tests PRIVATE
     dovahlink_bridge_core
     Catch2::Catch2WithMain
-    FakeIt::FakeIt-catch
+    GTest::gmock
 )
 target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
     DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
+    DOVAHLINK_LIFECYCLE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.hpp"
+    DOVAHLINK_LIFECYCLE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
 )
 

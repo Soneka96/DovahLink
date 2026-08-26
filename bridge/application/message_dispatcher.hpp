@@ -1,8 +1,8 @@
 #pragma once
 
+#include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
 #include "application/replay_guard.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
@@ -47,9 +47,8 @@ struct DispatchResult {
 ///  @param violations Per-connection protocol-violation tracker.
 ///  @param rateLimiter Per-connection inbound rate limiter.
 ///  @param timeoutTracker Connection timeout tracker.
-///  @param activePlayContext Source of the acquired play context, stamped onto
-///  every response as
-///      `playContextId`.
+///  @param activePlayContext Source of the current play-context identity, stamped
+///      onto every response as `playContextId`.
 ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
 ///  state machine, for
 ///      the three pairing message types.
@@ -75,7 +74,7 @@ struct DispatchResult {
     security::ViolationTracker& violations,
     security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
-    const ActivePlayContext& activePlayContext,
+    const IActivePlayContextReader& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

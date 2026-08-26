@@ -5,7 +5,7 @@
 namespace dovahlink::game_state {
 
 CommonLibLevelIncreaseSink::CommonLibLevelIncreaseSink(
-    LevelIncreaseHandler& handler)
+    ILevelIncreaseHandler& handler)
     : handler_(handler) {}
 
 CommonLibLevelIncreaseSink::~CommonLibLevelIncreaseSink() noexcept {

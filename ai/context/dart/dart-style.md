@@ -31,9 +31,11 @@ area; only genuinely language-wide conventions live here.
 ## File organization
 
 One primary public class, mixin, or extension type per file, per `ai/context/common.md`'s shared
-file-organization rule. Its two exceptions apply per Dart package (the Flutter app and the SDK each
-get their own; never one file shared across a package boundary), at each package's own established
-location:
+file-organization rule. An abstract contract and its one concrete implementation are the paired
+declaration exception: they share the implementation's owning file and no unrelated public type
+may be placed there. Its two package-local grouping exceptions apply per Dart package (the Flutter
+app and the SDK each get their own; never one file shared across a package boundary), at each
+package's own established location:
 
 - Every enum in the package belongs in that package's `enums.dart`: `lib/shared/constants/enums.dart`
   for the Flutter app, `lib/src/shared/enums.dart` for the SDK.
@@ -98,6 +100,11 @@ Follow the shared documentation rules in `ai/context/common.md`.
   implementation comments remain inside the method beside the decision they explain.
 
 ## Test organization
+
+- A consumer test treats every behavior-bearing dependency as a black box and uses its contract
+  double. The dependency's own test file owns its internal behavior; real composed objects belong
+  only in a small explicit composition-root test. When a consumer's contract changes, update its
+  isolated test in the same implementation step.
 
 - Group tests by the one callable entry point or one clearly defined behavior under test, never by
   the containing class. A method group is named `Method <methodName> behaves correctly` and does

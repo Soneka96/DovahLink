@@ -1,7 +1,7 @@
 #pragma once
 
+#include "application/active_play_context_reader.hpp"
 #include "application/pairing_notification_sink.hpp"
-#include "application/play_context.hpp"
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
@@ -36,8 +36,8 @@ using SteadyNowProvider =
 ///  throttle.
 ///  @param sessionManager Session registry for the connection.
 ///  @param connection Transport connection identifier.
-///  @param activePlayContext Source of the acquired play context this
-///  connection's state belongs to.
+///  @param activePlayContext Source of the current play-context identity this
+///  connection reports.
 ///  @param pairingSession Plugin-lifetime pairing challenge/pending-credential
 ///  state machine.
 ///  @param mutationCoordinator Serializes pairing finalization and administrative
@@ -58,7 +58,7 @@ void RunConnectionSession(
     security::TrustStore& trustStore,
     security::FailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, ConnectionId connection,
-    const ActivePlayContext& activePlayContext,
+    const IActivePlayContextReader& activePlayContext,
     security::PairingSession& pairingSession,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,

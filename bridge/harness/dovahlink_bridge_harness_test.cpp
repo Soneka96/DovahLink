@@ -326,7 +326,8 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket "
     std::uint16_t port = ReadHarnessPort(harness);
 
     harness.WriteLine("new_game");
-    CHECK_FALSE(ReadPlayContext(harness) == "(none)");
+    std::string playContextId = ReadPlayContext(harness);
+    CHECK_FALSE(playContextId == "(none)");
 
     boost::asio::io_context ioc;
     boost::asio::ip::tcp::socket clientSocket(ioc);
@@ -367,10 +368,14 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket "
     auto helloAck = ClientReadEnvelope(clientWs);
     REQUIRE(helloAck.messageType == "hello_ack");
     REQUIRE(helloAck.sessionId.has_value());
+    REQUIRE(helloAck.playContextId.has_value());
+    CHECK(*helloAck.playContextId == playContextId);
     std::string sessionId = *helloAck.sessionId;
 
     auto capabilities = ClientReadEnvelope(clientWs);
     CHECK(capabilities.messageType == "capabilities");
+    REQUIRE(capabilities.playContextId.has_value());
+    CHECK(*capabilities.playContextId == playContextId);
 
     //  No state area is currently registered (protocol/schema/README.md's
     //  "Registered state areas"), so subscribe rejects the requested area and no
@@ -644,7 +649,7 @@ TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands "
     (void)ReadBridgeInstanceId(harness);
     (void)ReadHarnessPort(harness);
 
-    //  No context before any load, matching GameLifecycleTracker's fresh
+    //  No context before any load, matching PlayContextLifecycle's fresh
     //  kNoContext state; revert is idempotent there.
     harness.WriteLine("revert");
     CHECK(ReadPlayContext(harness) == "(none)");
@@ -655,7 +660,7 @@ TEST_CASE("dovahlink_bridge_harness's new_game, load_game, and revert commands "
     CHECK(newGameContext != "(none)");
 
     //  A second new_game with no intervening revert still invalidates the
-    //  first context and mints a distinct one (GameLifecycleTracker's own
+    //  first context and mints a distinct one (PlayContextLifecycle's own
     //  "invalidate-if-active" rule for kNewGame).
     harness.WriteLine("new_game");
     std::string secondNewGameContext = ReadPlayContext(harness);

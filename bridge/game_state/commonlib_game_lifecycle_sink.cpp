@@ -18,9 +18,8 @@ std::string ThreadIdString() {
 } //  namespace
 
 CommonLibGameLifecycleSink::CommonLibGameLifecycleSink(
-    application::GameLifecycleTracker& tracker,
-    application::ActivePlayContext& activePlayContext)
-    : tracker_(tracker), activePlayContext_(activePlayContext) {}
+    application::IPlayContextLifecycle& playContextLifecycle)
+    : playContextLifecycle_(playContextLifecycle) {}
 
 void CommonLibGameLifecycleSink::Register(
     application::ContainedWorkRunner callbackRunner) {
@@ -64,12 +63,11 @@ void CommonLibGameLifecycleSink::OnMessage(
             return;
         }
 
-        if (callbackRunner_) {
-            (void)callbackRunner_(
-                [this, event, description = std::move(rawDescription)] {
-                    HandleEvent(event, description);
-                });
-        }
+        (void)application::RunContainedLifecycleWork(
+            callbackRunner_,
+            [this, event, description = std::move(rawDescription)] {
+                HandleEvent(event, description);
+            });
     } catch (...) {
         //  Swallowed at the SKSE callback boundary; there is no safe way to
         //  propagate this to SKSE, and lifecycle logging is diagnostic-only.
@@ -78,11 +76,10 @@ void CommonLibGameLifecycleSink::OnMessage(
 
 void CommonLibGameLifecycleSink::OnRevert() {
     try {
-        if (callbackRunner_) {
-            (void)callbackRunner_([this] {
+        (void)application::RunContainedLifecycleWork(
+            callbackRunner_, [this] {
                 HandleEvent(application::LifecycleEvent::kRevert, "Revert");
             });
-        }
     } catch (...) {
         //  Same SKSE-callback-boundary containment as OnMessage above.
     }
@@ -95,9 +92,8 @@ void CommonLibGameLifecycleSink::HandleEvent(application::LifecycleEvent event,
     SKSE::log::info("[lifecycle #{} thread {}] raw={}", sequence, thread,
                     rawDescription);
 
-    application::GameLifecycleTracker::Transition transition =
-        tracker_.HandleEvent(event);
-    application::ApplyLifecycleTransition(activePlayContext_, transition);
+    application::PlayContextTransition transition =
+        playContextLifecycle_.HandleEvent(event);
 
     SKSE::log::info(
         "[lifecycle #{} thread {}] invalidated={} newPlayContextId={}", sequence,

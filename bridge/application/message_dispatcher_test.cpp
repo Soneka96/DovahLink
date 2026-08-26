@@ -1,3 +1,4 @@
+#include "application/active_play_context_reader.hpp"
 #include "application/message_dispatcher.hpp"
 
 #include "application/application_test_support.hpp"
@@ -8,6 +9,7 @@
 #include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/json/parse.hpp>
 
@@ -19,9 +21,9 @@
 #include <utility>
 #include <vector>
 
-using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
+using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
@@ -36,6 +38,8 @@ using dovahlink::application::test_support::BuildPairingConfirmEnvelope;
 using dovahlink::application::test_support::BuildPairingRenotifyEnvelope;
 using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::application::test_support::BuildRenameRequestEnvelope;
+using dovahlink::application::test_support::EmptyActivePlayContext;
+using dovahlink::application::test_support::MockActivePlayContext;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ITrustStorePersistence;
@@ -43,6 +47,7 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
 using dovahlink::security::ViolationTracker;
+using testing::StrictMock;
 
 namespace {
 
@@ -113,7 +118,7 @@ struct Fixture {
     ConnectionTimeoutTracker timeout{SteadyClock::now()};
     ///  Source of the acquired play context; empty (kNoContext) until a test
     ///  begins one.
-    ActivePlayContext activePlayContext;
+    EmptyActivePlayContext activePlayContext;
     ///  Backing store for `trustStore`, empty at fixture construction.
     EmptyPersistence persistence;
     ///  Persistent trust store, for pairing_ack's idempotent-retry check and
@@ -152,6 +157,18 @@ struct Fixture {
         return ProcessInboundMessage(
             rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
             replayGuard, violations, rateLimiter, timeout, activePlayContext,
+            pairingSession, trustStore, mutationCoordinator,
+            pairingNotificationSink, bridgeInstanceId, steadyNow);
+    }
+
+    ///  Processes one raw message through a supplied active-context contract.
+    DispatchResult ProcessWithContext(
+        const IActivePlayContextReader& activeContext,
+        const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessInboundMessage(
+            rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
+            replayGuard, violations, rateLimiter, timeout, activeContext,
             pairingSession, trustStore, mutationCoordinator,
             pairingNotificationSink, bridgeInstanceId, steadyNow);
     }
@@ -282,9 +299,11 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{"context-1"}));
 
-    auto result = fixture.Process(PingMessage());
+    auto result = fixture.ProcessWithContext(activeContext, PingMessage());
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -302,8 +321,11 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto a pong when "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{}));
 
-    auto result = fixture.Process(PingMessage());
+    auto result = fixture.ProcessWithContext(activeContext, PingMessage());
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -324,9 +346,12 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId "
     //  error-stale-session.json, which all carry a real bridgeInstanceId.
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{"context-1"}));
 
-    auto result = fixture.Process("not json at all {{{");
+    auto result = fixture.ProcessWithContext(activeContext,
+                                             "not json at all {{{");
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -342,8 +367,12 @@ TEST_CASE("ProcessInboundMessage stamps a null playContextId onto an early "
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .WillOnce(testing::Return(std::optional<std::string>{}));
 
-    auto result = fixture.Process("not json at all {{{");
+    auto result = fixture.ProcessWithContext(activeContext,
+                                             "not json at all {{{");
 
     REQUIRE(result.responses.size() == 1);
     REQUIRE(result.responses[0].bridgeInstanceId.has_value());
@@ -948,9 +977,14 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on "
           "pairing_cancel responses too, never clientId",
           "[application][message_dispatcher]") {
     Fixture fixture(SessionTrustTier::kRestricted, SessionAuthMethod::kUnpaired);
-    fixture.activePlayContext.Begin("context-1");
+    StrictMock<MockActivePlayContext> activeContext;
+    EXPECT_CALL(activeContext, CurrentPlayContextId())
+        .Times(2)
+        .WillRepeatedly(
+            testing::Return(std::optional<std::string>{"context-1"}));
 
-    auto renotify = fixture.Process(PairingRenotifyMessage());
+    auto renotify = fixture.ProcessWithContext(activeContext,
+                                               PairingRenotifyMessage());
     REQUIRE(renotify.responses.size() == 1);
     REQUIRE(renotify.responses[0].bridgeInstanceId.has_value());
     CHECK(*renotify.responses[0].bridgeInstanceId == "bridge-1");
@@ -958,7 +992,8 @@ TEST_CASE("ProcessInboundMessage stamps bridgeInstanceId and playContextId on "
     CHECK(*renotify.responses[0].playContextId == "context-1");
     CHECK_FALSE(renotify.responses[0].clientId.has_value());
 
-    auto cancel = fixture.Process(PairingCancelMessage());
+    auto cancel = fixture.ProcessWithContext(activeContext,
+                                             PairingCancelMessage());
     REQUIRE(cancel.responses.size() == 1);
     REQUIRE(cancel.responses[0].bridgeInstanceId.has_value());
     CHECK(*cancel.responses[0].bridgeInstanceId == "bridge-1");
@@ -975,7 +1010,6 @@ TEST_CASE("ProcessInboundMessage's capabilities handling is unaffected by "
     //  than left as an unstated assumption.
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    fixture.activePlayContext.Begin("context-1");
     std::string message =
         R"({"messageType": "capabilities", "messageId": "message-cap-1", "sessionId": ")" +
         std::string(kSessionId) +

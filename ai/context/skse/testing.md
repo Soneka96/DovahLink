@@ -3,17 +3,23 @@
 ## Test layers
 
 - Test game-state conversion with plain representative values; do not require a running Skyrim process.
-- Test application state transitions with fake game adapters and a fake transport.
+- Test application state transitions with fake game adapters and a controllable,
+  thread-safe fake transport.
 - Test protocol mapping against canonical fixtures shared with the client boundary.
 - Test transport behavior with a local deterministic test double before using real sockets.
 - Reserve manual in-game checks for runtime hooks, event timing, loading behavior, and compatibility that cannot be represented in unit tests.
 
-Use explicit seams for runtime-dependent code: a fake callback registry for registration and unregistration, a fake queue or controllable executor for handoff, and a fake transport for connection lifecycle. Lifecycle tests must not need Skyrim to prove ordering.
+Use explicit seams for runtime-dependent code: a fake callback registry for registration and
+unregistration, a controllable thread-safe fake queue or executor for handoff, and a controllable,
+thread-safe fake transport for connection lifecycle. Lifecycle tests must not need Skyrim to prove
+ordering.
 
 ## Service interaction tests
 
-- A service or orchestrator test uses mocks for its behavior-bearing dependencies and verifies the
-  service's own calls, arguments, failure handling, and contractually important ordering.
+- A service or orchestrator test uses strict mocks for synchronous, stateless interaction-only
+  dependencies and controllable thread-safe fakes when timing, lifetime, cross-thread access,
+  synchronization, or mutable state is part of the behavior under test. It verifies the service's
+  own calls, arguments, failure handling, and contractually important ordering.
 - A stateful domain test uses the real domain class and proves its state transitions, persistence,
   atomicity rules, and invariants. It may use a stateful fake for an external boundary when that
   fake provides meaningful deterministic behavior.
@@ -21,20 +27,24 @@ Use explicit seams for runtime-dependent code: a fake callback registry for regi
   mock the object or codec whose behavior the test is intended to prove.
 - Small composition or integration tests use real implementations to prove that the production
   graph is wired correctly; they do not duplicate every collaborator's unit tests.
+- When a consumer changes to depend on a new contract, update its isolated consumer test in the
+  same implementation step. Use strict mocks for synchronous consumers; use controllable,
+  thread-safe fakes for worker, callback, transport, and lifetime consumers. Keep real composition
+  tests separately when they prove production wiring.
 
-Use FakeIt as the first C++ mocking-framework candidate. It must pass a repository proof of concept
-through the real MSVC, C++23, Catch2, and vcpkg path, including const methods, reference,
-`std::string_view`, and `std::optional` arguments, interface inheritance, and worker/thread tests.
-If it cannot satisfy those requirements, use GoogleMock as the fallback. Do not retain multiple
-production mocking frameworks or build a project-specific mock generator.
+Use GoogleMock as the Bridge's single test-only mocking framework for mock-based contract tests. It
+is appropriate for synchronous, stateless interactions. A call originating on another thread may
+still use GoogleMock when cross-thread timing or synchronization is incidental and only the call
+contract is under test; use a controllable thread-safe fake when that timing, lifetime,
+synchronization, or mutable state is itself being controlled or asserted. Every custom action or
+captured test state remains the test author's responsibility to synchronize. Project-owned
+interface inheritance is prohibited and is not a framework capability to validate.
 
-The Bridge pilot selected FakeIt `2.5.0` through the pinned vcpkg baseline for synchronous
-interaction tests. The Catch2 configuration passed the supported MSVC/C++23 build, `const`
-methods, `std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
-unexpected-call diagnostics, and Catch2 failure reporting. FakeIt remains test-only: its mocks are
-not thread-safe and do not support multiple or virtual inheritance, so worker, callback, transport,
-and other concurrency/lifetime tests continue to use controllable stateful fakes. GoogleMock is a
-fallback to evaluate only if a later in-scope synchronous boundary cannot satisfy these constraints.
+The Bridge GoogleMock `1.18.0` configuration passed the supported MSVC/C++23 build, `const` methods,
+`std::optional` and `std::string_view` arguments, exact call counts, sequence verification,
+unexpected-call diagnostics, Catch2 failure reporting, and calls from the C1 session thread. This
+proves the framework integration, not that GoogleMock replaces a stateful fake where the behavior
+under test is timing, lifetime, synchronization, or mutable state.
 
 Unexpected interactions must be detectable by default. Verify ordering only when it is part of the
 service contract; do not impose global ordering on incidental calls. Keep framework syntax visible

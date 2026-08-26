@@ -1,10 +1,10 @@
-#include "game_state/commonlib_level_accessor.hpp"
+#include "game_state/player_level_accessor.hpp"
 
 #include "RE/Skyrim.h"
 
 namespace dovahlink::game_state {
 
-std::optional<std::int64_t> CommonLibLevelAccessor::ReadLevel() const {
+std::optional<std::int64_t> PlayerLevelAccessor::ReadLevel() const {
     auto* player = RE::PlayerCharacter::GetSingleton();
     if (!player) {
         return std::nullopt;

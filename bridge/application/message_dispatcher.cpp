@@ -163,7 +163,7 @@ DispatchResult ProcessInboundMessage(
     security::ViolationTracker& violations,
     security::InboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
-    const ActivePlayContext& activePlayContext,
+    const IActivePlayContextReader& activePlayContext,
     security::PairingSession& pairingSession, security::TrustStore& trustStore,
     ITrustMutationCoordinator& mutationCoordinator,
     PairingNotificationSink& pairingNotificationSink,
@@ -184,9 +184,8 @@ DispatchResult ProcessInboundMessage(
     //  identity a client compares its cached state against (protocol/schema/
     //  README.md: present on every Bridge-originated message once
     //  authenticated).
-    std::shared_ptr<PlayContext> context = activePlayContext.AcquireCurrent();
     std::optional<std::string> currentContextId =
-        context ? std::optional<std::string>(context->id) : std::nullopt;
+        activePlayContext.CurrentPlayContextId();
 
     auto parsed = protocol::ParseBoundedJson(rawMessage);
     if (!parsed.has_value()) {

@@ -9,6 +9,6 @@
     "boost-json",
     "catch2",
     "commonlibsse-ng-flatrim",
-    "fakeit"
+    "gtest"
   ]
 }
