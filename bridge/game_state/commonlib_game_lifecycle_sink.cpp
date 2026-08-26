@@ -63,12 +63,11 @@ void CommonLibGameLifecycleSink::OnMessage(
             return;
         }
 
-        if (callbackRunner_) {
-            (void)callbackRunner_(
-                [this, event, description = std::move(rawDescription)] {
-                    HandleEvent(event, description);
-                });
-        }
+        (void)application::RunContainedLifecycleWork(
+            callbackRunner_,
+            [this, event, description = std::move(rawDescription)] {
+                HandleEvent(event, description);
+            });
     } catch (...) {
         //  Swallowed at the SKSE callback boundary; there is no safe way to
         //  propagate this to SKSE, and lifecycle logging is diagnostic-only.
@@ -77,11 +76,10 @@ void CommonLibGameLifecycleSink::OnMessage(
 
 void CommonLibGameLifecycleSink::OnRevert() {
     try {
-        if (callbackRunner_) {
-            (void)callbackRunner_([this] {
+        (void)application::RunContainedLifecycleWork(
+            callbackRunner_, [this] {
                 HandleEvent(application::LifecycleEvent::kRevert, "Revert");
             });
-        }
     } catch (...) {
         //  Same SKSE-callback-boundary containment as OnMessage above.
     }

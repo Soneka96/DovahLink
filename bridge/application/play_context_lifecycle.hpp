@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/coordinator.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_transition.hpp"
 #include "shared/enums.hpp"
@@ -24,6 +25,12 @@ using PlayContextFactory =
 ///  Decodes SKSE's post-load success signal without fabricating success for a
 ///  null payload.
 [[nodiscard]] bool DecodePostLoadGameSuccess(const void* rawData);
+
+///  Submits one lifecycle callback through its containment boundary.
+///  Missing, rejecting, or throwing runners return `false` without allowing an
+///  exception to escape the runtime-facing caller.
+[[nodiscard]] bool RunContainedLifecycleWork(
+    const ContainedWorkRunner& callbackRunner, ContainedWork work) noexcept;
 
 ///  Owns the lifecycle state, identity, and authoritative state for one
 ///  currently loaded Skyrim play context.

@@ -11,6 +11,18 @@ bool DecodePostLoadGameSuccess(const void* rawData) {
     return rawData != nullptr;
 }
 
+bool RunContainedLifecycleWork(const ContainedWorkRunner& callbackRunner,
+                               ContainedWork work) noexcept {
+    if (!callbackRunner) {
+        return false;
+    }
+    try {
+        return callbackRunner(std::move(work));
+    } catch (...) {
+        return false;
+    }
+}
+
 PlayContextLifecycleIdGenerator PlayContextLifecycle::DefaultGenerator() {
     return &security::GenerateOpaqueId;
 }

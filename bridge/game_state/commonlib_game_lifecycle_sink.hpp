@@ -19,7 +19,25 @@ namespace dovahlink::game_state {
 ///  SKSE offers no listener-removal capability for the messaging or
 ///  serialization interfaces, so registration is a one-time operation for the
 ///  plugin's lifetime; there is no matching unregister.
-class CommonLibGameLifecycleSink {
+class ICommonLibGameLifecycleSink {
+  public:
+    ///  Allows destruction through the interface.
+    virtual ~ICommonLibGameLifecycleSink() = default;
+
+    ///  Binds the containment boundary used by every subsequent callback.
+    ///  @param callbackRunner Guarded containment boundary retained by the sink.
+    virtual void Register(application::ContainedWorkRunner callbackRunner) = 0;
+
+    ///  Handles one SKSE::MessagingInterface message.
+    ///  @param message Message delivered by SKSE's messaging interface.
+    virtual void OnMessage(const SKSE::MessagingInterface::Message& message) = 0;
+
+    ///  Handles SKSE's serialization revert callback.
+    virtual void OnRevert() = 0;
+};
+
+///  Translates raw SKSE lifecycle callbacks into application events.
+class CommonLibGameLifecycleSink final : public ICommonLibGameLifecycleSink {
   public:
     ///  Binds the sink to the application play-context lifecycle aggregate.
     ///  @param playContextLifecycle Atomic lifecycle and context boundary.
@@ -29,16 +47,17 @@ class CommonLibGameLifecycleSink {
     ///  Binds the containment boundary used by every subsequent callback.
     ///  Must be called once, before SKSE can deliver any callback.
     ///  @param callbackRunner Guarded containment boundary retained by the sink.
-    void Register(application::ContainedWorkRunner callbackRunner);
+    void Register(application::ContainedWorkRunner callbackRunner) override;
 
     ///  Handles one SKSE::MessagingInterface message. Recognizes
     ///  kPreLoadGame, kPostLoadGame, and kNewGame; every other message type
     ///  is ignored.
     ///  @param message Message delivered by SKSE's messaging interface.
-    void OnMessage(const SKSE::MessagingInterface::Message& message);
+    void OnMessage(
+        const SKSE::MessagingInterface::Message& message) override;
 
     ///  Handles SKSE's serialization revert callback.
-    void OnRevert();
+    void OnRevert() override;
 
   private:
     ///  Logs one decoded lifecycle event, forwards it to the lifecycle aggregate, and

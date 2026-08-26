@@ -19,11 +19,58 @@ using dovahlink::application::PlayContext;
 using dovahlink::application::PlayContextFactory;
 using dovahlink::application::PlayContextLifecycle;
 using dovahlink::application::PlayContextLifecycleIdGenerator;
+using dovahlink::application::RunContainedLifecycleWork;
 
 TEST_CASE("DecodePostLoadGameSuccess accepts only a non-null success payload",
           "[application][play_context_lifecycle]") {
     CHECK(DecodePostLoadGameSuccess(reinterpret_cast<const void*>(1)));
     CHECK_FALSE(DecodePostLoadGameSuccess(nullptr));
+}
+
+TEST_CASE("RunContainedLifecycleWork executes admitted work",
+          "[application][play_context_lifecycle]") {
+    bool executed = false;
+    dovahlink::application::ContainedWorkRunner runner =
+        [&executed](dovahlink::application::ContainedWork work) {
+            work();
+            return true;
+        };
+
+    CHECK(RunContainedLifecycleWork(runner, [&executed] { executed = true; }));
+    CHECK(executed);
+}
+
+TEST_CASE("RunContainedLifecycleWork rejects missing, rejecting, and throwing runners",
+          "[application][play_context_lifecycle]") {
+    bool executed = false;
+    auto work = [&executed] { executed = true; };
+
+    CHECK_FALSE(RunContainedLifecycleWork(
+        dovahlink::application::ContainedWorkRunner{}, work));
+
+    dovahlink::application::ContainedWorkRunner rejectingRunner =
+        [](dovahlink::application::ContainedWork) { return false; };
+    CHECK_FALSE(RunContainedLifecycleWork(rejectingRunner, work));
+
+    dovahlink::application::ContainedWorkRunner throwingRunner =
+        [](dovahlink::application::ContainedWork) -> bool {
+        throw std::runtime_error("runner failed");
+    };
+    CHECK_FALSE(RunContainedLifecycleWork(throwingRunner, work));
+    CHECK_FALSE(executed);
+}
+
+TEST_CASE("RunContainedLifecycleWork contains an exception from admitted work",
+          "[application][play_context_lifecycle]") {
+    dovahlink::application::ContainedWorkRunner runner =
+        [](dovahlink::application::ContainedWork work) {
+            work();
+            return true;
+        };
+
+    CHECK_FALSE(RunContainedLifecycleWork(runner, [] {
+        throw std::runtime_error("lifecycle work failed");
+    }));
 }
 
 TEST_CASE("PlayContextLifecycle starts without an active context",

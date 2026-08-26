@@ -296,6 +296,8 @@ SKSEPluginInfo(
     static dovahlink::application::PlayContextLifecycle playContextLifecycle;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
         playContextLifecycle);
+    static dovahlink::game_state::ICommonLibGameLifecycleSink&
+        lifecycleSinkContract = lifecycleSink;
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(playContextLifecycle);
 
@@ -360,9 +362,10 @@ SKSEPluginInfo(
     //  registering their own. dovahlink_bridge_plugin_registration_test.cpp
     //  enforces this structurally (see ai/context/skse/testing.md); it fails
     //  if a second RegisterListener call is ever added to this file.
-    lifecycleSink.Register([](dovahlink::application::ContainedWork work) {
-        return coordinator.RunCallbackContained(std::move(work));
-    });
+    lifecycleSinkContract.Register(
+        [](dovahlink::application::ContainedWork work) {
+            return coordinator.RunCallbackContained(std::move(work));
+        });
     messaging->RegisterListener([](SKSE::MessagingInterface::Message* message) {
         if (message->type == SKSE::MessagingInterface::kDataLoaded) {
             (void)coordinator.RunCallbackContained([] {
@@ -374,7 +377,7 @@ SKSEPluginInfo(
             });
             return;
         }
-        lifecycleSink.OnMessage(*message);
+        lifecycleSinkContract.OnMessage(*message);
     });
 
     auto* serialization = static_cast<SKSE::SerializationInterface*>(
@@ -384,7 +387,9 @@ SKSEPluginInfo(
                          "play-context revert events will not be logged.");
     } else {
         serialization->SetRevertCallback(
-            [](SKSE::SerializationInterface*) { lifecycleSink.OnRevert(); });
+            [](SKSE::SerializationInterface*) {
+                lifecycleSinkContract.OnRevert();
+            });
     }
 
     return true;

@@ -112,8 +112,12 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
           std::string::npos);
 
     std::size_t lifecycleRegisterPos =
-        source.find("lifecycleSink.Register(", lifecycleSinkPos);
+        source.find("lifecycleSinkContract.Register(", lifecycleSinkPos);
     REQUIRE(lifecycleRegisterPos != std::string::npos);
+    CHECK(dovahlink::test_support::FindSourceText(
+              source,
+              "ICommonLibGameLifecycleSink& lifecycleSinkContract = lifecycleSink") !=
+          std::string::npos);
     std::size_t listenerRegisterPos = source.find("RegisterListener(");
     REQUIRE(listenerRegisterPos != std::string::npos);
     CHECK(lifecycleRegisterPos < listenerRegisterPos);

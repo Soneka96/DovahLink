@@ -39,6 +39,9 @@ TEST_CASE("CommonLibGameLifecycleSink delegates lifecycle transitions",
     CHECK(header.find(
               "application::IPlayContextLifecycle& playContextLifecycle_") !=
           std::string::npos);
+    CHECK(header.find(
+              "class CommonLibGameLifecycleSink final : public "
+              "ICommonLibGameLifecycleSink") != std::string::npos);
     CHECK(source.find(
               "application::IPlayContextLifecycle& playContextLifecycle") !=
           std::string::npos);
@@ -48,6 +51,8 @@ TEST_CASE("CommonLibGameLifecycleSink delegates lifecycle transitions",
     CHECK(source.find("ApplyLifecycleTransition") == std::string::npos);
     CHECK(header.find("lifecycleMutex_") == std::string::npos);
     CHECK(source.find("HandleEvent(event, description);") !=
+          std::string::npos);
+    CHECK(source.find("application::RunContainedLifecycleWork(") !=
           std::string::npos);
     CHECK(source.find(
               "HandleEvent(application::LifecycleEvent::kRevert, \"Revert\");") !=
