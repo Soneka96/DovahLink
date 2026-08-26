@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/level_event_sink.hpp"
+#include "application/active_play_context_level_sink.hpp"
 #include "game_state/level_adapter.hpp"
 
 namespace dovahlink::game_state {
@@ -18,9 +18,9 @@ class ILevelIncreaseHandler {
 ///  Converts a level-change notification into a synchronous application event.
 class LevelIncreaseHandler : public ILevelIncreaseHandler {
   public:
-    ///  Binds the level source and synchronous application event sink.
+    ///  Binds the level source and active-context level sink.
     LevelIncreaseHandler(const ILevelAccessor& accessor,
-                         application::ILevelEventSink& sink);
+                         application::IActivePlayContextLevelSink& sink);
 
     ///  @copydoc ILevelIncreaseHandler::HandleLevelIncrease
     void HandleLevelIncrease() override;
@@ -29,7 +29,7 @@ class LevelIncreaseHandler : public ILevelIncreaseHandler {
     ///  Source for the current raw level reading.
     const ILevelAccessor& accessor_;
     ///  Receives the captured level, including unavailable values.
-    application::ILevelEventSink& sink_;
+    application::IActivePlayContextLevelSink& sink_;
 };
 
 } //  namespace dovahlink::game_state

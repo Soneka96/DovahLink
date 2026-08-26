@@ -1,6 +1,4 @@
 #include "application/active_play_context.hpp"
-#include "application/active_play_context_level_sink.hpp"
-#include "application/active_play_context_reader.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
@@ -9,22 +7,13 @@
 #include <stdexcept>
 
 using dovahlink::application::ActivePlayContext;
-using dovahlink::application::ActivePlayContextLevelSink;
 using dovahlink::application::ApplyLifecycleTransition;
 using dovahlink::application::GameLifecycleTracker;
 using dovahlink::application::IActivePlayContext;
-using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::PlayContext;
 using testing::StrictMock;
 
 namespace {
-
-///  GoogleMock active-play-context contract double.
-class MockActivePlayContextReader : public IActivePlayContextReader {
-  public:
-    MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
-                (const, override));
-};
 
 ///  GoogleMock lifecycle-owner contract double for transition application tests.
 class MockActivePlayContext : public IActivePlayContext {
@@ -262,41 +251,4 @@ TEST_CASE("ApplyLifecycleTransition with neither field set leaves the active "
     ApplyLifecycleTransition(active, GameLifecycleTracker::Transition{});
 
     CHECK(active.AcquireCurrent() == begun);
-}
-
-TEST_CASE("ActivePlayContextLevelSink forwards through its context contract",
-          "[application][play_context]") {
-    StrictMock<MockActivePlayContextReader> activeContext;
-    auto context = std::make_shared<PlayContext>("ctx-1");
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(context));
-    ActivePlayContextLevelSink sink(activeContext);
-
-    sink.OnLevelCaptured(12);
-
-    REQUIRE(context->characterState.CurrentCharacterSnapshot().level.has_value());
-    CHECK(*context->characterState.CurrentCharacterSnapshot().level == 12);
-}
-
-TEST_CASE("ActivePlayContextLevelSink drops captures from an empty context contract",
-          "[application][play_context]") {
-    StrictMock<MockActivePlayContextReader> activeContext;
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(std::shared_ptr<PlayContext>{}));
-    ActivePlayContextLevelSink sink(activeContext);
-
-    sink.OnLevelCaptured(12);
-}
-
-TEST_CASE("ActivePlayContextLevelSink forwards an unavailable level",
-          "[application][play_context]") {
-    StrictMock<MockActivePlayContextReader> activeContext;
-    auto context = std::make_shared<PlayContext>("ctx-1");
-    EXPECT_CALL(activeContext, AcquireCurrent())
-        .WillOnce(testing::Return(context));
-    ActivePlayContextLevelSink sink(activeContext);
-
-    sink.OnLevelCaptured(std::nullopt);
-
-    CHECK_FALSE(context->characterState.CurrentCharacterSnapshot().level);
 }

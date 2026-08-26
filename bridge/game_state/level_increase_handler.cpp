@@ -3,7 +3,7 @@
 namespace dovahlink::game_state {
 
 LevelIncreaseHandler::LevelIncreaseHandler(const ILevelAccessor& accessor,
-                                           application::ILevelEventSink& sink)
+                                           application::IActivePlayContextLevelSink& sink)
     : accessor_(accessor), sink_(sink) {}
 
 void LevelIncreaseHandler::HandleLevelIncrease() {

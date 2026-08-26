@@ -165,7 +165,7 @@ add_executable(dovahlink_bridge_tests
     application/game_lifecycle_tracker_test.cpp
     application/handshake_handler_test.cpp
     application/active_play_context_reader_test.cpp
-    application/level_event_sink_test.cpp
+    application/active_play_context_level_sink_test.cpp
     application/message_dispatcher_test.cpp
     application/pairing_handler_test.cpp
     application/pairing_notification_sink_test.cpp

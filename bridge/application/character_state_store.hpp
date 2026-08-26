@@ -1,22 +1,35 @@
 #pragma once
 
 #include "application/character_state.hpp"
-#include "application/level_event_sink.hpp"
 
 #include <mutex>
 #include <optional>
 
 namespace dovahlink::application {
 
+///  Stores and exposes the current character-state snapshot.
+class ICharacterStateStore {
+  public:
+    ///  Allows destruction through the interface.
+    virtual ~ICharacterStateStore() = default;
+
+    ///  Stores one captured player level, or an unavailable value.
+    ///  @param level Captured level, or no value when unavailable.
+    virtual void OnLevelCaptured(std::optional<std::int64_t> level) = 0;
+
+    ///  Returns the most recently captured character state.
+    [[nodiscard]] virtual CharacterSnapshot CurrentCharacterSnapshot() const = 0;
+};
+
 ///  Stores the latest captured character state for bridge-lifetime consumers.
 ///  Access is synchronized because capture and reads may occur on different
 ///  threads.
-class CharacterStateStore : public ILevelEventSink {
+class CharacterStateStore final : public ICharacterStateStore {
   public:
-    ///  @copydoc ILevelEventSink::OnLevelCaptured
+    ///  @copydoc ICharacterStateStore::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override;
 
-    ///  Returns the most recently captured character state.
+    ///  @copydoc ICharacterStateStore::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const;
 
   private:
