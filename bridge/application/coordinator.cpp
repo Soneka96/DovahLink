@@ -4,8 +4,8 @@
 
 namespace dovahlink::application {
 
-Coordinator::Coordinator(CallbackRegistry& callbacks, IBridgeWorkerPool& workers,
-                         IBridgeTransport& transport)
+Coordinator::Coordinator(IBridgeCallbackRegistry& callbacks,
+                         IBridgeWorkerPool& workers, IBridgeTransport& transport)
     : callbacks_(callbacks), workers_(workers), transport_(transport) {}
 
 Coordinator::~Coordinator() noexcept { Shutdown(); }

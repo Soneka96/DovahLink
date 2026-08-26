@@ -3,6 +3,7 @@
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/contained_work.hpp"
+#include "application/i_bridge_callback_registry.hpp"
 #include "application/lifetime_token.hpp"
 
 #include <atomic>
@@ -12,20 +13,6 @@
 
 namespace dovahlink::application {
 
-///  Registers and unregisters runtime callbacks owned by the coordinator.
-class CallbackRegistry {
-  public:
-    ///  Releases the interface without performing work.
-    virtual ~CallbackRegistry() = default;
-
-    ///  Registers all callbacks required by the bridge.
-    ///  @param callbackRunner Guarded containment boundary retained by callbacks.
-    virtual void RegisterAll(ContainedWorkRunner callbackRunner) = 0;
-
-    ///  Unregisters all callbacks before owned state is destroyed.
-    virtual void UnregisterAll() = 0;
-};
-
 ///  Owns callback, worker, and transport lifecycle and provides idempotent
 ///  shutdown.
 class Coordinator {
@@ -34,7 +21,7 @@ class Coordinator {
     ///  @param callbacks Callback registration boundary.
     ///  @param workers Worker lifecycle boundary.
     ///  @param transport Transport lifecycle boundary.
-    Coordinator(CallbackRegistry& callbacks, IBridgeWorkerPool& workers,
+    Coordinator(IBridgeCallbackRegistry& callbacks, IBridgeWorkerPool& workers,
                 IBridgeTransport& transport);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
@@ -128,7 +115,7 @@ class Coordinator {
     };
 
     ///  Callback registration boundary.
-    CallbackRegistry& callbacks_;
+    IBridgeCallbackRegistry& callbacks_;
 
     ///  Worker lifecycle boundary.
     IBridgeWorkerPool& workers_;

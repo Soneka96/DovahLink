@@ -126,22 +126,15 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     CHECK(lifecycleRegisterPos < revertCallbackPos);
 }
 
-TEST_CASE("SKSEPluginLoad wires the callback registry through the sink contract",
+//  BridgeCallbackRegistry's own contract and forwarding behavior are proven
+//  directly by application/bridge_callback_registry_test.cpp. This structural
+//  check only proves the composition root wires it to the runtime sink.
+TEST_CASE("SKSEPluginLoad wires the callback registry to the runtime sink",
           "[plugin][composition]") {
     std::string source = ReadPluginSource();
 
-    CHECK(dovahlink::test_support::FindSourceText(
-              source,
-              "dovahlink::game_state::ICommonLibLevelIncreaseSink& sink") !=
-          std::string::npos);
-    CHECK(dovahlink::test_support::FindSourceText(
-              source,
-              "dovahlink::game_state::CommonLibLevelIncreaseSink& sink") ==
-          std::string::npos);
-    CHECK(source.find("sink_.Register(std::move(callbackRunner));") !=
-          std::string::npos);
-    CHECK(source.find("void UnregisterAll() override { sink_.Unregister(); }") !=
-          std::string::npos);
+    CHECK(source.find("BridgeCallbackRegistry callbackRegistry(\n        "
+                      "levelIncreaseSink);") != std::string::npos);
 }
 
 TEST_CASE("SKSEPluginLoad passes trust administration through service contracts",

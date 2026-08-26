@@ -9,9 +9,9 @@
 #include <thread>
 #include <vector>
 
-using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
+using dovahlink::application::IBridgeCallbackRegistry;
 using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
 using dovahlink::application::LifetimeToken;
@@ -19,16 +19,16 @@ using dovahlink::application::LifetimeToken;
 namespace {
 
 ///  Records callback lifecycle calls in the shared test log.
-class RecordingCallbackRegistry : public CallbackRegistry {
+class RecordingCallbackRegistry : public IBridgeCallbackRegistry {
   public:
     ///  Binds the recorder to the caller-owned lifecycle log.
     explicit RecordingCallbackRegistry(std::vector<std::string>& log)
         : log_(log) {}
-    ///  @copydoc CallbackRegistry::RegisterAll
+    ///  @copydoc IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner) override {
         log_.push_back("callbacks.RegisterAll");
     }
-    ///  @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
 
   private:
@@ -38,19 +38,19 @@ class RecordingCallbackRegistry : public CallbackRegistry {
 
 ///  Blocks callback registration at a deterministic startup synchronization
 ///  point.
-class BlockingCallbackRegistry : public CallbackRegistry {
+class BlockingCallbackRegistry : public IBridgeCallbackRegistry {
   public:
     ///  Binds the recorder and startup synchronization points.
     BlockingCallbackRegistry(std::vector<std::string>& log) : log_(log) {}
 
-    ///  @copydoc CallbackRegistry::RegisterAll
+    ///  @copydoc IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner) override {
         log_.push_back("callbacks.RegisterAll");
         registerEntered_.release();
         releaseRegister_.acquire();
     }
 
-    ///  @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override { log_.push_back("callbacks.UnregisterAll"); }
 
     ///  Signals that callback registration has started.
@@ -321,17 +321,17 @@ TEST_CASE("a Shutdown call that arrives after another is already in progress "
 namespace {
 
 ///  Records whether shutdown state is visible during callback unregistration.
-class StoppingCheckCallbackRegistry : public CallbackRegistry {
+class StoppingCheckCallbackRegistry : public IBridgeCallbackRegistry {
   public:
     ///  Binds the recorder to the lifecycle log and coordinator observation.
     StoppingCheckCallbackRegistry(std::vector<std::string>& log,
                                   const Coordinator*& coordinatorRef)
         : log_(log), coordinatorRef_(coordinatorRef) {}
-    ///  @copydoc CallbackRegistry::RegisterAll
+    ///  @copydoc IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner) override {
         log_.push_back("callbacks.RegisterAll");
     }
-    ///  @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         wasStoppingDuringUnregister_ =
             coordinatorRef_ != nullptr && coordinatorRef_->IsStopping();

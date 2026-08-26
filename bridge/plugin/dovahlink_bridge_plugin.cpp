@@ -6,6 +6,7 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/bridge_callback_registry.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
@@ -82,27 +83,6 @@ void SetupLogging() {
     logger->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(logger));
 }
-
-///  Connects coordinator callback lifecycle calls to the runtime event sink.
-class BridgeCallbackRegistry : public dovahlink::application::CallbackRegistry {
-  public:
-    ///  Binds the registry to the runtime level-increase sink.
-    explicit BridgeCallbackRegistry(
-        dovahlink::game_state::ICommonLibLevelIncreaseSink& sink)
-        : sink_(sink) {}
-
-    ///  @copydoc dovahlink::application::CallbackRegistry::RegisterAll
-    void RegisterAll(
-        dovahlink::application::ContainedWorkRunner callbackRunner) override {
-        sink_.Register(std::move(callbackRunner));
-    }
-    ///  @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
-    void UnregisterAll() override { sink_.Unregister(); }
-
-  private:
-    ///  Runtime event sink controlled by the coordinator lifecycle.
-    dovahlink::game_state::ICommonLibLevelIncreaseSink& sink_;
-};
 
 } //  namespace
 
@@ -314,7 +294,8 @@ SKSEPluginInfo(
         levelAccessor, levelSink);
     static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
         levelIncreaseHandler);
-    static BridgeCallbackRegistry callbackRegistry(levelIncreaseSink);
+    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
+        levelIncreaseSink);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);

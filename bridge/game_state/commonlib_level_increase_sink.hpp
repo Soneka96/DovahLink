@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/coordinator.hpp"
+#include "application/contained_work.hpp"
 #include "game_state/level_increase_handler.hpp"
 
 #include "RE/Skyrim.h"

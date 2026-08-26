@@ -14,9 +14,9 @@
 #include <utility>
 #include <vector>
 
-using dovahlink::application::CallbackRegistry;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
+using dovahlink::application::IBridgeCallbackRegistry;
 using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
 
@@ -53,9 +53,9 @@ void ThrowAtStage(ShutdownFailureStage configuredStage,
 }
 
 ///  Provides a callback registry with configurable shutdown behavior.
-class NoopCallbackRegistry : public CallbackRegistry {
+class NoopCallbackRegistry : public IBridgeCallbackRegistry {
   public:
-    ///  @copydoc CallbackRegistry::RegisterAll
+    ///  @copydoc IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(ContainedWorkRunner callbackRunner) override {
         ++startCalls_;
         if (throwOnStart_) {
@@ -63,7 +63,7 @@ class NoopCallbackRegistry : public CallbackRegistry {
         }
         callbackRunner_ = std::move(callbackRunner);
     }
-    ///  @copydoc CallbackRegistry::UnregisterAll
+    ///  @copydoc IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {
         if (shutdownLog_ != nullptr) {
             shutdownLog_->push_back("callbacks.UnregisterAll");

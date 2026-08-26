@@ -59,11 +59,12 @@ constexpr std::string_view kTrustResetCommandPrefix = "trust_reset ";
 constexpr std::string_view kFactoryResetCommand = "factory_reset";
 
 ///  Provides no-op callback registration for the Skyrim-independent harness.
-class NoOpCallbackRegistry : public dovahlink::application::CallbackRegistry {
+class NoOpCallbackRegistry
+    : public dovahlink::application::IBridgeCallbackRegistry {
   public:
-    ///  @copydoc dovahlink::application::CallbackRegistry::RegisterAll
+    ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::RegisterAll
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
-    ///  @copydoc dovahlink::application::CallbackRegistry::UnregisterAll
+    ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
 };
 

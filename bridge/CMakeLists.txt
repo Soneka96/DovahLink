@@ -122,6 +122,7 @@ add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_level_increase_sink.cpp
     game_state/commonlib_pairing_notification_sink.cpp
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
+    application/bridge_callback_registry.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
 
@@ -160,6 +161,7 @@ add_executable(dovahlink_bridge_tests
     application/active_session_controller_test.cpp
     application/active_session_disconnector_test.cpp
     application/active_session_socket_test.cpp
+    application/bridge_callback_registry_test.cpp
     application/bridge_transport_test.cpp
     application/bridge_worker_pool_test.cpp
     application/character_state_store_test.cpp
@@ -249,6 +251,9 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_LEVEL_INCREASE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_level_increase_sink.hpp"
     DOVAHLINK_LEVEL_INCREASE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_level_increase_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
+    DOVAHLINK_CALLBACK_REGISTRY_CONTRACT_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/i_bridge_callback_registry.hpp"
+    DOVAHLINK_CALLBACK_REGISTRY_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.hpp"
+    DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
 )
 
 include(CTest)
