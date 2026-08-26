@@ -1,7 +1,5 @@
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 
-#include "application/active_play_context.hpp"
-
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -20,9 +18,8 @@ std::string ThreadIdString() {
 } //  namespace
 
 CommonLibGameLifecycleSink::CommonLibGameLifecycleSink(
-    application::GameLifecycleTracker& tracker,
-    application::IActivePlayContext& activePlayContext)
-    : tracker_(tracker), activePlayContext_(activePlayContext) {}
+    application::ILifecycleTransitionCoordinator& lifecycleCoordinator)
+    : lifecycleCoordinator_(lifecycleCoordinator) {}
 
 void CommonLibGameLifecycleSink::Register(
     application::ContainedWorkRunner callbackRunner) {
@@ -92,15 +89,13 @@ void CommonLibGameLifecycleSink::OnRevert() {
 
 void CommonLibGameLifecycleSink::HandleEvent(application::LifecycleEvent event,
                                              std::string_view rawDescription) {
-    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     std::uint64_t sequence = sequence_.fetch_add(1, std::memory_order_relaxed);
     std::string thread = ThreadIdString();
     SKSE::log::info("[lifecycle #{} thread {}] raw={}", sequence, thread,
                     rawDescription);
 
     application::GameLifecycleTracker::Transition transition =
-        tracker_.HandleEvent(event);
-    application::ApplyLifecycleTransition(activePlayContext_, transition);
+        lifecycleCoordinator_.HandleEvent(event);
 
     SKSE::log::info(
         "[lifecycle #{} thread {}] invalidated={} newPlayContextId={}", sequence,

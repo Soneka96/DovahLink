@@ -14,6 +14,7 @@
 #include "application/coordinator.hpp"
 #include "application/game_behavior_config.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/lifecycle_transition_coordinator.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "application/trust_device_admin_service.hpp"
@@ -296,8 +297,10 @@ SKSEPluginInfo(
     //  whichever context is active through `ActivePlayContextLevelSink`.
     static dovahlink::application::GameLifecycleTracker lifecycleTracker;
     static dovahlink::application::ActivePlayContext activePlayContext;
+    static dovahlink::application::LifecycleTransitionCoordinator
+        lifecycleCoordinator(lifecycleTracker, activePlayContext);
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
-        lifecycleTracker, activePlayContext);
+        lifecycleCoordinator);
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(activePlayContext);
 

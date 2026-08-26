@@ -106,12 +106,11 @@ endif()
 target_link_libraries(dovahlink_bridge_core PUBLIC Boost::asio Boost::beast Boost::json bcrypt crypt32)
 
 # CommonLib-dependent game-state adapters. Kept in a separate target from
-# dovahlink_bridge_core so the runtime-specific implementation stays behind one
-# link boundary. The test binary links this target for the lifecycle sink's
-# focused no-Skyrim test below; the remaining runtime adapters expose only
-# Skyrim-independent conversion seams to tests (see e.g.
-# game_state/level_adapter.hpp). This target is also linked into the real SKSE
-# plugin binary.
+# dovahlink_bridge_core so dovahlink_bridge_tests never needs to link
+# CommonLibSSE-NG: runtime-specific adapters are covered through their
+# Skyrim-independent conversion seams or structural checks (see e.g.
+# game_state/level_adapter.hpp). This target is linked into the real SKSE plugin
+# binary.
 find_package(CommonLibSSE CONFIG REQUIRED)
 add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_game_behavior_compatibility.cpp
@@ -231,7 +230,6 @@ add_executable(dovahlink_bridge_tests
 )
 target_link_libraries(dovahlink_bridge_tests PRIVATE
     dovahlink_bridge_core
-    dovahlink_bridge_game_state
     Catch2::Catch2WithMain
     GTest::gmock
 )
@@ -239,6 +237,8 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../protocol/fixtures"
     DOVAHLINK_HARNESS_EXE="$<TARGET_FILE:dovahlink_bridge_harness>"
     DOVAHLINK_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_bridge_plugin.cpp"
+    DOVAHLINK_LIFECYCLE_SINK_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.hpp"
+    DOVAHLINK_LIFECYCLE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_lifecycle_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
 )
 

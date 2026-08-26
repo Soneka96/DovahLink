@@ -1,14 +1,12 @@
 #pragma once
 
-#include "application/active_play_context.hpp"
 #include "application/coordinator.hpp"
-#include "application/game_lifecycle_tracker.hpp"
+#include "application/lifecycle_transition_coordinator.hpp"
 
 #include "SKSE/SKSE.h"
 
 #include <atomic>
 #include <cstdint>
-#include <mutex>
 #include <string_view>
 
 namespace dovahlink::game_state {
@@ -24,12 +22,10 @@ namespace dovahlink::game_state {
 ///  plugin's lifetime; there is no matching unregister.
 class CommonLibGameLifecycleSink {
   public:
-    ///  Binds the sink to the tracker it drives and the play context it updates.
-    ///  @param tracker Lifecycle state machine driven by decoded SKSE signals.
-    ///  @param activePlayContext Play context capability updated by every
-    ///  resulting transition.
-    CommonLibGameLifecycleSink(application::GameLifecycleTracker& tracker,
-                               application::IActivePlayContext& activePlayContext);
+    ///  Binds the sink to the application lifecycle coordinator.
+    ///  @param lifecycleCoordinator Serialized application transition boundary.
+    explicit CommonLibGameLifecycleSink(
+        application::ILifecycleTransitionCoordinator& lifecycleCoordinator);
 
     ///  Binds the containment boundary used by every subsequent callback.
     ///  Must be called once, before SKSE can deliver any callback.
@@ -54,15 +50,8 @@ class CommonLibGameLifecycleSink {
     void HandleEvent(application::LifecycleEvent event,
                      std::string_view rawDescription);
 
-    ///  Tracker that owns lifecycle state transitions.
-    application::GameLifecycleTracker& tracker_;
-
-    ///  Play context ownership updated by every processed transition.
-    application::IActivePlayContext& activePlayContext_;
-
-    ///  Serializes decoded lifecycle transitions from all runtime callback
-    ///  sources so tracker and active-context updates remain one operation.
-    std::mutex lifecycleMutex_;
+    ///  Application boundary that serializes and applies lifecycle transitions.
+    application::ILifecycleTransitionCoordinator& lifecycleCoordinator_;
 
     ///  Coordinator-owned admission and exception boundary for runtime callbacks.
     application::ContainedWorkRunner callbackRunner_;

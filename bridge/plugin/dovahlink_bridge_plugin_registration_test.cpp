@@ -105,6 +105,20 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::size_t lifecycleSinkPos =
         source.find("CommonLibGameLifecycleSink lifecycleSink");
     REQUIRE(lifecycleSinkPos != std::string::npos);
-    CHECK(source.find("lifecycleTracker, activePlayContext);", lifecycleSinkPos) !=
+    std::size_t lifecycleCoordinatorPos =
+        source.find("lifecycleCoordinator(lifecycleTracker, activePlayContext);");
+    REQUIRE(lifecycleCoordinatorPos != std::string::npos);
+    CHECK(lifecycleCoordinatorPos < lifecycleSinkPos);
+    CHECK(source.find("lifecycleCoordinator);", lifecycleSinkPos) !=
           std::string::npos);
+
+    std::size_t lifecycleRegisterPos =
+        source.find("lifecycleSink.Register(", lifecycleSinkPos);
+    REQUIRE(lifecycleRegisterPos != std::string::npos);
+    std::size_t listenerRegisterPos = source.find("RegisterListener(");
+    REQUIRE(listenerRegisterPos != std::string::npos);
+    CHECK(lifecycleRegisterPos < listenerRegisterPos);
+    std::size_t revertCallbackPos = source.find("SetRevertCallback(");
+    REQUIRE(revertCallbackPos != std::string::npos);
+    CHECK(lifecycleRegisterPos < revertCallbackPos);
 }

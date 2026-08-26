@@ -14,6 +14,7 @@
 #include "application/bridge_worker_pool.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_lifecycle_tracker.hpp"
+#include "application/lifecycle_transition_coordinator.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
@@ -98,13 +99,9 @@ class StdoutPairingNotificationSink
 ///  any SKSE dependency.
 ///  @return The transition produced by this event.
 dovahlink::application::GameLifecycleTracker::Transition ProcessLifecycleEvent(
-    dovahlink::application::GameLifecycleTracker& tracker,
-    dovahlink::application::IActivePlayContext& activePlayContext,
+    dovahlink::application::ILifecycleTransitionCoordinator& coordinator,
     dovahlink::application::LifecycleEvent event) {
-    auto transition = tracker.HandleEvent(event);
-    dovahlink::application::ApplyLifecycleTransition(activePlayContext,
-                                                     transition);
-    return transition;
+    return coordinator.HandleEvent(event);
 }
 
 ///  Reads a positive harness-only token lifetime override from the environment.
@@ -262,6 +259,8 @@ int main() {
             return dovahlink::security::GenerateOpaqueId();
         });
     dovahlink::application::ActivePlayContext activePlayContext;
+    dovahlink::application::LifecycleTransitionCoordinator lifecycleCoordinator(
+        lifecycleTracker, activePlayContext);
     dovahlink::application::ActivePlayContextReader activePlayContextReader(
         activePlayContext);
     //  Routes "increase_level" captures below into whichever play context is
@@ -308,7 +307,7 @@ int main() {
             std::cout << "LEVEL " << level << std::endl;
         } else if (line == "new_game") {
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kNewGame);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
@@ -319,10 +318,10 @@ int main() {
             //  minting the new one). Only the final transition's ID is
             //  reported; both are applied to activePlayContext.
             ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kPreLoadGame);
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kPostLoadGameSuccess);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
@@ -332,16 +331,16 @@ int main() {
             //  kPostLoadGameFailure settles into kNoContext without minting a
             //  replacement.
             ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kPreLoadGame);
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kPostLoadGameFailure);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;
         } else if (line == "revert") {
             auto transition = ProcessLifecycleEvent(
-                lifecycleTracker, activePlayContext,
+                lifecycleCoordinator,
                 dovahlink::application::LifecycleEvent::kRevert);
             std::cout << "PLAY_CONTEXT "
                       << transition.newPlayContextId.value_or("(none)") << std::endl;

@@ -316,3 +316,29 @@ TEST_CASE("LifecycleTransitionCoordinator releases serialization after reset fai
     CHECK(activePlayContext.CurrentContextId() ==
           tracker.CurrentPlayContextId());
 }
+
+TEST_CASE("LifecycleTransitionCoordinator releases serialization after tracker failure",
+          "[application][lifecycle_transition_coordinator]") {
+    int generationCalls = 0;
+    GameLifecycleTracker tracker([&generationCalls] {
+        if (generationCalls++ == 0) {
+            return std::optional<std::string>("context-1");
+        }
+        if (generationCalls == 2) {
+            throw std::runtime_error("ID generation failed");
+        }
+        return std::optional<std::string>("context-2");
+    });
+    ThreadSafeActivePlayContextFake activePlayContext;
+    LifecycleTransitionCoordinator coordinator(tracker, activePlayContext);
+    coordinator.HandleEvent(LifecycleEvent::kNewGame);
+
+    CHECK_THROWS_AS(coordinator.HandleEvent(LifecycleEvent::kNewGame),
+                    std::runtime_error);
+    coordinator.HandleEvent(LifecycleEvent::kNewGame);
+
+    REQUIRE(tracker.CurrentPlayContextId().has_value());
+    CHECK(activePlayContext.CurrentContextId() ==
+          tracker.CurrentPlayContextId());
+    CHECK(activePlayContext.ReplacementCount() == 2);
+}
