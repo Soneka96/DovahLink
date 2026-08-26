@@ -128,8 +128,9 @@ public class AuthScenarioTests
     public async Task SixthAuthenticationAttemptWithinTheWindowIsRateLimited()
     {
         // FailedTokenThrottle is one instance shared across every connection
-        // attempt for the harness's whole lifetime (security/throttle.hpp),
-        // not per-connection -- so five separate failed connections, one
+        // attempt for the harness's whole lifetime
+        // (security/failed_token_throttle.hpp), not per-connection -- so five
+        // separate failed connections, one
         // after another, are needed to reach the limit.
         using var harness = new HarnessProcess(BridgeScenario.ValidHexToken);
         await harness.WaitForReadyAsync();

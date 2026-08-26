@@ -4,7 +4,7 @@
 #include "application/connection_timeout_tracker.hpp"
 #include "application/session.hpp"
 #include "protocol/envelope.hpp"
-#include "security/throttle.hpp"
+#include "security/failed_token_throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
 
@@ -68,9 +68,9 @@ struct HandshakeResult {
 [[nodiscard]] HandshakeResult
 HandleHello(const protocol::Envelope& helloEnvelope,
             security::ITokenStore& tokenStore,
-            security::FailedTokenThrottle& tokenThrottle,
+            security::IFailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
-            security::FailedTokenThrottle& credentialThrottle,
+            security::IFailedTokenThrottle& credentialThrottle,
             SessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,
@@ -83,9 +83,9 @@ HandleHello(const protocol::Envelope& helloEnvelope,
 [[nodiscard]] HandshakeResult
 HandleHello(const protocol::Envelope& helloEnvelope,
             security::ITokenStore& tokenStore,
-            security::FailedTokenThrottle& tokenThrottle,
+            security::IFailedTokenThrottle& tokenThrottle,
             security::ITrustStore& trustStore,
-            security::FailedTokenThrottle& credentialThrottle,
+            security::IFailedTokenThrottle& credentialThrottle,
             SessionManager& sessionManager, ConnectionId connection,
             ConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point now,

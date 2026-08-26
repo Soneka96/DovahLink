@@ -8,8 +8,8 @@
 #include "application/session.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
+#include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
-#include "security/throttle.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
 #include "shared/scoped_release.hpp"
@@ -78,9 +78,9 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
                      transport::LoopbackListener& listenerV6,
                      transport::IConnectionSlot& slot,
                      security::ITokenStore& tokenStore,
-                     security::FailedTokenThrottle& tokenThrottle,
+                     security::IFailedTokenThrottle& tokenThrottle,
                      security::ITrustStore& trustStore,
-                     security::FailedTokenThrottle& credentialThrottle,
+                     security::IFailedTokenThrottle& credentialThrottle,
                      SessionManager& sessionManager,
                      const IActivePlayContextReader& activePlayContext,
                      IActiveSessionSocket& activeSessionSocket,
@@ -159,13 +159,13 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     security::ITokenStore& tokenStore_;
 
     ///  Shared failed-token throttle.
-    security::FailedTokenThrottle& tokenThrottle_;
+    security::IFailedTokenThrottle& tokenThrottle_;
 
     ///  Shared persistent trust store.
     security::ITrustStore& trustStore_;
 
     ///  Shared failed device-credential attempt throttle.
-    security::FailedTokenThrottle& credentialThrottle_;
+    security::IFailedTokenThrottle& credentialThrottle_;
 
     ///  Session manager shared by accepted connections.
     SessionManager& sessionManager_;

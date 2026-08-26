@@ -1,6 +1,4 @@
-#include "security/throttle.hpp"
-
-#include "security/limits.hpp"
+#include "security/rate_window_counter.hpp"
 
 namespace dovahlink::security {
 
@@ -32,33 +30,6 @@ void RateWindowCounter::PruneLocked(std::chrono::steady_clock::time_point now) {
     std::erase_if(eventTimes_, [&](std::chrono::steady_clock::time_point t) {
         return t <= now - window_;
     });
-}
-
-FailedTokenThrottle::FailedTokenThrottle()
-    : counter_(kFailedTokenAttemptWindow) {}
-
-bool FailedTokenThrottle::IsBlocked(std::chrono::steady_clock::time_point now) {
-    return counter_.ActiveCount(now) >= kMaxFailedTokenAttempts;
-}
-
-void FailedTokenThrottle::RecordFailure(
-    std::chrono::steady_clock::time_point now) {
-    (void)counter_.RecordEvent(now);
-}
-
-ViolationTracker::ViolationTracker() : counter_(kProtocolViolationWindow) {}
-
-bool ViolationTracker::RecordViolationAndCheckLimit(
-    std::chrono::steady_clock::time_point now) {
-    return counter_.RecordEvent(now) >= kMaxProtocolViolations;
-}
-
-InboundMessageRateLimiter::InboundMessageRateLimiter()
-    : counter_(kInboundMessageRateWindow) {}
-
-bool InboundMessageRateLimiter::RecordMessageAndCheckLimit(
-    std::chrono::steady_clock::time_point now) {
-    return counter_.RecordEvent(now) > kMaxInboundMessagesPerSecond;
 }
 
 } //  namespace dovahlink::security

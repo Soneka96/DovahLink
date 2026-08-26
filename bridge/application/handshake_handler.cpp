@@ -91,10 +91,10 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope,
 } //  namespace
 
 HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
-                            security::TokenStore& tokenStore,
-                            security::FailedTokenThrottle& tokenThrottle,
+                            security::ITokenStore& tokenStore,
+                            security::IFailedTokenThrottle& tokenThrottle,
                             security::ITrustStore& trustStore,
-                            security::FailedTokenThrottle& credentialThrottle,
+                            security::IFailedTokenThrottle& credentialThrottle,
                             SessionManager& sessionManager,
                             ConnectionId connection,
                             ConnectionTimeoutTracker& timeoutTracker,
@@ -243,10 +243,10 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
 }
 
 HandshakeResult HandleHello(
-    const protocol::Envelope& helloEnvelope, security::TokenStore& tokenStore,
-    security::FailedTokenThrottle& tokenThrottle,
+    const protocol::Envelope& helloEnvelope, security::ITokenStore& tokenStore,
+    security::IFailedTokenThrottle& tokenThrottle,
     security::ITrustStore& trustStore,
-    security::FailedTokenThrottle& credentialThrottle,
+    security::IFailedTokenThrottle& credentialThrottle,
     SessionManager& sessionManager, ConnectionId connection,
     ConnectionTimeoutTracker& timeoutTracker,
     std::chrono::steady_clock::time_point now,

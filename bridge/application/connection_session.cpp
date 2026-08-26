@@ -6,6 +6,8 @@
 #include "application/replay_guard.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
+#include "security/inbound_message_rate_limiter.hpp"
+#include "security/violation_tracker.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -27,9 +29,9 @@ void SendIfPossible(transport::WebSocketSession& ws,
 
 void RunConnectionSession(transport::WebSocketSession& ws,
                           security::ITokenStore& tokenStore,
-                          security::FailedTokenThrottle& tokenThrottle,
+                          security::IFailedTokenThrottle& tokenThrottle,
                           security::ITrustStore& trustStore,
-                          security::FailedTokenThrottle& credentialThrottle,
+                          security::IFailedTokenThrottle& credentialThrottle,
                           SessionManager& sessionManager,
                           ConnectionId connection,
                           const IActivePlayContextReader& activePlayContext,
