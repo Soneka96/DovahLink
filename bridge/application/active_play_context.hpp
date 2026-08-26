@@ -25,6 +25,13 @@ class IActivePlayContext {
     ///  @param id Opaque identifier for the new context.
     ///  @return The newly active context.
     virtual std::shared_ptr<PlayContext> Begin(std::string id) = 0;
+
+    ///  Atomically replaces the active play context with a freshly created one.
+    ///  The new context is constructed before the active handle is swapped, so
+    ///  readers never observe an empty context during replacement.
+    ///  @param id Opaque identifier for the replacement context.
+    ///  @return The newly active context.
+    virtual std::shared_ptr<PlayContext> Replace(std::string id) = 0;
 };
 
 ///  Owns the currently active `PlayContext`, if any, and hands out shared
@@ -42,6 +49,9 @@ class ActivePlayContext final : public IActivePlayContext {
     ///  @copydoc IActivePlayContext::Begin
     std::shared_ptr<PlayContext> Begin(std::string id) override;
 
+    ///  @copydoc IActivePlayContext::Replace
+    std::shared_ptr<PlayContext> Replace(std::string id) override;
+
   private:
     ///  Synchronizes access to `current_`.
     mutable std::mutex mutex_;
@@ -51,7 +61,8 @@ class ActivePlayContext final : public IActivePlayContext {
 };
 
 ///  Applies one `GameLifecycleTracker` transition to an `IActivePlayContext`.
-///  Invalidation resets it, and a freshly minted identifier begins a new one.
+///  Invalidation resets it, and a freshly minted identifier atomically replaces
+///  the previous one.
 ///  @param activePlayContext Context ownership updated by this transition.
 ///  @param transition Effect produced by `GameLifecycleTracker::HandleEvent`.
 void ApplyLifecycleTransition(

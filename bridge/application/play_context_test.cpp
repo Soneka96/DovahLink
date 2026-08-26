@@ -6,6 +6,7 @@
 #include <gmock/gmock.h>
 
 #include <memory>
+#include <stdexcept>
 
 using dovahlink::application::ActivePlayContext;
 using dovahlink::application::ActivePlayContextLevelSink;
@@ -23,6 +24,17 @@ class MockActivePlayContextReader : public IActivePlayContextReader {
   public:
     MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
                 (const, override));
+};
+
+///  GoogleMock lifecycle-owner contract double for transition application tests.
+class MockActivePlayContext : public IActivePlayContext {
+  public:
+    MOCK_METHOD(std::shared_ptr<PlayContext>, AcquireCurrent, (),
+                (const, override));
+    MOCK_METHOD(void, Reset, (), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, Begin, (std::string), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, Replace, (std::string),
+                (override));
 };
 
 } //  namespace
@@ -119,6 +131,22 @@ TEST_CASE("a new Begin discards the previous context's character state rather "
     CHECK(first->revisions.CurrentRevision("character_level") == 1);
 }
 
+TEST_CASE("Replace swaps the active context without exposing an empty context",
+          "[application][play_context]") {
+    ActivePlayContext active;
+    auto first = active.Begin("ctx-1");
+    first->characterState.OnLevelCaptured(5);
+
+    auto second = active.Replace("ctx-2");
+
+    REQUIRE(second);
+    CHECK(second->id == "ctx-2");
+    CHECK(active.AcquireCurrent() == second);
+    CHECK(first != second);
+    CHECK_FALSE(second->characterState.CurrentCharacterSnapshot().level);
+    CHECK(first->characterState.CurrentCharacterSnapshot().level == 5);
+}
+
 TEST_CASE("ApplyLifecycleTransition resets the active context on invalidation "
           "with no new id",
           "[application][play_context]") {
@@ -146,18 +174,71 @@ TEST_CASE("ApplyLifecycleTransition begins a new context when only a new id is "
 }
 
 TEST_CASE(
-    "ApplyLifecycleTransition resets then begins when both fields are set",
+    "ApplyLifecycleTransition atomically replaces when both fields are set",
     "[application][play_context]") {
+    StrictMock<MockActivePlayContext> active;
+    auto replacement = std::make_shared<PlayContext>("ctx-2");
+    EXPECT_CALL(active, Replace("ctx-2"))
+        .WillOnce(testing::Return(replacement));
+
+    ApplyLifecycleTransition(
+        active, GameLifecycleTracker::Transition{.contextInvalidated = true,
+                                                 .newPlayContextId = "ctx-2"});
+}
+
+TEST_CASE("ApplyLifecycleTransition preserves the old handle during concrete "
+          "replacement",
+          "[application][play_context]") {
     ActivePlayContext active;
-    active.Begin("ctx-1");
+    auto first = active.Begin("ctx-1");
+    first->characterState.OnLevelCaptured(5);
 
     ApplyLifecycleTransition(
         active, GameLifecycleTracker::Transition{.contextInvalidated = true,
                                                  .newPlayContextId = "ctx-2"});
 
-    auto acquired = active.AcquireCurrent();
-    REQUIRE(acquired);
-    CHECK(acquired->id == "ctx-2");
+    auto second = active.AcquireCurrent();
+    REQUIRE(second);
+    CHECK(second->id == "ctx-2");
+    CHECK(first != second);
+    CHECK(first->characterState.CurrentCharacterSnapshot().level == 5);
+    CHECK_FALSE(second->characterState.CurrentCharacterSnapshot().level);
+}
+
+TEST_CASE(
+    "ApplyLifecycleTransition uses replacement alone when only a new id is set",
+    "[application][play_context]") {
+    StrictMock<MockActivePlayContext> active;
+    auto replacement = std::make_shared<PlayContext>("ctx-1");
+    EXPECT_CALL(active, Replace("ctx-1"))
+        .WillOnce(testing::Return(replacement));
+
+    ApplyLifecycleTransition(
+        active, GameLifecycleTracker::Transition{.newPlayContextId = "ctx-1"});
+}
+
+TEST_CASE("ApplyLifecycleTransition propagates replacement failures",
+          "[application][play_context]") {
+    StrictMock<MockActivePlayContext> active;
+    EXPECT_CALL(active, Replace("ctx-1"))
+        .WillOnce(testing::Throw(std::runtime_error("replace failed")));
+
+    CHECK_THROWS_AS(
+        ApplyLifecycleTransition(
+            active, GameLifecycleTracker::Transition{.newPlayContextId = "ctx-1"}),
+        std::runtime_error);
+}
+
+TEST_CASE("ApplyLifecycleTransition propagates invalidation failures",
+          "[application][play_context]") {
+    StrictMock<MockActivePlayContext> active;
+    EXPECT_CALL(active, Reset())
+        .WillOnce(testing::Throw(std::runtime_error("reset failed")));
+
+    CHECK_THROWS_AS(
+        ApplyLifecycleTransition(
+            active, GameLifecycleTracker::Transition{.contextInvalidated = true}),
+        std::runtime_error);
 }
 
 TEST_CASE("ApplyLifecycleTransition's invalidation is idempotent when the "

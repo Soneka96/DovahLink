@@ -17,6 +17,10 @@ void ActivePlayContext::Reset() {
 }
 
 std::shared_ptr<PlayContext> ActivePlayContext::Begin(std::string id) {
+    return Replace(std::move(id));
+}
+
+std::shared_ptr<PlayContext> ActivePlayContext::Replace(std::string id) {
     auto context = std::make_shared<PlayContext>(std::move(id));
     std::lock_guard<std::mutex> lock(mutex_);
     current_ = context;
@@ -26,11 +30,10 @@ std::shared_ptr<PlayContext> ActivePlayContext::Begin(std::string id) {
 void ApplyLifecycleTransition(
     IActivePlayContext& activePlayContext,
     const GameLifecycleTracker::Transition& transition) {
-    if (transition.contextInvalidated) {
-        activePlayContext.Reset();
-    }
     if (transition.newPlayContextId.has_value()) {
-        activePlayContext.Begin(*transition.newPlayContextId);
+        activePlayContext.Replace(*transition.newPlayContextId);
+    } else if (transition.contextInvalidated) {
+        activePlayContext.Reset();
     }
 }
 

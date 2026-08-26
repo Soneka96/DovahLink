@@ -22,6 +22,8 @@ class MockActivePlayContext : public IActivePlayContext {
                 (const, override));
     MOCK_METHOD(void, Reset, (), (override));
     MOCK_METHOD(std::shared_ptr<PlayContext>, Begin, (std::string), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, Replace, (std::string),
+                (override));
 };
 
 } //  namespace
