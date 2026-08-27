@@ -137,7 +137,7 @@ The seven Services:
   `currentTrustState`, `invalidationReason`), and the reactive signals `onUnhealthy`,
   `onProtocolViolation`, `onSessionInvalidated`, `onUnsolicitedError`. Privately owns
   `ConnectionTeardownCoordinator` and `LifecycleOperationQueue`.
-- `SessionAdmissionService`/`SessionAdmissionServiceImpl` — `admitSession`, a privileged capability
+- `ISessionAdmissionService`/`SessionAdmissionService` — `admitSession`, a privileged capability
   injected only into `AuthenticationServiceImpl`. Also triggers `RequestService`'s
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session
   recovery cohesive in one place.
@@ -197,7 +197,7 @@ Phase 3.3 are unchanged.
 Constructor injection is the default and, aside from the three named callbacks below, the only
 wiring mechanism. No service locator, no static/global dependency lookup, no hidden singleton
 access inside a Service implementation. A single Service instance may legitimately be injected into
-multiple consumers — `RequestService` is injected into `SessionAdmissionServiceImpl`,
+multiple consumers — `RequestService` is injected into `SessionAdmissionService`,
 `AuthenticationServiceImpl`, and `PairingServiceImpl` — that is expected and does not duplicate the
 Service or its state.
 
@@ -272,7 +272,7 @@ yet confirmed -- and `connectionState` only reaches `connected` once that attemp
 admits a session. An already-pending `retrySafe` operation an earlier ordinary transport loss
 orphaned is a separate mechanism, unaffected by this guard: `RequestServiceImpl.retryOrphanedOperations`
 retransmits it directly, bypassing
-`sendAndAwait` entirely, only after `SessionAdmissionServiceImpl` admits a fresh session
+`sendAndAwait` entirely, only after `SessionAdmissionService` admits a fresh session
 post-reconnect (see "Internal composition" above). Starting the transport's
 inbound subscription is fully private to `SessionService.connect()`'s own implementation and is
 never exposed on `ISessionService`'s interface: a successful `connect()` already guarantees receiving
@@ -289,7 +289,7 @@ dependency; there is no cycle and no callback involved on this side.
 
 ### Composing narrow authority
 
-`SessionAdmissionService` and `SessionTrustService` exist specifically because `admitSession` and
+`ISessionAdmissionService` and `SessionTrustService` exist specifically because `admitSession` and
 `markTrusted` are real privileged capabilities that must never be reachable from a class other than
 the one that legitimately performs them — `AuthenticationServiceImpl` and `PairingServiceImpl`
 respectively, and nothing else. This is enforced by the dependency graph itself: no other consumer
@@ -302,7 +302,7 @@ single authoritative owner of every session-scoped mutable fact this engine has:
 `sessionId`, trust state, the administrative invalidation reason, the connection generation, the
 last-connected URI, and the transport's message subscription. Direct `SessionState` access is
 limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionService`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`, and
+maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustServiceImpl`, and
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
@@ -314,7 +314,7 @@ another service merely because it's needed there; the one documented, accepted e
 whose durable source of truth is `IClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.
 
-`SessionAdmissionServiceImpl` exposes the one write command that admits a newly authenticated
+`SessionAdmissionService` exposes the one write command that admits a newly authenticated
 session (`admitSession`, called once by `AuthenticationServiceImpl` after a successful `hello`);
 `SessionTrustServiceImpl` exposes the one write command that upgrades trust standing (`markTrusted`,
 called by `PairingServiceImpl` after a successful pairing acknowledgement). No other class assigns

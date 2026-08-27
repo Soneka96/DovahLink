@@ -105,8 +105,8 @@ dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `IS
 `AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
 bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
-`AuthenticationServiceImpl`'s tests mock `ISessionService`, `SessionAdmissionService`, `RequestService`,
-and `IClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
+`AuthenticationServiceImpl`'s tests mock `ISessionService`, `ISessionAdmissionService`, `RequestService`,
+and `IClientStorage`. `SessionAdmissionService`'s and `SessionTrustServiceImpl`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
 mocking a concrete class' single interface a one-line cost regardless of that interface's size, so

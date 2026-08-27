@@ -15,7 +15,7 @@ import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Implements [AuthenticationService], per `ai/context/sdk/architecture.md`'s "Internal
-/// composition". Every collaborator ([ISessionService], [SessionAdmissionService], [RequestService],
+/// composition". Every collaborator ([ISessionService], [ISessionAdmissionService], [RequestService],
 /// [IClientStorage], [ClientIdResolver]) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
 /// its own dependencies, including [ClientIdResolver], despite it being a small, otherwise
@@ -25,7 +25,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
   final ISessionService _sessionService;
 
   /// Admits a newly authenticated session -- the only class permitted to.
-  final SessionAdmissionService _sessionAdmissionService;
+  final ISessionAdmissionService _sessionAdmissionService;
 
   /// Sends `hello` and awaits its correlated reply.
   final RequestService _requestService;
@@ -41,7 +41,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
   /// [requestService], [storage], and [clientIdResolver].
   AuthenticationServiceImpl({
     required ISessionService sessionService,
-    required SessionAdmissionService sessionAdmissionService,
+    required ISessionAdmissionService sessionAdmissionService,
     required RequestService requestService,
     required IClientStorage storage,
     required ClientIdResolver clientIdResolver,
@@ -103,7 +103,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
       final String? sessionId = response.sessionId;
       if (sessionId == null) {
         // hello_ack always carries a real sessionId per `protocol/schema/README.md`; a null one
-        // is a malformed reply, not a state SessionAdmissionService.admitSession's typed contract
+        // is a malformed reply, not a state ISessionAdmissionService.admitSession's typed contract
         // accepts silently the way the pre-extraction field assignment once did.
         throw const DovahLinkProtocolException(
           code: ProtocolErrorCode.malformedMessage,
@@ -113,7 +113,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
       }
       // admitSession also retransmits any retry-safe operation an earlier ordinary transport
       // loss orphaned, now that this new session's trust state is known -- see
-      // SessionAdmissionService.admitSession's documentation.
+      // ISessionAdmissionService.admitSession's documentation.
       _sessionAdmissionService.admitSession(
         sessionId: sessionId,
         trustState: trustState,

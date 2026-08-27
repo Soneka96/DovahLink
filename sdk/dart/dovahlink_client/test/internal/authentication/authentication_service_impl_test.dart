@@ -21,10 +21,10 @@ import '../../fixtures/fixtures.dart';
 class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock session admission service -- its own admit/retry logic is
-/// `session_admission_service_impl_test.dart`'s responsibility; this file only proves
+/// `session_admission_service_test.dart`'s responsibility; this file only proves
 /// [AuthenticationServiceImpl] calls it with the right arguments.
 class MockSessionAdmissionService extends Mock
-    implements SessionAdmissionService {}
+    implements ISessionAdmissionService {}
 
 /// Mock request service used to isolate authentication service tests.
 class MockRequestService extends Mock implements RequestService {}

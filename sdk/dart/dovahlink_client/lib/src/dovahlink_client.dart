@@ -19,7 +19,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart'
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service_impl.dart';
@@ -155,11 +155,8 @@ class DovahLinkClient {
     );
     _sessionService.onIncomingMessage = _requestService.handleIncoming;
 
-    final SessionAdmissionServiceImpl sessionAdmissionService =
-        SessionAdmissionServiceImpl(
-          state: state,
-          requestService: _requestService,
-        );
+    final SessionAdmissionService sessionAdmissionService =
+        SessionAdmissionService(state: state, requestService: _requestService);
     final SessionTrustServiceImpl sessionTrustService = SessionTrustServiceImpl(
       state: state,
     );
