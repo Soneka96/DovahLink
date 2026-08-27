@@ -423,6 +423,46 @@ TEST_CASE("BridgeWorkerPool Stop interrupts a connection blocked on the "
     CHECK_FALSE(fixture.slot.IsOccupied());
 }
 
+TEST_CASE("BridgeWorkerPool Stop alone, before Join, already requests the "
+          "active WebSocket's shutdown",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto acceptedDeadline = std::chrono::steady_clock::now() + 5s;
+    while (!fixture.slot.IsOccupied() &&
+           std::chrono::steady_clock::now() < acceptedDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(fixture.slot.IsOccupied());
+
+    auto start = std::chrono::steady_clock::now();
+    fixture.pool.Stop();
+    auto stopElapsed = std::chrono::steady_clock::now() - start;
+    CHECK(stopElapsed < 100ms);
+
+    //  Stop() alone -- without calling Join(), which additionally waits for
+    //  both accept-loop threads and each listener's own owner thread --
+    //  already released the slot, proving the active WebSocket shutdown
+    //  request was sent regardless of listener shutdown speed.
+    auto releasedDeadline = std::chrono::steady_clock::now() + 5s;
+    while (fixture.slot.IsOccupied() &&
+           std::chrono::steady_clock::now() < releasedDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(fixture.slot.IsOccupied());
+
+    fixture.pool.Join();
+}
+
 TEST_CASE("BridgeWorkerPool Stop interrupts an authenticated session blocked "
           "on an idle read",
           "[application][bridge_worker_pool]") {
@@ -1234,6 +1274,10 @@ TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
     EXPECT_CALL(listenerV6, Close());
+    //  Join() twice: once from this test's own explicit pool.Join() call
+    //  below, once more from the destructor's own Stop()+Join() sequence.
+    EXPECT_CALL(listenerV4, Join()).Times(2);
+    EXPECT_CALL(listenerV6, Join()).Times(2);
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1268,6 +1312,10 @@ TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
     EXPECT_CALL(listenerV6, Close());
+    //  Join() twice: once from this test's own explicit pool.Join() call
+    //  below, once more from the destructor's own Stop()+Join() sequence.
+    EXPECT_CALL(listenerV4, Join()).Times(2);
+    EXPECT_CALL(listenerV6, Join()).Times(2);
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1288,6 +1336,11 @@ TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
     //  Stop() again, which this test relies on staying safe to repeat.
     EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
     EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+    //  This test never calls pool.Join() itself; the destructor's own
+    //  Join() call is the only one, but AtLeast(1) stays consistent with
+    //  Close()'s own tolerance for the destructor's repeat Stop().
+    EXPECT_CALL(listenerV4, Join()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Join()).Times(testing::AtLeast(1));
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1320,6 +1373,8 @@ TEST_CASE("BridgeWorkerPool rearms after rejecting a full connection slot",
         .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
     EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
     EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV4, Join()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Join()).Times(testing::AtLeast(1));
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
