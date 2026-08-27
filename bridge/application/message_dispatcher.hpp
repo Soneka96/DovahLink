@@ -43,7 +43,7 @@ class IMessageDispatcher {
     [[nodiscard]] virtual DispatchResult
     Process(const std::string& rawMessage, std::size_t& receivedMessageCount,
             const std::string& sessionId, ConnectionId connection,
-            ReplayGuard& replayGuard, security::IViolationTracker& violations,
+            IReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
             IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) = 0;
@@ -88,7 +88,7 @@ class MessageDispatcher final : public IMessageDispatcher {
     [[nodiscard]] DispatchResult
     Process(const std::string& rawMessage, std::size_t& receivedMessageCount,
             const std::string& sessionId, ConnectionId connection,
-            ReplayGuard& replayGuard, security::IViolationTracker& violations,
+            IReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
             IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) override;

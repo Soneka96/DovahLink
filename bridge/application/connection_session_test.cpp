@@ -142,7 +142,7 @@ class MockMessageDispatcher
     MOCK_METHOD(dovahlink::application::DispatchResult, Process,
                 (const std::string&, std::size_t&, const std::string&,
                  dovahlink::application::ConnectionId,
-                 dovahlink::application::ReplayGuard&,
+                 dovahlink::application::IReplayGuard&,
                  dovahlink::security::IViolationTracker&,
                  dovahlink::security::IInboundMessageRateLimiter&,
                  dovahlink::application::IConnectionTimeoutTracker&,
