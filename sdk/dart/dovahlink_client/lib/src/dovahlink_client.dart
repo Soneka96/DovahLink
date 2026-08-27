@@ -5,7 +5,6 @@ import 'package:meta/meta.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service_impl.dart';
@@ -163,7 +162,7 @@ class DovahLinkClient {
       storage: _storage,
       randomIdGenerator: RandomIdGenerator(),
     );
-    _authenticationService = AuthenticationServiceImpl(
+    _authenticationService = AuthenticationService(
       sessionService: _sessionService,
       sessionAdmissionService: sessionAdmissionService,
       requestService: _requestService,
@@ -215,7 +214,7 @@ class DovahLinkClient {
   late final IRequestService _requestService;
 
   /// Owns `hello`/authentication and credential-rejection recovery.
-  late final AuthenticationService _authenticationService;
+  late final IAuthenticationService _authenticationService;
 
   /// Owns pairing operations.
   late final PairingService _pairingService;
@@ -265,11 +264,11 @@ class DovahLinkClient {
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
-  /// trust state; see [RequestPolicy.requiredTrustState] and [AuthenticationService.hello].
+  /// trust state; see [RequestPolicy.requiredTrustState] and [IAuthenticationService.hello].
   /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
-  /// See [AuthenticationService.authenticate].
+  /// See [IAuthenticationService.authenticate].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.

@@ -102,10 +102,10 @@ failure mode, each retry/terminal classification the dependency's typed result o
 and (for a mocked collaborator) that the right method was called with the right arguments — and must
 not become a second test suite for that dependency's own internal branches, which stay owned by the
 dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `ISessionService` and
-`AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
-bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
-how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
-`AuthenticationServiceImpl`'s tests mock `ISessionService`, `ISessionAdmissionService`, `IRequestService`,
+`IAuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
+bookkeeping) to each classification `IAuthenticationService.hello()` can produce, without re-proving
+how `AuthenticationService` itself decodes or classifies a rejected `hello`.
+`AuthenticationService`'s tests mock `ISessionService`, `ISessionAdmissionService`, `IRequestService`,
 and `IClientStorage`. `SessionAdmissionService`'s and `SessionTrustService`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes

@@ -3,7 +3,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Admits a newly authenticated session, a privileged capability injected only into
-/// `AuthenticationServiceImpl`, per `ai/context/sdk/architecture.md`'s "Composing narrow
+/// `AuthenticationService`, per `ai/context/sdk/architecture.md`'s "Composing narrow
 /// authority". Nothing else may ever commit a newly authenticated session.
 abstract interface class ISessionAdmissionService {
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and triggering

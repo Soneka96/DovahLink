@@ -15,9 +15,10 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock authentication service -- its own `hello`/recovery logic is
-/// `authentication_service_impl_test.dart`'s responsibility; this file only proves
+/// `authentication_service_test.dart`'s responsibility; this file only proves
 /// [ReconnectServiceImpl] reacts correctly to each classification `hello()` can produce.
-class MockAuthenticationService extends Mock implements AuthenticationService {}
+class MockAuthenticationService extends Mock
+    implements IAuthenticationService {}
 
 /// Millisecond-scale delays used so the retry loop's tests run fast, mirroring this suite's
 /// existing short-timeout convention for timer-based behavior.

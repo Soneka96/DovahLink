@@ -14,7 +14,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// attempt budget and a hard overall deadline (each defaulting to the centrally tuned
 /// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
 /// `SessionService` continues to own transport/session state and teardown, and
-/// `AuthenticationServiceImpl` continues to own authentication; this class only orchestrates when
+/// `AuthenticationService` continues to own authentication; this class only orchestrates when
 /// and how often to retry both. [sessionService] and [authenticationService] are supplied by the
 /// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
 /// constructs one of its own dependencies.
@@ -23,7 +23,7 @@ class ReconnectServiceImpl implements ReconnectService {
   final ISessionService _sessionService;
 
   /// Re-authenticates the reconnected transport, admitting a fresh session on success.
-  final AuthenticationService _authenticationService;
+  final IAuthenticationService _authenticationService;
 
   /// The delay before each attempt after the first, and the attempt budget. Defaults to the
   /// centrally tuned [kReconnectAttemptDelays]; overridable so a test can exercise the retry loop
@@ -43,7 +43,7 @@ class ReconnectServiceImpl implements ReconnectService {
   /// [authenticationService].
   ReconnectServiceImpl({
     required ISessionService sessionService,
-    required AuthenticationService authenticationService,
+    required IAuthenticationService authenticationService,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration deadline = kReconnectDeadline,
     DateTime Function() now = DateTime.now,
@@ -67,12 +67,12 @@ class ReconnectServiceImpl implements ReconnectService {
   /// transport/connectivity failure. When a terminal rejection is specifically about this
   /// installation's credential (per [CredentialRejectionReason.fromProtocolErrorCode] -- `revoked`
   /// or `blocked`, not a generic `unauthorized`/`malformedMessage`), forgets that credential before
-  /// stopping, the same way `AuthenticationServiceImpl.authenticate`'s own explicit-retry path
+  /// stopping, the same way `IAuthenticationService.authenticate`'s own explicit-retry path
   /// already does: a credential the bridge has permanently rejected must not be presented again by
   /// a later automatic recovery attempt. Also stops, without touching the connection again, if
   /// something else (an explicit disconnect or an administrative invalidation) already moved the
   /// session out of `reconnecting`. On exhaustion or terminal rejection, finalizes the cycle with
-  /// a disconnect that fails whatever operations `AuthenticationServiceImpl.hello`'s own
+  /// a disconnect that fails whatever operations `IAuthenticationService.hello`'s own
   /// mid-cycle cleanup preserved for retry.
   Future<void> _recover(Uri uri) async {
     final DateTime deadline = _now().add(_deadline);
