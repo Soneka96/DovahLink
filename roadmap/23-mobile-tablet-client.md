@@ -21,8 +21,8 @@ The companion experience works naturally on supported phones and tablets through
 
 ### Dependencies and boundaries
 
-This phase depends on Phase 22 and does not imply internet access, hosted relay, accounts, or
-identical layouts.
+This phase depends on Stage 5A's Android development path and Stage 22's generalized secure LAN
+transport. It does not imply internet access, hosted relay, accounts, or identical layouts.
 
 ### Acceptance criteria
 
