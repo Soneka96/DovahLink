@@ -45,7 +45,7 @@ class IMessageDispatcher {
             const std::string& sessionId, ConnectionId connection,
             ReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
-            ConnectionTimeoutTracker& timeoutTracker,
+            IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) = 0;
 };
 
@@ -90,7 +90,7 @@ class MessageDispatcher final : public IMessageDispatcher {
             const std::string& sessionId, ConnectionId connection,
             ReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
-            ConnectionTimeoutTracker& timeoutTracker,
+            IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) override;
 
   private:

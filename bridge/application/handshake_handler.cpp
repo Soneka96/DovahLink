@@ -107,7 +107,7 @@ HandshakeHandler::HandshakeHandler(
 HandshakeResult
 HandshakeHandler::Handle(const protocol::Envelope& helloEnvelope,
                          ConnectionId connection,
-                         ConnectionTimeoutTracker& timeoutTracker,
+                         IConnectionTimeoutTracker& timeoutTracker,
                          std::chrono::steady_clock::time_point now) {
     const auto& bridgeInstanceId = bridgeInstanceId_;
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);

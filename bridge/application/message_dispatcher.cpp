@@ -171,7 +171,7 @@ DispatchResult MessageDispatcher::Process(
     const std::string& sessionId, ConnectionId connection,
     ReplayGuard& replayGuard, security::IViolationTracker& violations,
     security::IInboundMessageRateLimiter& rateLimiter,
-    ConnectionTimeoutTracker& timeoutTracker,
+    IConnectionTimeoutTracker& timeoutTracker,
     std::chrono::steady_clock::time_point steadyNow) {
     const auto& bridgeInstanceId = bridgeInstanceId_;
     ++receivedMessageCount;

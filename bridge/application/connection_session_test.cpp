@@ -128,7 +128,7 @@ class MockHandshakeHandler : public dovahlink::application::IHandshakeHandler {
   public:
     MOCK_METHOD(dovahlink::application::HandshakeResult, Handle,
                 (const Envelope&, dovahlink::application::ConnectionId,
-                 dovahlink::application::ConnectionTimeoutTracker&,
+                 dovahlink::application::IConnectionTimeoutTracker&,
                  std::chrono::steady_clock::time_point),
                 (override));
 };
@@ -145,7 +145,7 @@ class MockMessageDispatcher
                  dovahlink::application::ReplayGuard&,
                  dovahlink::security::IViolationTracker&,
                  dovahlink::security::IInboundMessageRateLimiter&,
-                 dovahlink::application::ConnectionTimeoutTracker&,
+                 dovahlink::application::IConnectionTimeoutTracker&,
                  std::chrono::steady_clock::time_point),
                 (override));
 };
@@ -1456,7 +1456,7 @@ TEST_CASE("RunConnectionSession dispatches an inbound message through "
                 Handle(testing::_, testing::_, testing::_, testing::_))
         .WillOnce(testing::Invoke(
             [](const Envelope&, dovahlink::application::ConnectionId,
-               dovahlink::application::ConnectionTimeoutTracker&,
+               dovahlink::application::IConnectionTimeoutTracker&,
                std::chrono::steady_clock::time_point) {
                 return dovahlink::application::HandshakeResult{
                     .response =
@@ -1528,7 +1528,7 @@ TEST_CASE("RunConnectionSession closes the connection when IMessageDispatcher "
                 Handle(testing::_, testing::_, testing::_, testing::_))
         .WillOnce(testing::Invoke(
             [](const Envelope&, dovahlink::application::ConnectionId,
-               dovahlink::application::ConnectionTimeoutTracker&,
+               dovahlink::application::IConnectionTimeoutTracker&,
                std::chrono::steady_clock::time_point) {
                 return dovahlink::application::HandshakeResult{
                     .response =

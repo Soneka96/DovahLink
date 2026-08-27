@@ -42,7 +42,7 @@ class IHandshakeHandler {
     ///  @return Response envelope and close decision for the connection.
     [[nodiscard]] virtual HandshakeResult
     Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
-           ConnectionTimeoutTracker& timeoutTracker,
+           IConnectionTimeoutTracker& timeoutTracker,
            std::chrono::steady_clock::time_point now) = 0;
 };
 
@@ -82,7 +82,7 @@ class HandshakeHandler final : public IHandshakeHandler {
     ///  @copydoc IHandshakeHandler::Handle
     [[nodiscard]] HandshakeResult
     Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
-           ConnectionTimeoutTracker& timeoutTracker,
+           IConnectionTimeoutTracker& timeoutTracker,
            std::chrono::steady_clock::time_point now) override;
 
   private:
