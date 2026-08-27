@@ -1228,13 +1228,25 @@ TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
     ConnectionSlot slot;
     ActiveSessionSocket activeSessionSocket;
     MockConnectionSession connectionSession;
+    std::atomic_bool v4ShouldContinue{true};
+    std::atomic_bool v6ShouldContinue{true};
 
-    EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+    EXPECT_CALL(listenerV4, RunAcceptLoop(testing::_))
         .Times(1)
-        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
-    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .WillOnce(testing::Invoke(
+            [&v4ShouldContinue](ILoopbackListener::AcceptHandler handler) {
+                v4ShouldContinue.store(
+                    handler(std::unexpected(AcceptError::kAcceptFailed)),
+                    std::memory_order_release);
+            }));
+    EXPECT_CALL(listenerV6, RunAcceptLoop(testing::_))
         .Times(1)
-        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+        .WillOnce(testing::Invoke(
+            [&v6ShouldContinue](ILoopbackListener::AcceptHandler handler) {
+                v6ShouldContinue.store(
+                    handler(std::unexpected(AcceptError::kAcceptFailed)),
+                    std::memory_order_release);
+            }));
     //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
@@ -1246,6 +1258,8 @@ TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
     pool.Join();
 
     CHECK(connectionSession.Connections().empty());
+    CHECK_FALSE(v4ShouldContinue.load(std::memory_order_acquire));
+    CHECK_FALSE(v6ShouldContinue.load(std::memory_order_acquire));
 }
 
 TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
@@ -1256,19 +1270,30 @@ TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
     ConnectionSlot slot;
     ActiveSessionSocket activeSessionSocket;
     MockConnectionSession connectionSession;
+    std::atomic_bool v4RetriesAfterRejection{false};
+    std::atomic_bool v4StopsAfterFailure{true};
 
     {
         testing::InSequence sequence;
-        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
-            .WillOnce(testing::Return(
-                std::unexpected(AcceptError::kNonLoopbackPeerRejected)));
-        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
-            .WillOnce(
-                testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+        EXPECT_CALL(listenerV4, RunAcceptLoop(testing::_))
+            .WillOnce(testing::Invoke(
+                [&v4RetriesAfterRejection, &v4StopsAfterFailure](
+                    ILoopbackListener::AcceptHandler handler) {
+                    v4RetriesAfterRejection.store(
+                        handler(std::unexpected(
+                            AcceptError::kNonLoopbackPeerRejected)),
+                        std::memory_order_release);
+                    v4StopsAfterFailure.store(
+                        handler(std::unexpected(AcceptError::kAcceptFailed)),
+                        std::memory_order_release);
+                }));
     }
     //  V6 fails immediately; only V4's retry behavior is under test here.
-    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
-        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    EXPECT_CALL(listenerV6, RunAcceptLoop(testing::_))
+        .WillOnce(testing::Invoke([](ILoopbackListener::AcceptHandler handler) {
+            static_cast<void>(
+                handler(std::unexpected(AcceptError::kAcceptFailed)));
+        }));
     //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
@@ -1280,6 +1305,8 @@ TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
     pool.Join();
 
     CHECK(connectionSession.Connections().empty());
+    CHECK(v4RetriesAfterRejection.load(std::memory_order_acquire));
+    CHECK_FALSE(v4StopsAfterFailure.load(std::memory_order_acquire));
 }
 
 TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
@@ -1297,4 +1324,39 @@ TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
     pool.Stop();
+}
+
+TEST_CASE("BridgeWorkerPool continues accepting after rejecting a full slot",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    auto occupiedLease = slot.TryAcquire();
+    REQUIRE(occupiedLease.has_value());
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+    std::atomic_bool v4ShouldContinue{false};
+
+    EXPECT_CALL(listenerV4, RunAcceptLoop(testing::_))
+        .WillOnce(testing::Invoke(
+            [&v4ShouldContinue](ILoopbackListener::AcceptHandler handler) {
+                boost::asio::io_context ioc;
+                boost::asio::ip::tcp::socket socket(ioc);
+                v4ShouldContinue.store(handler(std::move(socket)),
+                                       std::memory_order_release);
+            }));
+    EXPECT_CALL(listenerV6, RunAcceptLoop(testing::_))
+        .WillOnce(testing::Invoke([](ILoopbackListener::AcceptHandler handler) {
+            static_cast<void>(
+                handler(std::unexpected(AcceptError::kAcceptFailed)));
+        }));
+    EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(v4ShouldContinue.load(std::memory_order_acquire));
 }

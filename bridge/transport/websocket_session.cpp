@@ -48,10 +48,43 @@ boost::beast::error_code RunOperation(boost::asio::io_context& ioContext,
 
 } //  namespace
 
+boost::asio::ip::tcp::socket WebSocketSession::Socket::RebindSocket(
+    boost::asio::ip::tcp::socket socket, boost::asio::io_context& ioContext) {
+    if (!socket.is_open()) {
+        return boost::asio::ip::tcp::socket(ioContext);
+    }
+
+    boost::system::error_code endpointEc;
+    const auto protocol = socket.local_endpoint(endpointEc).protocol();
+    if (endpointEc) {
+        throw boost::system::system_error(endpointEc);
+    }
+
+    boost::system::error_code releaseEc;
+    const auto nativeSocket = socket.release(releaseEc);
+    if (releaseEc) {
+        throw boost::system::system_error(releaseEc);
+    }
+
+    boost::asio::ip::tcp::socket rebound(ioContext);
+    boost::system::error_code assignEc;
+    rebound.assign(protocol, nativeSocket, assignEc);
+    if (assignEc) {
+        //  The source socket released ownership before the target context
+        //  assignment. Re-wrap the native handle so the failed transfer does
+        //  not leak it before reporting the assignment failure.
+        boost::asio::ip::tcp::socket cleanup(ioContext);
+        boost::system::error_code cleanupEc;
+        cleanup.assign(protocol, nativeSocket, cleanupEc);
+        throw boost::system::system_error(assignEc);
+    }
+    return rebound;
+}
+
 WebSocketSession::Socket::Socket(boost::asio::ip::tcp::socket socket)
-    : ioContext_(static_cast<boost::asio::io_context&>(
-          socket.get_executor().context())),
-      stream_(boost::beast::tcp_stream(std::move(socket))) {}
+    : ioContext_(std::make_shared<boost::asio::io_context>()),
+      stream_(boost::beast::tcp_stream(
+          RebindSocket(std::move(socket), *ioContext_))) {}
 
 void WebSocketSession::Socket::Shutdown() noexcept {
     if (shutdownRequested_.exchange(true, std::memory_order_acq_rel)) {
@@ -60,7 +93,7 @@ void WebSocketSession::Socket::Shutdown() noexcept {
 
     try {
         auto socket = weak_from_this();
-        boost::asio::post(ioContext_, [socket = std::move(socket)] {
+        boost::asio::post(*ioContext_, [socket = std::move(socket)] {
             auto activeSocket = socket.lock();
             if (!activeSocket) {
                 return;
@@ -96,61 +129,62 @@ void WebSocketSession::Socket::ShutdownWithNotification(
         //  ownership with the completion lambda keeps it alive for the write's whole
         //  duration.
         auto sharedMessage = std::make_shared<std::string>(std::move(message));
-        boost::asio::post(ioContext_, [socket = std::move(socket), sharedMessage] {
-            auto activeSocket = socket.lock();
-            if (!activeSocket) {
-                return;
-            }
-            auto cancelAndClose = [](Socket& target) noexcept {
-                try {
-                    auto& tcpStream = target.stream_.next_layer();
-                    tcpStream.cancel();
-                    tcpStream.close();
-                } catch (...) {
-                    //  Cancellation remains best-effort at this noexcept boundary.
-                }
-            };
-            if (!activeSocket->handshakeSettled_.load(std::memory_order_acquire)) {
-                //  Accept()'s own handshake operation may still be using stream_ --
-                //  starting a websocket-level write now would race it unsafely.
-                //  Best-effort delivery permits skipping the notification here; the
-                //  connection is still force-closed.
-                cancelAndClose(*activeSocket);
-                return;
-            }
-            try {
-                //  The connection's own read loop may currently be blocked inside
-                //  ReadMessage, which explicitly disables the write timeout for its own
-                //  duration (DisableWriteTimeout) -- this write needs its own bounded
-                //  deadline so a stalled peer still cannot prevent the force-close this
-                //  method exists to guarantee.
-                boost::beast::get_lowest_layer(activeSocket->stream_)
-                    .expires_after(security::kHandshakeTimeout);
-                activeSocket->stream_.text(true);
-                activeSocket->stream_.async_write(
-                    boost::asio::buffer(*sharedMessage),
-                    //  The write's own error_code is intentionally ignored: whether it
-                    //  succeeded, failed, or timed out, the connection still
-                    //  force-closes either way, matching
-                    //  `ai/context/protocol/security.md`'s "Administrative session
-                    //  invalidation" best-effort ordering -- there is no stronger
-                    //  delivery guarantee to react to.
-                    [socket, sharedMessage, cancelAndClose](boost::beast::error_code,
-                                                            std::size_t) {
-                        auto activeSocket = socket.lock();
-                        if (!activeSocket) {
-                            return;
-                        }
-                        cancelAndClose(*activeSocket);
-                    });
-            } catch (...) {
-                //  The write itself failed to even start -- best-effort delivery permits
-                //  skipping the notification, matching the handshake-not-settled branch
-                //  above, but the connection must still be force-closed rather than left
-                //  open on this rare path.
-                cancelAndClose(*activeSocket);
-            }
-        });
+        boost::asio::post(*ioContext_,
+                          [socket = std::move(socket), sharedMessage] {
+                              auto activeSocket = socket.lock();
+                              if (!activeSocket) {
+                                  return;
+                              }
+                              auto cancelAndClose = [](Socket& target) noexcept {
+                                  try {
+                                      auto& tcpStream = target.stream_.next_layer();
+                                      tcpStream.cancel();
+                                      tcpStream.close();
+                                  } catch (...) {
+                                      //  Cancellation remains best-effort at this noexcept boundary.
+                                  }
+                              };
+                              if (!activeSocket->handshakeSettled_.load(std::memory_order_acquire)) {
+                                  //  Accept()'s own handshake operation may still be using stream_ --
+                                  //  starting a websocket-level write now would race it unsafely.
+                                  //  Best-effort delivery permits skipping the notification here; the
+                                  //  connection is still force-closed.
+                                  cancelAndClose(*activeSocket);
+                                  return;
+                              }
+                              try {
+                                  //  The connection's own read loop may currently be blocked inside
+                                  //  ReadMessage, which explicitly disables the write timeout for its own
+                                  //  duration (DisableWriteTimeout) -- this write needs its own bounded
+                                  //  deadline so a stalled peer still cannot prevent the force-close this
+                                  //  method exists to guarantee.
+                                  boost::beast::get_lowest_layer(activeSocket->stream_)
+                                      .expires_after(security::kHandshakeTimeout);
+                                  activeSocket->stream_.text(true);
+                                  activeSocket->stream_.async_write(
+                                      boost::asio::buffer(*sharedMessage),
+                                      //  The write's own error_code is intentionally ignored: whether it
+                                      //  succeeded, failed, or timed out, the connection still
+                                      //  force-closes either way, matching
+                                      //  `ai/context/protocol/security.md`'s "Administrative session
+                                      //  invalidation" best-effort ordering -- there is no stronger
+                                      //  delivery guarantee to react to.
+                                      [socket, sharedMessage, cancelAndClose](boost::beast::error_code,
+                                                                              std::size_t) {
+                                          auto activeSocket = socket.lock();
+                                          if (!activeSocket) {
+                                              return;
+                                          }
+                                          cancelAndClose(*activeSocket);
+                                      });
+                              } catch (...) {
+                                  //  The write itself failed to even start -- best-effort delivery permits
+                                  //  skipping the notification, matching the handshake-not-settled branch
+                                  //  above, but the connection must still be force-closed rather than left
+                                  //  open on this rare path.
+                                  cancelAndClose(*activeSocket);
+                              }
+                          });
     } catch (...) {
         //  Best-effort noexcept boundary, matching Shutdown().
     }
@@ -223,7 +257,7 @@ std::expected<void, SessionError> WebSocketSession::Accept() {
     //  own wait is bounded too, not just reads that come after it.
     SetTimeoutPolicy(security::kHandshakeTimeout);
 
-    auto ec = RunOperation(socket_->ioContext_, [this](auto completion) {
+    auto ec = RunOperation(*socket_->ioContext_, [this](auto completion) {
         socket_->stream_.async_accept(std::move(completion));
     });
     //  No further operation belonging to the handshake itself remains in flight on
@@ -256,7 +290,7 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage(
     //  shared socket handle, not `this`, so a fired-but-canceled watchdog stays
     //  safe even if this ReadMessage call (and its stack-local timer) has already
     //  returned.
-    boost::asio::steady_timer idleWatchdog(socket_->ioContext_);
+    boost::asio::steady_timer idleWatchdog(*socket_->ioContext_);
     if (idleDeadline.has_value()) {
         idleWatchdog.expires_at(*idleDeadline);
         idleWatchdog.async_wait([socket = socket_](boost::system::error_code ec) {
@@ -267,7 +301,7 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage(
     }
 
     boost::beast::flat_buffer buffer;
-    auto ec = RunOperation(socket_->ioContext_, [this, &buffer](auto completion) {
+    auto ec = RunOperation(*socket_->ioContext_, [this, &buffer](auto completion) {
         socket_->stream_.async_read(buffer, std::move(completion));
     });
     idleWatchdog.cancel();
@@ -275,7 +309,7 @@ std::expected<std::string, SessionError> WebSocketSession::ReadMessage(
     //  observes operation_aborted) so it never sits unprocessed on the io_context
     //  across calls -- RunOperation restarts this same io_context on every call
     //  and expects no leftover pending work.
-    socket_->ioContext_.poll();
+    socket_->ioContext_->poll();
 
     if (ec == boost::beast::websocket::error::message_too_big) {
         return std::unexpected(SessionError::kFrameTooLarge);
@@ -296,7 +330,7 @@ WebSocketSession::WriteMessage(const std::string& text) {
     }
     ArmWriteTimeout(operationTimeout_);
     socket_->stream_.text(true);
-    auto ec = RunOperation(socket_->ioContext_, [this, &text](auto completion) {
+    auto ec = RunOperation(*socket_->ioContext_, [this, &text](auto completion) {
         socket_->stream_.async_write(boost::asio::buffer(text),
                                      std::move(completion));
     });
@@ -311,7 +345,7 @@ void WebSocketSession::Close() {
         return;
     }
     ArmWriteTimeout(security::kHandshakeTimeout);
-    static_cast<void>(RunOperation(socket_->ioContext_, [this](auto completion) {
+    static_cast<void>(RunOperation(*socket_->ioContext_, [this](auto completion) {
         socket_->stream_.async_close(boost::beast::websocket::close_code::normal,
                                      std::move(completion));
     }));

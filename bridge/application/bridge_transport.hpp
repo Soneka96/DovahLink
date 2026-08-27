@@ -21,8 +21,8 @@ class IBridgeTransport {
 };
 
 ///  Provides the coordinator's transport lifecycle for two already-bound
-///  loopback listeners. The synchronous bridge has no asynchronous completions,
-///  and accept workers own admission.
+///  loopback listeners. Accept-loop ownership and admission remain with the
+///  worker pool; this adapter closes listeners after workers have joined.
 class BridgeTransport : public IBridgeTransport {
   public:
     ///  Keeps references to the already-bound IPv4 and IPv6 listeners.

@@ -158,7 +158,7 @@ TEST_CASE("a real client can connect to the IPv6 listener and the server can "
     CHECK(accepted.remote_endpoint().address().is_loopback());
 }
 
-TEST_CASE("Close makes a subsequent AcceptLoopbackOnly fail",
+TEST_CASE("Close makes the listener unavailable for a subsequent accept loop",
           "[transport][listener]") {
     boost::asio::io_context ioc;
     auto listener =
@@ -167,9 +167,13 @@ TEST_CASE("Close makes a subsequent AcceptLoopbackOnly fail",
 
     listener->Close();
 
-    auto accepted = listener->AcceptLoopbackOnly();
-    REQUIRE_FALSE(accepted.has_value());
-    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+    bool handlerCalled = false;
+    listener->RunAcceptLoop([&handlerCalled](auto) {
+        handlerCalled = true;
+        return false;
+    });
+    CHECK_FALSE(handlerCalled);
+    CHECK_FALSE(listener->Acceptor().is_open());
 }
 
 TEST_CASE("Close is safe to call more than once",
@@ -182,8 +186,7 @@ TEST_CASE("Close is safe to call more than once",
     listener->Close();
     listener->Close();
 
-    auto accepted = listener->AcceptLoopbackOnly();
-    CHECK_FALSE(accepted.has_value());
+    CHECK_FALSE(listener->Acceptor().is_open());
 }
 
 TEST_CASE("RunAcceptLoop accepts a client and Close cancels its next accept",

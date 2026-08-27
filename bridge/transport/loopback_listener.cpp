@@ -68,29 +68,11 @@ LoopbackListener::Create(boost::asio::io_context& ioc, IpVersion version,
 LoopbackListener::LoopbackListener(
     boost::asio::io_context& ioc, boost::asio::ip::tcp::acceptor acceptor)
     : ioContext_(&ioc), acceptor_(std::move(acceptor)),
+      acceptedSocketIoContext_(std::make_shared<boost::asio::io_context>()),
       lifecycle_(std::make_shared<LifecycleState>()) {}
 
 boost::asio::ip::tcp::acceptor& LoopbackListener::Acceptor() {
     return acceptor_;
-}
-
-std::expected<boost::asio::ip::tcp::socket, AcceptError>
-LoopbackListener::AcceptLoopbackOnly() {
-    boost::system::error_code acceptEc;
-    boost::asio::ip::tcp::socket socket = acceptor_.accept(acceptEc);
-    if (acceptEc) {
-        return std::unexpected(AcceptError::kAcceptFailed);
-    }
-
-    boost::system::error_code remoteEc;
-    boost::asio::ip::tcp::endpoint remote = socket.remote_endpoint(remoteEc);
-    if (remoteEc || !IsAcceptablePeerAddress(remote.address())) {
-        boost::system::error_code closeEc;
-        socket.close(closeEc);
-        return std::unexpected(AcceptError::kNonLoopbackPeerRejected);
-    }
-
-    return socket;
 }
 
 void LoopbackListener::RunAcceptLoop(AcceptHandler handler) {
@@ -125,7 +107,8 @@ void LoopbackListener::RunAcceptLoop(AcceptHandler handler) {
             }
 
             auto socket =
-                std::make_shared<boost::asio::ip::tcp::socket>(*ioContext_);
+                std::make_shared<boost::asio::ip::tcp::socket>(
+                    *acceptedSocketIoContext_);
             acceptor_.async_accept(
                 *socket,
                 [this, lifecycle, handler, acceptNext, workGuard,
@@ -257,6 +240,7 @@ void LoopbackListener::Close() noexcept {
                 boost::system::error_code ec;
                 acceptor_.cancel(ec);
                 acceptor_.close(ec);
+                ioContext_->stop();
             });
         } catch (...) {
             //  Stopping the listener's dedicated context lets RunAcceptLoop()

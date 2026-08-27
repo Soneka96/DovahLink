@@ -93,7 +93,8 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  Runs one accepted connection's full session (`IConnectionSession::Run`,
     ///  wrapped in `workerRunner`'s exception containment) on its own thread,
     ///  moving `slotLease` into that thread so the slot is held for the session's
-    ///  real lifetime. Letting `AcceptLoop` return to `AcceptLoopbackOnly()`
+    ///  real lifetime. Letting `AcceptLoop` return to the listener's serialized
+    ///  accept operation
     ///  immediately after spawning this -- rather than blocking on the session
     ///  itself -- is what lets a second connection attempt arriving while this one
     ///  is still live actually reach `ConnectionSlot::TryAcquire()` and be

@@ -30,10 +30,8 @@ TEST_CASE(
     transport.CancelCompletions();
     transport.Close();
 
-    auto acceptedV4 = listenerV4->AcceptLoopbackOnly();
-    auto acceptedV6 = listenerV6->AcceptLoopbackOnly();
-    CHECK_FALSE(acceptedV4.has_value());
-    CHECK_FALSE(acceptedV6.has_value());
+    CHECK_FALSE(listenerV4->Acceptor().is_open());
+    CHECK_FALSE(listenerV6->Acceptor().is_open());
 }
 
 TEST_CASE("BridgeTransport::Close is safe to call after the acceptors are "
@@ -71,9 +69,7 @@ TEST_CASE("BridgeTransport::Start and CancelCompletions never touch the "
           "[application][bridge_transport]") {
     StrictMock<MockLoopbackListener> listenerV4;
     StrictMock<MockLoopbackListener> listenerV6;
-    EXPECT_CALL(listenerV4, AcceptLoopbackOnly()).Times(0);
     EXPECT_CALL(listenerV4, Close()).Times(0);
-    EXPECT_CALL(listenerV6, AcceptLoopbackOnly()).Times(0);
     EXPECT_CALL(listenerV6, Close()).Times(0);
 
     BridgeTransport transport(listenerV4, listenerV6);
