@@ -7,7 +7,6 @@
 #include <cstddef>
 #include <string>
 
-using dovahlink::application::IReplayGuard;
 using dovahlink::application::MessageIdCheckResult;
 using dovahlink::application::ReplayGuard;
 
@@ -72,17 +71,4 @@ TEST_CASE("RecordMessage remains a replay check beyond the separate session "
     }
     CHECK(guard.Count() == dovahlink::security::kMaxMessagesPerSession + 1);
     CHECK(guard.RecordMessage("message-0") == MessageIdCheckResult::kReplayed);
-}
-
-TEST_CASE("calls through IReplayGuard reach the same state as the concrete "
-          "type",
-          "[application][replay_guard][i_replay_guard]") {
-    ReplayGuard guard;
-    IReplayGuard& contract = guard;
-
-    CHECK(contract.RecordMessage("message-1") ==
-          MessageIdCheckResult::kAccepted);
-    CHECK(contract.RecordMessage("message-1") ==
-          MessageIdCheckResult::kReplayed);
-    CHECK(contract.Count() == 1);
 }

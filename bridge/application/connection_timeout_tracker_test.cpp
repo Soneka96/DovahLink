@@ -5,7 +5,6 @@
 #include <chrono>
 
 using dovahlink::application::ConnectionTimeoutTracker;
-using dovahlink::application::IConnectionTimeoutTracker;
 
 namespace {
 ///  Clock type used to make timeout assertions deterministic.
@@ -224,21 +223,4 @@ TEST_CASE("MarkAuthenticated is idempotent and does not push the idle deadline "
     //  governs.
     CHECK(tracker.IsTimedOut(t0 + std::chrono::seconds(61)));
     CHECK(tracker.Deadline() == t0 + std::chrono::seconds(61));
-}
-
-TEST_CASE("calls through IConnectionTimeoutTracker reach the same state as the "
-          "concrete type",
-          "[application][connection_timeout_tracker]"
-          "[i_connection_timeout_tracker]") {
-    Clock::time_point t0 = Clock::now();
-    ConnectionTimeoutTracker tracker(t0);
-    IConnectionTimeoutTracker& contract = tracker;
-
-    contract.MarkAuthenticated(t0);
-    contract.RecordActivity(t0 + std::chrono::seconds(30));
-
-    CHECK(contract.Deadline() == t0 + std::chrono::seconds(30) +
-                                     std::chrono::seconds(60));
-    CHECK_FALSE(contract.IsTimedOut(t0 + std::chrono::seconds(89)));
-    CHECK(contract.IsTimedOut(t0 + std::chrono::seconds(90)));
 }

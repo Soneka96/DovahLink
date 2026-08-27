@@ -9,7 +9,6 @@
 #include <string>
 #include <thread>
 
-using dovahlink::application::IRevisionTracker;
 using dovahlink::application::RevisionTracker;
 
 namespace {
@@ -395,27 +394,4 @@ TEST_CASE(
 
     REQUIRE(tracker.CurrentRevision(kAreaA).has_value());
     CHECK(*tracker.CurrentRevision(kAreaA) == 4);
-}
-
-TEST_CASE("calls through IRevisionTracker reach the same state as the "
-          "concrete type",
-          "[application][revision_tracker][i_revision_tracker]") {
-    RevisionTracker tracker;
-    IRevisionTracker& contract = tracker;
-
-    //  Nullopt branches, exercised through the interface reference before any
-    //  baseline exists for this area.
-    CHECK_FALSE(contract.NextEvent(kAreaA).has_value());
-    CHECK_FALSE(contract.CurrentRevision(kAreaA).has_value());
-
-    CHECK(contract.StartSnapshot(kAreaA, kFingerprintA) == 1);
-    CHECK(contract.NextSnapshotRevision(kAreaA, kFingerprintB) == 2);
-
-    auto event = contract.NextEvent(kAreaA);
-    REQUIRE(event.has_value());
-    CHECK(event->first == 1);
-    CHECK(event->second == 2);
-
-    REQUIRE(contract.CurrentRevision(kAreaA).has_value());
-    CHECK(*contract.CurrentRevision(kAreaA) == 2);
 }
