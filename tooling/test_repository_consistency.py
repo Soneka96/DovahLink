@@ -129,8 +129,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertIn(setting, style)
 
-    def test_bridge_ci_covers_release_validation_and_reusable_diagnostics(self) -> None:
-        """Require release coverage, dependency caching, cancellation, and failure diagnostics."""
+    def test_bridge_ci_covers_matrix_validation_and_reusable_diagnostics(self) -> None:
+        """Require matrix coverage, dependency caching, cancellation, and diagnostics."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
 
         self.assertIn("  workflow_dispatch:", workflow)
@@ -140,6 +140,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("  cancel-in-progress: true", workflow)
         self.assertIn("timeout-minutes: 30", workflow)
+        self.assertIn(
+            "    name: Bridge ${{ matrix.configuration }} Build & Test", workflow
+        )
+        self.assertIn(
+            "    strategy:\n"
+            "      fail-fast: false\n"
+            "      matrix:\n"
+            "        configuration: [debug, release]",
+            workflow,
+        )
         # A job-level env: cannot reference the runner context (unresolved until a runner picks up
         # the job's steps); VCPKG_DEFAULT_BINARY_CACHE is computed in its own step instead.
         self.assertNotIn(
@@ -222,6 +232,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertIn(f"      - name: {step_name}", workflow)
 
+        for step_name in ("Configure Debug", "Build Debug", "Test Debug"):
+            self.assertIn(
+                f"      - name: {step_name}\n"
+                "        if: matrix.configuration == 'debug'",
+                workflow,
+            )
+        for step_name in ("Configure Release", "Build Release", "Test Release"):
+            self.assertIn(
+                f"      - name: {step_name}\n"
+                "        if: matrix.configuration == 'release'",
+                workflow,
+            )
+
         self.assertIn("run: cmake --preset windows-x64-release", workflow)
         self.assertIn("run: cmake --build --preset windows-x64-release", workflow)
         self.assertIn(
@@ -237,9 +260,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Maintained stable release; no stable Node 24 replacement is available yet.",
             workflow,
         )
-        self.assertIn("name: bridge-ci-diagnostics-${{ github.run_id }}", workflow)
-        self.assertIn("bridge/build/windows-x64-debug/Testing/", workflow)
-        self.assertIn("bridge/build/windows-x64-release/Testing/", workflow)
+        self.assertIn(
+            "name: bridge-ci-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.configuration }}",
+            workflow,
+        )
+        self.assertIn(
+            "path: bridge/build/windows-x64-${{ matrix.configuration }}/Testing/",
+            workflow,
+        )
+        self.assertIn(
+            "  bridge-build-and-test:\n"
+            "    name: Bridge Build & Test\n"
+            "    if: always() && !cancelled()\n"
+            "    needs: build-and-test\n"
+            "    runs-on: ubuntu-latest",
+            workflow,
+        )
+        self.assertIn("if: needs.build-and-test.result != 'success'", workflow)
 
     def test_app_ci_covers_flutter_quality_and_windows_build(self) -> None:
         """Require Flutter generation, analysis, tests, and desktop build coverage."""

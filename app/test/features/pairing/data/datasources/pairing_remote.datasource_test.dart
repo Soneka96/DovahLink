@@ -13,13 +13,13 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 import '../../../../fixtures/fixtures.dart';
 
-/// Mocks the wrapped SDK client for [PairingRemoteDataSourceImpl] tests.
+/// Mocks the wrapped SDK client for [PairingRemoteDataSource] tests.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
 
-/// Exercises [PairingRemoteDataSourceImpl]'s exception-to-[Failure] mapping.
+/// Exercises [PairingRemoteDataSource]'s exception-to-[Failure] mapping.
 void main() {
   late MockDovahLinkClient mockClient;
-  late PairingRemoteDataSourceImpl dataSource;
+  late PairingRemoteDataSource dataSource;
 
   setUpAll(() {
     registerFallbackValue(Uri.parse('ws://127.0.0.1:58231/'));
@@ -27,7 +27,7 @@ void main() {
 
   setUp(() {
     mockClient = MockDovahLinkClient();
-    dataSource = PairingRemoteDataSourceImpl(mockClient);
+    dataSource = PairingRemoteDataSource(mockClient);
   });
 
   group('Method authenticate behaves correctly', () {

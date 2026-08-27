@@ -68,18 +68,26 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   `.datasource.dart`.
 - **Datasource files and classes:** Name datasource files `feature_local.datasource.dart` and
   `feature_remote.datasource.dart` (always feature-first, snake_case with underscores). Every
-  datasource file requires both an abstract interface and a concrete implementation. Class names
-  use PascalCase: `FeatureLocalDataSource` (abstract interface, no prefix) and `FeatureLocalDataSourceImpl`
-  (concrete implementation). Example: `connection_local.datasource.dart` contains both
-  `ConnectionLocalDataSource` (abstract) and `ConnectionLocalDataSourceImpl` (concrete). For
-  multi-word feature names, use continuous snake_case in filenames and PascalCase in class names:
-  `user_auth_local.datasource.dart` → `UserAuthLocalDataSource` (abstract) and
-  `UserAuthLocalDataSourceImpl` (concrete). When a feature requires multiple local or remote
-  datasources, suffix the datasource name: `feature_cache_local.datasource.dart` contains
-  `FeatureCacheLocalDataSource` (abstract) and `FeatureCacheLocalDataSourceImpl` (concrete). This
-  follows the same feature-first pattern as `feature.repository.dart`.
-- Use `feature.repository.dart` for implementations and `Ifeature.repository.dart` for domain
-  interfaces. Keep use-case params in `domain/usecases/params/`, never in the use-case file.
+  datasource file requires both an abstract interface and a concrete implementation, per
+  `ai/context/dart/dart-style.md`'s "Interface naming": the interface takes the `I`-prefix and the
+  implementation keeps the bare capability name, no `Impl` suffix. Example:
+  `connection_local.datasource.dart` contains both `IConnectionLocalDataSource` (abstract) and
+  `ConnectionLocalDataSource` (concrete). For multi-word feature names, use continuous snake_case in
+  filenames and PascalCase in class names: `user_auth_local.datasource.dart` →
+  `IUserAuthLocalDataSource` (abstract) and `UserAuthLocalDataSource` (concrete). When a feature
+  requires multiple local or remote datasources, suffix the datasource name:
+  `feature_cache_local.datasource.dart` contains `IFeatureCacheLocalDataSource` (abstract) and
+  `FeatureCacheLocalDataSource` (concrete). This follows the same feature-first pattern as
+  `feature.repository.dart`.
+- **Repository files and classes:** the domain interface and its data-layer implementation live in
+  different layers, so they cannot share one file the way a datasource pair does -- this is the
+  domain/data layer-boundary carve-out `dart-style.md`'s "Interface naming" documents. The
+  implementation stays `feature.repository.dart` in `data/repositories/`, holding the bare
+  `FeatureRepository` class. The interface lives in `feature_repository.dart` in
+  `domain/repositories/` (snake_case, matching the datasource convention above -- never
+  `Ifeature.repository.dart`; a Dart filename never takes the `I`-prefix), holding
+  `IFeatureRepository`. Keep use-case params in `domain/usecases/params/`, never in the use-case
+  file.
 - Every data model has a corresponding domain entity in `domain/entities/`, and the model extends that entity. Models own serialization; entities remain Flutter- and infrastructure-independent.
 - When a generated JSON model extends a concrete entity and needs typed model fields for nested
   serialization, its constructor forwards those fields through an explicit `super(...)` initializer

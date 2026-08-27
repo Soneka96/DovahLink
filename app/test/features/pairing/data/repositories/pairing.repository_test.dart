@@ -5,28 +5,28 @@ import 'package:mocktail/mocktail.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 import '../../../../fixtures/fixtures.dart';
 
-/// Mocks the remote data source for [PairingRepositoryImpl] tests.
+/// Mocks the remote data source for [PairingRepository] tests.
 class MockPairingRemoteDataSource extends Mock
-    implements PairingRemoteDataSource {}
+    implements IPairingRemoteDataSource {}
 
-/// Exercises [PairingRepositoryImpl]'s pass-through delegation.
+/// Exercises [PairingRepository]'s pass-through delegation.
 void main() {
   late MockPairingRemoteDataSource mockDataSource;
-  late PairingRepositoryImpl repository;
+  late PairingRepository repository;
 
   setUp(() {
     mockDataSource = MockPairingRemoteDataSource();
-    repository = PairingRepositoryImpl(mockDataSource);
+    repository = PairingRepository(mockDataSource);
   });
 
-  group('PairingRepositoryImpl', () {
-    test('PairingRepositoryImpl is usable as IPairingRepository', () {
+  group('PairingRepository', () {
+    test('PairingRepository is usable as IPairingRepository', () {
       expect(repository, isA<IPairingRepository>());
     });
   });

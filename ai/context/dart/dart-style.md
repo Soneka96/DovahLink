@@ -45,6 +45,14 @@ organization" below, named after the implementation (`ISessionService`/`SessionS
 test double -- is not eligible for that shared file and keeps its own, the same carve-out
 `ai/context/skse/cpp-style.md` documents for `ITrustStorePersistence`.
 
+A second carve-out applies when a package's own layer-direction rule requires the interface and its
+implementation to live in different layers -- for example `ai/context/flutter/architecture.md`'s
+"domain must not import data" -- even though only one production implementation exists. The
+interface keeps its own file in the layer that declares it; the implementation keeps its own file in
+the layer that provides it. `IPairingRepository` (`app/lib/features/pairing/domain/repositories/
+pairing_repository.dart`) and `PairingRepository` (`app/lib/features/pairing/data/repositories/
+pairing.repository.dart`) are this carve-out's first instance.
+
 ## File organization
 
 One primary public class, mixin, or extension type per file, per `ai/context/common.md`'s shared

@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/bridge_list_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -63,7 +63,7 @@ void main() {
     test('initDependencies registers the pairing remote data source', () {
       initDependencies();
 
-      expect(sl.isRegistered<PairingRemoteDataSource>(), isTrue);
+      expect(sl.isRegistered<IPairingRemoteDataSource>(), isTrue);
     });
 
     test('initDependencies registers the pairing repository', () {

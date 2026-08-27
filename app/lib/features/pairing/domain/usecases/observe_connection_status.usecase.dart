@@ -1,4 +1,4 @@
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import 'package:dovahlink_client/shared/usecase/usecase_stream.dart';
