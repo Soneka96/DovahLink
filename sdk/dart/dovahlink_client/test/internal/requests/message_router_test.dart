@@ -17,7 +17,7 @@ class MockPendingOperationBookkeeping extends Mock
     implements PendingOperationBookkeeping {}
 
 /// Mock session service used to capture router decisions.
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Fake envelope used to register mocktail fallbacks.
 class FakeEnvelope extends Fake implements Envelope {}

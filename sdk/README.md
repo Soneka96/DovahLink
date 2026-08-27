@@ -45,7 +45,7 @@ sdk/
 
 It currently provides the connect/hello/pairing/disconnect protocol client, proven against the real
 bridge harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-recovery persistence
-behind the `ClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
+behind the `IClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
 see `ai/context/sdk/persistence.md`. The official Flutter app depends on it
 (`dovahlink_client_sdk` in `app/pubspec.yaml`), but nothing in the app consumes it yet; the
 production pairing UI is a later, separate build. Phase 5's remaining scope -- Bridge-version

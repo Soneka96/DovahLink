@@ -28,6 +28,23 @@ area; only genuinely language-wide conventions live here.
 - DTOs, entities, enums, pure functions, and other data-only types are not wrapped in artificial
   interfaces. This rule is adopted phase-forward and does not reopen completed phases.
 
+## Interface naming
+
+Every Dart `abstract interface class` declaration -- the explicit contract required by "Behavior-
+bearing boundaries" above -- uses the `I`-prefix convention: `ISessionService`, `IClientStorage`.
+Its one concrete implementation keeps the bare, unprefixed name rather than adding an `Impl` suffix:
+a major-capability implementation is named after the capability itself (`ISessionService`/
+`SessionService`), while a platform or leaf implementation uses its own direct descriptive name
+(`IClientStorage`/`DpapiClientStorage`). This rule is adopted phase-forward, per package, the same
+way the mandatory abstraction rule itself is: it applies once a package's own naming migration
+lands and does not reopen a package that has not yet migrated.
+
+When the interface genuinely has one concrete implementation, the two share one file per "File
+organization" below, named after the implementation (`ISessionService`/`SessionService` both live in
+`session_service.dart`). An interface with more than one real production implementation -- not a
+test double -- is not eligible for that shared file and keeps its own, the same carve-out
+`ai/context/skse/cpp-style.md` documents for `ITrustStorePersistence`.
+
 ## File organization
 
 One primary public class, mixin, or extension type per file, per `ai/context/common.md`'s shared

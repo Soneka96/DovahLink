@@ -7,10 +7,10 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Mock transport used to isolate teardown coordination from socket I/O.
-class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
+class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 
 /// Mock session state used to verify coordinator transitions, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed with closures over this test
@@ -28,7 +28,7 @@ class MockLifecycleOperationQueue extends Mock
 
 /// Builds a coordinator from the supplied test doubles and state.
 ConnectionTeardownCoordinator buildCoordinator({
-  required DovahLinkTransport transport,
+  required IDovahLinkTransport transport,
   required LifecycleOperationQueue lifecycleQueue,
   required void Function(
     Exception reason, {

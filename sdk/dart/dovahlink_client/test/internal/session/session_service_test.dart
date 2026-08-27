@@ -7,32 +7,32 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
-/// Mock transport used to isolate [SessionServiceImpl]'s lifecycle behavior.
-class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
+/// Mock transport used to isolate [SessionService]'s lifecycle behavior.
+class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 
 /// Mock session state used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- its own
 /// state-derivation behavior (for example preserving `reconnecting` through a failed recovery
 /// attempt) is `session_state_test.dart`'s responsibility; this file only proves
-/// [SessionServiceImpl] calls the right transition method with the right arguments.
+/// [SessionService] calls the right transition method with the right arguments.
 class MockSessionState extends Mock implements SessionState {}
 
 /// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed
 /// to delegate to a real, test-local [LifecycleOperationQueue] instance purely so this file's
-/// racing/ordering tests exercise [SessionServiceImpl]'s own queueing usage under genuine
-/// concurrent-call scheduling, without [SessionServiceImpl] itself ever depending on anything but
+/// racing/ordering tests exercise [SessionService]'s own queueing usage under genuine
+/// concurrent-call scheduling, without [SessionService] itself ever depending on anything but
 /// the mock.
 class MockLifecycleOperationQueue extends Mock
     implements LifecycleOperationQueue {}
 
 /// Mock teardown coordinator used per `ai/context/sdk/testing.md`'s "Service test boundaries" --
 /// its own generation-check dedup logic is `connection_teardown_coordinator_test.dart`'s
-/// responsibility; this file only proves [SessionServiceImpl] calls it with the right arguments
+/// responsibility; this file only proves [SessionService] calls it with the right arguments
 /// for each reactive signal.
 class MockConnectionTeardownCoordinator extends Mock
     implements ConnectionTeardownCoordinator {}
@@ -41,13 +41,13 @@ class MockConnectionTeardownCoordinator extends Mock
 class FakeStreamSubscription extends Fake
     implements StreamSubscription<String> {}
 
-/// Runs [SessionServiceImpl] behavior tests.
+/// Runs [SessionService] behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
   late MockSessionState state;
   late MockLifecycleOperationQueue lifecycleQueue;
   late MockConnectionTeardownCoordinator teardownCoordinator;
-  late SessionServiceImpl service;
+  late SessionService service;
   late StreamController<String> messages;
   late List<Exception> teardownReasons;
   late List<bool> teardownOrphanFlags;
@@ -129,7 +129,7 @@ void main() {
     });
     when(() => state.attachMessageSubscription(any())).thenAnswer((_) {});
     when(() => state.invalidate(any())).thenAnswer((_) {});
-    service = SessionServiceImpl(
+    service = SessionService(
       transport: transport,
       state: state,
       lifecycleQueue: lifecycleQueue,
@@ -228,6 +228,32 @@ void main() {
         );
         verify(() => state.markConnectFailed()).called(1);
         verifyNever(() => state.markConnected());
+        verifyNever(() => transport.close());
+      },
+    );
+
+    test(
+      'Method connect times out and abandons the transport when connect() never completes',
+      () async {
+        when(
+          () => transport.connect(any()),
+        ).thenAnswer((_) => Completer<void>().future);
+        final SessionService timeoutService = SessionService(
+          transport: transport,
+          state: state,
+          lifecycleQueue: lifecycleQueue,
+          teardownCoordinator: teardownCoordinator,
+          connectTimeout: const Duration(milliseconds: 10),
+        );
+
+        await expectLater(
+          timeoutService.connect(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verify(() => transport.close()).called(1);
+        verify(() => state.markConnectFailed()).called(1);
+        verifyNever(() => state.markConnected());
+        verifyNever(() => transport.messages);
       },
     );
 
@@ -259,6 +285,7 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verify(() => state.markConnectFailed()).called(1);
+        verifyNever(() => transport.close());
       },
     );
   });
@@ -557,7 +584,7 @@ void main() {
         );
 
         verify(() => state.invalidate(any())).called(1);
-        // The later onUnhealthy still calls tearDown -- SessionServiceImpl itself does not special-
+        // The later onUnhealthy still calls tearDown -- SessionService itself does not special-
         // case an already-invalidated session for onUnhealthy; ConnectionTeardownCoordinator's own
         // isAdministrativelyInvalidated no-op (proven in its own test file) is what makes this safe.
         expect(teardownReasons, hasLength(1));

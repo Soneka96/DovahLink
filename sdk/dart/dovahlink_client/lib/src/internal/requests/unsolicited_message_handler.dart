@@ -9,11 +9,11 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Routes decoded unsolicited messages to their typed SDK lifecycle surface.
 class UnsolicitedMessageHandler {
   /// Where lifecycle events and malformed unsolicited messages are reported.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Creates a handler reporting lifecycle events and protocol violations through
   /// [sessionService].
-  UnsolicitedMessageHandler({required SessionService sessionService})
+  UnsolicitedMessageHandler({required ISessionService sessionService})
     : _sessionService = sessionService;
 
   /// Handles one unsolicited [envelope], ignoring known unsupported message types.

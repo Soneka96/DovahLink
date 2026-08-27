@@ -31,3 +31,12 @@ const List<Duration> kReconnectAttemptDelays = <Duration>[
 /// including connection and re-authentication time. Recovery stops once this elapses even if
 /// [kReconnectAttemptDelays] has attempts remaining.
 const Duration kReconnectDeadline = Duration(seconds: 10);
+
+// ---- Transport ----
+
+/// The bounded wait allowed for one transport `connect()` attempt before it is treated as failed
+/// and abandoned, so a socket handshake that never completes cannot block `SessionService.connect`
+/// -- and, in turn, `ReconnectService`'s own bounded-recovery deadline -- indefinitely. An initial
+/// value for this local, same-machine/LAN connection, not yet tuned against real-world latency
+/// data.
+const Duration kConnectTimeout = Duration(seconds: 5);

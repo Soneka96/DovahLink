@@ -54,7 +54,7 @@ Future<HarnessProcess> _startHarness() async {
 /// throw, so a failure partway through this setup (e.g. `hello` rejecting) still cleans up rather
 /// than leaking the socket.
 Future<DovahLinkClient> _startUnpairedSession(
-  ClientStorage storage,
+  IClientStorage storage,
   Uri bridgeUri,
 ) async {
   final DovahLinkClient client = DovahLinkClient(storage: storage);
@@ -72,7 +72,7 @@ void main() {
       'Behavior end-to-end pairing reaches trusted and preserves the credential across reconnect',
       () async {
         final HarnessProcess harness = await _startHarness();
-        final ClientStorage storage = InMemoryClientStorage();
+        final IClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(
           storage,
           harness.bridgeUri,
@@ -147,7 +147,7 @@ void main() {
         // disconnect bridge-side connection-liveness behavior is Phase 3's own separate acceptance
         // concern, not this SDK-persistence recovery scenario.
         final HarnessProcess harness = await _startHarness();
-        final ClientStorage storage = InMemoryClientStorage();
+        final IClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(
           storage,
           harness.bridgeUri,
@@ -192,7 +192,7 @@ void main() {
       'Behavior end-to-end pairing discards a bridge-lost confirmation and returns to unpaired',
       () async {
         final HarnessProcess firstHarness = await _startHarness();
-        final ClientStorage storage = InMemoryClientStorage();
+        final IClientStorage storage = InMemoryClientStorage();
         final DovahLinkClient client = await _startUnpairedSession(
           storage,
           firstHarness.bridgeUri,

@@ -2,24 +2,24 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Mock session state used to isolate [SessionAdmissionServiceImpl]'s own behavior, per
+/// Mock session state used to isolate [SessionAdmissionService]'s own behavior, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
 class MockSessionState extends Mock implements SessionState {}
 
 /// Mock request service -- its own orphaned-retry logic is
-/// `request_service_impl_test.dart`'s responsibility; this file only proves
-/// [SessionAdmissionServiceImpl] calls it after admitting.
-class MockRequestService extends Mock implements RequestService {}
+/// `request_service_test.dart`'s responsibility; this file only proves
+/// [SessionAdmissionService] calls it after admitting.
+class MockRequestService extends Mock implements IRequestService {}
 
 /// Runs session-admission-service behavior tests.
 void main() {
   late MockSessionState state;
   late MockRequestService requestService;
-  late SessionAdmissionServiceImpl service;
+  late SessionAdmissionService service;
 
   setUpAll(() {
     registerFallbackValue(DovahLinkTrustState.unpaired);
@@ -35,7 +35,7 @@ void main() {
       ),
     ).thenAnswer((_) {});
     when(() => requestService.retryOrphanedOperations()).thenAnswer((_) {});
-    service = SessionAdmissionServiceImpl(
+    service = SessionAdmissionService(
       state: state,
       requestService: requestService,
     );
