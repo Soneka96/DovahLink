@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';

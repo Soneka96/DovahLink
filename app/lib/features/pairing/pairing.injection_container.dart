@@ -3,7 +3,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -22,7 +22,7 @@ void initPairingDependencies() {
     () => PairingRemoteDataSource(sl<DovahLinkClient>()),
   );
   sl.registerLazySingleton<IPairingRepository>(
-    () => PairingRepositoryImpl(sl<IPairingRemoteDataSource>()),
+    () => PairingRepository(sl<IPairingRemoteDataSource>()),
   );
   sl.registerLazySingleton<AuthenticateUseCase>(
     () => AuthenticateUseCase(sl<IPairingRepository>()),

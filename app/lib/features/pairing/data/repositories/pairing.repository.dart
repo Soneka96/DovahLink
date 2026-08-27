@@ -2,14 +2,14 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.repository.dart';
+import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Implements [IPairingRepository] over [IPairingRemoteDataSource].
-class PairingRepositoryImpl implements IPairingRepository {
+class PairingRepository implements IPairingRepository {
   /// Creates a repository backed by [_remoteDataSource].
-  PairingRepositoryImpl(this._remoteDataSource);
+  PairingRepository(this._remoteDataSource);
 
   /// The remote data source this repository delegates to.
   final IPairingRemoteDataSource _remoteDataSource;
