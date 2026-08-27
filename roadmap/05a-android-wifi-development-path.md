@@ -20,6 +20,10 @@ port into the app.
 ### Scope and behavior
 
 - Add Android as a supported development target for the official Flutter client.
+- Keep the Stage 5A Android client landscape-only and reuse the same primary second-screen layout
+  structure/model as the Windows client. This shared layout must still respond to the phone's smaller
+  physical viewport through appropriate sizing, scrolling, and existing responsive minimum
+  constraints; reusing the layout model does not mean using fixed desktop pixel dimensions.
 - Add the Android implementation of the SDK's `IClientStorage` platform port using an approved
   Android-appropriate secure-storage primitive. The Android adapter owns the same SDK state as the
   Windows adapter: `clientId`, trusted-device credential, and pairing recovery state.
@@ -36,7 +40,8 @@ port into the app.
   `58231` value is not a Bridge identity and clients must not depend on it once discovery is active.
 - Preserve the existing user flow: entering the app shows discovered Bridge candidates, selecting a
   candidate carries that candidate into pairing, and pairing/authentication connects to the selected
-  endpoint. The app retains manual endpoint entry as a recovery fallback.
+  endpoint. The app retains manual endpoint entry as a recovery fallback, and that fallback follows
+  the same Bridge-authentication-before-client-pairing sequence as discovered candidates.
 - Use the approved LAN security design before accepting a non-loopback client. Discovery is not
   authentication: the implementation must authenticate the intended Bridge, use established
   authenticated encryption, preserve session binding and replay protection, and keep pairing,
@@ -48,9 +53,27 @@ port into the app.
 
 ### Required boundary decisions
 
-- The LAN threat model and authenticated-transport choice must be approved and recorded in the
-  protocol security context before implementation. This stage must not introduce an insecure
-  development-only LAN bypass that could become a product path.
+- Before implementing or enabling any non-loopback Bridge listener, the LAN threat model,
+  authenticated transport, and first-contact server/Bridge authentication or bootstrap mechanism
+  must be designed, approved, and documented in `ai/context/protocol/security.md`. This stage must
+  not introduce an insecure development-only LAN bypass that could become a product path.
+- Pairing authenticates the phone/client to the Bridge; it does not automatically authenticate the
+  Bridge to the phone. An mDNS/DNS-SD candidate must never become trusted merely because its
+  discovery metadata, service name, hostname, or endpoint matches the requested search. The approved
+  first-contact mechanism must cryptographically prove the intended Bridge identity before the
+  client treats the endpoint or its advertised metadata as trusted.
+- The required conceptual connection sequence is:
+
+  ```text
+  untrusted discovery candidate
+      -> connect to candidate endpoint
+      -> cryptographically authenticate/prove the intended Bridge identity through the approved bootstrap mechanism
+      -> perform or continue client pairing and session authentication
+      -> persist the appropriate trusted state
+  ```
+
+  The exact cryptographic mechanism is not selected by this roadmap slice; its design and ownership
+  belong in the approved protocol security context before implementation.
 - Bridge identity remains independent of hostname, IP address, port, discovery service name, or
   display name. A discovered endpoint is a connection candidate, not durable identity.
 - The discovery record is deliberately non-secret. A matching service name or search query reduces
@@ -75,6 +98,8 @@ deferred to later hardening.
 - No internet, hosted relay, account system, or cloud synchronization.
 - No background execution, push notifications, or full network-transition recovery while the app is
   suspended.
+- No portrait-specific Android layout or broader adaptive mobile/tablet presentation; those remain
+  Stage 23 work.
 - No iOS or tablet-specific presentation work.
 - No simultaneous desktop and phone clients; multi-client delivery remains Stage 9.
 - No automatic Bridge selection or resident monitor; candidate selection remains explicit and the
@@ -85,12 +110,23 @@ deferred to later hardening.
 
 - An Android debug build installs and launches on the supported development phone, and the SDK uses
   the Android storage adapter without importing or executing the Windows DPAPI implementation.
+- The Android build opens and returns to the app in the supported landscape orientation, never
+  selecting a portrait-specific UI path. It reuses the Windows client's primary second-screen layout
+  model on the supported phone's landscape viewport without clipping or unreachable controls, using
+  responsive sizing, scrolling, and minimum constraints where required.
 - Two Bridge instances can start without manual port editing, bind distinct automatically selected
   ports, and publish their actual endpoints without treating those ports as identity.
 - SDK discovery returns all valid same-LAN Bridge candidates, removes stale or expired candidates,
   deduplicates repeated advertisements, and ignores malformed or non-DovahLink records.
 - Discovery records contain no credential or developer token, and a spoofed or mismatched candidate
   cannot become a trusted Bridge merely by matching the service name or search query.
+- Before any client pairing attempt or credential persistence, the selected endpoint must complete
+  the approved first-contact Bridge-authentication/bootstrap proof. A spoofed, mismatched, or
+  unauthenticated endpoint aborts the flow before the client accepts its metadata, starts normal
+  pairing, or persists trusted state; manual endpoint entry is subject to the same rule.
+- The non-loopback listener remains disabled until the approved LAN threat model, authenticated
+  transport, and first-contact Bridge-authentication/bootstrap mechanism are documented in the
+  protocol security context, and runtime tests prove that unauthenticated peers are rejected.
 - The app displays the discovered candidates, preserves the selected candidate through navigation,
   and authenticates against that candidate's endpoint rather than the old static default URI.
 - A first-time phone connection completes the approved pairing flow; a later foreground reconnect
