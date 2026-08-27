@@ -146,7 +146,7 @@ LoopbackListener::AcceptLoopbackOnly() {
         }
     }
 
-    if (closeRequested || failure) {
+    if (failure) {
         boost::system::error_code closeEc;
         acceptor_.close(closeEc);
     }
@@ -181,8 +181,9 @@ void LoopbackListener::Close() noexcept {
     } else {
         waitForLoop = true;
         if (!lifecycle->contextRunning) {
-            //  The accept operation has already settled. Its worker still
-            //  owns final acceptor cleanup and will publish completion.
+            //  The accept operation already settled on the worker thread, so
+            //  there is nothing in flight to cancel; the wait below still
+            //  closes the acceptor once that worker publishes completion.
         } else if (!lifecycle->closePosted) {
             lifecycle->closePosted = true;
             acceptCompleted = lifecycle->acceptCompleted;
@@ -216,6 +217,14 @@ void LoopbackListener::Close() noexcept {
     if (waitForLoop) {
         lifecycle->changed.wait(lock,
                                 [&lifecycle] { return !lifecycle->running; });
+        //  AcceptLoopbackOnly() no longer closes the acceptor on our behalf:
+        //  its own closeRequested read can race the write above and observe
+        //  a stale false. running == false here is proof this thread has
+        //  sole access, so close unconditionally; repeated Close() calls
+        //  make this idempotent.
+        lock.unlock();
+        boost::system::error_code ec;
+        acceptor_.close(ec);
     }
 }
 
