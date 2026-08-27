@@ -1,6 +1,6 @@
 # Stage 6 — PC / Second-Screen Baseline
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./05-dart-client-sdk-foundation.md) · [Next stage](./07-core-ui-theme-system.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./05a-android-wifi-development-path.md) · [Next stage](./07-core-ui-theme-system.md)
 
 ## 6. PC / Second-Screen Baseline
 
