@@ -1,6 +1,6 @@
 #include "protocol/bounded_json.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

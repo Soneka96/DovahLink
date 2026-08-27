@@ -51,7 +51,7 @@ add_library(dovahlink_bridge_core STATIC
     application/active_play_context_level_sink.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
-    application/session.cpp
+    application/session_manager.cpp
     application/subscription_handler.cpp
     application/timestamp.cpp
     application/trust_device_admin_service.cpp
@@ -191,7 +191,7 @@ add_executable(dovahlink_bridge_tests
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
-    application/session_test.cpp
+    application/session_manager_test.cpp
     application/subscription_handler_test.cpp
     application/timestamp_test.cpp
     application/trust_device_admin_service_test.cpp
@@ -210,7 +210,7 @@ add_executable(dovahlink_bridge_tests
     plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
     plugin/dovahlink_bridge_plugin_registration_test.cpp
-    security/limits_test.cpp
+    security/constants_test.cpp
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp

@@ -3,7 +3,7 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/handshake_handler.hpp"
 #include "application/message_dispatcher.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "security/pairing_session.hpp"
 #include "transport/websocket_session.hpp"
 

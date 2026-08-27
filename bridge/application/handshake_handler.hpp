@@ -3,7 +3,7 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/handshake_result.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "protocol/envelope.hpp"
 #include "security/failed_token_throttle.hpp"
 #include "security/token_store.hpp"

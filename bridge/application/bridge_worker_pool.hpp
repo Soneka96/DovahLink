@@ -3,7 +3,7 @@
 #include "application/active_session_socket.hpp"
 #include "application/connection_session.hpp"
 #include "application/contained_work.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "shared/scoped_release.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/loopback_listener.hpp"

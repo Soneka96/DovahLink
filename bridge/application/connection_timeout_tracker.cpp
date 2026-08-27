@@ -1,6 +1,6 @@
 #include "application/connection_timeout_tracker.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 namespace dovahlink::application {
 

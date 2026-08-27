@@ -5,7 +5,7 @@
 #include "application/dispatch_result.hpp"
 #include "application/pairing_handler.hpp"
 #include "application/replay_guard.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "security/inbound_message_rate_limiter.hpp"

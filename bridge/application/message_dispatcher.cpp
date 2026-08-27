@@ -4,7 +4,7 @@
 #include "application/rename_handler.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <boost/json/object.hpp>
 

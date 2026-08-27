@@ -1,6 +1,6 @@
 #include "security/failed_token_throttle.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 namespace dovahlink::security {
 

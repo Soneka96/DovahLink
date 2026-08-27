@@ -6,7 +6,7 @@
 #include "application/active_session_disconnector.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"

@@ -1,6 +1,6 @@
 #include "application/replay_guard.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

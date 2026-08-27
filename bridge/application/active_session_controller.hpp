@@ -2,7 +2,7 @@
 
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_socket.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 
 #include <memory>
 #include <mutex>
@@ -45,7 +45,7 @@ class ActiveSessionController final : public IActiveSessionController {
   private:
     ///  Sends an invalidation event when possible, then shuts down the socket.
     void NotifyAndShutdownActiveSocket(
-        const transport::WebSocketSession::SocketHandle& socket,
+        const std::shared_ptr<transport::ISocket>& socket,
         std::optional<std::string> sessionId, std::string_view reason);
 
     ///  Session registry used to resolve and invalidate the captured connection.

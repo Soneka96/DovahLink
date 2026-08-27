@@ -1,7 +1,7 @@
 #pragma once
 
 #include "application/pairing_commit_result.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "security/pairing_session.hpp"
 #include "security/trust_mutation_generation.hpp"
 #include "security/trust_store.hpp"

@@ -5,8 +5,8 @@
 #include "application/handshake_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/messages.hpp"
+#include "security/constants.hpp"
 #include "security/hex.hpp"
-#include "security/limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>

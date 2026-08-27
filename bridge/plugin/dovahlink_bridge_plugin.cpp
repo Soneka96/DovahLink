@@ -18,7 +18,7 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"

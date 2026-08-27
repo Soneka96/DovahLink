@@ -1,6 +1,6 @@
 #include "security/violation_tracker.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 namespace dovahlink::security {
 

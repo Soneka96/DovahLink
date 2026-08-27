@@ -1,7 +1,7 @@
 #pragma once
 
 #include "application/pairing_notification_sink.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/pairing_session.hpp"

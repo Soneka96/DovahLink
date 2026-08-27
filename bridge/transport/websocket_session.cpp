@@ -1,6 +1,6 @@
 #include "transport/websocket_session.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/post.hpp>

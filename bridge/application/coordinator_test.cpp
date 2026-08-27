@@ -20,6 +20,7 @@ using dovahlink::application::Coordinator;
 using dovahlink::application::IBridgeCallbackRegistry;
 using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
+using dovahlink::application::ICoordinator;
 using dovahlink::application::LifetimeToken;
 
 namespace {
@@ -474,4 +475,22 @@ TEST_CASE("the transport lifetime token outlives the coordinator",
     //  The coordinator (and its fakes) are destroyed; the independently
     //  owned token, held via shared_ptr, is still safely readable.
     CHECK_FALSE(token->IsValid());
+}
+
+TEST_CASE("calls through ICoordinator reach the same state as the concrete "
+          "type",
+          "[application][coordinator][i_coordinator]") {
+    Fixture f;
+    ICoordinator& contract = f.coordinator;
+
+    CHECK(contract.IsAvailable());
+    contract.RegisterFailure();
+    CHECK_FALSE(contract.IsAvailable());
+    contract.ResetAvailability();
+    CHECK(contract.IsAvailable());
+
+    CHECK_FALSE(contract.IsStopping());
+    contract.Start();
+    contract.Shutdown();
+    CHECK(contract.IsStopping());
 }

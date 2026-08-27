@@ -19,7 +19,7 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
 #include "security/failed_token_throttle.hpp"

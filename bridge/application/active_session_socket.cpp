@@ -4,9 +4,8 @@
 
 namespace dovahlink::application {
 
-void ActiveSessionSocket::Publish(
-    ConnectionId connection,
-    transport::WebSocketSession::SocketHandle socket) {
+void ActiveSessionSocket::Publish(ConnectionId connection,
+                                  std::shared_ptr<transport::ISocket> socket) {
     std::lock_guard<std::mutex> lock(mutex_);
     socket_ = std::move(socket);
     connection_ = connection;

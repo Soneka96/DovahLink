@@ -56,7 +56,7 @@ void ActiveSessionController::DisconnectActive(std::string_view reason) {
 }
 
 void ActiveSessionController::NotifyAndShutdownActiveSocket(
-    const transport::WebSocketSession::SocketHandle& socket,
+    const std::shared_ptr<transport::ISocket>& socket,
     std::optional<std::string> sessionId, std::string_view reason) {
     auto envelope = protocol::BuildSessionInvalidatedEnvelope(
         std::move(sessionId), std::string(reason));

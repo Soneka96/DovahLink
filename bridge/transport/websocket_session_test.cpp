@@ -1,6 +1,6 @@
 #include "transport/websocket_session.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
