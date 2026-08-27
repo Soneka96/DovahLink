@@ -8,14 +8,14 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state_decoder.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 
-/// A [ClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
+/// An [IClientStorage] implementation for Windows, encrypting persisted state at rest with DPAPI
 /// ([Dpapi]) in its default per-user scope -- the OS itself ties the encrypted material to the
 /// logged-in Windows user, matching `ai/context/protocol/security.md`'s "approved per-user
 /// secure-storage mechanism for the platform" and mirroring the Bridge's own DPAPI decision there.
 /// Fails closed: a missing file is a valid empty store, but a file that exists and cannot be
 /// decrypted or parsed always throws [DovahLinkStorageException] rather than silently returning an
 /// empty or partial state.
-class DpapiClientStorage implements ClientStorage {
+class DpapiClientStorage implements IClientStorage {
   /// The absolute path of the encrypted state file.
   final String _filePath;
 
@@ -24,7 +24,7 @@ class DpapiClientStorage implements ClientStorage {
   DpapiClientStorage({String? filePath})
     : _filePath = filePath ?? _defaultFilePath();
 
-  /// See [ClientStorage.load].
+  /// See [IClientStorage.load].
   @override
   Future<PersistedClientState> load() async {
     final File file = File(_filePath);
@@ -51,7 +51,7 @@ class DpapiClientStorage implements ClientStorage {
     return PersistedClientStateDecoder.decode(decoded);
   }
 
-  /// See [ClientStorage.save]. Writes to a temporary file and atomically renames it over the
+  /// See [IClientStorage.save]. Writes to a temporary file and atomically renames it over the
   /// target, so a crash mid-write cannot leave a partially written state file.
   @override
   Future<void> save(PersistedClientState state) async {
@@ -83,7 +83,7 @@ class DpapiClientStorage implements ClientStorage {
     }
   }
 
-  /// See [ClientStorage.clear].
+  /// See [IClientStorage.clear].
   @override
   Future<void> clear() async {
     final File file = File(_filePath);

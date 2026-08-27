@@ -11,15 +11,15 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_tra
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 import '../../fixtures/fixtures.dart';
 
 /// Mock transport used to isolate transmission tests from socket I/O.
-class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
+class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 
 /// Mock session service used to supply the current session identity and capture timeout and
 /// send-failure notifications, per `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock pending-operation owner used to capture message-ID registration and failure.
 class MockPendingOperationBookkeeping extends Mock
@@ -34,8 +34,8 @@ const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
 
 /// Builds a transmitter from the supplied test doubles and timeout policy.
 PendingOperationTransmitter buildTransmitter({
-  required DovahLinkTransport transport,
-  required SessionService sessionService,
+  required IDovahLinkTransport transport,
+  required ISessionService sessionService,
   required PendingOperationBookkeeping bookkeeping,
   Map<TimeoutClass, Duration> timeoutDurations = _shortTimeouts,
 }) => PendingOperationTransmitter(

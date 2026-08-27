@@ -9,7 +9,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
-import 'package:dovahlink_client_sdk/src/internal/requests/request_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
@@ -18,22 +18,22 @@ import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to control connection state and trust state, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock pending-operation bookkeeping -- its own fail/orphan logic is
 /// `pending_operation_bookkeeping_test.dart`'s responsibility; this file only proves
-/// [RequestServiceImpl] calls it with the right arguments.
+/// [RequestService] calls it with the right arguments.
 class MockPendingOperationBookkeeping extends Mock
     implements PendingOperationBookkeeping {}
 
 /// Mock pending-operation transmitter -- its own wire mechanics (message-ID generation, envelope
 /// encoding, timeout arming, transport send) are `pending_operation_transmitter_test.dart`'s
-/// responsibility; this file only proves [RequestServiceImpl] hands it the right operation.
+/// responsibility; this file only proves [RequestService] hands it the right operation.
 class MockPendingOperationTransmitter extends Mock
     implements PendingOperationTransmitter {}
 
 /// Mock message router -- its own decoding/correlation/routing logic is
-/// `message_router_test.dart`'s responsibility; this file only proves [RequestServiceImpl] forwards
+/// `message_router_test.dart`'s responsibility; this file only proves [RequestService] forwards
 /// to it.
 class MockMessageRouter extends Mock implements MessageRouter {}
 
@@ -58,7 +58,7 @@ void main() {
   late MockPendingOperationBookkeeping bookkeeping;
   late MockPendingOperationTransmitter transmitter;
   late MockMessageRouter messageRouter;
-  late RequestServiceImpl service;
+  late RequestService service;
 
   setUpAll(() {
     registerFallbackValue(Fixtures.buildPendingOperation());
@@ -85,7 +85,7 @@ void main() {
         orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
       ),
     ).thenAnswer((_) {});
-    service = RequestServiceImpl(
+    service = RequestService(
       sessionService: sessionService,
       bookkeeping: bookkeeping,
       transmitter: transmitter,

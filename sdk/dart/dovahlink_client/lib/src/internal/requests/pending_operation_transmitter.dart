@@ -8,29 +8,29 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_boo
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Owns one pending operation's wire attempt: message-ID generation, registration, timeout
 /// arming, envelope construction, and fire-and-forget transport error reporting.
 class PendingOperationTransmitter {
   /// The transport used for the wire attempt.
-  final DovahLinkTransport _transport;
+  final IDovahLinkTransport _transport;
 
   /// The bounded timeout policy applied to the operation's timeout class.
   final Map<TimeoutClass, Duration> _timeoutDurations;
 
   /// Supplies the session ID stamped onto the outgoing envelope, and receives timeout and
   /// transport-failure notifications.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Owns registration and terminal failure of the pending operation.
   final PendingOperationBookkeeping _bookkeeping;
 
   /// Creates a transmitter for one request service's transport and pending-operation bookkeeping.
   PendingOperationTransmitter({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required Map<TimeoutClass, Duration> timeoutDurations,
-    required SessionService sessionService,
+    required ISessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,
   }) : _transport = transport,
        _timeoutDurations = timeoutDurations,
@@ -41,7 +41,7 @@ class PendingOperationTransmitter {
   final RandomIdGenerator _randomIdGenerator = RandomIdGenerator();
 
   /// Generates a message ID, registers [operation], arms its timeout, and sends its envelope.
-  /// Send and timeout failures are reported through [SessionService] rather than failed directly
+  /// Send and timeout failures are reported through [ISessionService] rather than failed directly
   /// here, so a timed-out operation is failed or orphaned for retry through the same
   /// connection-teardown path as every other pending operation on the connection, per
   /// [RequestPolicy.retrySafe] -- not force-failed ahead of its siblings merely because its own

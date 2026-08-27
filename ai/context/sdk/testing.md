@@ -7,6 +7,9 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 - Tests for a collaborator's method belong with that source unit's mirrored test file. A service test
   may prove the service's recovery behavior through a collaborator, but it must not become the
   direct test suite for the collaborator's method.
+- A mocktail mock declaration targets the `I`-prefixed contract type, per `ai/context/dart/dart-
+  style.md`'s interface-naming convention: `class MockClientStorage extends Mock implements
+  IClientStorage {}`, not the removed unprefixed name.
 
 ## Test fixtures and ownership
 
@@ -78,8 +81,8 @@ mocktail mock (`class MockX extends Mock implements X {}`) for synchronous, stat
 interaction-only dependencies; use a controllable thread-safe fake when timing, lifetime,
 cross-thread access, synchronization, or mutable state is part of the behavior under test. This
 applies uniformly to every class this package tests, not only the seven
-Services: `SessionServiceImpl`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
-`ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
+Services: `SessionService`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
+`ConnectionTeardownCoordinator`; `RequestService`'s test mocks `PendingOperationBookkeeping`,
 `PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks
 `LifecycleOperationQueue`, in turn. A class's own test file is the only place that class's real
 behavior runs; every consumer treats it as a black box and verifies via `verify()`/`captureAny()`
@@ -98,12 +101,12 @@ A consumer's test suite proves its own reaction to a dependency's contract — s
 failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
 and (for a mocked collaborator) that the right method was called with the right arguments — and must
 not become a second test suite for that dependency's own internal branches, which stay owned by the
-dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `SessionService` and
-`AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
-bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
-how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
-`AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
-and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
+dependency's own test file. For example: `ReconnectService`'s tests mock `ISessionService` and
+`IAuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
+bookkeeping) to each classification `IAuthenticationService.hello()` can produce, without re-proving
+how `AuthenticationService` itself decodes or classifies a rejected `hello`.
+`AuthenticationService`'s tests mock `ISessionService`, `ISessionAdmissionService`, `IRequestService`,
+and `IClientStorage`. `SessionAdmissionService`'s and `SessionTrustService`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
 mocking a concrete class' single interface a one-line cost regardless of that interface's size, so
@@ -115,10 +118,10 @@ codebase; every Service interface exists because of a genuine architectural reas
 
 Two behaviors need their own explicit tests, not just whatever coverage happens to exist elsewhere:
 
-- `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
+- `SessionService`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
   and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
   transport's `onError` and `onDone` both firing for one dead connection). Under "Service test
-  boundaries"' full mock isolation, `SessionServiceImpl`'s own test proves only that it calls
+  boundaries"' full mock isolation, `SessionService`'s own test proves only that it calls
   `ConnectionTeardownCoordinator.tearDown` with the right arguments for each reactive signal;
   `ConnectionTeardownCoordinator`'s own generation-check dedup logic is proven in its own test file;
   the full, real, composed guarantee (a real coordinator over a real queue actually deduplicating a
@@ -126,6 +129,6 @@ Two behaviors need their own explicit tests, not just whatever coverage happens 
   integration test (`test/dovahlink_client_test.dart`'s "Behavior composition-root teardown
   deduplication" group) — never re-derived at any individual Service's own mocked-everything
   unit-test level.
-- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard must fail a request issued before any
+- `IRequestService.sendAndAwait`'s `connectionState` guard must fail a request issued before any
   `connect()` call immediately and synchronously with a typed `DovahLinkConnectionException`,
   without registering or transmitting anything.

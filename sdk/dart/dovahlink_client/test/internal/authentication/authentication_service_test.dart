@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
-import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -18,24 +18,24 @@ import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to isolate authentication service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock session admission service -- its own admit/retry logic is
-/// `session_admission_service_impl_test.dart`'s responsibility; this file only proves
-/// [AuthenticationServiceImpl] calls it with the right arguments.
+/// `session_admission_service_test.dart`'s responsibility; this file only proves
+/// [AuthenticationService] calls it with the right arguments.
 class MockSessionAdmissionService extends Mock
-    implements SessionAdmissionService {}
+    implements ISessionAdmissionService {}
 
 /// Mock request service used to isolate authentication service tests.
-class MockRequestService extends Mock implements RequestService {}
+class MockRequestService extends Mock implements IRequestService {}
 
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
-/// test file; this file only proves [AuthenticationServiceImpl] reads and writes the right state.
-class MockClientStorage extends Mock implements ClientStorage {}
+/// test file; this file only proves [AuthenticationService] reads and writes the right state.
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Mock client ID resolver -- its own generate/persist logic is
 /// `client_id_resolver_test.dart`'s responsibility; this file only proves
-/// [AuthenticationServiceImpl] uses its resolved value.
+/// [AuthenticationService] uses its resolved value.
 class MockClientIdResolver extends Mock implements ClientIdResolver {}
 
 /// Builds a decoded `hello_ack` reply envelope from the shared envelope fixture.
@@ -75,7 +75,7 @@ void main() {
   late MockRequestService requestService;
   late MockClientStorage storage;
   late MockClientIdResolver clientIdResolver;
-  late AuthenticationServiceImpl service;
+  late AuthenticationService service;
 
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.hello);
@@ -120,7 +120,7 @@ void main() {
     when(
       () => clientIdResolver.resolve(any()),
     ).thenAnswer((_) async => 'client-1');
-    service = AuthenticationServiceImpl(
+    service = AuthenticationService(
       sessionService: sessionService,
       sessionAdmissionService: sessionAdmissionService,
       requestService: requestService,

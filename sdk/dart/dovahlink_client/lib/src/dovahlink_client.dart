@@ -5,25 +5,20 @@ import 'package:meta/meta.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/requests/request_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
@@ -32,26 +27,25 @@ import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storag
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
 /// disconnect. Owns its local `clientId`, pairing credential, and `CONFIRMING` recovery state
-/// behind [ClientStorage] -- see `ai/context/sdk/persistence.md`'s ownership rule -- so a consumer
+/// behind [IClientStorage] -- see `ai/context/sdk/persistence.md`'s ownership rule -- so a consumer
 /// never threads identity or credential material through this API by hand.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
-  final ClientStorage _storage;
+  final IClientStorage _storage;
 
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
   DovahLinkClient({
-    DovahLinkTransport? transport,
-    required ClientStorage storage,
+    IDovahLinkTransport? transport,
+    required IClientStorage storage,
   }) : this._build(
          transport: transport ?? WebSocketTransport(),
          storage: storage,
@@ -68,8 +62,8 @@ class DovahLinkClient {
   /// the unnamed constructor so every operation shares the same centrally tuned timeout policy.
   @visibleForTesting
   DovahLinkClient.withTimeoutDurations({
-    required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IDovahLinkTransport transport,
+    required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
   }) : this._build(
          transport: transport,
@@ -81,8 +75,8 @@ class DovahLinkClient {
   /// must use the unnamed constructor so reconnect shares the centrally tuned policy.
   @visibleForTesting
   DovahLinkClient.withReconnectPolicy({
-    required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IDovahLinkTransport transport,
+    required IClientStorage storage,
     required List<Duration> attemptDelays,
     required Duration deadline,
     DateTime Function() now = DateTime.now,
@@ -103,8 +97,8 @@ class DovahLinkClient {
   /// handed to its consumer as an already-built constructor parameter; no class below this
   /// composition root ever constructs one of its own dependencies.
   DovahLinkClient._build({
-    required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IDovahLinkTransport transport,
+    required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
@@ -115,8 +109,8 @@ class DovahLinkClient {
     // Forwards to `_sessionService.onTeardown`, referenced here before `_sessionService` is
     // assigned below -- resolved only when a real teardown later invokes it, by which point
     // construction has completed. `ConnectionTeardownCoordinator` must exist before
-    // `SessionServiceImpl` (which owns it), but the failure handler it needs can only be supplied
-    // by `RequestServiceImpl`, which itself depends on `SessionService` and so must be built after
+    // `SessionService` (which owns it), but the failure handler it needs can only be supplied
+    // by `RequestService`, which itself depends on `ISessionService` and so must be built after
     // it -- see `ai/context/sdk/architecture.md`'s "Callbacks".
     final ConnectionTeardownCoordinator teardownCoordinator =
         ConnectionTeardownCoordinator(
@@ -130,7 +124,7 @@ class DovahLinkClient {
                   ),
           state: state,
         );
-    _sessionService = SessionServiceImpl(
+    _sessionService = SessionService(
       transport: transport,
       state: state,
       lifecycleQueue: lifecycleQueue,
@@ -149,7 +143,7 @@ class DovahLinkClient {
       bookkeeping: bookkeeping,
       sessionService: _sessionService,
     );
-    _requestService = RequestServiceImpl(
+    _requestService = RequestService(
       sessionService: _sessionService,
       bookkeeping: bookkeeping,
       transmitter: transmitter,
@@ -157,19 +151,16 @@ class DovahLinkClient {
     );
     _sessionService.onIncomingMessage = _requestService.handleIncoming;
 
-    final SessionAdmissionServiceImpl sessionAdmissionService =
-        SessionAdmissionServiceImpl(
-          state: state,
-          requestService: _requestService,
-        );
-    final SessionTrustServiceImpl sessionTrustService = SessionTrustServiceImpl(
+    final SessionAdmissionService sessionAdmissionService =
+        SessionAdmissionService(state: state, requestService: _requestService);
+    final SessionTrustService sessionTrustService = SessionTrustService(
       state: state,
     );
     final ClientIdResolver clientIdResolver = ClientIdResolver(
       storage: _storage,
       randomIdGenerator: RandomIdGenerator(),
     );
-    _authenticationService = AuthenticationServiceImpl(
+    _authenticationService = AuthenticationService(
       sessionService: _sessionService,
       sessionAdmissionService: sessionAdmissionService,
       requestService: _requestService,
@@ -194,12 +185,12 @@ class DovahLinkClient {
         );
       }
     };
-    _pairingService = PairingServiceImpl(
+    _pairingService = PairingService(
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
       storage: _storage,
     );
-    _reconnectService = ReconnectServiceImpl(
+    _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
       attemptDelays: attemptDelays,
@@ -213,21 +204,21 @@ class DovahLinkClient {
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
   /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state
   /// ownership". This façade never assigns session state directly; session transitions remain
-  /// owned by [SessionServiceImpl]. Typed as the implementation, not [SessionService], because only
+  /// owned by [SessionService]. Typed as the implementation, not [ISessionService], because only
   /// [DovahLinkClient] itself assigns its late-bound callback fields.
-  late final SessionServiceImpl _sessionService;
+  late final SessionService _sessionService;
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
-  late final RequestService _requestService;
+  late final IRequestService _requestService;
 
   /// Owns `hello`/authentication and credential-rejection recovery.
-  late final AuthenticationService _authenticationService;
+  late final IAuthenticationService _authenticationService;
 
   /// Owns pairing operations.
-  late final PairingService _pairingService;
+  late final IPairingService _pairingService;
 
   /// Owns bounded automatic recovery from ordinary transport loss.
-  late final ReconnectService _reconnectService;
+  late final IReconnectService _reconnectService;
 
   /// The current connection lifecycle phase. Reaches
   /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never
@@ -242,7 +233,7 @@ class DovahLinkClient {
 
   /// A stream of every [connectionState] transition: the current value immediately on listen,
   /// then each subsequent real change -- including administrative invalidation, without waiting
-  /// for another request to notice it. See [SessionService.connectionStateChanges].
+  /// for another request to notice it. See [ISessionService.connectionStateChanges].
   Stream<DovahLinkConnectionState> get connectionStateChanges =>
       _sessionService.connectionStateChanges;
 
@@ -271,11 +262,11 @@ class DovahLinkClient {
   /// has not yet committed that credential as trusted, so it must not be presented as one. Once
   /// the new session's trust state is known, retransmits any retry-safe operation an earlier
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
-  /// trust state; see [RequestPolicy.requiredTrustState] and [AuthenticationService.hello].
+  /// trust state; see [RequestPolicy.requiredTrustState] and [IAuthenticationService.hello].
   /// @throws [DovahLinkProtocolException] if the bridge rejects authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
-  /// See [AuthenticationService.authenticate].
+  /// See [IAuthenticationService.authenticate].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
@@ -336,7 +327,7 @@ class DovahLinkClient {
       _pairingService.recoverPendingPairing();
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
-  /// is a best-effort cleanup operation, matching [DovahLinkTransport.close]'s own "Idempotent"
+  /// is a best-effort cleanup operation, matching [IDovahLinkTransport.close]'s own "Idempotent"
   /// contract. In-memory state resets even when the underlying transport cannot be closed
   /// cleanly -- a broken close must not leave [connectionState]/[trustState]/[sessionId] lying
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are

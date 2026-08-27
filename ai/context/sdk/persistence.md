@@ -30,7 +30,7 @@ secure-storage calls throughout its state machines. Platform-specific storage fa
 credential storage, cache/filesystem location) stay behind the platform ports defined in
 `ai/context/sdk/architecture.md`.
 
-The `ClientStorage` interface implements this boundary for `clientId`, credential, and pairing
+The `IClientStorage` interface implements this boundary for `clientId`, credential, and pairing
 recovery state (`sdk/dart/dovahlink_client/lib/src/persistence/client_storage.dart`); its Windows
 implementation, `DpapiClientStorage`, is the platform port this section describes, using DPAPI in
 the per-user scope `ai/context/protocol/security.md` requires and failing closed on corrupt or

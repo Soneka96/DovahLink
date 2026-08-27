@@ -45,7 +45,7 @@ class PendingReplyQueue {
   }
 }
 
-/// A controllable [DovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
+/// A controllable [IDovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
 /// semantics for the single continuous, single-subscription inbound stream this SDK's receiver
 /// depends on: [connect] establishes a fresh single-subscription stream (mirroring the real
 /// transport's fresh socket per connection, and its "only ever listened to once" constraint), and
@@ -64,7 +64,7 @@ class PendingReplyQueue {
 /// earlier-queued reply still waiting on its own [send], so relative queue order is always
 /// preserved. [queueRawResponse] is the escape hatch for a test that deliberately wants an
 /// unrewritten -- including deliberately mismatched -- `correlationId`, delivered immediately.
-class FakeDovahLinkTransport implements DovahLinkTransport {
+class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Every raw text message sent, in order.
   final List<String> sent = <String>[];
 
@@ -130,7 +130,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     unawaited(incoming.close());
   }
 
-  /// See [DovahLinkTransport.connect].
+  /// See [IDovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     final Object? failure = failConnectWith;
@@ -144,7 +144,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     _incoming = StreamController<String>();
   }
 
-  /// See [DovahLinkTransport.send].
+  /// See [IDovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     final Object? failure = failSendWith;
@@ -158,11 +158,11 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     );
   }
 
-  /// See [DovahLinkTransport.messages].
+  /// See [IDovahLinkTransport.messages].
   @override
   Stream<String> get messages => _requireIncoming().stream;
 
-  /// See [DovahLinkTransport.close].
+  /// See [IDovahLinkTransport.close].
   @override
   Future<void> close() async {
     closeCalled = true;
@@ -184,7 +184,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
 }
 
 /// Tracks persistence writes for composition-root invalidation tests.
-class TrackingClientStorage implements ClientStorage {
+class TrackingClientStorage implements IClientStorage {
   /// Creates storage seeded with [state].
   TrackingClientStorage(this._state);
 
@@ -197,11 +197,11 @@ class TrackingClientStorage implements ClientStorage {
   /// Number of attempted [save] calls.
   int saveCount = 0;
 
-  /// See [ClientStorage.load].
+  /// See [IClientStorage.load].
   @override
   Future<PersistedClientState> load() async => _state;
 
-  /// See [ClientStorage.save].
+  /// See [IClientStorage.save].
   @override
   Future<void> save(PersistedClientState state) async {
     saveCount++;
@@ -212,7 +212,7 @@ class TrackingClientStorage implements ClientStorage {
     _state = state;
   }
 
-  /// See [ClientStorage.clear].
+  /// See [IClientStorage.clear].
   @override
   Future<void> clear() async {
     _state = Fixtures.buildPersistedClientState(clientId: null);
@@ -669,7 +669,7 @@ void main() {
       );
 
       expect(transport.closeCalled, isTrue);
-      // The send failure is ordinary transport loss, so SessionServiceImpl hands off to bounded
+      // The send failure is ordinary transport loss, so SessionService hands off to bounded
       // automatic reconnect once teardown resolves to disconnected. Clear the injected send
       // failure first so the recovery attempt's own re-authentication does not fail the same way
       // and repeat the same hand-off, then deliberately disconnect before its delayed next

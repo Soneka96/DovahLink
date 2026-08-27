@@ -2,13 +2,13 @@ import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Coordinates ordered connection-resource cleanup while [SessionState] retains ownership of
 /// connection state and stream fields.
 class ConnectionTeardownCoordinator {
   /// The transport whose resources must be closed.
-  final DovahLinkTransport _transport;
+  final IDovahLinkTransport _transport;
 
   /// Serializes teardown with connect and administrative invalidation cleanup.
   final LifecycleOperationQueue _lifecycleQueue;
@@ -16,7 +16,7 @@ class ConnectionTeardownCoordinator {
   /// Fails or orphans pending operations after resource cleanup completes. A plain callback,
   /// rather than a constructor dependency on the pending-operation owner itself, so a caller
   /// whose own pending-operation owner does not exist yet at construction time (see
-  /// `SessionServiceImpl.onTeardown`) can supply a forwarding closure instead.
+  /// `SessionService.onTeardown`) can supply a forwarding closure instead.
   final void Function(
     Exception reason, {
     required bool orphanRetrySafeOperations,
@@ -29,7 +29,7 @@ class ConnectionTeardownCoordinator {
   /// Creates a coordinator for one session's transport, lifecycle queue, pending-operation failure
   /// callback, and state.
   ConnectionTeardownCoordinator({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required LifecycleOperationQueue lifecycleQueue,
     required void Function(
       Exception reason, {

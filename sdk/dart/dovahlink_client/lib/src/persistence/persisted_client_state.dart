@@ -1,7 +1,7 @@
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// The SDK-owned persisted client identity, credential, and pairing recovery state. Versioned so a
-/// [ClientStorage] implementation can detect and reject a format it does not understand rather
+/// [IClientStorage] implementation can detect and reject a format it does not understand rather
 /// than silently misinterpreting it. See `ai/context/sdk/persistence.md`.
 class PersistedClientState {
   /// The current persisted-state format version this SDK writes and expects to read.
