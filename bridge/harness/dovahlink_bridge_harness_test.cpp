@@ -155,7 +155,7 @@ class HarnessProcess {
 
     ///  Closes redirected handles and waits briefly for the child process.
     ~HarnessProcess() {
-        CloseHandle(stdinWrite_);
+        CloseInput();
         CloseHandle(stdoutRead_);
         if (process_) {
             WaitForSingleObject(process_, 5000);
@@ -190,6 +190,14 @@ class HarnessProcess {
         REQUIRE(WriteFile(stdinWrite_, withNewline.data(),
                           static_cast<DWORD>(withNewline.size()), &written,
                           nullptr));
+    }
+
+    ///  Closes the child stdin handle so its command loop observes end of input.
+    void CloseInput() {
+        if (stdinWrite_ != nullptr) {
+            CloseHandle(stdinWrite_);
+            stdinWrite_ = nullptr;
+        }
     }
 
     ///  Reads one line from child stdout, returning empty text on pipe closure.
@@ -401,7 +409,19 @@ TEST_CASE("dovahlink_bridge_harness serves one full session over a real socket "
     boost::system::error_code closeEc;
     clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
 
-    harness.WriteLine("quit");
+    harness.CloseInput();
+    REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
+    CHECK(harness.ExitCode() == 0);
+}
+
+TEST_CASE("dovahlink_bridge_harness shuts down cleanly when command input ends",
+          "[harness]") {
+    HarnessProcess harness(kHarnessExePath, std::string(kValidHexToken));
+    REQUIRE(harness.ReadLine() == "READY");
+    (void)ReadBridgeInstanceId(harness);
+    (void)ReadHarnessPort(harness);
+
+    harness.CloseInput();
     REQUIRE(harness.WaitForExit(std::chrono::seconds(5)));
     CHECK(harness.ExitCode() == 0);
 }

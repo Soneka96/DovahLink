@@ -34,7 +34,8 @@ class BridgeTransport : public IBridgeTransport {
     ///  Leaves the already-bound listeners unchanged.
     void Start() override;
 
-    ///  The synchronous transport has no pending completions to cancel.
+    ///  Accept completions belong to the worker pool; this lifecycle adapter has
+    ///  no separate completion queue to cancel.
     void CancelCompletions() override;
 
     ///  Closes both listener acceptors; repeated calls are harmless.
