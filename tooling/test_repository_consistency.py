@@ -992,6 +992,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "3.3 Client Trust-State Integration",
             "4. Live State Synchronization Foundation",
             "5. Dart Client SDK Foundation",
+            "5A. Android and Secure Wi-Fi Development Path",
             "6. PC / Second-Screen Baseline",
             "7. Core UI Theme System",
             "8. Live Player State",
@@ -1018,14 +1019,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "29. Runtime Profiling and Advanced Bridge Hardening",
             "30. CommonLib Dependency Maintenance Audit",
         ]
-        actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?\.? .+)$", roadmap)
+        actual_headings = re.findall(r"(?m)^## (\d+(?:\.\d+)?[A-Z]?\.? .+)$", roadmap)
 
         self.assertEqual(actual_headings, expected_headings)
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 9)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
         )
@@ -1091,6 +1092,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertLess(
             ordering["5. Dart Client SDK Foundation"],
+            ordering["5A. Android and Secure Wi-Fi Development Path"],
+        )
+        self.assertLess(
+            ordering["5A. Android and Secure Wi-Fi Development Path"],
             ordering["6. PC / Second-Screen Baseline"],
         )
         self.assertLess(

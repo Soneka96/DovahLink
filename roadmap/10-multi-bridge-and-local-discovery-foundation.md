@@ -12,8 +12,10 @@ Multiple bridge processes coexist on one machine without port collisions or ambi
 
 ### Scope and behavior
 
-- Treat the Phase 1 port as a preference rather than identity.
-- Select another local port when the preferred port is occupied.
+- Treat the Phase 1 port as a preference rather than identity; the early Stage 5A path may use
+  automatic OS-selected ports, while this phase establishes the generalized multi-Bridge policy.
+- Select another local port when the preferred port is occupied, or use an OS-selected port when no
+  deterministic port is required.
 - Publish a small non-secret same-machine discovery record for each bridge.
 - Validate records against authenticated `bridgeInstanceId` and tolerate stale records.
 - Remove records on clean shutdown and isolate records owned by other instances.
@@ -22,7 +24,9 @@ Multiple bridge processes coexist on one machine without port collisions or ambi
 
 ### Dependencies and boundaries
 
-This phase depends on Phases 2 and 9. LAN discovery belongs to Phase 22.
+This phase depends on Phases 2 and 9. Stage 5A proves a narrow single-client Android/LAN discovery
+path early; this phase remains responsible for generalized same-machine multi-Bridge coordination.
+Generalized secure LAN discovery belongs to Stage 22.
 
 ### Acceptance criteria
 

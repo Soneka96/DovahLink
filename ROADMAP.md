@@ -78,6 +78,7 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 4 | Planned | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Planned. The package scaffold, protocol/transport layer, and persistence boundary are partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
 | 8 | Planned | [Stage 8 — Live Player State](roadmap/08-live-player-state.md) |
@@ -117,10 +118,18 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   client boundary, public subscription/recovery API, middleware-owned Flutter integration, and the
   minimal live-state proof surface. Its scaffold and persistence work may be pulled forward when
   required by earlier pairing/client work without closing the phase.
-- Stages 6–8 validate the connected second-screen product before multi-client, discovery, LAN/mobile,
-  knowledge, theming, and action foundations expand the product.
-- Stages 9–11 establish multi-client, local discovery, and automatic connection policy before LAN.
+- Stage 5A deliberately pulls forward the smallest complete Android and secure same-LAN path needed
+  for real-device development. It consumes the already-approved identity/pairing semantics and
+  pulled-forward SDK ports, but does not close Stage 5 or replace the later generalized LAN/mobile
+  stages.
+- Stage 6 remains the desktop connected-client proof; Stages 6–8 validate the connected second-screen
+  product while Stage 5A supplies early physical-device feedback before broader feature work.
+- Stages 9–11 establish the generalized multi-client, local discovery, and automatic connection
+  policy that the later LAN capability builds on; Stage 5A remains a deliberately narrow LAN slice
+  for early client development.
 - Stages 12–27 add read-only product capabilities and presentation adaptation in dependency order.
+- Stage 22 generalizes and hardens the secure LAN/discovery slice first proven by Stage 5A; Stage 23
+  completes the mobile/tablet client experience on top of that work.
 - Stage 28 follows read-only validation and adds only authorization machinery, not gameplay mutation.
 - Stages 29–30 are evidence-driven hardening and dependency maintenance.
 
@@ -139,3 +148,6 @@ decisions before entering the ordered roadmap:
 - A device-identity capability resistant to reinstall/identity reset, potentially including physical-
   device attestation, reconsidered alongside the LAN/mobile security phases (22–23); not committed
   scope for Phase 3.2's device-blocking work.
+- Network-environment compatibility hardening for guest/client-isolated Wi-Fi, VPNs, mobile hotspots,
+  routed or multi-subnet networks, IPv6-only environments, firewall edge cases, and discovery
+  failures beyond the initial ordinary same-LAN development path.
