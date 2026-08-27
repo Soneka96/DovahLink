@@ -159,34 +159,6 @@ class PairingHandler final : public IPairingHandler {
     ITrustMutationCoordinator& mutationCoordinator,
     std::chrono::steady_clock::time_point now);
 
-///  Handles a `pairing_renotify`: "show my code again". Redisplays `clientId`'s
-///  owned active challenge's existing code via `notificationSink` when its
-///  manual renotify cooldown allows it; never generates a new code and never
-///  sends the code itself over the wire.
-///  @param pairingRenotifyEnvelope Decoded client `pairing_renotify` (no payload
-///  beyond the
-///      standard envelope).
-///  @param sessionId Authenticated session identifier.
-///  @param clientId The client identity bound to this connection's session,
-///  presented at `hello`
-///      (session-owned state).
-///  @param notificationSink Redisplays the code on success; never called for a
-///  cooldown or an idle
-///      requester.
-///  @param now Current monotonic time, for the lazy-expiry checks and cooldown
-///  accounting.
-///  @return `pairing_outcome` envelope: `"renotified"` on success,
-///  `"renotify_cooldown"` (carrying
-///      `retryAfterSeconds`) while the cooldown is still active, or
-///      `"already_idle"` when `clientId` owns no active challenge or pending
-///      credential.
-[[nodiscard]] protocol::Envelope
-HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
-                      const std::string& sessionId, const std::string& clientId,
-                      security::IPairingSession& pairingSession,
-                      PairingNotificationSink& notificationSink,
-                      std::chrono::steady_clock::time_point now);
-
 ///  Handles a `pairing_cancel`: `clientId` gives up its owned active challenge
 ///  or pending credential, whichever is currently held. Never touches
 ///  `TrustStore` or any already-committed trust; only ever clears in-memory
