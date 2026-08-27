@@ -184,7 +184,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
 }
 
 /// Tracks persistence writes for composition-root invalidation tests.
-class TrackingClientStorage implements ClientStorage {
+class TrackingClientStorage implements IClientStorage {
   /// Creates storage seeded with [state].
   TrackingClientStorage(this._state);
 
@@ -197,11 +197,11 @@ class TrackingClientStorage implements ClientStorage {
   /// Number of attempted [save] calls.
   int saveCount = 0;
 
-  /// See [ClientStorage.load].
+  /// See [IClientStorage.load].
   @override
   Future<PersistedClientState> load() async => _state;
 
-  /// See [ClientStorage.save].
+  /// See [IClientStorage.save].
   @override
   Future<void> save(PersistedClientState state) async {
     saveCount++;
@@ -212,7 +212,7 @@ class TrackingClientStorage implements ClientStorage {
     _state = state;
   }
 
-  /// See [ClientStorage.clear].
+  /// See [IClientStorage.clear].
   @override
   Future<void> clear() async {
     _state = Fixtures.buildPersistedClientState(clientId: null);

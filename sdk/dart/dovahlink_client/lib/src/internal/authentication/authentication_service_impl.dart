@@ -16,7 +16,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Implements [AuthenticationService], per `ai/context/sdk/architecture.md`'s "Internal
 /// composition". Every collaborator ([SessionService], [SessionAdmissionService], [RequestService],
-/// [ClientStorage], [ClientIdResolver]) is supplied by the caller per
+/// [IClientStorage], [ClientIdResolver]) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
 /// its own dependencies, including [ClientIdResolver], despite it being a small, otherwise
 /// dependency-free collaborator.
@@ -32,7 +32,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
 
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
-  final ClientStorage _storage;
+  final IClientStorage _storage;
 
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
@@ -43,7 +43,7 @@ class AuthenticationServiceImpl implements AuthenticationService {
     required SessionService sessionService,
     required SessionAdmissionService sessionAdmissionService,
     required RequestService requestService,
-    required ClientStorage storage,
+    required IClientStorage storage,
     required ClientIdResolver clientIdResolver,
   }) : _sessionService = sessionService,
        _sessionAdmissionService = sessionAdmissionService,

@@ -5,14 +5,14 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 /// Resolves one installation's stable client ID, creating and persisting it on first use.
 class ClientIdResolver {
   /// The persistence boundary that owns the installation state.
-  final ClientStorage _storage;
+  final IClientStorage _storage;
 
   /// The generator used when the persisted state has no usable client ID.
   final RandomIdGenerator _randomIdGenerator;
 
   /// Creates a resolver using [storage] and [randomIdGenerator].
   ClientIdResolver({
-    required ClientStorage storage,
+    required IClientStorage storage,
     required RandomIdGenerator randomIdGenerator,
   }) : _storage = storage,
        _randomIdGenerator = randomIdGenerator;

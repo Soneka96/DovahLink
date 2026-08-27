@@ -31,7 +31,7 @@ class MockRequestService extends Mock implements RequestService {}
 
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
 /// test file; this file only proves [AuthenticationServiceImpl] reads and writes the right state.
-class MockClientStorage extends Mock implements ClientStorage {}
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Mock client ID resolver -- its own generate/persist logic is
 /// `client_id_resolver_test.dart`'s responsibility; this file only proves

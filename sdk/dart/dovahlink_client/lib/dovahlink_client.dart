@@ -1,6 +1,6 @@
 /// Public API for the DovahLink Dart Client SDK. Internal codec and transport-wiring classes stay
 /// in `src/` and are not exported here -- see `ai/context/sdk/api-design.md`'s "curated public
-/// exports". Persistence is a partial exception: [ClientStorage], the value types it stores, and
+/// exports". Persistence is a partial exception: [IClientStorage], the value types it stores, and
 /// the real Windows implementation are exported because a consumer must be able to name, inject,
 /// or construct them directly, even though [DovahLinkClient.windows] wires the default choice
 /// automatically; the in-memory test fake stays internal since no real consumer needs it yet.
@@ -31,7 +31,7 @@ export 'src/dovahlink_connection_exception.dart'
 export 'src/dovahlink_pairing_exception.dart' show DovahLinkPairingException;
 export 'src/dovahlink_protocol_exception.dart' show DovahLinkProtocolException;
 export 'src/dovahlink_storage_exception.dart' show DovahLinkStorageException;
-export 'src/persistence/client_storage.dart' show ClientStorage;
+export 'src/persistence/client_storage.dart' show IClientStorage;
 export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/windows/dpapi_client_storage.dart'
     show DpapiClientStorage;

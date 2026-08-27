@@ -37,21 +37,21 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
 /// disconnect. Owns its local `clientId`, pairing credential, and `CONFIRMING` recovery state
-/// behind [ClientStorage] -- see `ai/context/sdk/persistence.md`'s ownership rule -- so a consumer
+/// behind [IClientStorage] -- see `ai/context/sdk/persistence.md`'s ownership rule -- so a consumer
 /// never threads identity or credential material through this API by hand.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
   /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
   /// recovery state.
-  final ClientStorage _storage;
+  final IClientStorage _storage;
 
   /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
   DovahLinkClient({
     DovahLinkTransport? transport,
-    required ClientStorage storage,
+    required IClientStorage storage,
   }) : this._build(
          transport: transport ?? WebSocketTransport(),
          storage: storage,
@@ -69,7 +69,7 @@ class DovahLinkClient {
   @visibleForTesting
   DovahLinkClient.withTimeoutDurations({
     required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
   }) : this._build(
          transport: transport,
@@ -82,7 +82,7 @@ class DovahLinkClient {
   @visibleForTesting
   DovahLinkClient.withReconnectPolicy({
     required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IClientStorage storage,
     required List<Duration> attemptDelays,
     required Duration deadline,
     DateTime Function() now = DateTime.now,
@@ -104,7 +104,7 @@ class DovahLinkClient {
   /// composition root ever constructs one of its own dependencies.
   DovahLinkClient._build({
     required DovahLinkTransport transport,
-    required ClientStorage storage,
+    required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,

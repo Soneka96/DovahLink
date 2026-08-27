@@ -28,7 +28,7 @@ class MockSessionTrustService extends Mock implements SessionTrustService {}
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
 /// test file; this file only proves [PairingServiceImpl] reads and writes the right state, and
 /// never touches it on a rejected outcome.
-class MockClientStorage extends Mock implements ClientStorage {}
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Builds a decoded `pairing_outcome` reply envelope carrying [outcome], with every other field
 /// present-but-empty per that message's wire contract.

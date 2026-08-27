@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 /// durably stored (see `ai/context/sdk/persistence.md`'s "Storage abstraction" and
 /// `ai/context/sdk/architecture.md`'s "Platform ports"); the client engine depends only on this
 /// interface, never on a concrete storage mechanism.
-abstract interface class ClientStorage {
+abstract interface class IClientStorage {
   /// Loads the current persisted state, or the empty [PersistedClientState] when nothing has been
   /// saved yet -- a missing store is a valid empty store, not corruption.
   /// @throws [DovahLinkStorageException] if a store exists but cannot be read as valid state:
