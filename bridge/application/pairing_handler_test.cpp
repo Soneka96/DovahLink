@@ -17,9 +17,7 @@
 #include <vector>
 
 using dovahlink::application::ConnectionId;
-using dovahlink::application::HandlePairingConfirm;
-using dovahlink::application::HandlePairingRenotify;
-using dovahlink::application::HandlePairingRequest;
+using dovahlink::application::PairingHandler;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -111,6 +109,23 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
     int attemptsExhaustedCount = 0;
 };
 
+///  Supplies the production coordinator boundary to direct request-handler
+///  tests without repeating trust-store composition in every case.
+Envelope HandlePairingRequest(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, PairingSession& pairingSession,
+    RecordingPairingNotificationSink& notificationSink,
+    std::chrono::steady_clock::time_point now) {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    PairingHandler handler(pairingSession, coordinator, notificationSink);
+    return handler.HandleRequest(envelope, sessionId, clientId, now);
+}
+
 ///  Supplies the production coordinator boundary to direct confirm-handler tests
 ///  without repeating trust-store composition in every case.
 Envelope HandlePairingConfirm(
@@ -124,9 +139,25 @@ Envelope HandlePairingConfirm(
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
                                                                  pairingSession,
                                                                  sessionManager);
-    return dovahlink::application::HandlePairingConfirm(
-        envelope, sessionId, clientId, pairingSession, coordinator,
-        notificationSink, now);
+    PairingHandler handler(pairingSession, coordinator, notificationSink);
+    return handler.HandleConfirm(envelope, sessionId, clientId, now);
+}
+
+///  Supplies the production coordinator boundary to direct renotify-handler
+///  tests without repeating trust-store composition in every case.
+Envelope HandlePairingRenotify(
+    const Envelope& envelope, const std::string& sessionId,
+    const std::string& clientId, PairingSession& pairingSession,
+    RecordingPairingNotificationSink& notificationSink,
+    std::chrono::steady_clock::time_point now) {
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    PairingHandler handler(pairingSession, coordinator, notificationSink);
+    return handler.HandleRenotify(envelope, sessionId, clientId, now);
 }
 
 ///  Keeps existing direct handler tests focused on protocol behavior while
@@ -723,9 +754,9 @@ TEST_CASE("HandlePairingAck reports pairing_invalidated after the pending "
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
                                                                  pairingSession,
                                                                  sessions);
-    auto confirmResponse = dovahlink::application::HandlePairingConfirm(
-        BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId,
-        pairingSession, coordinator, sink, now);
+    PairingHandler pairingHandler(pairingSession, coordinator, sink);
+    auto confirmResponse = pairingHandler.HandleConfirm(
+        BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, now);
     auto confirmOutcome =
         dovahlink::protocol::DecodePairingOutcomePayload(confirmResponse.payload);
     REQUIRE(confirmOutcome.has_value());
@@ -1360,4 +1391,35 @@ TEST_CASE("HandlePairingCancel reports already_idle for a non-owner without "
         dovahlink::protocol::DecodePairingOutcomePayload(ownerResponse.payload);
     REQUIRE(ownerOutcome.has_value());
     CHECK(ownerOutcome->outcome == "credential_issued");
+}
+
+TEST_CASE("PairingHandler's real behavior is reachable through IPairingHandler",
+          "[application][pairing_handler][i_pairing_handler]") {
+    PairingSession pairingSession(
+        []() -> std::optional<std::string> { return std::string("123456"); });
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    SessionManager sessionManager;
+    dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
+                                                                 pairingSession,
+                                                                 sessionManager);
+    RecordingPairingNotificationSink sink;
+    PairingHandler handler(pairingSession, coordinator, sink);
+    dovahlink::application::IPairingHandler& contract = handler;
+    auto now = std::chrono::steady_clock::now();
+
+    auto response = contract.HandleRequest(BuildPairingRequestEnvelope(),
+                                           kSessionId, kClientId, now);
+
+    CHECK(response.messageType == "pairing_status");
+    REQUIRE(sink.codes.size() == 1);
+    CHECK(sink.codes[0] == "123456");
+
+    auto confirmResponse = contract.HandleConfirm(
+        BuildPairingConfirmEnvelope("123456"), kSessionId, kClientId, now);
+    CHECK(confirmResponse.messageType == "pairing_outcome");
+
+    auto renotifyResponse = contract.HandleRenotify(
+        BuildPairingRenotifyEnvelope(), kSessionId, kClientId, now);
+    CHECK(renotifyResponse.messageType == "pairing_outcome");
 }

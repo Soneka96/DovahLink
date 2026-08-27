@@ -6,7 +6,7 @@
 #include "application/session.hpp"
 #include "shared/scoped_release.hpp"
 #include "transport/connection_slot.hpp"
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <boost/asio/ip/tcp.hpp>
 
@@ -50,8 +50,8 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  @param activeSessionSocket Owns active-socket publication and shutdown
     ///      for the connected client.
     ///  @param connectionSession Runs each accepted connection's full session.
-    BridgeWorkerPool(transport::LoopbackListener& listenerV4,
-                     transport::LoopbackListener& listenerV6,
+    BridgeWorkerPool(transport::ILoopbackListener& listenerV4,
+                     transport::ILoopbackListener& listenerV6,
                      transport::IConnectionSlot& slot,
                      IActiveSessionSocket& activeSessionSocket,
                      IConnectionSession& connectionSession);
@@ -78,7 +78,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  Accepts connections from one loopback listener until stopping.
     ///  @param listener Listener whose accept loop is executed.
     ///  @param workerRunner Per-connection exception containment boundary.
-    void AcceptLoop(transport::LoopbackListener& listener,
+    void AcceptLoop(transport::ILoopbackListener& listener,
                     const ContainedWorkRunner& workerRunner);
 
     ///  Joins the previous connection's session thread, if any is still joinable.
@@ -93,7 +93,8 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  Runs one accepted connection's full session (`IConnectionSession::Run`,
     ///  wrapped in `workerRunner`'s exception containment) on its own thread,
     ///  moving `slotLease` into that thread so the slot is held for the session's
-    ///  real lifetime. Letting `AcceptLoop` return to `AcceptLoopbackOnly()`
+    ///  real lifetime. Letting `AcceptLoop` return to the listener's serialized
+    ///  accept operation
     ///  immediately after spawning this -- rather than blocking on the session
     ///  itself -- is what lets a second connection attempt arriving while this one
     ///  is still live actually reach `ConnectionSlot::TryAcquire()` and be
@@ -113,10 +114,10 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
                                shared::ScopedRelease slotLease);
 
     ///  IPv4 listener used by one accept worker.
-    transport::LoopbackListener& listenerV4_;
+    transport::ILoopbackListener& listenerV4_;
 
     ///  IPv6 listener used by one accept worker.
-    transport::LoopbackListener& listenerV6_;
+    transport::ILoopbackListener& listenerV6_;
 
     ///  Admission gate for the active connection.
     transport::IConnectionSlot& slot_;

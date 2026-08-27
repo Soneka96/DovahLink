@@ -1,7 +1,6 @@
 #include "application/message_dispatcher.hpp"
 
 #include "application/handshake_handler.hpp"
-#include "application/pairing_handler.hpp"
 #include "application/rename_handler.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
@@ -156,19 +155,25 @@ protocol::Envelope BuildPong(const protocol::Envelope& pingEnvelope,
 
 } //  namespace
 
-DispatchResult ProcessInboundMessage(
+MessageDispatcher::MessageDispatcher(
+    ISessionManager& sessionManager, security::ITrustStore& trustStore,
+    ITrustMutationCoordinator& mutationCoordinator,
+    IPairingHandler& pairingHandler,
+    const IActivePlayContextReader& activePlayContext,
+    std::optional<std::string> bridgeInstanceId)
+    : sessionManager_(sessionManager), trustStore_(trustStore),
+      mutationCoordinator_(mutationCoordinator),
+      pairingHandler_(pairingHandler), activePlayContext_(activePlayContext),
+      bridgeInstanceId_(std::move(bridgeInstanceId)) {}
+
+DispatchResult MessageDispatcher::Process(
     const std::string& rawMessage, std::size_t& receivedMessageCount,
     const std::string& sessionId, ConnectionId connection,
-    ISessionManager& sessionManager, ReplayGuard& replayGuard,
-    security::IViolationTracker& violations,
+    ReplayGuard& replayGuard, security::IViolationTracker& violations,
     security::IInboundMessageRateLimiter& rateLimiter,
     ConnectionTimeoutTracker& timeoutTracker,
-    const IActivePlayContextReader& activePlayContext,
-    security::IPairingSession& pairingSession, security::ITrustStore& trustStore,
-    ITrustMutationCoordinator& mutationCoordinator,
-    PairingNotificationSink& pairingNotificationSink,
-    const std::optional<std::string>& bridgeInstanceId,
     std::chrono::steady_clock::time_point steadyNow) {
+    const auto& bridgeInstanceId = bridgeInstanceId_;
     ++receivedMessageCount;
     if (receivedMessageCount > security::kMaxMessagesPerSession) {
         return DispatchResult{.closeConnection = true};
@@ -185,7 +190,7 @@ DispatchResult ProcessInboundMessage(
     //  README.md: present on every Bridge-originated message once
     //  authenticated).
     std::optional<std::string> currentContextId =
-        activePlayContext.CurrentPlayContextId();
+        activePlayContext_.CurrentPlayContextId();
 
     auto parsed = protocol::ParseBoundedJson(rawMessage);
     if (!parsed.has_value()) {
@@ -210,7 +215,7 @@ DispatchResult ProcessInboundMessage(
     //  here, same as a genuinely unpaired one; the IsValidForConnection check
     //  below rejects it as stale_session regardless of which allowlist this
     //  resolves to.
-    SessionTrustTier trustTier = sessionManager.IsFullyTrusted(connection)
+    SessionTrustTier trustTier = sessionManager_.IsFullyTrusted(connection)
                                      ? SessionTrustTier::kFull
                                      : SessionTrustTier::kRestricted;
 
@@ -227,7 +232,7 @@ DispatchResult ProcessInboundMessage(
     //  invariant: a future change to kAllowedMessageTypes or to the check ordering
     //  above would otherwise reintroduce a silent nullopt dereference here.
     assert(envelope->sessionId.has_value());
-    if (!sessionManager.IsValidForConnection(*envelope->sessionId, connection)) {
+    if (!sessionManager_.IsValidForConnection(*envelope->sessionId, connection)) {
         return Reject(envelope->messageId, sessionId, "stale_session",
                       "Session is not valid on this connection", false, violations,
                       steadyNow, bridgeInstanceId, currentContextId);
@@ -268,48 +273,47 @@ DispatchResult ProcessInboundMessage(
         //  passed IsValidForConnection above, so it is this connection's active
         //  session and always has a clientId (SessionManager::TryCreateSession never
         //  admits one without it).
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
-            HandlePairingRequest(*envelope, sessionId, *clientId, pairingSession,
-                                 pairingNotificationSink, steadyNow),
+            pairingHandler_.HandleRequest(*envelope, sessionId, *clientId,
+                                          steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kPairingConfirm) {
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
-            HandlePairingConfirm(*envelope, sessionId, *clientId, pairingSession,
-                                 mutationCoordinator, pairingNotificationSink,
-                                 steadyNow),
+            pairingHandler_.HandleConfirm(*envelope, sessionId, *clientId,
+                                          steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kPairingAck) {
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
             HandlePairingAck(*envelope, sessionId, *clientId, connection,
-                             mutationCoordinator, steadyNow),
+                             mutationCoordinator_, steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType ==
                protocol::message_type::kPairingRenotify) {
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
-            HandlePairingRenotify(*envelope, sessionId, *clientId, pairingSession,
-                                  pairingNotificationSink, steadyNow),
+            pairingHandler_.HandleRenotify(*envelope, sessionId, *clientId,
+                                           steadyNow),
             violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kPairingCancel) {
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result =
             FromHandlerResponse(HandlePairingCancel(
                                     *envelope, sessionId, *clientId,
-                                    mutationCoordinator, steadyNow),
+                                    mutationCoordinator_, steadyNow),
                                 violations, steadyNow);
     } else if (envelope->messageType == protocol::message_type::kRenameRequest) {
-        auto clientId = sessionManager.ClientIdForConnection(connection);
+        auto clientId = sessionManager_.ClientIdForConnection(connection);
         assert(clientId.has_value());
         result = FromHandlerResponse(
-            HandleRenameRequest(*envelope, sessionId, *clientId, trustStore),
+            HandleRenameRequest(*envelope, sessionId, *clientId, trustStore_),
             violations, steadyNow);
     } else {
         //  Only kSnapshotRequest remains, per kFullAllowedMessageTypes --

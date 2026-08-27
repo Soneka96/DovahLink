@@ -12,6 +12,7 @@
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -41,6 +42,8 @@ using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::HandshakeHandler;
 using dovahlink::application::kBridgeVersion;
+using dovahlink::application::MessageDispatcher;
+using dovahlink::application::PairingHandler;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -56,9 +59,13 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using dovahlink::transport::AcceptError;
 using dovahlink::transport::ConnectionSlot;
+using dovahlink::transport::ILoopbackListener;
 using dovahlink::transport::LoopbackListener;
+using dovahlink::transport::test_support::MockLoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
+using testing::StrictMock;
 
 namespace {
 
@@ -147,14 +154,16 @@ ContainedWorkRunner MakeContainedWorkRunner() {
 ///  Owns the real transport and application dependencies shared by worker-pool
 ///  tests.
 struct Fixture {
-    ///  I/O context supplied to both loopback listeners.
-    boost::asio::io_context ioc;
+    ///  I/O context supplied to the IPv4 loopback listener.
+    boost::asio::io_context iocV4;
+    ///  I/O context supplied to the IPv6 loopback listener.
+    boost::asio::io_context iocV6;
     ///  Accepts test connections over IPv4.
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
     ///  Accepts test connections over IPv6.
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
     ///  Enforces the one-active-connection limit.
     ConnectionSlot slot;
     ///  Holds the one-time token accepted by the test session.
@@ -196,16 +205,20 @@ struct Fixture {
                                       activePlayContext,
                                       /*bridgeInstanceId=*/std::nullopt,
                                       /*bridgeVersion=*/kBridgeVersion};
-    ///  Runs each accepted connection's full session.
-    ConnectionSession connectionSession{handshakeHandler,
+    ///  Handles pairing_request/pairing_confirm/pairing_renotify.
+    PairingHandler pairingHandler{pairingSession, mutationCoordinator,
+                                  pairingNotificationSink};
+    ///  Processes each inbound message after authentication.
+    MessageDispatcher messageDispatcher{sessionManager,
                                         trustStore,
-                                        sessionManager,
-                                        activePlayContext,
-                                        pairingSession,
                                         mutationCoordinator,
-                                        pairingNotificationSink,
-                                        /*bridgeInstanceId=*/std::nullopt,
-                                        /*bridgeVersion=*/kBridgeVersion};
+                                        pairingHandler,
+                                        activePlayContext,
+                                        /*bridgeInstanceId=*/std::nullopt};
+    ///  Runs each accepted connection's full session.
+    ConnectionSession connectionSession{handshakeHandler, messageDispatcher,
+                                        activePlayContext, pairingSession,
+                                        /*bridgeInstanceId=*/std::nullopt};
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1178,11 +1191,12 @@ TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
           "connection, isolated from ConnectionSession's own handshake and "
           "dispatch machinery",
           "[application][bridge_worker_pool]") {
-    boost::asio::io_context ioc;
+    boost::asio::io_context iocV4;
+    boost::asio::io_context iocV6;
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
     ConnectionSlot slot;
     ActiveSessionSocket activeSessionSocket;
     MockConnectionSession connectionSession;
@@ -1205,4 +1219,118 @@ TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
 
     pool.Stop();
     pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
+          "failure, isolated from real sockets",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+
+    EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+        .Times(1)
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .Times(1)
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
+    //  once even though this test never calls Stop() itself.
+    EXPECT_CALL(listenerV4, Close());
+    EXPECT_CALL(listenerV6, Close());
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(connectionSession.Connections().empty());
+}
+
+TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
+          "stopping on accept failure, isolated from real sockets",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+            .WillOnce(testing::Return(
+                std::unexpected(AcceptError::kNonLoopbackPeerRejected)));
+        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+            .WillOnce(
+                testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    }
+    //  V6 fails immediately; only V4's retry behavior is under test here.
+    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
+    //  once even though this test never calls Stop() itself.
+    EXPECT_CALL(listenerV4, Close());
+    EXPECT_CALL(listenerV6, Close());
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(connectionSession.Connections().empty());
+}
+
+TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+    //  At least once, not exactly once: BridgeWorkerPool's destructor calls
+    //  Stop() again, which this test relies on staying safe to repeat.
+    EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Stop();
+}
+
+TEST_CASE("BridgeWorkerPool rearms after rejecting a full connection slot",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    auto occupiedLease = slot.TryAcquire();
+    REQUIRE(occupiedLease.has_value());
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+    boost::asio::io_context acceptedSocketIoc;
+
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+            .WillOnce(testing::InvokeWithoutArgs([&acceptedSocketIoc] {
+                boost::asio::ip::tcp::socket socket(acceptedSocketIoc);
+                return std::expected<boost::asio::ip::tcp::socket, AcceptError>(
+                    std::move(socket));
+            }))
+            .WillOnce(testing::Return(
+                std::unexpected(AcceptError::kAcceptFailed)));
+    }
+    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(connectionSession.Connections().empty());
 }

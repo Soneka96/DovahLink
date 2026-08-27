@@ -1,7 +1,9 @@
 #pragma once
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 #include "transport/websocket_session.hpp"
+
+#include <gmock/gmock.h>
 
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
@@ -99,6 +101,16 @@ class LoopbackWebSocketServer {
                                             [this] { return acceptReady_; });
     }
 
+    ///  Returns whether the accepted session has been published to the
+    ///  shutdown controller within the supplied duration.
+    template <class Rep, class Period>
+    [[nodiscard]] bool
+    WaitForSessionReady(const std::chrono::duration<Rep, Period>& timeout) {
+        std::unique_lock lock(sessionReadyMutex_);
+        return sessionReadyChanged_.wait_for(lock, timeout,
+                                             [this] { return sessionReady_; });
+    }
+
     ///  Requests cancellation of the accepted WebSocket session, when present.
     void ShutdownActiveSession() noexcept {
         std::lock_guard lock(socketMutex_);
@@ -188,6 +200,11 @@ class LoopbackWebSocketServer {
                     std::lock_guard lock(socketMutex_);
                     activeSocket_ = socket;
                 }
+                {
+                    std::lock_guard lock(sessionReadyMutex_);
+                    sessionReady_ = true;
+                }
+                sessionReadyChanged_.notify_all();
 
                 if (stopToken.stop_requested()) {
                     socket->Shutdown();
@@ -256,6 +273,12 @@ class LoopbackWebSocketServer {
     std::condition_variable acceptReadyChanged_;
     ///  Records that the server thread has posted its asynchronous accept.
     bool acceptReady_{false};
+    ///  Serializes session-publication readiness and bounded waits.
+    std::mutex sessionReadyMutex_;
+    ///  Wakes tests after the accepted session has been published.
+    std::condition_variable sessionReadyChanged_;
+    ///  Records that the accepted session has been published.
+    bool sessionReady_{false};
     ///  Serializes access to the active socket retained for cleanup.
     std::mutex socketMutex_;
     ///  Interrupts session work when client-side setup or assertions exit early.
@@ -273,6 +296,16 @@ class LoopbackWebSocketServer {
     bool completed_{false};
     ///  Owns and joins the one server worker.
     std::jthread thread_;
+};
+
+//  ---- Reusable contract mocks ----
+
+///  GoogleMock loopback-listener contract double.
+class MockLoopbackListener : public ILoopbackListener {
+  public:
+    MOCK_METHOD((std::expected<boost::asio::ip::tcp::socket, AcceptError>),
+                AcceptLoopbackOnly, (), (override));
+    MOCK_METHOD(void, Close, (), (noexcept, override));
 };
 
 } //  namespace dovahlink::transport::test_support

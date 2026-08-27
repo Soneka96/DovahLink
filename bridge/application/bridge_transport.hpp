@@ -1,6 +1,6 @@
 #pragma once
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 namespace dovahlink::application {
 
@@ -21,20 +21,21 @@ class IBridgeTransport {
 };
 
 ///  Provides the coordinator's transport lifecycle for two already-bound
-///  loopback listeners. The synchronous bridge has no asynchronous completions,
-///  and accept workers own admission.
+///  loopback listeners. Accept-loop ownership and admission remain with the
+///  worker pool; this adapter closes listeners after workers have joined.
 class BridgeTransport : public IBridgeTransport {
   public:
     ///  Keeps references to the already-bound IPv4 and IPv6 listeners.
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.
     ///  @param listenerV6 IPv6 loopback listener owned by the caller.
-    BridgeTransport(transport::LoopbackListener& listenerV4,
-                    transport::LoopbackListener& listenerV6);
+    BridgeTransport(transport::ILoopbackListener& listenerV4,
+                    transport::ILoopbackListener& listenerV6);
 
     ///  Leaves the already-bound listeners unchanged.
     void Start() override;
 
-    ///  The synchronous transport has no pending completions to cancel.
+    ///  Accept completions belong to the worker pool; this lifecycle adapter has
+    ///  no separate completion queue to cancel.
     void CancelCompletions() override;
 
     ///  Closes both listener acceptors; repeated calls are harmless.
@@ -42,10 +43,10 @@ class BridgeTransport : public IBridgeTransport {
 
   private:
     ///  IPv4 listener referenced by this lifecycle adapter.
-    transport::LoopbackListener& listenerV4_;
+    transport::ILoopbackListener& listenerV4_;
 
     ///  IPv6 listener referenced by this lifecycle adapter.
-    transport::LoopbackListener& listenerV6_;
+    transport::ILoopbackListener& listenerV6_;
 };
 
 } //  namespace dovahlink::application

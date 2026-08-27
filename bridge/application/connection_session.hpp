@@ -2,12 +2,9 @@
 
 #include "application/active_play_context_reader.hpp"
 #include "application/handshake_handler.hpp"
-#include "application/pairing_notification_sink.hpp"
+#include "application/message_dispatcher.hpp"
 #include "application/session.hpp"
-#include "application/subscription_handler.hpp"
-#include "application/trust_mutation_coordinator.hpp"
 #include "security/pairing_session.hpp"
-#include "security/trust_store.hpp"
 #include "transport/websocket_session.hpp"
 
 #include <chrono>
@@ -52,30 +49,20 @@ class ConnectionSession final : public IConnectionSession {
   public:
     ///  Binds every collaborator `Run` needs.
     ///  @param handshakeHandler Validates and admits the connection's hello.
-    ///  @param trustStore Plugin-lifetime persistent trust store.
-    ///  @param sessionManager Session registry for the connection.
+    ///  @param messageDispatcher Processes each inbound message after
+    ///  authentication.
     ///  @param activePlayContext Source of the current play-context identity
     ///  this connection reports.
     ///  @param pairingSession Plugin-lifetime pairing challenge/pending-
-    ///  credential state machine.
-    ///  @param mutationCoordinator Serializes pairing finalization and
-    ///  administrative trust mutations.
-    ///  @param pairingNotificationSink Displays a freshly generated pairing
-    ///  code to the user.
+    ///  credential state machine, notified of this connection's own
+    ///  reconnect/disconnect.
     ///  @param bridgeInstanceId This bridge process's identity, stamped onto
     ///  every response envelope; no value if generation failed at startup.
-    ///  @param bridgeVersion The DovahLink Bridge/mod release version exposed
-    ///  to the client in `hello_ack.bridgeVersion`
-    ///      (`ai/context/protocol/compatibility.md`).
     ConnectionSession(IHandshakeHandler& handshakeHandler,
-                      security::ITrustStore& trustStore,
-                      ISessionManager& sessionManager,
+                      IMessageDispatcher& messageDispatcher,
                       const IActivePlayContextReader& activePlayContext,
                       security::IPairingSession& pairingSession,
-                      ITrustMutationCoordinator& mutationCoordinator,
-                      PairingNotificationSink& pairingNotificationSink,
-                      std::optional<std::string> bridgeInstanceId,
-                      std::string bridgeVersion);
+                      std::optional<std::string> bridgeInstanceId);
 
     ///  @copydoc IConnectionSession::Run
     ///  Repeats the base interface's default so existing callers that hold a
@@ -89,11 +76,8 @@ class ConnectionSession final : public IConnectionSession {
     ///  Validates and admits the connection's hello.
     IHandshakeHandler& handshakeHandler_;
 
-    ///  Plugin-lifetime persistent trust store.
-    security::ITrustStore& trustStore_;
-
-    ///  Session registry for the connection.
-    ISessionManager& sessionManager_;
+    ///  Processes each inbound message after authentication.
+    IMessageDispatcher& messageDispatcher_;
 
     ///  Source of the current play-context identity this connection reports.
     const IActivePlayContextReader& activePlayContext_;
@@ -101,17 +85,8 @@ class ConnectionSession final : public IConnectionSession {
     ///  Plugin-lifetime pairing challenge/pending-credential state machine.
     security::IPairingSession& pairingSession_;
 
-    ///  Serializes pairing finalization and administrative trust mutations.
-    ITrustMutationCoordinator& mutationCoordinator_;
-
-    ///  Displays a freshly generated pairing code to the user.
-    PairingNotificationSink& pairingNotificationSink_;
-
     ///  This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId_;
-
-    ///  The DovahLink Bridge/mod release version exposed to clients.
-    std::string bridgeVersion_;
 };
 
 } //  namespace dovahlink::application

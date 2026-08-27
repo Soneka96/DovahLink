@@ -1,4 +1,4 @@
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -7,6 +7,11 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <chrono>
+#include <exception>
+#include <future>
+#include <stdexcept>
+#include <thread>
 #include <utility>
 
 using dovahlink::transport::ListenerError;
@@ -151,4 +156,61 @@ TEST_CASE("a real client can connect to the IPv6 listener and the server can "
     REQUIRE_FALSE(acceptEc);
     CHECK(accepted.is_open());
     CHECK(accepted.remote_endpoint().address().is_loopback());
+}
+
+TEST_CASE("Close makes the listener unavailable for a subsequent accept loop",
+          "[transport][listener]") {
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    listener->Close();
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+    CHECK_FALSE(listener->Acceptor().is_open());
+}
+
+TEST_CASE("Close is safe to call more than once",
+          "[transport][listener]") {
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    listener->Close();
+    listener->Close();
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    CHECK_FALSE(accepted.has_value());
+}
+
+TEST_CASE("Close cancels a pending asynchronous accept before returning",
+          "[transport][listener]") {
+    using namespace std::chrono_literals;
+
+    using AcceptResult =
+        std::expected<boost::asio::ip::tcp::socket,
+                      dovahlink::transport::AcceptError>;
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    std::promise<AcceptResult> resultPromise;
+    auto resultFuture = resultPromise.get_future();
+    std::thread acceptThread([&listener, &resultPromise] {
+        resultPromise.set_value(listener->AcceptLoopbackOnly());
+    });
+
+    listener->Close();
+    REQUIRE(resultFuture.wait_for(2s) == std::future_status::ready);
+    auto accepted = resultFuture.get();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+
+    acceptThread.join();
+    CHECK_FALSE(listener->Acceptor().is_open());
 }

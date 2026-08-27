@@ -12,65 +12,126 @@
 
 namespace dovahlink::application {
 
-///  Handles a `pairing_request`: starts a fresh challenge and displays its code
-///  via `notificationSink`, resumes `clientId`'s own already-active challenge or
-///  pending credential without generating or displaying a second code, or
-///  reports that a different `clientId` owns it without revealing anything about
-///  that device or its code.
-///  @param pairingRequestEnvelope Decoded client `pairing_request`.
-///  @param sessionId Authenticated session identifier.
-///  @param clientId The client identity bound to this connection's session,
-///  presented at `hello`
-///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine, used for code redisplay after a wrong attempt.
-///  @param notificationSink Displays a freshly generated code to the user.
-///  @param now Current monotonic time, for the lazy-expiry checks and
-///  `expiresInSeconds`.
-///  @return `pairing_status` envelope reporting `"available"`/`"in_progress"`
-///  (both carrying
-///      `expiresInSeconds`), `"other_device_pairing"`, or `"unavailable"` when
-///      the underlying code generator fails.
-[[nodiscard]] protocol::Envelope
-HandlePairingRequest(const protocol::Envelope& pairingRequestEnvelope,
-                     const std::string& sessionId, const std::string& clientId,
-                     security::IPairingSession& pairingSession,
-                     PairingNotificationSink& notificationSink,
-                     std::chrono::steady_clock::time_point now);
+///  Binds the three pairing message handlers that mix multiple plugin-lifetime
+///  collaborators with per-call data (`ai/context/skse/cpp-style.md`'s rule
+///  against a free function doing so) to those collaborators. `HandlePairingAck`
+///  and `HandlePairingCancel` each depend on exactly one collaborator and remain
+///  free functions below, exempt from that rule.
+class IPairingHandler {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IPairingHandler() = default;
 
-///  Handles a `pairing_confirm`: validates the submitted code against the active
-///  challenge and, on success, generates a credential and holds it pending
-///  finalization via `pairingSession`. A wrong evaluated attempt redisplays the
-///  code via `notificationSink` (distinct wording) when its own auto-renotify
-///  cooldown allows it; the attempt that reaches the wrong-attempt hard limit
-///  instead displays a distinct too-many-attempts notification and cancels the
-///  challenge.
-///  @param pairingConfirmEnvelope Decoded client `pairing_confirm`.
-///  @param sessionId Authenticated session identifier.
-///  @param clientId The client identity bound to this connection's session,
-///  presented at `hello`
-///      (session-owned state).
-///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-///  state machine.
-///  @param mutationCoordinator Captures the trust mutation fence and creates the
-///  pending credential under the same coordination boundary as admin mutations.
-///  @param notificationSink Redisplays the code after a wrong attempt or reports
-///  attempts
-///      exhausted; never called for `kConfirmed`, `kExpired`, or
-///      `kPacingLimited`.
-///  @param now Current monotonic time, for the lazy-expiry checks and
-///  pacing/attempt accounting.
-///  @return `pairing_outcome` envelope: `"credential_issued"` on success, or
-///      `"expired"`/`"invalid"`/`"pacing_limited"`/`"hard_limit_reached"`; a
-///      generic `error` envelope for a malformed payload or an internal failure
-///      building the response.
-[[nodiscard]] protocol::Envelope
-HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
-                     const std::string& sessionId, const std::string& clientId,
-                     security::IPairingSession& pairingSession,
-                     ITrustMutationCoordinator& mutationCoordinator,
-                     PairingNotificationSink& notificationSink,
-                     std::chrono::steady_clock::time_point now);
+    ///  Handles a `pairing_request`: starts a fresh challenge and displays its
+    ///  code via the bound notification sink, resumes `clientId`'s own
+    ///  already-active challenge or pending credential without generating or
+    ///  displaying a second code, or reports that a different `clientId` owns
+    ///  it without revealing anything about that device or its code.
+    ///  @param pairingRequestEnvelope Decoded client `pairing_request`.
+    ///  @param sessionId Authenticated session identifier.
+    ///  @param clientId The client identity bound to this connection's
+    ///  session, presented at `hello` (session-owned state).
+    ///  @param now Current monotonic time, for the lazy-expiry checks and
+    ///  `expiresInSeconds`.
+    ///  @return `pairing_status` envelope reporting
+    ///  `"available"`/`"in_progress"` (both carrying `expiresInSeconds`),
+    ///      `"other_device_pairing"`, or `"unavailable"` when the underlying
+    ///      code generator fails.
+    [[nodiscard]] virtual protocol::Envelope
+    HandleRequest(const protocol::Envelope& pairingRequestEnvelope,
+                  const std::string& sessionId, const std::string& clientId,
+                  std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Handles a `pairing_confirm`: validates the submitted code against the
+    ///  active challenge and, on success, generates a credential and holds it
+    ///  pending finalization. A wrong evaluated attempt redisplays the code
+    ///  (distinct wording) when its own auto-renotify cooldown allows it; the
+    ///  attempt that reaches the wrong-attempt hard limit instead displays a
+    ///  distinct too-many-attempts notification and cancels the challenge.
+    ///  @param pairingConfirmEnvelope Decoded client `pairing_confirm`.
+    ///  @param sessionId Authenticated session identifier.
+    ///  @param clientId The client identity bound to this connection's
+    ///  session, presented at `hello` (session-owned state).
+    ///  @param now Current monotonic time, for the lazy-expiry checks and
+    ///  pacing/attempt accounting.
+    ///  @return `pairing_outcome` envelope: `"credential_issued"` on success,
+    ///  or
+    ///      `"expired"`/`"invalid"`/`"pacing_limited"`/`"hard_limit_reached"`;
+    ///      a generic `error` envelope for a malformed payload or an internal
+    ///      failure building the response.
+    [[nodiscard]] virtual protocol::Envelope
+    HandleConfirm(const protocol::Envelope& pairingConfirmEnvelope,
+                  const std::string& sessionId, const std::string& clientId,
+                  std::chrono::steady_clock::time_point now) = 0;
+
+    ///  Handles a `pairing_renotify`: "show my code again". Redisplays
+    ///  `clientId`'s owned active challenge's existing code when its manual
+    ///  renotify cooldown allows it; never generates a new code and never
+    ///  sends the code itself over the wire.
+    ///  @param pairingRenotifyEnvelope Decoded client `pairing_renotify` (no
+    ///  payload beyond the standard envelope).
+    ///  @param sessionId Authenticated session identifier.
+    ///  @param clientId The client identity bound to this connection's
+    ///  session, presented at `hello` (session-owned state).
+    ///  @param now Current monotonic time, for the lazy-expiry checks and
+    ///  cooldown accounting.
+    ///  @return `pairing_outcome` envelope: `"renotified"` on success,
+    ///  `"renotify_cooldown"` (carrying
+    ///      `retryAfterSeconds`) while the cooldown is still active, or
+    ///      `"already_idle"` when `clientId` owns no active challenge or
+    ///      pending credential.
+    [[nodiscard]] virtual protocol::Envelope
+    HandleRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
+                   const std::string& sessionId, const std::string& clientId,
+                   std::chrono::steady_clock::time_point now) = 0;
+};
+
+///  Binds the pairing-request/confirm/renotify handlers to their
+///  plugin-lifetime collaborators, per `ai/context/skse/cpp-style.md`'s rule
+///  against a free function mixing lifetime collaborators with per-call data.
+class PairingHandler final : public IPairingHandler {
+  public:
+    ///  Binds every collaborator `HandleRequest`/`HandleConfirm`/
+    ///  `HandleRenotify` need.
+    ///  @param pairingSession Bridge-lifetime pairing challenge/pending-
+    ///  credential state machine.
+    ///  @param mutationCoordinator Captures the trust mutation fence and
+    ///  creates the pending credential under the same coordination boundary
+    ///      as admin mutations.
+    ///  @param notificationSink Displays a freshly generated pairing code, or
+    ///  redisplays one after a wrong attempt or reports attempts exhausted.
+    PairingHandler(security::IPairingSession& pairingSession,
+                   ITrustMutationCoordinator& mutationCoordinator,
+                   PairingNotificationSink& notificationSink);
+
+    ///  @copydoc IPairingHandler::HandleRequest
+    [[nodiscard]] protocol::Envelope
+    HandleRequest(const protocol::Envelope& pairingRequestEnvelope,
+                  const std::string& sessionId, const std::string& clientId,
+                  std::chrono::steady_clock::time_point now) override;
+
+    ///  @copydoc IPairingHandler::HandleConfirm
+    [[nodiscard]] protocol::Envelope
+    HandleConfirm(const protocol::Envelope& pairingConfirmEnvelope,
+                  const std::string& sessionId, const std::string& clientId,
+                  std::chrono::steady_clock::time_point now) override;
+
+    ///  @copydoc IPairingHandler::HandleRenotify
+    [[nodiscard]] protocol::Envelope
+    HandleRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
+                   const std::string& sessionId, const std::string& clientId,
+                   std::chrono::steady_clock::time_point now) override;
+
+  private:
+    ///  Bridge-lifetime pairing challenge/pending-credential state machine.
+    security::IPairingSession& pairingSession_;
+
+    ///  Serializes pairing finalization and administrative trust mutations.
+    ITrustMutationCoordinator& mutationCoordinator_;
+
+    ///  Displays a freshly generated pairing code to the user.
+    PairingNotificationSink& notificationSink_;
+};
 
 ///  Handles a `pairing_ack`: idempotently checks whether `clientId` is already
 ///  trusted before touching `pairingSession` at all (a lost-response retry
@@ -97,34 +158,6 @@ HandlePairingConfirm(const protocol::Envelope& pairingConfirmEnvelope,
     const std::string& clientId, ConnectionId connection,
     ITrustMutationCoordinator& mutationCoordinator,
     std::chrono::steady_clock::time_point now);
-
-///  Handles a `pairing_renotify`: "show my code again". Redisplays `clientId`'s
-///  owned active challenge's existing code via `notificationSink` when its
-///  manual renotify cooldown allows it; never generates a new code and never
-///  sends the code itself over the wire.
-///  @param pairingRenotifyEnvelope Decoded client `pairing_renotify` (no payload
-///  beyond the
-///      standard envelope).
-///  @param sessionId Authenticated session identifier.
-///  @param clientId The client identity bound to this connection's session,
-///  presented at `hello`
-///      (session-owned state).
-///  @param notificationSink Redisplays the code on success; never called for a
-///  cooldown or an idle
-///      requester.
-///  @param now Current monotonic time, for the lazy-expiry checks and cooldown
-///  accounting.
-///  @return `pairing_outcome` envelope: `"renotified"` on success,
-///  `"renotify_cooldown"` (carrying
-///      `retryAfterSeconds`) while the cooldown is still active, or
-///      `"already_idle"` when `clientId` owns no active challenge or pending
-///      credential.
-[[nodiscard]] protocol::Envelope
-HandlePairingRenotify(const protocol::Envelope& pairingRenotifyEnvelope,
-                      const std::string& sessionId, const std::string& clientId,
-                      security::IPairingSession& pairingSession,
-                      PairingNotificationSink& notificationSink,
-                      std::chrono::steady_clock::time_point now);
 
 ///  Handles a `pairing_cancel`: `clientId` gives up its owned active challenge
 ///  or pending credential, whichever is currently held. Never touches

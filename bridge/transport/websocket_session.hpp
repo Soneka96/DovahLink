@@ -86,11 +86,16 @@ class WebSocketSession final : public IWebSocketSession {
       private:
         friend class WebSocketSession;
 
+        ///  Transfers an incoming TCP socket onto the session-owned context.
+        static boost::asio::ip::tcp::socket RebindSocket(
+            boost::asio::ip::tcp::socket socket,
+            boost::asio::io_context& ioContext);
+
         ///  Takes ownership of one accepted TCP socket.
         explicit Socket(boost::asio::ip::tcp::socket socket);
 
         ///  Event loop that owns every WebSocket operation and cancellation handler.
-        boost::asio::io_context& ioContext_;
+        std::shared_ptr<boost::asio::io_context> ioContext_;
 
         ///  Worker-owned WebSocket stream and its accepted TCP socket.
         boost::beast::websocket::stream<boost::beast::tcp_stream> stream_;

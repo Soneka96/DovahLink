@@ -1,8 +1,8 @@
 #include "application/connection_session.hpp"
 
 #include "application/connection_timeout_tracker.hpp"
-#include "application/message_dispatcher.hpp"
 #include "application/replay_guard.hpp"
+#include "application/subscription_handler.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/envelope.hpp"
 #include "security/inbound_message_rate_limiter.hpp"
@@ -28,20 +28,14 @@ void SendIfPossible(transport::IWebSocketSession& ws,
 } //  namespace
 
 ConnectionSession::ConnectionSession(
-    IHandshakeHandler& handshakeHandler, security::ITrustStore& trustStore,
-    ISessionManager& sessionManager,
+    IHandshakeHandler& handshakeHandler, IMessageDispatcher& messageDispatcher,
     const IActivePlayContextReader& activePlayContext,
     security::IPairingSession& pairingSession,
-    ITrustMutationCoordinator& mutationCoordinator,
-    PairingNotificationSink& pairingNotificationSink,
-    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
-    : handshakeHandler_(handshakeHandler), trustStore_(trustStore),
-      sessionManager_(sessionManager), activePlayContext_(activePlayContext),
-      pairingSession_(pairingSession),
-      mutationCoordinator_(mutationCoordinator),
-      pairingNotificationSink_(pairingNotificationSink),
-      bridgeInstanceId_(std::move(bridgeInstanceId)),
-      bridgeVersion_(std::move(bridgeVersion)) {}
+    std::optional<std::string> bridgeInstanceId)
+    : handshakeHandler_(handshakeHandler),
+      messageDispatcher_(messageDispatcher),
+      activePlayContext_(activePlayContext), pairingSession_(pairingSession),
+      bridgeInstanceId_(std::move(bridgeInstanceId)) {}
 
 void ConnectionSession::Run(transport::IWebSocketSession& ws,
                             ConnectionId connection,
@@ -136,11 +130,9 @@ void ConnectionSession::Run(transport::IWebSocketSession& ws,
             break;
         }
 
-        auto dispatch = ProcessInboundMessage(
-            *raw, receivedMessageCount, sessionId, connection, sessionManager_,
-            replayGuard, violations, rateLimiter, timeout, activePlayContext_,
-            pairingSession_, trustStore_, mutationCoordinator_,
-            pairingNotificationSink_, bridgeInstanceId_, steadyNow());
+        auto dispatch = messageDispatcher_.Process(
+            *raw, receivedMessageCount, sessionId, connection, replayGuard,
+            violations, rateLimiter, timeout, steadyNow());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }

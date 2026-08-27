@@ -37,7 +37,7 @@
 #include "security/trust_store.hpp"
 #include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -204,16 +204,19 @@ SKSEPluginInfo(
 
     //  Both IPv4 and IPv6 loopback listeners are required; only the port is
     //  configurable.
-    static boost::asio::io_context ioc;
+    static boost::asio::io_context iocV4;
+    static boost::asio::io_context iocV6;
     auto listenerV4Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4, kBridgePort);
+        iocV4, dovahlink::transport::LoopbackListener::IpVersion::kV4,
+        kBridgePort);
     if (!listenerV4Result.has_value()) {
         SKSE::log::error("Failed to bind the IPv4 loopback listener on port {}.",
                          kBridgePort);
         return false;
     }
     auto listenerV6Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV6, kBridgePort);
+        iocV6, dovahlink::transport::LoopbackListener::IpVersion::kV6,
+        kBridgePort);
     if (!listenerV6Result.has_value()) {
         SKSE::log::error("Failed to bind the IPv6 loopback listener on port {}.",
                          kBridgePort);
@@ -307,10 +310,14 @@ SKSEPluginInfo(
         tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, activePlayContextReader, bridgeInstanceId,
         kBridgeVersion);
+    static dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, trustMutationCoordinator, pairingNotificationSink);
+    static dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, trustMutationCoordinator, pairingHandler,
+        activePlayContextReader, bridgeInstanceId);
     static dovahlink::application::ConnectionSession connectionSession(
-        handshakeHandler, trustStore, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
-        bridgeInstanceId, kBridgeVersion);
+        handshakeHandler, messageDispatcher, activePlayContextReader,
+        pairingSession, bridgeInstanceId);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

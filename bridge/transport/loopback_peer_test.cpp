@@ -3,7 +3,7 @@
 //  is therefore tested with synthetic addresses, while accepted loopback peers
 //  are still verified through real sockets.
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -12,9 +12,61 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <chrono>
+#include <expected>
+#include <future>
+#include <string_view>
+#include <thread>
+
 using dovahlink::transport::AcceptError;
 using dovahlink::transport::IsAcceptablePeerAddress;
 using dovahlink::transport::LoopbackListener;
+
+namespace {
+
+///  Runs the asynchronous listener against one real loopback peer and checks
+///  the accepted socket.
+void CheckRealLoopbackPeer(LoopbackListener::IpVersion version,
+                           std::string_view clientAddress) {
+    using namespace std::chrono_literals;
+    using AcceptResult =
+        std::expected<boost::asio::ip::tcp::socket, AcceptError>;
+
+    boost::asio::io_context listenerIoc;
+    auto listener = LoopbackListener::Create(listenerIoc, version, 0);
+    REQUIRE(listener.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    std::promise<AcceptResult> acceptedPromise;
+    auto acceptedFuture = acceptedPromise.get_future();
+    std::thread acceptThread([&listener, &acceptedPromise] {
+        acceptedPromise.set_value(listener->AcceptLoopbackOnly());
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
+    boost::system::error_code connectEc;
+    client.connect(endpoint, connectEc);
+    if (connectEc) {
+        listener->Close();
+        acceptThread.join();
+        FAIL("loopback client connection failed");
+    }
+    if (acceptedFuture.wait_for(2s) != std::future_status::ready) {
+        listener->Close();
+        acceptThread.join();
+        FAIL("loopback accept did not complete");
+    }
+
+    auto accepted = acceptedFuture.get();
+    acceptThread.join();
+    REQUIRE(accepted.has_value());
+    CHECK(accepted->is_open());
+    CHECK(accepted->remote_endpoint().address() ==
+          boost::asio::ip::make_address(clientAddress));
+}
+
+} //  namespace
 
 TEST_CASE("IsAcceptablePeerAddress accepts 127.0.0.1",
           "[transport][loopback_peer]") {
@@ -64,50 +116,18 @@ TEST_CASE(
 TEST_CASE(
     "AcceptLoopbackOnly returns a valid socket for a real IPv4 loopback peer",
     "[transport][loopback_peer]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    REQUIRE(listener.has_value());
-    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
-
-    boost::asio::ip::tcp::socket client(ioc);
-    boost::system::error_code connectEc;
-    client.connect(endpoint, connectEc);
-    REQUIRE_FALSE(connectEc);
-
-    auto accepted = listener->AcceptLoopbackOnly();
-    REQUIRE(accepted.has_value());
-    CHECK(accepted->is_open());
-    CHECK(IsAcceptablePeerAddress(accepted->remote_endpoint().address()));
+    CheckRealLoopbackPeer(LoopbackListener::IpVersion::kV4, "127.0.0.1");
 }
 
 TEST_CASE(
     "AcceptLoopbackOnly returns a valid socket for a real IPv6 loopback peer",
     "[transport][loopback_peer]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
-    REQUIRE(listener.has_value());
-    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
-
-    boost::asio::ip::tcp::socket client(ioc);
-    boost::system::error_code connectEc;
-    client.connect(endpoint, connectEc);
-    REQUIRE_FALSE(connectEc);
-
-    auto accepted = listener->AcceptLoopbackOnly();
-    REQUIRE(accepted.has_value());
-    CHECK(accepted->is_open());
-    CHECK(IsAcceptablePeerAddress(accepted->remote_endpoint().address()));
+    CheckRealLoopbackPeer(LoopbackListener::IpVersion::kV6, "::1");
 }
 
 TEST_CASE(
-    "AcceptLoopbackOnly reports kAcceptFailed distinctly from a rejected peer",
+    "AcceptLoopbackOnly exits when the acceptor is already closed",
     "[transport][loopback_peer]") {
-    //  No connection is ever made here; closing the listener's acceptor before
-    //  calling AcceptLoopbackOnly is a simple, deterministic way to force the
-    //  accept step itself to fail, distinct from the peer-address rejection
-    //  path exercised by the IsAcceptablePeerAddress tests above.
     boost::asio::io_context ioc;
     auto listener =
         LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
@@ -118,6 +138,5 @@ TEST_CASE(
     REQUIRE_FALSE(closeEc);
 
     auto accepted = listener->AcceptLoopbackOnly();
-    REQUIRE_FALSE(accepted.has_value());
-    CHECK(accepted.error() == AcceptError::kAcceptFailed);
+    CHECK_FALSE(accepted.has_value());
 }

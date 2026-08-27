@@ -24,6 +24,7 @@
 #include <utility>
 
 using dovahlink::transport::IWebSocketSession;
+using dovahlink::transport::LoopbackListener;
 using dovahlink::transport::SessionError;
 using dovahlink::transport::WebSocketSession;
 using dovahlink::transport::test_support::LoopbackWebSocketServer;
@@ -73,6 +74,66 @@ TEST_CASE("LoopbackWebSocketServer cleanup joins when client setup exits "
     }
 
     CHECK(std::chrono::steady_clock::now() - start < 2s);
+}
+
+TEST_CASE("WebSocketSession does not drive the accepted socket's source context",
+          "[transport][websocket_session]") {
+    using namespace std::chrono_literals;
+
+    std::binary_semaphore sourceWorkRan{0};
+    std::expected<void, SessionError> serverHandshake =
+        std::unexpected(SessionError::kHandshakeFailed);
+    LoopbackWebSocketServer server(
+        [&](WebSocketSession& session, boost::asio::io_context& serverIoc) {
+            boost::asio::post(serverIoc,
+                              [&sourceWorkRan] { sourceWorkRan.release(); });
+            serverHandshake = session.Accept();
+        });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(server.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    boost::beast::websocket::stream<boost::asio::ip::tcp::socket> clientWs(
+        std::move(clientSocket));
+    boost::system::error_code handshakeEc;
+    clientWs.handshake("127.0.0.1", "/", handshakeEc);
+    REQUIRE_FALSE(handshakeEc);
+    REQUIRE(server.WaitFor(2s));
+    server.Join();
+
+    REQUIRE(serverHandshake.has_value());
+    CHECK_FALSE(sourceWorkRan.try_acquire_for(100ms));
+
+    boost::system::error_code closeEc;
+    clientWs.close(boost::beast::websocket::close_code::normal, closeEc);
+}
+
+TEST_CASE("CreateSocket keeps its session context after the source context dies",
+          "[transport][websocket_session]") {
+    WebSocketSession::SocketHandle socket;
+    {
+        boost::asio::io_context sourceIoc;
+        auto listener =
+            LoopbackListener::Create(sourceIoc, LoopbackListener::IpVersion::kV4,
+                                     0);
+        REQUIRE(listener.has_value());
+
+        boost::asio::ip::tcp::socket client(sourceIoc);
+        boost::system::error_code connectEc;
+        client.connect(listener->LocalEndpoint(), connectEc);
+        REQUIRE_FALSE(connectEc);
+
+        boost::system::error_code acceptEc;
+        auto accepted = listener->Acceptor().accept(acceptEc);
+        REQUIRE_FALSE(acceptEc);
+        socket = WebSocketSession::CreateSocket(std::move(accepted));
+    }
+
+    REQUIRE(socket);
+    socket->Shutdown();
 }
 
 TEST_CASE("LoopbackWebSocketServer cleanup interrupts accepted session work on "
@@ -227,13 +288,7 @@ TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake",
 
     std::expected<void, SessionError> handshake =
         std::unexpected(SessionError::kHandshakeFailed);
-    std::binary_semaphore acceptPending{0};
-    LoopbackWebSocketServer server([&](WebSocketSession& session,
-                                       boost::asio::io_context& serverIoc) {
-        //  RunOperation starts async_accept before driving the server event loop.
-        //  This marker therefore cannot run until the handshake operation is
-        //  pending.
-        boost::asio::post(serverIoc, [&acceptPending] { acceptPending.release(); });
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
         handshake = session.Accept();
     });
 
@@ -243,7 +298,7 @@ TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake",
     clientSocket.connect(server.LocalEndpoint(), connectEc);
     REQUIRE_FALSE(connectEc);
 
-    REQUIRE(acceptPending.try_acquire_for(2s));
+    REQUIRE(server.WaitForSessionReady(2s));
     server.ShutdownActiveSession();
 
     REQUIRE(server.WaitFor(2s));
@@ -253,21 +308,14 @@ TEST_CASE("Shutdown interrupts an already-pending WebSocket handshake",
 }
 
 TEST_CASE(
-    "ShutdownWithNotification skips the notification but still force-closes an "
-    "already-pending WebSocket handshake",
+    "ShutdownWithNotification skips the notification but still force-closes a "
+    "WebSocket handshake at the session boundary",
     "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
     std::expected<void, SessionError> handshake =
         std::unexpected(SessionError::kHandshakeFailed);
-    std::binary_semaphore acceptPending{0};
-    LoopbackWebSocketServer server([&](WebSocketSession& session,
-                                       boost::asio::io_context& serverIoc) {
-        //  See "Shutdown interrupts an already-pending WebSocket handshake" above:
-        //  this marker cannot run until async_accept is genuinely pending, proving
-        //  handshakeSettled_ is still false when NotifyAndShutdownActiveSession
-        //  below fires.
-        boost::asio::post(serverIoc, [&acceptPending] { acceptPending.release(); });
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
         handshake = session.Accept();
     });
 
@@ -277,7 +325,7 @@ TEST_CASE(
     clientSocket.connect(server.LocalEndpoint(), connectEc);
     REQUIRE_FALSE(connectEc);
 
-    REQUIRE(acceptPending.try_acquire_for(2s));
+    REQUIRE(server.WaitForSessionReady(2s));
     server.NotifyAndShutdownActiveSession("must not be delivered mid-handshake");
 
     REQUIRE(server.WaitFor(2s));

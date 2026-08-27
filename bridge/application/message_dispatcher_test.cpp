@@ -24,8 +24,10 @@
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
 using dovahlink::application::IActivePlayContextReader;
+using dovahlink::application::IPairingHandler;
+using dovahlink::application::MessageDispatcher;
+using dovahlink::application::PairingHandler;
 using dovahlink::application::PairingNotificationSink;
-using dovahlink::application::ProcessInboundMessage;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -134,6 +136,9 @@ struct Fixture {
     RecordingPairingNotificationSink pairingNotificationSink;
     ///  This bridge process's identity, stamped onto every response envelope.
     std::optional<std::string> bridgeInstanceId = "bridge-1";
+    ///  Handles pairing_request/pairing_confirm/pairing_renotify.
+    PairingHandler pairingHandler{pairingSession, mutationCoordinator,
+                                  pairingNotificationSink};
 
     ///  Creates the fixture with its test session already authenticated at the
     ///  given trust tier and auth method. Both are required, not defaulted: most
@@ -155,23 +160,23 @@ struct Fixture {
     DispatchResult
     Process(const std::string& rawMessage,
             SteadyClock::time_point steadyNow = SteadyClock::now()) {
-        return ProcessInboundMessage(
-            rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
-            replayGuard, violations, rateLimiter, timeout, activePlayContext,
-            pairingSession, trustStore, mutationCoordinator,
-            pairingNotificationSink, bridgeInstanceId, steadyNow);
+        return ProcessWithContext(activePlayContext, rawMessage, steadyNow);
     }
 
     ///  Processes one raw message through a supplied active-context contract.
+    ///  Constructs the dispatcher fresh each call so it always reflects the
+    ///  fixture's current `bridgeInstanceId`, which some tests mutate after
+    ///  construction.
     DispatchResult ProcessWithContext(
         const IActivePlayContextReader& activeContext,
         const std::string& rawMessage,
         SteadyClock::time_point steadyNow = SteadyClock::now()) {
-        return ProcessInboundMessage(
-            rawMessage, receivedMessageCount, kSessionId, kConnection, sessions,
-            replayGuard, violations, rateLimiter, timeout, activeContext,
-            pairingSession, trustStore, mutationCoordinator,
-            pairingNotificationSink, bridgeInstanceId, steadyNow);
+        MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
+                                     pairingHandler, activeContext,
+                                     bridgeInstanceId);
+        return dispatcher.Process(rawMessage, receivedMessageCount, kSessionId,
+                                  kConnection, replayGuard, violations,
+                                  rateLimiter, timeout, steadyNow);
     }
 };
 
@@ -243,6 +248,32 @@ std::string RenameRequestMessage(const std::string& displayName,
                                  std::string messageId = "message-rename-1") {
     return dovahlink::protocol::EncodeEnvelope(
         BuildRenameRequestEnvelope(displayName, std::move(messageId)));
+}
+
+///  `IPairingHandler` mock used to prove `MessageDispatcher` routes each
+///  pairing message type to it with the right arguments, isolated from
+///  `PairingHandler`'s own behavior (covered by pairing_handler_test.cpp).
+class MockPairingHandler : public IPairingHandler {
+  public:
+    MOCK_METHOD(dovahlink::protocol::Envelope, HandleRequest,
+                (const dovahlink::protocol::Envelope&, const std::string&,
+                 const std::string&, std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(dovahlink::protocol::Envelope, HandleConfirm,
+                (const dovahlink::protocol::Envelope&, const std::string&,
+                 const std::string&, std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(dovahlink::protocol::Envelope, HandleRenotify,
+                (const dovahlink::protocol::Envelope&, const std::string&,
+                 const std::string&, std::chrono::steady_clock::time_point),
+                (override));
+};
+
+///  Stubs a minimal, valid `pairing_status` response for `MockPairingHandler`
+///  actions, isolated from any real pairing-outcome payload shape.
+dovahlink::protocol::Envelope StubPairingResponse() {
+    return dovahlink::protocol::BuildErrorEnvelope(
+        std::nullopt, std::string(kSessionId), "internal_error", "stub", false);
 }
 
 } //  namespace
@@ -1058,4 +1089,175 @@ TEST_CASE("ProcessInboundMessage accepts an empty capabilities list on a "
 
     CHECK_FALSE(result.closeConnection);
     CHECK(result.responses.empty());
+}
+
+TEST_CASE("MessageDispatcher routes pairing_request to "
+          "IPairingHandler::HandleRequest",
+          "[application][message_dispatcher][i_pairing_handler]") {
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    REQUIRE(sessionLease.has_value());
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    PairingSession pairingSession;
+    TrustMutationCoordinator mutationCoordinator(trustStore, pairingSession,
+                                                 sessions);
+    EmptyActivePlayContext activePlayContext;
+    StrictMock<MockPairingHandler> pairingHandler;
+    EXPECT_CALL(pairingHandler,
+                HandleRequest(testing::_, std::string(kSessionId),
+                              std::string(kClientId), testing::_))
+        .WillOnce(testing::Return(StubPairingResponse()));
+    MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
+                                 pairingHandler, activePlayContext,
+                                 /*bridgeInstanceId=*/std::nullopt);
+    std::size_t receivedMessageCount = 0;
+    ReplayGuard replayGuard;
+    ViolationTracker violations;
+    InboundMessageRateLimiter rateLimiter;
+    ConnectionTimeoutTracker timeout{SteadyClock::now()};
+
+    auto result = dispatcher.Process(
+        PairingRequestMessage(), receivedMessageCount, kSessionId, kConnection,
+        replayGuard, violations, rateLimiter, timeout, SteadyClock::now());
+
+    REQUIRE(result.responses.size() == 1);
+}
+
+TEST_CASE("MessageDispatcher routes pairing_confirm to "
+          "IPairingHandler::HandleConfirm",
+          "[application][message_dispatcher][i_pairing_handler]") {
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    REQUIRE(sessionLease.has_value());
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    PairingSession pairingSession;
+    TrustMutationCoordinator mutationCoordinator(trustStore, pairingSession,
+                                                 sessions);
+    EmptyActivePlayContext activePlayContext;
+    StrictMock<MockPairingHandler> pairingHandler;
+    EXPECT_CALL(pairingHandler,
+                HandleConfirm(testing::_, std::string(kSessionId),
+                              std::string(kClientId), testing::_))
+        .WillOnce(testing::Return(StubPairingResponse()));
+    MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
+                                 pairingHandler, activePlayContext,
+                                 /*bridgeInstanceId=*/std::nullopt);
+    std::size_t receivedMessageCount = 0;
+    ReplayGuard replayGuard;
+    ViolationTracker violations;
+    InboundMessageRateLimiter rateLimiter;
+    ConnectionTimeoutTracker timeout{SteadyClock::now()};
+
+    auto result = dispatcher.Process(
+        PairingConfirmMessage("123456"), receivedMessageCount, kSessionId,
+        kConnection, replayGuard, violations, rateLimiter, timeout,
+        SteadyClock::now());
+
+    REQUIRE(result.responses.size() == 1);
+}
+
+TEST_CASE("MessageDispatcher routes pairing_renotify to "
+          "IPairingHandler::HandleRenotify",
+          "[application][message_dispatcher][i_pairing_handler]") {
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    REQUIRE(sessionLease.has_value());
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    PairingSession pairingSession;
+    TrustMutationCoordinator mutationCoordinator(trustStore, pairingSession,
+                                                 sessions);
+    EmptyActivePlayContext activePlayContext;
+    StrictMock<MockPairingHandler> pairingHandler;
+    EXPECT_CALL(pairingHandler,
+                HandleRenotify(testing::_, std::string(kSessionId),
+                               std::string(kClientId), testing::_))
+        .WillOnce(testing::Return(StubPairingResponse()));
+    MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
+                                 pairingHandler, activePlayContext,
+                                 /*bridgeInstanceId=*/std::nullopt);
+    std::size_t receivedMessageCount = 0;
+    ReplayGuard replayGuard;
+    ViolationTracker violations;
+    InboundMessageRateLimiter rateLimiter;
+    ConnectionTimeoutTracker timeout{SteadyClock::now()};
+
+    auto result = dispatcher.Process(
+        PairingRenotifyMessage(), receivedMessageCount, kSessionId, kConnection,
+        replayGuard, violations, rateLimiter, timeout, SteadyClock::now());
+
+    REQUIRE(result.responses.size() == 1);
+}
+
+TEST_CASE("MessageDispatcher never calls IPairingHandler for a Full-tier "
+          "session",
+          "[application][message_dispatcher][i_pairing_handler]") {
+    SessionManager sessions;
+    auto sessionLease = sessions.TryCreateSession(
+        kConnection, kSessionId, kClientId, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(sessionLease.has_value());
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    PairingSession pairingSession;
+    TrustMutationCoordinator mutationCoordinator(trustStore, pairingSession,
+                                                 sessions);
+    EmptyActivePlayContext activePlayContext;
+    //  Zero EXPECT_CALLs: a Full session is trust-tier-rejected before
+    //  dispatch ever reaches pairingHandler_, so any call here fails the test.
+    StrictMock<MockPairingHandler> pairingHandler;
+    MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
+                                 pairingHandler, activePlayContext,
+                                 /*bridgeInstanceId=*/std::nullopt);
+    std::size_t receivedMessageCount = 0;
+    ReplayGuard replayGuard;
+    ViolationTracker violations;
+    InboundMessageRateLimiter rateLimiter;
+    ConnectionTimeoutTracker timeout{SteadyClock::now()};
+
+    for (const auto& message : {PairingRequestMessage("message-request-1"),
+                                PairingConfirmMessage("123456",
+                                                      "message-confirm-1"),
+                                PairingRenotifyMessage("message-renotify-1")}) {
+        auto result =
+            dispatcher.Process(message, receivedMessageCount, kSessionId,
+                               kConnection, replayGuard, violations,
+                               rateLimiter, timeout, SteadyClock::now());
+        REQUIRE(result.responses.size() == 1);
+        auto error =
+            dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
+        REQUIRE(error.has_value());
+        CHECK(error->code == "malformed_message");
+    }
+}
+
+TEST_CASE("MessageDispatcher's real behavior is reachable through "
+          "IMessageDispatcher",
+          "[application][message_dispatcher][i_message_dispatcher]") {
+    Fixture fixture(SessionTrustTier::kFull,
+                    SessionAuthMethod::kTrustedDeviceCredential);
+    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
+                                 fixture.mutationCoordinator,
+                                 fixture.pairingHandler, fixture.activePlayContext,
+                                 fixture.bridgeInstanceId);
+    dovahlink::application::IMessageDispatcher& contract = dispatcher;
+    ReplayGuard replayGuard;
+    ViolationTracker violations;
+    InboundMessageRateLimiter rateLimiter;
+
+    auto result = contract.Process(PingMessage(), fixture.receivedMessageCount,
+                                   kSessionId, kConnection, replayGuard,
+                                   violations, rateLimiter, fixture.timeout,
+                                   SteadyClock::now());
+
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "pong");
 }
