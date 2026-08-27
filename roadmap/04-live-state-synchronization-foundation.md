@@ -38,8 +38,10 @@ second authority for progression values.
   `Fast = 1 second`, `Medium = 2 seconds`, and `Slow = 3 seconds`, subject to profiling rather than
   becoming a protocol constant. With those periods, an aligned cadence captures Fast/Medium/Slow at
   second 0, Fast at 1, Fast/Medium at 2, Fast/Slow at 3, Fast/Medium at 4, Fast at 5, and all three
-  again at second 6. The shared scheduler may stagger due captures when profiling shows that an
-  aligned batch creates a noticeable game-thread spike; either way, capture work remains bounded.
+  again at second 6. The scheduler uses a monotonic clock and a bounded base cadence; it skips a
+  missed sample rather than issuing an unbounded catch-up burst. It may stagger due captures when
+  profiling shows that an aligned batch creates a noticeable game-thread spike, but the initial
+  schedule remains easy to reason about and test.
 - Run both native-event capture and sampled capture through approved game-thread callbacks or hooks.
   The callback synchronously copies a small, validated, DovahLink-owned value; workers never defer
   a Skyrim read. Unchanged sampled values stop before they create a revision, publication, queue
@@ -136,24 +138,34 @@ bounded outbound organization with:
 
 - a shared capture-policy registry and cadence scheduler for sampled values, plus explicit native
   event adapters;
-- one serialized publication path per state area so state changes and revisions have a deterministic
-  order even when capture callbacks arrive from different runtime sources;
+- one authoritative ordering point per state area for applying captured values and assigning revisions
+  when capture callbacks arrive from different runtime sources; serialization and network writing
+  remain worker-owned after that point;
 - latest-value replacement for replaceable Snapshot state;
 - ordered, non-coalesced delivery for reliable Event state;
 - reserved capacity for recovery/control traffic;
+- a bounded data organization in which replaceable Snapshot entries are keyed by state area while
+  reliable Event entries remain FIFO; Snapshot pressure may replace or defer an unsolicited value,
+  but Event pressure closes the slow client rather than dropping an Event;
 - explicit slow-consumer diagnostics and disconnect behavior;
 - instrumentation for capture timing, depth, coalescing, enqueue/dequeue latency, recovery, and
   disconnects;
-- explicit queue bounds in both message count and encoded-byte size. The current security baseline
-  is 128 outbound messages per client with 16 reserved control/recovery slots and 112 event slots;
-  changing that baseline requires the documented approval and rationale rather than a silent tuning
-  change;
-- explicit lane ordering: a recovery snapshot establishes the new baseline before later events are
-  applied, and events at or below an accepted snapshot revision are discarded as superseded rather
-  than delivered after the snapshot.
+- the current security baseline of 128 outbound messages per client with 16 reserved control/recovery
+  slots and 112 data slots. The implementation must also establish a bounded encoded-byte budget
+  before production use; its numeric value is a profiling and approval decision, not an accidental
+  consequence of the individual 1 MiB frame limit;
+- explicit lane ordering: a recovery snapshot establishes the new baseline before later stateful
+  events are applied, and stateful events at or below an accepted snapshot revision are discarded as
+  superseded rather than delivered after the snapshot. This supersession rule does not apply to
+  ephemeral notifications, whose delivery contract is independent of state snapshots.
 
 The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
 queued events from the previous authenticated session.
+
+Before 4.2 production implementation begins, the design must record the queue item's ownership and
+size accounting, the monotonic scheduler's missed-tick behavior, the per-state-area ordering point,
+the control/data lane priority rules, and the encoded-byte budget. These are implementation gates,
+not new protocol fields.
 
 #### 4.3 Production Progression Domains and Synchronization Kernel
 
@@ -162,7 +174,9 @@ Implement and test `character_xp` as `Sampled`/`Fast`/`Snapshot` and `character_
 complete-state events. A level-up is represented by the new level state; consumers may derive the
 transition without requiring a second event-only payload contract. Each production value must first
 document its supported-runtime capture source, unavailable-value behavior, callback/thread boundary,
-change-detection rule, and expected cost.
+change-detection rule, and expected cost. Tests must also prove the shared scheduler's aligned
+cadence, missed-tick behavior, optional staggering seam, unchanged-sample short-circuit, and the
+mode-specific queue behavior before future domains are added.
 
 Future domains are not pulled into this phase, but their intended classification is now explicit:
 health, stamina, and similar continuously changing values are likely sampled Snapshot domains;

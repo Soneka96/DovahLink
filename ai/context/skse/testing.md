@@ -82,6 +82,13 @@ Cover:
 - queue-full behavior without blocking the callback
 - latest-state coalescing and forced fresh-snapshot recovery after queue loss
 - next-game-callback recovery capture after queue loss without worker-side runtime reads
+- shared sampled-capture cadence, including aligned due times, missed-tick skipping without a
+  catch-up burst, and the optional staggering seam
+- unchanged sampled values producing no revision, publication, serialization, or network traffic
+- keyed latest-value replacement for Snapshot entries and FIFO preservation for reliable Event entries
+- reliable Event overflow disconnecting the slow client without blocking game capture
+- recovery snapshots establishing a baseline before later stateful Events, with superseded stateful
+  Events discarded and ephemeral notifications kept outside snapshot recovery
 - registration and unregistration ordering
 - each SKSE runtime interface with a call-once registration contract (for example `SKSE::MessagingInterface::RegisterListener`, which SKSE allows exactly one call to per plugin and which fails both registrations silently on a second call) has exactly one call site; verify this structurally, since the failure only surfaces inside a running SKSE process
 - callbacks that enter during shutdown and callbacks already in flight at unregister time

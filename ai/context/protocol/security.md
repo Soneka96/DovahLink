@@ -343,7 +343,12 @@ The transport rejects input before application decoding when it exceeds the appr
 - maximum connected clients during the first proof: 1
 - handshake timeout: 5 seconds
 - idle connection timeout: 60 seconds without a valid heartbeat or message
-- bounded outbound queue: 128 messages per client, with 16 reserved control/recovery slots and 112 event slots
+- bounded outbound queue: 128 messages per client, with 16 reserved control/recovery slots and 112
+  data slots. The data slots contain keyed replaceable Snapshot entries and an ordered Event FIFO;
+  Snapshot pressure may replace or defer an unsolicited value, while Event overflow closes the slow
+  client rather than dropping an Event. The Bridge must also enforce a separate encoded-byte budget
+  for queued data before Stage 4.2 production use; its numeric value is an implementation/profiling
+  decision and any limit change requires the documented approval and rationale.
 
 Limit changes require explicit maintainer approval and a documented reason.
 
