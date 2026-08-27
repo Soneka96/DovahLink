@@ -7,7 +7,6 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include <atomic>
-#include <future>
 #include <thread>
 
 namespace dovahlink::transport {
@@ -26,13 +25,16 @@ struct LoopbackListener::OwnerState {
     OwnerState();
 
     ///  Drives `acceptor`'s asynchronous operations for this object's whole
-    ///  life. Only `ownerThread` touches `acceptor` once it starts running;
+    ///  life. Only `ownerThread` touches `acceptor` while it is running;
     ///  `LoopbackListener::Create` may still touch it synchronously before
-    ///  that, while no thread has started yet.
+    ///  `ownerThread` starts, and `Join()` may touch it again synchronously
+    ///  after `ownerThread` has been joined and is thus provably no longer
+    ///  running.
     boost::asio::io_context ioContext;
 
     ///  Keeps `ioContext.run()` from returning while idle between accepts;
-    ///  reset only by `Join()`, once, after the acceptor has actually closed.
+    ///  reset only by `Join()`, once, to let the owner thread's `run()` call
+    ///  return so it can be joined.
     boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
         workGuard;
 
@@ -49,12 +51,6 @@ struct LoopbackListener::OwnerState {
 
     ///  Set by the first `Close()` call; later calls are no-ops.
     std::atomic_bool closeRequested{false};
-
-    ///  Fulfilled once `ownerThread` has actually run the cancel-and-close job
-    ///  `Close()` posts, regardless of which `Close()` call posted it. `Join()`
-    ///  waits on this before stopping `ioContext`, so a queued close is never
-    ///  abandoned mid-flight.
-    std::promise<void> closed;
 
     ///  Set once `Join()` has stopped `ioContext` and joined `ownerThread`;
     ///  later calls are no-ops.

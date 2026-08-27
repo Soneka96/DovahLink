@@ -177,14 +177,11 @@ void LoopbackListener::Close() noexcept {
             boost::system::error_code ec;
             state->acceptor.cancel(ec);
             state->acceptor.close(ec);
-            state->closed.set_value();
         });
     } catch (...) {
         //  Posting failed (allocation failure, or the io_context is already
-        //  stopping); nothing further can safely touch the acceptor from this
-        //  thread, so unblock Join() directly instead of leaving it waiting
-        //  on a job that will never run.
-        state_->closed.set_value();
+        //  stopping); Join()'s own unconditional close after the owner
+        //  thread is joined is still sufficient to release the port.
     }
 }
 
@@ -193,12 +190,22 @@ void LoopbackListener::Join() {
         return;
     }
     Close();
-    state_->closed.get_future().wait();
     state_->workGuard.reset();
     state_->ioContext.stop();
     if (state_->ownerThread.joinable()) {
         state_->ownerThread.join();
     }
+    //  The owner thread is now guaranteed gone -- whether it finished
+    //  Close()'s posted job normally, or was already dead by the time
+    //  shutdown reached here (see this class's own doc comment on
+    //  process-exit thread-kill ordering) -- so this thread has exclusive,
+    //  safe access to the acceptor without needing that thread's
+    //  cooperation. Closing again here is a harmless no-op in the normal
+    //  case and the only thing that actually releases the port in the
+    //  degenerate one.
+    boost::system::error_code ec;
+    state_->acceptor.cancel(ec);
+    state_->acceptor.close(ec);
 }
 
 } //  namespace dovahlink::transport

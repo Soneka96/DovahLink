@@ -32,10 +32,18 @@ class ILoopbackListener {
     ///  request is serviced.
     virtual void Close() noexcept = 0;
 
-    ///  Blocks until a previously requested close has actually completed;
-    ///  repeated calls are harmless. Implicitly requests a close first if
-    ///  `Close()` was never called. The caller must ensure no
-    ///  `AcceptLoopbackOnly()` call can still be starting when this is
+    ///  Stops the owner thread and guarantees the acceptor is closed before
+    ///  returning; repeated calls are harmless. Implicitly requests a close
+    ///  first if `Close()` was never called. This does not wait on the owner
+    ///  thread's cooperation to finish closing the acceptor -- only on the
+    ///  thread itself terminating (`std::thread::join()`, which returns
+    ///  immediately for an already-terminated thread) -- and closes the
+    ///  acceptor itself afterward if needed. This matters because the owner
+    ///  thread may already be dead by the time this runs: on normal process
+    ///  exit, the OS kills every other thread in the process before running
+    ///  static destructors on the exiting thread, so a wait that depended on
+    ///  that thread's cooperation could never return. The caller must ensure
+    ///  no `AcceptLoopbackOnly()` call can still be starting when this is
     ///  called -- for example by joining whatever thread calls
     ///  `AcceptLoopbackOnly()` before calling this -- since a call arriving
     ///  after `Join()` has stopped the owner thread would never complete.

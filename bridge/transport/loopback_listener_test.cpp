@@ -120,6 +120,21 @@ TEST_CASE("a move-assigned-to listener's new owner still accepts connections",
     CHECK(accepted->is_open());
 }
 
+TEST_CASE("a moved-to listener's Close and Join still release the port",
+          "[transport][listener]") {
+    auto created = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(created.has_value());
+    std::uint16_t boundPort = created->LocalEndpoint().port();
+
+    LoopbackListener moved = std::move(*created);
+    moved.Close();
+    moved.Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
 TEST_CASE("the destructor is safe to run after an explicit Join",
           "[transport][listener]") {
     std::uint16_t boundPort = 0;
