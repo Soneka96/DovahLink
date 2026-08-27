@@ -154,16 +154,12 @@ ContainedWorkRunner MakeContainedWorkRunner() {
 ///  Owns the real transport and application dependencies shared by worker-pool
 ///  tests.
 struct Fixture {
-    ///  I/O context supplied to the IPv4 loopback listener.
-    boost::asio::io_context iocV4;
-    ///  I/O context supplied to the IPv6 loopback listener.
-    boost::asio::io_context iocV6;
     ///  Accepts test connections over IPv4.
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
     ///  Accepts test connections over IPv6.
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV6);
     ///  Enforces the one-active-connection limit.
     ConnectionSlot slot;
     ///  Holds the one-time token accepted by the test session.
@@ -229,13 +225,13 @@ struct Fixture {
 TEST_CASE("RequireLoopbackListener reports listener creation failure before "
           "dependent construction",
           "[application][bridge_worker_pool][test_support]") {
-    boost::asio::io_context ioc;
     LoopbackListener occupied =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
 
-    CHECK_THROWS_AS(RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4,
-                                            occupied.LocalEndpoint().port()),
-                    std::runtime_error);
+    CHECK_THROWS_AS(
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4,
+                                occupied.LocalEndpoint().port()),
+        std::runtime_error);
 }
 
 TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
@@ -1191,12 +1187,10 @@ TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
           "connection, isolated from ConnectionSession's own handshake and "
           "dispatch machinery",
           "[application][bridge_worker_pool]") {
-    boost::asio::io_context iocV4;
-    boost::asio::io_context iocV6;
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV6);
     ConnectionSlot slot;
     ActiveSessionSocket activeSessionSocket;
     MockConnectionSession connectionSession;

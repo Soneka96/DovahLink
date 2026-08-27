@@ -6,9 +6,7 @@
 #include <gmock/gmock.h>
 
 #include <boost/asio/error.hpp>
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/post.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <atomic>
@@ -19,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <stop_token>
 #include <string>
@@ -30,10 +29,9 @@ namespace dovahlink::transport::test_support {
 ///  Creates a loopback listener or throws before dependent test objects are
 ///  constructed.
 inline LoopbackListener
-RequireLoopbackListener(boost::asio::io_context& ioc,
-                        LoopbackListener::IpVersion version,
+RequireLoopbackListener(LoopbackListener::IpVersion version,
                         std::uint16_t port = 0) {
-    auto listener = LoopbackListener::Create(ioc, version, port);
+    auto listener = LoopbackListener::Create(version, port);
     if (!listener.has_value()) {
         throw std::runtime_error("failed to create loopback test listener");
     }
@@ -46,23 +44,11 @@ class LoopbackWebSocketServer {
   public:
     ///  Work performed with the accepted server-side WebSocket session.
     using Work = std::function<void(WebSocketSession&)>;
-    ///  Server work that also coordinates directly with the server event loop.
-    using ContextWork =
-        std::function<void(WebSocketSession&, boost::asio::io_context&)>;
 
     ///  Starts accepting one loopback connection for the supplied server work.
     explicit LoopbackWebSocketServer(Work work)
-        : LoopbackWebSocketServer(ContextWork(
-              [work = std::move(work)](WebSocketSession& session,
-                                       boost::asio::io_context&) mutable {
-                  work(session);
-              })) {}
-
-    ///  Starts accepting one loopback connection for work that needs the server
-    ///  event loop.
-    explicit LoopbackWebSocketServer(ContextWork work)
         : listener_(
-              RequireLoopbackListener(ioc_, LoopbackListener::IpVersion::kV4)),
+              RequireLoopbackListener(LoopbackListener::IpVersion::kV4)),
           endpoint_(listener_.LocalEndpoint()),
           thread_([this, work = std::move(work)](
                       std::stop_token stopToken) mutable noexcept {
@@ -91,8 +77,8 @@ class LoopbackWebSocketServer {
                                            [this] { return completed_; });
     }
 
-    ///  Returns whether the server thread has posted its pending accept within the
-    ///  supplied duration.
+    ///  Returns whether the server thread is about to call `AcceptLoopbackOnly()`
+    ///  within the supplied duration.
     template <class Rep, class Period>
     [[nodiscard]] bool
     WaitForAcceptReady(const std::chrono::duration<Rep, Period>& timeout) {
@@ -132,17 +118,11 @@ class LoopbackWebSocketServer {
     ///  exercised.
     void CancelPendingAccept() noexcept {
         cancellationRequested_.store(true, std::memory_order_release);
-        try {
-            boost::asio::post(ioc_, [this] noexcept {
-                boost::system::error_code ignored;
-                listener_.Acceptor().cancel(ignored);
-                listener_.Acceptor().close(ignored);
-            });
-        } catch (...) {
-            //  A failed post must still wake a pending accept without touching
-            //  the acceptor or stopping an active session from this thread.
-            WakePendingAccept();
-        }
+        //  Close() is idempotent and non-blocking, and the listener's owner
+        //  thread is always pumping, so this always reaches a pending accept
+        //  without the allocation-failure fallback the old post-based version
+        //  needed.
+        listener_.Close();
     }
 
     ///  Joins completed server work and rethrows server-side failures on the test
@@ -163,29 +143,25 @@ class LoopbackWebSocketServer {
   private:
     ///  Accepts one socket and runs server work without allowing exceptions to
     ///  escape the thread.
-    void Run(std::stop_token stopToken, ContextWork work) noexcept {
+    void Run(std::stop_token stopToken, Work work) noexcept {
         try {
-            auto acceptedSocket =
-                std::make_shared<boost::asio::ip::tcp::socket>(ioc_);
+            std::optional<boost::asio::ip::tcp::socket> acceptedSocket;
             if (stopToken.stop_requested() ||
                 cancellationRequested_.load(std::memory_order_acquire)) {
                 acceptError_ = boost::asio::error::operation_aborted;
             } else {
-                auto asyncAcceptError = std::make_shared<boost::system::error_code>();
-                ioc_.restart();
-                listener_.Acceptor().async_accept(
-                    *acceptedSocket,
-                    [asyncAcceptError](boost::system::error_code error) {
-                        *asyncAcceptError = error;
-                    });
                 {
                     std::lock_guard lock(acceptReadyMutex_);
                     acceptReady_ = true;
                 }
                 acceptReadyChanged_.notify_all();
-                ioc_.run();
 
-                acceptError_ = *asyncAcceptError;
+                auto accepted = listener_.AcceptLoopbackOnly();
+                if (accepted.has_value()) {
+                    acceptedSocket = std::move(*accepted);
+                } else {
+                    acceptError_ = boost::asio::error::operation_aborted;
+                }
                 if ((stopToken.stop_requested() ||
                      cancellationRequested_.load(std::memory_order_acquire)) &&
                     !acceptError_) {
@@ -210,7 +186,7 @@ class LoopbackWebSocketServer {
                     socket->Shutdown();
                 } else {
                     WebSocketSession session(std::move(socket));
-                    work(session, ioc_);
+                    work(session);
                 }
             }
         } catch (...) {
@@ -220,20 +196,6 @@ class LoopbackWebSocketServer {
         std::lock_guard lock(socketMutex_);
         activeSocket_.reset();
         PublishCompletion();
-    }
-
-    ///  Connects to the listener to wake a pending accept when posting
-    ///  cancellation fails.
-    void WakePendingAccept() noexcept {
-        try {
-            boost::asio::io_context wakeIoc;
-            boost::asio::ip::tcp::socket wakeSocket(wakeIoc);
-            boost::system::error_code ignored;
-            wakeSocket.connect(endpoint_, ignored);
-        } catch (...) {
-            //  The normal posted cancellation remains the primary path; this is
-            //  only a best-effort allocation-failure fallback.
-        }
     }
 
     ///  Publishes server-thread completion to bounded test waits.
@@ -258,9 +220,7 @@ class LoopbackWebSocketServer {
         thread_.join();
     }
 
-    ///  Drives the accepted socket's asynchronous WebSocket operations.
-    boost::asio::io_context ioc_;
-    ///  The acceptor is accessed only by the server thread after construction.
+    ///  Accepts the one loopback connection this server drives.
     LoopbackListener listener_;
     ///  Cached before the server thread starts so callers never read the acceptor
     ///  concurrently.
@@ -269,9 +229,9 @@ class LoopbackWebSocketServer {
     std::atomic_bool cancellationRequested_{false};
     ///  Serializes readiness publication and bounded readiness waits.
     std::mutex acceptReadyMutex_;
-    ///  Wakes tests after the asynchronous accept has been posted.
+    ///  Wakes tests once the server thread is about to accept.
     std::condition_variable acceptReadyChanged_;
-    ///  Records that the server thread has posted its asynchronous accept.
+    ///  Records that the server thread is about to call `AcceptLoopbackOnly()`.
     bool acceptReady_{false};
     ///  Serializes session-publication readiness and bounded waits.
     std::mutex sessionReadyMutex_;
@@ -306,6 +266,7 @@ class MockLoopbackListener : public ILoopbackListener {
     MOCK_METHOD((std::expected<boost::asio::ip::tcp::socket, AcceptError>),
                 AcceptLoopbackOnly, (), (override));
     MOCK_METHOD(void, Close, (), (noexcept, override));
+    MOCK_METHOD(void, Join, (), (override));
 };
 
 } //  namespace dovahlink::transport::test_support
