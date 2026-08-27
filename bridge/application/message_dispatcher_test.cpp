@@ -24,9 +24,12 @@
 using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
 using dovahlink::application::IActivePlayContextReader;
+using dovahlink::application::IConnectionTimeoutTracker;
 using dovahlink::application::IPairingHandler;
 using dovahlink::application::IPairingNotificationSink;
+using dovahlink::application::IReplayGuard;
 using dovahlink::application::MessageDispatcher;
+using dovahlink::application::MessageIdCheckResult;
 using dovahlink::application::PairingHandler;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionAuthMethod;
@@ -275,6 +278,33 @@ dovahlink::protocol::Envelope StubPairingResponse() {
     return dovahlink::protocol::BuildErrorEnvelope(
         std::nullopt, std::string(kSessionId), "internal_error", "stub", false);
 }
+
+///  `IReplayGuard` mock used to prove `MessageDispatcher::Process` calls
+///  `RecordMessage` with the envelope's exact messageId, isolated from
+///  `ReplayGuard`'s own dedup behavior (covered by replay_guard_test.cpp).
+class MockReplayGuard : public IReplayGuard {
+  public:
+    MOCK_METHOD(MessageIdCheckResult, RecordMessage, (const std::string&),
+                (override));
+    MOCK_METHOD(std::size_t, Count, (), (const, override));
+};
+
+///  `IConnectionTimeoutTracker` mock used to prove `MessageDispatcher::Process`
+///  checks `IsTimedOut` before any other work and, on a valid message, calls
+///  `RecordActivity` afterward -- isolated from
+///  `ConnectionTimeoutTracker`'s own deadline math (covered by
+///  connection_timeout_tracker_test.cpp).
+class MockConnectionTimeoutTracker : public IConnectionTimeoutTracker {
+  public:
+    MOCK_METHOD(void, MarkAuthenticated, (std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(void, RecordActivity, (std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(bool, IsTimedOut, (std::chrono::steady_clock::time_point),
+                (const, override));
+    MOCK_METHOD(std::chrono::steady_clock::time_point, Deadline, (),
+                (const, override));
+};
 
 } //  namespace
 
@@ -1260,4 +1290,113 @@ TEST_CASE("MessageDispatcher's real behavior is reachable through "
 
     REQUIRE(result.responses.size() == 1);
     CHECK(result.responses[0].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage calls IReplayGuard::RecordMessage with the "
+          "envelope's exact messageId, isolated from ReplayGuard's own dedup "
+          "behavior",
+          "[application][message_dispatcher][i_replay_guard]") {
+    Fixture fixture(SessionTrustTier::kFull,
+                    SessionAuthMethod::kTrustedDeviceCredential);
+    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
+                                 fixture.mutationCoordinator,
+                                 fixture.pairingHandler, fixture.activePlayContext,
+                                 fixture.bridgeInstanceId);
+    StrictMock<MockReplayGuard> replayGuard;
+    EXPECT_CALL(replayGuard, RecordMessage(std::string("message-ping-1")))
+        .WillOnce(testing::Return(MessageIdCheckResult::kAccepted));
+
+    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
+                                     kSessionId, kConnection, replayGuard,
+                                     fixture.violations, fixture.rateLimiter,
+                                     fixture.timeout, SteadyClock::now());
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.responses.size() == 1);
+    CHECK(result.responses[0].messageType == "pong");
+}
+
+TEST_CASE("ProcessInboundMessage checks IConnectionTimeoutTracker::IsTimedOut "
+          "before any other work and closes without further interaction when "
+          "it reports timed out",
+          "[application][message_dispatcher][i_connection_timeout_tracker]") {
+    Fixture fixture(SessionTrustTier::kFull,
+                    SessionAuthMethod::kTrustedDeviceCredential);
+    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
+                                 fixture.mutationCoordinator,
+                                 fixture.pairingHandler, fixture.activePlayContext,
+                                 fixture.bridgeInstanceId);
+    StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
+    EXPECT_CALL(timeoutTracker, IsTimedOut(testing::_))
+        .WillOnce(testing::Return(true));
+
+    //  A StrictMock with only IsTimedOut expected fails the test on any other
+    //  call, proving Process short-circuits before reaching RecordMessage,
+    //  RecordActivity, or any handler.
+    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
+                                     kSessionId, kConnection, fixture.replayGuard,
+                                     fixture.violations, fixture.rateLimiter,
+                                     timeoutTracker, SteadyClock::now());
+
+    CHECK(result.closeConnection);
+    CHECK(result.responses.empty());
+}
+
+TEST_CASE("ProcessInboundMessage checks IsTimedOut before calling "
+          "RecordActivity with the same steadyNow on a valid message",
+          "[application][message_dispatcher][i_connection_timeout_tracker]") {
+    Fixture fixture(SessionTrustTier::kFull,
+                    SessionAuthMethod::kTrustedDeviceCredential);
+    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
+                                 fixture.mutationCoordinator,
+                                 fixture.pairingHandler, fixture.activePlayContext,
+                                 fixture.bridgeInstanceId);
+    StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
+    auto steadyNow = SteadyClock::now();
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(timeoutTracker, IsTimedOut(steadyNow))
+            .WillOnce(testing::Return(false));
+        EXPECT_CALL(timeoutTracker, RecordActivity(steadyNow));
+    }
+
+    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
+                                     kSessionId, kConnection, fixture.replayGuard,
+                                     fixture.violations, fixture.rateLimiter,
+                                     timeoutTracker, steadyNow);
+
+    CHECK_FALSE(result.closeConnection);
+}
+
+TEST_CASE("ProcessInboundMessage does not call RecordActivity when "
+          "RecordMessage reports the message as replayed",
+          "[application][message_dispatcher][i_replay_guard]"
+          "[i_connection_timeout_tracker]") {
+    Fixture fixture(SessionTrustTier::kFull,
+                    SessionAuthMethod::kTrustedDeviceCredential);
+    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
+                                 fixture.mutationCoordinator,
+                                 fixture.pairingHandler, fixture.activePlayContext,
+                                 fixture.bridgeInstanceId);
+    StrictMock<MockReplayGuard> replayGuard;
+    EXPECT_CALL(replayGuard, RecordMessage(std::string("message-ping-1")))
+        .WillOnce(testing::Return(MessageIdCheckResult::kReplayed));
+    StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
+    EXPECT_CALL(timeoutTracker, IsTimedOut(testing::_))
+        .WillOnce(testing::Return(false));
+    //  RecordActivity is deliberately not expected: a StrictMock fails the
+    //  test if Process calls it after a replayed message, proving the reject
+    //  path short-circuits before recording activity.
+
+    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
+                                     kSessionId, kConnection, replayGuard,
+                                     fixture.violations, fixture.rateLimiter,
+                                     timeoutTracker, SteadyClock::now());
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.responses.size() == 1);
+    auto error =
+        dovahlink::protocol::DecodeErrorPayload(result.responses[0].payload);
+    REQUIRE(error.has_value());
+    CHECK(error->code == "replayed_message");
 }
