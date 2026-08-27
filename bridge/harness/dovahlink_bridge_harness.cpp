@@ -14,7 +14,9 @@
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
+#include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
@@ -288,12 +290,17 @@ int main() {
                                                             listenerV6);
     dovahlink::application::TrustMutationCoordinator trustMutationCoordinator(
         trustStore, pairingSession, sessionManager);
-    dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
-        activeSessionSocket, pairingSession, trustMutationCoordinator,
-        pairingNotificationSink,
+    dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContextReader, bridgeInstanceId,
+        kBridgeVersion);
+    dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContextReader,
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
+    dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
+        listenerV4, listenerV6, connectionSlot, activeSessionSocket,
+        connectionSession);
     dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
