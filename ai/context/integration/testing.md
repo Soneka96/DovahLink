@@ -6,6 +6,9 @@ Integration tests prove that the SKSE bridge and Flutter client agree on the can
 
 - Keep language-neutral protocol fixtures in the protocol area, not inside only the Flutter or SKSE test tree.
 - Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
+- When Stage 4 registers production state areas, assert their capability advertisement, exact domain
+  data shape, update mode, revision behavior, and unavailable-value representation from shared
+  Bridge/SDK/.NET fixtures.
 - Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
 - Shared fixtures are the source of truth for cross-side contract tests; client- or bridge-only fixtures must not redefine them.
 
@@ -22,6 +25,7 @@ Cover at least:
 
 - compatibility bootstrap
 - capability exchange
+- registered state-area capabilities and rejection of unknown state areas
 - snapshot delivery
 - ordered event delivery
 - shared sampled-capture cadence, including aligned due times and missed-tick handling

@@ -72,11 +72,6 @@ value is a Snapshot domain.
   establishes the current level and a later level change is an ordered `state_event` whose data is
   the complete post-change level state. Correlated request/response messages remain part of the
   protocol and are not removed.
-- Represent capture, sampling, and delivery as separate policy decisions. Each captured value has a
-  `CapturePolicy` (`NativeEvent` or `Sampled`); sampled values additionally declare a `RateClass`
-  (`Fast`, `Medium`, or `Slow`); each stateful publication area declares one canonical `UpdateMode`
-  (`Snapshot` or `Event`). These policies are related but must not be collapsed into one combined
-  mode: how Skyrim supplies a value is not the same question as how the client receives it.
 - Use one shared, bounded sampler for recurring capture. A provisional test schedule is `Fast = 1
   second`, `Medium = 2 seconds`, and `Slow = 3 seconds`; these are not production or protocol
   constants. The monotonic scheduler may align due values at second 0 and then capture Fast at 1,
@@ -88,15 +83,13 @@ value is a Snapshot domain.
   The callback synchronously copies a small, validated, DovahLink-owned value; workers never defer
   a Skyrim read. Unchanged sampled values stop before they create a revision, publication, queue
   entry, serialization work, or WebSocket traffic.
-- Redesign the protocol as typed message families rather than one broadly nullable message model.
-  Each message has one canonical JSON shape and a dedicated DTO/codec boundary. The redesign covers
-  connection, pairing, state, error, invalidation, and control messages.
+- Use the completed 4.1 typed message-family contract rather than reopening its design. Each message
+  has one canonical JSON shape and a dedicated DTO/codec boundary; the remaining phase work registers
+  and publishes the typed state-area data carried by those messages.
 - Prefer native events for values that require reliable occurrence delivery, and sample only where no
   trustworthy event exists or where the product only needs current state.
 - Publish unsolicited replaceable state only after an authoritative change; initial, recovery, and
   explicitly requested snapshots are delivered even when unchanged.
-- Always deliver initial, recovery, and explicitly requested snapshots, even when the state is
-  unchanged; these snapshots reuse the current authoritative revision.
 - A subscriber receives complete post-change state rather than a patch. Initial, recovery, and
   explicitly requested snapshots are always delivered, while unchanged unsolicited replaceable state
   produces no traffic.
@@ -195,13 +188,37 @@ bounded outbound organization with:
   superseded rather than delivered after the snapshot. This supersession rule does not apply to
   ephemeral notifications, whose delivery contract is independent of state snapshots.
 
+The bounded organization has two physical lanes and three logical delivery categories. The reserved
+control/recovery lane carries initial, recovery, and explicitly requested snapshots, acknowledgements,
+errors, and recovery/control messages. The bounded data lane carries a finite keyed set of pending
+unsolicited Snapshot values plus an ordered Event FIFO. There is one pending Snapshot slot per
+registered Snapshot state area; replacing that slot never grows the queue. If an unsolicited Snapshot
+cannot enter the data lane, the authoritative store retains the latest value and the publication is
+deferred or marked for recovery. If a reliable Event cannot enter because of message or byte capacity,
+the client is disconnected rather than losing the Event. The registry of state areas and the encoded
+byte budget are themselves bounded; unknown client-requested areas never allocate queue state.
+
+Every initial or recovery snapshot establishes a per-state-area delivery barrier. The publisher
+captures the authoritative baseline at revision `R`, queues that snapshot in the reserved lane, holds
+later stateful Events for that area, and releases only Events newer than `R` after the snapshot has
+been handed to the session writer. The client does not need a snapshot acknowledgement: ordered
+session writes and each Event's `baseRevision` provide the apply rule. If the session closes, the
+barrier and its queue are discarded; the next session starts from a fresh snapshot.
+
+Applying a captured value, determining whether it changed, assigning its authoritative revision, and
+creating its publication intent occur at the state area's ordering point. Queue admission happens
+after that point: a rejected unsolicited Snapshot remains recoverable from the store, while a rejected
+reliable Event ends the session. The authoritative store and revision are not rolled back because a
+client could not consume the publication.
+
 The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
 queued events from the previous authenticated session.
 
 Before 4.2 production implementation begins, the design must record the queue item's ownership and
 size accounting, the monotonic scheduler's missed-tick behavior, the per-state-area ordering point,
-the control/data lane priority rules, and the encoded-byte budget. These are implementation gates,
-not new protocol fields.
+the approved game-thread tick source and loading/shutdown behavior, the bounded registered-area and
+Snapshot-slot policy, the control/data lane priority rules, the per-area recovery barrier, and the
+encoded-byte budget. These are implementation gates, not new protocol fields.
 
 #### 4.3 Production Progression Domains and Synchronization Kernel
 
@@ -213,6 +230,14 @@ document its supported-runtime capture source, unavailable-value behavior, callb
 change-detection rule, and expected cost. Tests must also prove the shared scheduler's aligned
 cadence, missed-tick behavior, optional staggering seam, unchanged-sample short-circuit, and the
 mode-specific queue behavior before future domains are added.
+
+Before either domain is published, Stage 4.3 registers its canonical state area in the protocol
+schema and capabilities, defines the exact `data` shape and domain codec/validator, and adds the
+shared Bridge/SDK/.NET fixtures. A domain contract records its capture unit, capture policy, rate
+class when sampled, update mode, authoritative revision behavior, unavailable-value behavior,
+initial/recovery snapshot behavior, and whether it is stateful or ephemeral. The existing generic
+state envelope remains reusable, but production domain data must not stay an unvalidated arbitrary
+JSON map once the area is registered.
 
 Future domains are not pulled into this phase, but their intended classification is now explicit:
 health, stamina, and similar continuously changing values are likely sampled Snapshot domains;
@@ -227,10 +252,18 @@ This kernel remains reusable and internal until Stage 5 exposes its curated publ
 
 #### 4.4 Cross-Boundary Cutover and Cleanup
 
-Run Bridge, SDK, .NET, canonical-fixture, and loopback integration scenarios together. Switch the
-canonical writers to the redesigned contract, verify the SDK rejects incompatible `bridgeVersion`
-values before normal traffic, remove old readers and migration-only fixtures, and close the stage
-only after the final version-impact audit and Bridge release cutover succeed.
+Run the cutover in this order:
+
+1. Complete the registered domain data contracts, readers, codecs, and canonical fixtures.
+2. Verify Bridge, SDK, .NET, and loopback consumers understand the redesigned contract while
+   existing writers remain unchanged.
+3. Switch canonical Bridge and SDK writers only after every required consumer understands the new
+   shapes.
+4. Verify the SDK rejects an incompatible `bridgeVersion` immediately after `hello_ack`, before
+   capabilities, subscriptions, snapshots, or Events.
+5. Run the complete Bridge, SDK, .NET, fixture, recovery, reconnect, and slow-client scenarios.
+6. Remove migration-only readers and fixtures, leaving no permanent dual protocol implementation.
+7. Hand the complete phase diff to 4.5 for the version-impact audit and release cutover.
 
 #### 4.5 Version-Impact Audit Foundation
 
@@ -252,7 +285,9 @@ fixes it. Capture policy and rate class remain separate from this choice. `chara
 `character_level` is `NativeEvent`/`Event`: it begins from an authoritative snapshot for initial
 synchronization and reconnect/gap recovery, then applies ordered complete-state events. Event mode
 is reliable within one authenticated session; reconnect starts from the current authoritative
-snapshot and does not replay the previous session's queued events.
+snapshot and does not replay the previous session's queued events. These delivery modes apply to
+stateful domains; ephemeral notifications define their own ordering, acknowledgement, and retry
+contract and are not made recoverable by a state snapshot.
 
 ### Stateful domains versus ephemeral notifications
 
@@ -293,5 +328,7 @@ bounded reconnect path. No test-only public protocol domain is added.
 
 Stage 4 is complete only when the redesigned contract is the sole supported contract, Bridge live
 delivery is bounded and observable, `character_xp` and `character_level` meet their source and
-synchronization contracts, the internal SDK kernel passes its recovery proof, all required
-cross-boundary tests pass, and the phase-end version audit has completed.
+synchronization contracts, the capture-policy and scheduler invariants are proven without worker-side
+runtime reads, the mode-specific queue and per-area recovery-barrier behavior is proven, all required
+registered domain data and cross-boundary tests pass, migration-only readers and fixtures are gone,
+and the phase-end version audit has completed.

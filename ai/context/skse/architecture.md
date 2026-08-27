@@ -112,6 +112,10 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 - Make ownership and thread handoff explicit.
 - Capture must be bounded, validated, and non-blocking. Unbounded scans, waits, network calls, and uncontrolled allocation are forbidden in callbacks.
 - Do not access game objects from a worker thread unless the approved runtime API explicitly permits it.
+- Recurring sampled capture may be grouped behind one coordinator-owned scheduler with per-value
+  due times and rate classes. The scheduler must be driven by an approved game-thread callback or
+  hook; a worker may process captured values but must never request a deferred Skyrim read. Late
+  ticks skip missed samples rather than issuing an unbounded catch-up burst.
 - If a bounded queue is full, never block the game thread: a replaceable Snapshot may replace an
   already-pending value for the same state area or be deferred, while a reliable Event must remain
   ordered and causes the slow client to be disconnected rather than being coalesced or dropped;

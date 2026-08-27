@@ -98,12 +98,14 @@ Cover:
 - transport completions already running during shutdown are drained or rejected by a generation guard
 - transport disconnect and reconnect
 - slow-client or full-queue behavior
-- reserved recovery/control capacity while the event lane is full
+- reserved recovery/control capacity while the data lane is full
 - critical outbound message handling when the control lane is full
 - worker failure transitions to unavailable and recovery/reconnect behavior
 - worker restart requires a fresh snapshot before publication resumes
 - stale or out-of-order state updates
 - malformed, incompatible, and unknown protocol messages
+- registered state-area capability advertisement, exact domain data validation, and unknown-area
+  rejection against the canonical shared fixtures
 
 ## Test boundaries
 
