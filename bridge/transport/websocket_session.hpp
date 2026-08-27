@@ -53,35 +53,57 @@ class IWebSocketSession {
     virtual void Close() = 0;
 };
 
+///  Cross-thread shutdown capability for one accepted socket: lets an external
+///  collaborator cancel or notify-then-cancel the connection without
+///  depending on `WebSocketSession::Socket`'s internal Beast/asio state.
+class ISocket {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~ISocket() = default;
+
+    ///  Posts cancellation to the socket's event loop without touching Beast
+    ///  from the caller.
+    virtual void Shutdown() noexcept = 0;
+
+    ///  Best-effort sends `message` as one text frame, then shuts down exactly
+    ///  like `Shutdown()` -- one coupled, cross-thread-safe operation for an
+    ///  administrative terminal event (`ai/context/protocol/security.md`'s
+    ///  "Administrative session invalidation": "best-effort send and flush...
+    ///  then force-close"). Shuts down only once the write's own completion
+    ///  handler fires (success or failure), so shutdown never races ahead of a
+    ///  write still in flight; whether the peer actually receives it beyond that
+    ///  is still never awaited, acknowledged, or guaranteed. Shares
+    ///  `Shutdown()`'s single-fire guard, so whichever of the two is called
+    ///  first wins and the other becomes a no-op. If the WebSocket upgrade
+    ///  handshake has not yet finished using `stream_`, the notification is
+    ///  skipped entirely (best-effort delivery permits this) and the connection
+    ///  is still force-closed exactly like `Shutdown()` -- writing a
+    ///  notification concurrently with `Accept()`'s own in-flight handshake
+    ///  operation would race the same stream unsafely.
+    ///  @param message Pre-encoded UTF-8 text to send before shutting down.
+    virtual void ShutdownWithNotification(std::string message) noexcept = 0;
+};
+
 ///  Owns one accepted TCP connection and applies the Phase 1 WebSocket rules:
 ///  compression and WebSocket keep-alive pings are disabled, only text frames
 ///  are accepted, and handshake/idle I/O timeouts are enforced.
 class WebSocketSession final : public IWebSocketSession {
   public:
     ///  Owns the TCP socket shared between the worker and shutdown path.
-    class Socket : public std::enable_shared_from_this<Socket> {
+    ///  Declared here rather than in its own file: every method beyond
+    ///  `ISocket`'s two is private and reached only through `friend class
+    ///  WebSocketSession`, which manipulates `stream_`/`ioContext_` directly
+    ///  as an extension of its own state (see websocket_session.cpp) -- the
+    ///  genuine structural-coupling carve-out `ai/context/skse/cpp-style.md`
+    ///  documents, not a convenience nesting.
+    class Socket : public ISocket,
+                   public std::enable_shared_from_this<Socket> {
       public:
-        ///  Posts cancellation to the socket's event loop without touching Beast
-        ///  from the caller.
-        void Shutdown() noexcept;
+        ///  @copydoc ISocket::Shutdown
+        void Shutdown() noexcept override;
 
-        ///  Best-effort sends `message` as one text frame, then shuts down exactly
-        ///  like `Shutdown()` -- one coupled, cross-thread-safe operation for an
-        ///  administrative terminal event (`ai/context/protocol/security.md`'s
-        ///  "Administrative session invalidation": "best-effort send and flush...
-        ///  then force-close"). Shuts down only once the write's own completion
-        ///  handler fires (success or failure), so shutdown never races ahead of a
-        ///  write still in flight; whether the peer actually receives it beyond that
-        ///  is still never awaited, acknowledged, or guaranteed. Shares
-        ///  `Shutdown()`'s single-fire guard, so whichever of the two is called
-        ///  first wins and the other becomes a no-op. If the WebSocket upgrade
-        ///  handshake has not yet finished using `stream_`, the notification is
-        ///  skipped entirely (best-effort delivery permits this) and the connection
-        ///  is still force-closed exactly like `Shutdown()` -- writing a
-        ///  notification concurrently with `Accept()`'s own in-flight handshake
-        ///  operation would race the same stream unsafely.
-        ///  @param message Pre-encoded UTF-8 text to send before shutting down.
-        void ShutdownWithNotification(std::string message) noexcept;
+        ///  @copydoc ISocket::ShutdownWithNotification
+        void ShutdownWithNotification(std::string message) noexcept override;
 
       private:
         friend class WebSocketSession;

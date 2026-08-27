@@ -1,8 +1,8 @@
 #include "security/pairing_session.hpp"
 
 #include "security/constant_time_compare.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
-#include "security/limits.hpp"
 
 #include <utility>
 

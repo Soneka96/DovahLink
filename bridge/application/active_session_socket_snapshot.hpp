@@ -1,7 +1,9 @@
 #pragma once
 
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "transport/websocket_session.hpp"
+
+#include <memory>
 
 namespace dovahlink::application {
 
@@ -11,7 +13,7 @@ struct ActiveSessionSocketSnapshot {
     ConnectionId connection;
 
     ///  Shared handle used for cross-thread socket shutdown.
-    transport::WebSocketSession::SocketHandle socket;
+    std::shared_ptr<transport::ISocket> socket;
 };
 
 } //  namespace dovahlink::application

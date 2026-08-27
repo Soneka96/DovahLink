@@ -5,28 +5,28 @@
 #include <optional>
 #include <string>
 
-using dovahlink::application::PairingNotificationSink;
+using dovahlink::application::IPairingNotificationSink;
 
 namespace {
 
 ///  Captures the most recently notified pairing code and every distinct
 ///  notification kind, for tests and the Skyrim-independent test harness to
 ///  observe what the real Skyrim implementation would have displayed.
-class RecordingPairingNotificationSink : public PairingNotificationSink {
+class RecordingPairingNotificationSink : public IPairingNotificationSink {
   public:
-    ///  @copydoc PairingNotificationSink::NotifyPairingCodeAvailable
+    ///  @copydoc IPairingNotificationSink::NotifyPairingCodeAvailable
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
         lastNotifiedCode_ = std::string(sixDigitCode);
         notificationCount_ += 1;
     }
 
-    ///  @copydoc PairingNotificationSink::NotifyPairingCodeIncorrect
+    ///  @copydoc IPairingNotificationSink::NotifyPairingCodeIncorrect
     void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
         lastIncorrectCode_ = std::string(sixDigitCode);
         incorrectCount_ += 1;
     }
 
-    ///  @copydoc PairingNotificationSink::NotifyPairingAttemptsExhausted
+    ///  @copydoc IPairingNotificationSink::NotifyPairingAttemptsExhausted
     void NotifyPairingAttemptsExhausted() override { exhaustedCount_ += 1; }
 
     ///  The most recent code passed to `NotifyPairingCodeAvailable`, if any.

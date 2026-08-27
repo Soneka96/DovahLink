@@ -34,8 +34,8 @@
 
 using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::IConnectionSession;
+using dovahlink::application::IPairingNotificationSink;
 using dovahlink::application::kBridgeVersion;
-using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
 using dovahlink::application::test_support::BuildEnvelope;
 using dovahlink::application::test_support::BuildPairingAckEnvelope;
@@ -85,11 +85,11 @@ class EmptyPersistence : public ITrustStorePersistence {
     bool Save(const TrustStoreSnapshot&) override { return true; }
 };
 
-///  `PairingNotificationSink` double that records every code it is given. These
+///  `IPairingNotificationSink` double that records every code it is given. These
 ///  tests only need a working sink to satisfy `RunConnectionSession`'s signature
 ///  -- pairing behavior itself is exercised in message_dispatcher_test.cpp and
 ///  pairing_handler_test.cpp.
-class RecordingPairingNotificationSink : public PairingNotificationSink {
+class RecordingPairingNotificationSink : public IPairingNotificationSink {
   public:
     ///  Appends `sixDigitCode` to `codes`.
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
@@ -128,7 +128,7 @@ class MockHandshakeHandler : public dovahlink::application::IHandshakeHandler {
   public:
     MOCK_METHOD(dovahlink::application::HandshakeResult, Handle,
                 (const Envelope&, dovahlink::application::ConnectionId,
-                 dovahlink::application::ConnectionTimeoutTracker&,
+                 dovahlink::application::IConnectionTimeoutTracker&,
                  std::chrono::steady_clock::time_point),
                 (override));
 };
@@ -142,10 +142,10 @@ class MockMessageDispatcher
     MOCK_METHOD(dovahlink::application::DispatchResult, Process,
                 (const std::string&, std::size_t&, const std::string&,
                  dovahlink::application::ConnectionId,
-                 dovahlink::application::ReplayGuard&,
+                 dovahlink::application::IReplayGuard&,
                  dovahlink::security::IViolationTracker&,
                  dovahlink::security::IInboundMessageRateLimiter&,
-                 dovahlink::application::ConnectionTimeoutTracker&,
+                 dovahlink::application::IConnectionTimeoutTracker&,
                  std::chrono::steady_clock::time_point),
                 (override));
 };
@@ -220,7 +220,7 @@ void RunConnectionSession(
     dovahlink::application::ConnectionId connection,
     const IActivePlayContextReader& activePlayContext,
     PairingSession& pairingSession,
-    PairingNotificationSink& pairingNotificationSink,
+    IPairingNotificationSink& pairingNotificationSink,
     const std::optional<std::string>& bridgeInstanceId,
     const std::string& bridgeVersion,
     dovahlink::application::SteadyNowProvider steadyNow = [] {
@@ -1456,7 +1456,7 @@ TEST_CASE("RunConnectionSession dispatches an inbound message through "
                 Handle(testing::_, testing::_, testing::_, testing::_))
         .WillOnce(testing::Invoke(
             [](const Envelope&, dovahlink::application::ConnectionId,
-               dovahlink::application::ConnectionTimeoutTracker&,
+               dovahlink::application::IConnectionTimeoutTracker&,
                std::chrono::steady_clock::time_point) {
                 return dovahlink::application::HandshakeResult{
                     .response =
@@ -1528,7 +1528,7 @@ TEST_CASE("RunConnectionSession closes the connection when IMessageDispatcher "
                 Handle(testing::_, testing::_, testing::_, testing::_))
         .WillOnce(testing::Invoke(
             [](const Envelope&, dovahlink::application::ConnectionId,
-               dovahlink::application::ConnectionTimeoutTracker&,
+               dovahlink::application::IConnectionTimeoutTracker&,
                std::chrono::steady_clock::time_point) {
                 return dovahlink::application::HandshakeResult{
                     .response =

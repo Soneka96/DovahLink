@@ -1,12 +1,11 @@
 #pragma once
 
-#include "shared/enums.hpp"
+#include "security/token_read_result.hpp"
 
-#include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace dovahlink::security {
 
@@ -14,10 +13,10 @@ namespace dovahlink::security {
 inline constexpr std::size_t kTokenBytes = 32;
 
 ///  Abstracts process-environment access for token loading.
-class EnvironmentReader {
+class IEnvironmentReader {
   public:
     ///  Allows destruction through the interface.
-    virtual ~EnvironmentReader() = default;
+    virtual ~IEnvironmentReader() = default;
 
     ///  Returns an environment value or `std::nullopt` when it is unset.
     [[nodiscard]] virtual std::optional<std::string>
@@ -25,20 +24,11 @@ class EnvironmentReader {
 };
 
 ///  Reads environment values through the Windows process environment block.
-class WindowsEnvironmentReader : public EnvironmentReader {
+class WindowsEnvironmentReader : public IEnvironmentReader {
   public:
-    ///  @copydoc EnvironmentReader::Read
+    ///  @copydoc IEnvironmentReader::Read
     [[nodiscard]] std::optional<std::string>
     Read(std::string_view name) const override;
-};
-
-///  Result of reading and hex-decoding the developer-authentication token from
-///  an environment value.
-struct TokenReadResult {
-    ///  Which of the three documented outcomes occurred.
-    TokenReadOutcome outcome;
-    ///  Decoded token bytes; empty unless `outcome == TokenReadOutcome::kValid`.
-    std::vector<std::uint8_t> bytes;
 };
 
 ///  Reads and hex-decodes a 256-bit one-time token from an environment value,
@@ -46,7 +36,7 @@ struct TokenReadResult {
 ///  and react to each differently. Intermediate plaintext is cleared on every
 ///  normal and exceptional exit.
 [[nodiscard]] TokenReadResult
-ReadTokenFromEnvironment(const EnvironmentReader& env,
+ReadTokenFromEnvironment(const IEnvironmentReader& env,
                          std::string_view variableName);
 
 } //  namespace dovahlink::security

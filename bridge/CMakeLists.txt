@@ -42,7 +42,7 @@ add_library(dovahlink_bridge_core STATIC
     application/connection_session.cpp
     application/connection_timeout_tracker.cpp
     application/coordinator.cpp
-    application/game_behavior_config.cpp
+    application/game_behavior_config_file_reader.cpp
     application/play_context_lifecycle.cpp
     application/handshake_handler.cpp
     application/message_dispatcher.cpp
@@ -51,7 +51,7 @@ add_library(dovahlink_bridge_core STATIC
     application/active_play_context_level_sink.cpp
     application/revision_tracker.cpp
     application/replay_guard.cpp
-    application/session.cpp
+    application/session_manager.cpp
     application/subscription_handler.cpp
     application/timestamp.cpp
     application/trust_device_admin_service.cpp
@@ -82,6 +82,7 @@ add_library(dovahlink_bridge_core STATIC
     security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
+    security/environment_reader.cpp
     security/factory_reset_challenge.cpp
     security/failed_token_reservation.cpp
     security/failed_token_throttle.cpp
@@ -89,7 +90,6 @@ add_library(dovahlink_bridge_core STATIC
     security/inbound_message_rate_limiter.cpp
     security/pairing_session.cpp
     security/rate_window_counter.cpp
-    security/token_provider.cpp
     security/token_reservation.cpp
     security/token_store.cpp
     security/trust_device_store.cpp
@@ -178,7 +178,7 @@ add_executable(dovahlink_bridge_tests
     application/connection_timeout_tracker_test.cpp
     application/coordinator_failure_test.cpp
     application/coordinator_test.cpp
-    application/game_behavior_config_test.cpp
+    application/game_behavior_config_file_reader_test.cpp
     application/play_context_lifecycle_test.cpp
     application/play_context_transition_test.cpp
     application/handshake_handler_test.cpp
@@ -191,7 +191,7 @@ add_executable(dovahlink_bridge_tests
     application/reconnect_reset_test.cpp
     application/revision_tracker_test.cpp
     application/replay_guard_test.cpp
-    application/session_test.cpp
+    application/session_manager_test.cpp
     application/subscription_handler_test.cpp
     application/timestamp_test.cpp
     application/trust_device_admin_service_test.cpp
@@ -210,10 +210,11 @@ add_executable(dovahlink_bridge_tests
     plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
     plugin/dovahlink_bridge_plugin_registration_test.cpp
-    security/limits_test.cpp
     security/constant_time_compare_test.cpp
+    security/constants_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/environment_reader_test.cpp
     security/failed_token_reservation_test.cpp
     security/factory_reset_challenge_test.cpp
     security/failed_token_throttle_test.cpp
@@ -221,7 +222,6 @@ add_executable(dovahlink_bridge_tests
     security/inbound_message_rate_limiter_test.cpp
     security/pairing_session_test.cpp
     security/rate_window_counter_test.cpp
-    security/token_provider_test.cpp
     security/token_reservation_test.cpp
     security/token_store_test.cpp
     security/trust_store_test.cpp

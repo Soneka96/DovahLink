@@ -51,7 +51,7 @@ ToWireSeconds(std::optional<std::chrono::seconds> duration) {
 
 PairingHandler::PairingHandler(security::IPairingSession& pairingSession,
                                ITrustMutationCoordinator& mutationCoordinator,
-                               PairingNotificationSink& notificationSink)
+                               IPairingNotificationSink& notificationSink)
     : pairingSession_(pairingSession),
       mutationCoordinator_(mutationCoordinator),
       notificationSink_(notificationSink) {}

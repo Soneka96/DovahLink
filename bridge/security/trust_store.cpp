@@ -1,8 +1,8 @@
 #include "security/trust_store.hpp"
 
 #include "security/constant_time_compare.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
-#include "security/limits.hpp"
 
 #include <windows.h>
 

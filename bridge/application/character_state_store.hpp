@@ -1,6 +1,6 @@
 #pragma once
 
-#include "application/character_state.hpp"
+#include "application/character_snapshot.hpp"
 
 #include <mutex>
 #include <optional>

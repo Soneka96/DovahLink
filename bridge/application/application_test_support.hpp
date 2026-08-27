@@ -4,9 +4,11 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
+#include "application/connection_timeout_tracker.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
-#include "application/session.hpp"
+#include "application/replay_guard.hpp"
+#include "application/session_manager.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -15,11 +17,13 @@
 #include "security/trust_device_store.hpp"
 #include "security/trust_reset_store.hpp"
 #include "security/trust_store.hpp"
+#include "transport/websocket_session.hpp"
 
 #include <boost/json/object.hpp>
 #include <gmock/gmock.h>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -281,6 +285,34 @@ class MockFactoryResetChallenge : public security::IFactoryResetChallenge {
                 (const, override));
     MOCK_METHOD(security::FactoryResetConfirmOutcome, TryConfirm,
                 (const std::string&), (override));
+};
+
+///  GoogleMock inbound-message replay-guard contract double.
+class MockReplayGuard : public IReplayGuard {
+  public:
+    MOCK_METHOD(MessageIdCheckResult, RecordMessage, (const std::string&),
+                (override));
+    MOCK_METHOD(std::size_t, Count, (), (const, override));
+};
+
+///  GoogleMock connection-timeout-tracker contract double.
+class MockConnectionTimeoutTracker : public IConnectionTimeoutTracker {
+  public:
+    MOCK_METHOD(void, MarkAuthenticated, (std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(void, RecordActivity, (std::chrono::steady_clock::time_point),
+                (override));
+    MOCK_METHOD(bool, IsTimedOut, (std::chrono::steady_clock::time_point),
+                (const, override));
+    MOCK_METHOD(std::chrono::steady_clock::time_point, Deadline, (),
+                (const, override));
+};
+
+///  GoogleMock cross-thread socket-shutdown contract double.
+class MockSocket : public transport::ISocket {
+  public:
+    MOCK_METHOD(void, Shutdown, (), (noexcept, override));
+    MOCK_METHOD(void, ShutdownWithNotification, (std::string), (noexcept, override));
 };
 
 } //  namespace dovahlink::application::test_support

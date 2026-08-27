@@ -41,10 +41,10 @@ using dovahlink::application::ConnectionSession;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::HandshakeHandler;
+using dovahlink::application::IPairingNotificationSink;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::MessageDispatcher;
 using dovahlink::application::PairingHandler;
-using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
@@ -89,11 +89,11 @@ class EmptyPersistence : public ITrustStorePersistence {
     bool Save(const TrustStoreSnapshot&) override { return true; }
 };
 
-///  `PairingNotificationSink` double that records every code it is given.
+///  `IPairingNotificationSink` double that records every code it is given.
 ///  Pairing behavior itself is exercised in message_dispatcher_test.cpp and
 ///  pairing_handler_test.cpp; these tests only need a working sink to satisfy
 ///  `ConnectionSession`'s signature.
-class RecordingPairingNotificationSink : public PairingNotificationSink {
+class RecordingPairingNotificationSink : public IPairingNotificationSink {
   public:
     ///  Appends `sixDigitCode` to `codes`.
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {

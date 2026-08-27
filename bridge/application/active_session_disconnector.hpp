@@ -12,7 +12,7 @@ namespace dovahlink::application {
 ///  factory-reset client credential, `ai/context/protocol/security.md`'s
 ///  "Administrative session invalidation"); this seam owns only how the
 ///  transport that holds that connection is reached, notified, and torn down,
-///  mirroring `PairingNotificationSink`'s existing seam pattern.
+///  mirroring `IPairingNotificationSink`'s existing seam pattern.
 class IActiveSessionDisconnector {
   public:
     ///  Releases the interface without performing work.

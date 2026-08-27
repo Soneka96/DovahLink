@@ -1,10 +1,5 @@
 #pragma once
 
-#include <filesystem>
-#include <optional>
-#include <string>
-#include <string_view>
-
 namespace dovahlink::application {
 
 ///  Runtime compatibility toggles read from the bridge's optional INI file.
@@ -19,36 +14,5 @@ struct GameBehaviorConfig {
     ///  so achievements remain available with SKSE plugins loaded.
     bool achievementCompat = true;
 };
-
-///  Abstracts reading the compatibility INI file's raw text so parsing can be
-///  tested without real filesystem access.
-class GameBehaviorConfigFileReader {
-  public:
-    ///  Allows destruction through the interface.
-    virtual ~GameBehaviorConfigFileReader() = default;
-
-    ///  Returns the file's full text, or `std::nullopt` if it does not exist
-    ///  or cannot be read.
-    [[nodiscard]] virtual std::optional<std::string>
-    Read(const std::filesystem::path& path) const = 0;
-};
-
-///  Reads the compatibility INI file from the real filesystem.
-class FilesystemGameBehaviorConfigFileReader
-    : public GameBehaviorConfigFileReader {
-  public:
-    ///  @copydoc GameBehaviorConfigFileReader::Read
-    [[nodiscard]] std::optional<std::string>
-    Read(const std::filesystem::path& path) const override;
-};
-
-///  Parses the `[DovahLink]` section of `reader`'s file at `path` into a
-///  `GameBehaviorConfig`, defaulting each key independently when the file is
-///  missing, the section or key is absent, or the value is not `0`/`1`.
-///  @param reader Source of the file's raw text.
-///  @param path Path to the compatibility INI file.
-[[nodiscard]] GameBehaviorConfig
-ReadGameBehaviorConfig(const GameBehaviorConfigFileReader& reader,
-                       const std::filesystem::path& path);
 
 } //  namespace dovahlink::application

@@ -10,21 +10,21 @@ namespace dovahlink::game_state {
 ///  and vanilla messages use, with no SkyUI or other UI-mod dependency. Carries
 ///  no pairing state or timing logic of its own; `PairingSession` alone owns
 ///  when a code is generated and how long it stays valid (see
-///  `application::PairingNotificationSink`), and this adapter trusts
+///  `application::IPairingNotificationSink`), and this adapter trusts
 ///  `PairingSession`'s own CSPRNG-based code generator for the six-digit shape
 ///  of `sixDigitCode` without re-validating it -- there is no externally
 ///  reachable path that supplies this argument.
 class CommonLibPairingNotificationSink
-    : public application::PairingNotificationSink {
+    : public application::IPairingNotificationSink {
   public:
-    ///  @copydoc application::PairingNotificationSink::NotifyPairingCodeAvailable
+    ///  @copydoc application::IPairingNotificationSink::NotifyPairingCodeAvailable
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override;
 
-    ///  @copydoc application::PairingNotificationSink::NotifyPairingCodeIncorrect
+    ///  @copydoc application::IPairingNotificationSink::NotifyPairingCodeIncorrect
     void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override;
 
     ///  @copydoc
-    ///  application::PairingNotificationSink::NotifyPairingAttemptsExhausted
+    ///  application::IPairingNotificationSink::NotifyPairingAttemptsExhausted
     void NotifyPairingAttemptsExhausted() override;
 };
 

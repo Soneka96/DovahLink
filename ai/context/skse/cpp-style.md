@@ -47,17 +47,26 @@
   gets its own file, unnested, at namespace scope -- the same treatment an enum gets before it is
   consolidated into `bridge/shared/enums.hpp`. "Inseparable" means genuine structural coupling a
   file boundary cannot express, such as a `friend`-only RAII helper that manipulates its owner's
-  private state. This codebase has no current instance of that carve-out: `TokenStore::Reservation`,
-  `SessionManager::Lease`, and `ConnectionSlot::Lease` were its three examples, and each has since
-  been replaced by a publicly-constructible type instead (the shared `ScopedRelease` RAII utility
-  for the latter two; a standalone, non-nested `TokenReservation` for the former, since its
+  private state. `TokenStore::Reservation`, `SessionManager::Lease`, and `ConnectionSlot::Lease`
+  were three prior examples that turned out not to qualify, and each has since been replaced by a
+  publicly-constructible type instead (the shared `ScopedRelease` RAII utility for the latter two;
+  a standalone, non-nested `TokenReservation` for the former, since its
   hold-a-lock-then-explicit-`Commit` shape differs from `ScopedRelease`'s auto-release-on-drop
   shape) precisely so an interface's test double can construct one without `friend` access -- a
   `friend`-only nested type cannot satisfy `common.md`'s "Behavioral boundaries and test isolation"
-  rule, since a mock implementing the owning interface has no way to construct one. The carve-out
-  itself remains available for a genuine future case meeting the same bar; it is not retired. A
-  plain data-only result struct such as `PairingSession`'s `StartChallengeResult` has no such
-  coupling and does not qualify.
+  rule, since a mock implementing the owning interface has no way to construct one. A plain
+  data-only result struct such as `PairingSession`'s `StartChallengeResult` has no such coupling
+  and does not qualify. `WebSocketSession::Socket` (`transport/websocket_session.hpp`) is this
+  codebase's one current instance of a type that does qualify: every method beyond the two exposed
+  through its own `ISocket` interface is private and reached only through `friend class
+  WebSocketSession`, which manipulates `Socket`'s `stream_`/`ioContext_` directly across nearly
+  every `WebSocketSession` method (`Accept`, `ReadMessage`, `WriteMessage`, `Close`,
+  `SetTimeoutPolicy`, and others) as an extension of its own state, not merely as a client calling
+  a self-contained API -- the same bar the three replaced examples failed to meet. `ISocket` itself
+  still exists and is not exempt: `Socket`'s two behavior-bearing operations that an external
+  collaborator (`application::IActiveSessionSocket`/`IActiveSessionController`) actually consumes
+  are on that narrow interface, constructed only via `WebSocketSession::CreateSocket`; the carve-out
+  covers only the file-placement question for `Socket`'s remaining, `WebSocketSession`-only surface.
 - Every enum in `bridge/` is a single Bridge-wide exception to the file-organization rule, per
   `ai/context/common.md`'s "not a repository-wide dumping ground" -- `bridge/` is one compilation
   unit/project (one CMake target), not several, so the module subdirectories
@@ -100,13 +109,17 @@
   Skyrim-independent core (so the port itself must stay includable without `RE/Skyrim.h`).
   `IBridgeCallbackRegistry` (`application/i_bridge_callback_registry.hpp`, CommonLib-free) and
   `BridgeCallbackRegistry` (`application/bridge_callback_registry.hpp`/`.cpp`, compiled into
-  `dovahlink_bridge_game_state`) are the one instance of this today -- confirmed necessary
-  empirically, not merely convenient: compiling `BridgeCallbackRegistry` into the
-  Skyrim-independent core produced over 100 cascading errors from `RE/Skyrim.h` requiring
-  `CommonLibSSE::CommonLibSSE`'s own compile setup. Do not reach for this split to avoid writing a
-  file-placement justification, to keep a file shorter, or for any port whose implementation could
-  simply live beside it in one file; a false positive here quietly refragments the paired-file rule
-  this exception exists to preserve everywhere else.
+  `dovahlink_bridge_game_state`) confirmed this split necessary empirically, not merely convenient:
+  compiling `BridgeCallbackRegistry` into the Skyrim-independent core produced over 100 cascading
+  errors from `RE/Skyrim.h` requiring `CommonLibSSE::CommonLibSSE`'s own compile setup.
+  `IPairingNotificationSink` (`application/pairing_notification_sink.hpp`, CommonLib-free) and
+  `CommonLibPairingNotificationSink` (`game_state/commonlib_pairing_notification_sink.hpp`/`.cpp`,
+  compiled into `dovahlink_bridge_game_state` because its implementation calls
+  `RE::DebugNotification`) are the same shape for the same underlying reason and are this
+  codebase's second instance. Do not reach for this split to avoid writing a file-placement
+  justification, to keep a file shorter, or for any port whose implementation could simply live
+  beside it in one file; a false positive here quietly refragments the paired-file rule this
+  exception exists to preserve everywhere else.
 
 ## Parameter grouping and context objects
 

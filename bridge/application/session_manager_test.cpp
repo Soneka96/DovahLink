@@ -1,4 +1,4 @@
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -26,7 +26,7 @@ const std::string kClientTwo = "client-2";
 } //  namespace
 
 TEST_CASE("TryCreateSession succeeds when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -37,7 +37,7 @@ TEST_CASE("TryCreateSession succeeds when no session is active",
 
 TEST_CASE("TryCreateSession fails while a session is already active, even for "
           "a different connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -52,7 +52,7 @@ TEST_CASE("TryCreateSession fails while a session is already active, even for "
 
 TEST_CASE("TryCreateSession fails even when re-called by the connection that "
           "already owns the session",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  A connection gets exactly one session for its lifetime; a second call is
     //  caller misuse, not a refresh, and must not silently succeed or replace the
     //  existing ID.
@@ -71,7 +71,7 @@ TEST_CASE("TryCreateSession fails even when re-called by the connection that "
 
 TEST_CASE("IsValidForConnection is true for the owning connection and correct "
           "session ID",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -82,7 +82,7 @@ TEST_CASE("IsValidForConnection is true for the owning connection and correct "
 
 TEST_CASE("IsValidForConnection is false for a foreign connection presenting "
           "the active session ID",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -95,7 +95,7 @@ TEST_CASE("IsValidForConnection is false for a foreign connection presenting "
 
 TEST_CASE("IsValidForConnection is false for an unrecognized session ID from "
           "the owning connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -106,13 +106,13 @@ TEST_CASE("IsValidForConnection is false for an unrecognized session ID from "
 }
 
 TEST_CASE("IsValidForConnection is false when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
 }
 
 TEST_CASE("destroying a lease invalidates its session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -123,7 +123,7 @@ TEST_CASE("destroying a lease invalidates its session",
 }
 
 TEST_CASE("a released admission leaves the session slot available",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     {
         auto lease = sessions.TryCreateSession(
@@ -143,7 +143,7 @@ TEST_CASE("a released admission leaves the session slot available",
 
 TEST_CASE("the same connection can create a fresh session after its prior one "
           "is invalidated",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -167,7 +167,7 @@ TEST_CASE("the same connection can create a fresh session after its prior one "
 
 TEST_CASE(
     "a reconnect can create a fresh session after the prior one is invalidated",
-    "[application][session]") {
+    "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -189,7 +189,7 @@ TEST_CASE(
 
 TEST_CASE("InvalidateAll clears the active session regardless of which "
           "connection holds it",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -204,7 +204,7 @@ TEST_CASE("InvalidateAll clears the active session regardless of which "
 }
 
 TEST_CASE("InvalidateAll is safe to call when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     sessions.InvalidateAll();
     CHECK(sessions
@@ -216,7 +216,7 @@ TEST_CASE("InvalidateAll is safe to call when no session is active",
 
 TEST_CASE("a stale lease cannot invalidate a replacement session on the same "
           "connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto staleLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -240,7 +240,7 @@ TEST_CASE("a stale lease cannot invalidate a replacement session on the same "
 }
 
 TEST_CASE("moving a lease transfers session ownership",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -256,7 +256,7 @@ TEST_CASE("moving a lease transfers session ownership",
 }
 
 TEST_CASE("move-assigning a lease invalidates its previously owned session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager firstSessions;
     SessionManager secondSessions;
     auto firstLease = firstSessions.TryCreateSession(
@@ -280,7 +280,7 @@ TEST_CASE("move-assigning a lease invalidates its previously owned session",
 
 TEST_CASE("ClientIdForConnection returns the client identity for the owning "
           "connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -293,14 +293,14 @@ TEST_CASE("ClientIdForConnection returns the client identity for the owning "
 }
 
 TEST_CASE("ClientIdForConnection returns no value when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     CHECK_FALSE(sessions.ClientIdForConnection(kConnectionA).has_value());
 }
 
 TEST_CASE("ClientIdForConnection returns no value for a connection that does "
           "not own the active session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -313,7 +313,7 @@ TEST_CASE("ClientIdForConnection returns no value for a connection that does "
 }
 
 TEST_CASE("ClientIdForConnection is cleared once the owning lease is released",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -325,7 +325,7 @@ TEST_CASE("ClientIdForConnection is cleared once the owning lease is released",
 }
 
 TEST_CASE("ClientIdForConnection is cleared by InvalidateAll",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -338,7 +338,7 @@ TEST_CASE("ClientIdForConnection is cleared by InvalidateAll",
 
 TEST_CASE("ClientIdForConnection reports the new session's client after a "
           "reconnect replaces the old one",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -358,7 +358,7 @@ TEST_CASE("ClientIdForConnection reports the new session's client after a "
 }
 
 TEST_CASE("TryCreateSession honors an explicit kRestricted trust tier",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -369,7 +369,7 @@ TEST_CASE("TryCreateSession honors an explicit kRestricted trust tier",
 
 TEST_CASE(
     "UpgradeToFullTrust flips the active session's owning connection to kFull",
-    "[application][session]") {
+    "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -383,7 +383,7 @@ TEST_CASE(
 
 TEST_CASE("UpgradeToFullTrust is a no-op for a connection that does not own "
           "the active session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -397,7 +397,7 @@ TEST_CASE("UpgradeToFullTrust is a no-op for a connection that does not own "
 
 TEST_CASE("UpgradeToFullTrust is a no-op for the right connection presenting "
           "the wrong sessionId",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  Distinct from the wrong-connection case: this is the same guard
     //  InvalidateSession already has, proven here because UpgradeToFullTrust must
     //  check both, not just connection.
@@ -413,7 +413,7 @@ TEST_CASE("UpgradeToFullTrust is a no-op for the right connection presenting "
 }
 
 TEST_CASE("UpgradeToFullTrust is a no-op when no session is active at all",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
 
     sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
@@ -423,7 +423,7 @@ TEST_CASE("UpgradeToFullTrust is a no-op when no session is active at all",
 
 TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on "
           "the same connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  The exact scenario the sessionId check exists to prevent: a delayed upgrade
     //  call for the original (now-invalidated) session arrives after the same
     //  connection already holds an unrelated replacement session.
@@ -445,7 +445,7 @@ TEST_CASE("a stale UpgradeToFullTrust cannot promote a replacement session on "
 }
 
 TEST_CASE("InvalidateSession clears the exact session before delayed promotion",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -461,7 +461,7 @@ TEST_CASE("InvalidateSession clears the exact session before delayed promotion",
 }
 
 TEST_CASE("UpgradeToFullTrust on an already-kFull session leaves it kFull",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -475,7 +475,7 @@ TEST_CASE("UpgradeToFullTrust on an already-kFull session leaves it kFull",
 
 TEST_CASE("UpgradeToFullTrust does not change the session's identifier or "
           "client identity",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -491,14 +491,14 @@ TEST_CASE("UpgradeToFullTrust does not change the session's identifier or "
 }
 
 TEST_CASE("IsFullyTrusted is false when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     CHECK_FALSE(sessions.IsFullyTrusted(kConnectionA));
 }
 
 TEST_CASE("IsFullyTrusted is false for a connection that does not own the "
           "active kFull session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -510,7 +510,7 @@ TEST_CASE("IsFullyTrusted is false for a connection that does not own the "
 
 TEST_CASE("a session created after a restricted one is invalidated does not "
           "inherit its trust tier",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
@@ -526,7 +526,7 @@ TEST_CASE("a session created after a restricted one is invalidated does not "
 }
 
 TEST_CASE("exactly one concurrent TryCreateSession attempt succeeds",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  Uses a spin barrier to maximize actual thread overlap rather than a timing
     //  sleep to approximate concurrency (ai/context/skse/testing.md).
     SessionManager sessions;
@@ -569,7 +569,7 @@ TEST_CASE("exactly one concurrent TryCreateSession attempt succeeds",
 }
 
 TEST_CASE("TryCreateSession honors an explicit kDeveloperToken session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kFull,
@@ -581,7 +581,7 @@ TEST_CASE("TryCreateSession honors an explicit kDeveloperToken session",
 }
 
 TEST_CASE("TryCreateSession honors an explicit kUnpaired session",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  Previously indistinguishable from kTrustedDeviceCredential under the old
     //  bool: both mapped to isDeveloperAuthenticated=false. The enum makes this a
     //  real, separately observable state.
@@ -596,7 +596,7 @@ TEST_CASE("TryCreateSession honors an explicit kUnpaired session",
 }
 
 TEST_CASE("AuthMethodForConnection returns no value when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     CHECK_FALSE(sessions.AuthMethodForConnection(kConnectionA).has_value());
 }
@@ -604,7 +604,7 @@ TEST_CASE("AuthMethodForConnection returns no value when no session is active",
 TEST_CASE("AuthMethodForConnection returns no value for a connection that does "
           "not own the active "
           "session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kFull,
@@ -614,7 +614,7 @@ TEST_CASE("AuthMethodForConnection returns no value for a connection that does "
 }
 
 TEST_CASE("AuthMethodForConnection is cleared when the session is invalidated",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kFull,
@@ -625,7 +625,7 @@ TEST_CASE("AuthMethodForConnection is cleared when the session is invalidated",
 }
 
 TEST_CASE("AuthMethodForConnection is cleared by InvalidateAll",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kFull,
@@ -638,7 +638,7 @@ TEST_CASE("AuthMethodForConnection is cleared by InvalidateAll",
 TEST_CASE(
     "a session created after a kDeveloperToken one is invalidated defaults to "
     "kTrustedDeviceCredential",
-    "[application][session]") {
+    "[application][session_manager]") {
     SessionManager sessions;
     auto firstLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -658,7 +658,7 @@ TEST_CASE(
 TEST_CASE("AuthMethodForConnection is independent of trust tier: a kRestricted "
           "developer session "
           "reports both",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kRestricted,
@@ -671,7 +671,7 @@ TEST_CASE("AuthMethodForConnection is independent of trust tier: a kRestricted "
 }
 
 TEST_CASE("UpgradeToFullTrust does not change AuthMethodForConnection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kRestricted,
@@ -693,7 +693,7 @@ TEST_CASE("UpgradeToFullTrust does not change AuthMethodForConnection",
 TEST_CASE("a stale lease cannot clear AuthMethodForConnection for a "
           "replacement session on the same "
           "connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto staleLease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -713,14 +713,14 @@ TEST_CASE("a stale lease cannot clear AuthMethodForConnection for a "
 }
 
 TEST_CASE("SessionForConnection returns no value when no session is active",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     CHECK_FALSE(sessions.SessionForConnection(kConnectionA).has_value());
 }
 
 TEST_CASE("SessionForConnection returns no value for a connection that does "
           "not own the active session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -731,7 +731,7 @@ TEST_CASE("SessionForConnection returns no value for a connection that does "
 
 TEST_CASE("SessionForConnection returns a coherent snapshot for a "
           "trusted-device session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(
         kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
@@ -749,7 +749,7 @@ TEST_CASE("SessionForConnection returns a coherent snapshot for a "
 
 TEST_CASE("SessionForConnection returns a coherent snapshot for a "
           "developer-token session",
-          "[application][session]") {
+          "[application][session_manager]") {
     SessionManager sessions;
     auto lease = sessions.TryCreateSession(kConnectionA, kSessionOne, kClientOne,
                                            SessionTrustTier::kFull,
@@ -768,7 +768,7 @@ TEST_CASE("SessionForConnection returns a coherent snapshot for a "
 TEST_CASE("a stale lease cannot clear or alter any field of a replacement "
           "session's coherent "
           "snapshot on the same connection",
-          "[application][session]") {
+          "[application][session_manager]") {
     //  The consolidated-state regression: destroying an old, already-invalidated
     //  lease must not corrupt or clear the replacement session that now occupies
     //  the same connection, across every field together -- not just one field

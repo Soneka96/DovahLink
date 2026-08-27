@@ -1,6 +1,6 @@
 #include "security/inbound_message_rate_limiter.hpp"
 
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 namespace dovahlink::security {
 

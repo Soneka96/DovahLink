@@ -17,8 +17,8 @@
 #include <vector>
 
 using dovahlink::application::ConnectionId;
+using dovahlink::application::IPairingNotificationSink;
 using dovahlink::application::PairingHandler;
-using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
@@ -87,9 +87,9 @@ class FlakyOnceSavePersistence : public ITrustStorePersistence {
     bool failedOnce_ = false;
 };
 
-///  Captures every distinct notification `PairingNotificationSink` call this
+///  Captures every distinct notification `IPairingNotificationSink` call this
 ///  handler makes.
-class RecordingPairingNotificationSink : public PairingNotificationSink {
+class RecordingPairingNotificationSink : public IPairingNotificationSink {
   public:
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
         codes.emplace_back(sixDigitCode);

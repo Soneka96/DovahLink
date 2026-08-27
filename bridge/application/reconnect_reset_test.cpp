@@ -9,7 +9,7 @@
 
 #include "application/play_context.hpp"
 #include "application/replay_guard.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

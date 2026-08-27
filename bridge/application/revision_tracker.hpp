@@ -20,10 +20,17 @@ namespace dovahlink::application {
 ///  reinterpret its existing messages. Access is synchronized: an instance may
 ///  be shared across the play-context lifetime rather than owned by one serial
 ///  connection, so it may be read and advanced from more than one thread.
-class RevisionTracker {
+///
+///  `CommitSnapshotIfBuilt` is declared only on the concrete `RevisionTracker`
+///  below, not on this interface: it is a template method, and C++ cannot
+///  express a template as `virtual`. This is the one narrowing on this
+///  interface driven by a hard language constraint rather than by a
+///  consumer's actual needs; a future consumer of that specific method must
+///  depend on the concrete type.
+class IRevisionTracker {
   public:
-    ///  Creates an empty revision tracker.
-    RevisionTracker() = default;
+    ///  Releases the interface without performing work.
+    virtual ~IRevisionTracker() = default;
 
     ///  Starts or advances a snapshot baseline for a state area. With a
     ///  fingerprint, returns the existing revision unchanged when it matches the
@@ -37,8 +44,9 @@ class RevisionTracker {
     ///      equality against the fingerprint last committed for this area, or no
     ///      value to always advance.
     ///  @return Revision assigned to this snapshot.
-    std::int64_t StartSnapshot(const std::string& stateArea,
-                               const std::optional<std::string>& fingerprint);
+    virtual std::int64_t
+    StartSnapshot(const std::string& stateArea,
+                  const std::optional<std::string>& fingerprint) = 0;
 
     ///  Calculates the revision a `StartSnapshot` call with this fingerprint would
     ///  receive, without changing tracker state.
@@ -48,9 +56,45 @@ class RevisionTracker {
     ///      preview v1's unconditional advance.
     ///  @return Revision that a committed snapshot with this fingerprint will
     ///  receive.
+    [[nodiscard]] virtual std::int64_t
+    NextSnapshotRevision(const std::string& stateArea,
+                         const std::optional<std::string>& fingerprint) const = 0;
+
+    ///  Advances a state area for its next event. Unconditional by design -- an
+    ///  event represents a change the caller has already confirmed, unlike a
+    ///  snapshot pull which may or may not reflect one. Has no production caller
+    ///  yet (event delivery is Phase 4 scope; see
+    ///  roadmap/04-live-state-synchronization-foundation.md); leaves the area's
+    ///  stored fingerprint untouched, so how it should interact with
+    ///  `StartSnapshot`'s fingerprint comparison is left for whichever phase wires
+    ///  event delivery to decide.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @return Base and new revision, or no value before a baseline exists.
+    virtual std::optional<std::pair<std::int64_t, std::int64_t>>
+    NextEvent(const std::string& stateArea) = 0;
+
+    ///  Reads the latest revision for a state area.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @return Current revision, or no value when untracked.
+    [[nodiscard]] virtual std::optional<std::int64_t>
+    CurrentRevision(const std::string& stateArea) const = 0;
+};
+
+///  @copydoc IRevisionTracker
+class RevisionTracker final : public IRevisionTracker {
+  public:
+    ///  Creates an empty revision tracker.
+    RevisionTracker() = default;
+
+    ///  @copydoc IRevisionTracker::StartSnapshot
+    std::int64_t
+    StartSnapshot(const std::string& stateArea,
+                  const std::optional<std::string>& fingerprint) override;
+
+    ///  @copydoc IRevisionTracker::NextSnapshotRevision
     [[nodiscard]] std::int64_t
     NextSnapshotRevision(const std::string& stateArea,
-                         const std::optional<std::string>& fingerprint) const;
+                         const std::optional<std::string>& fingerprint) const override;
 
     ///  Computes the next snapshot revision for a state area and commits it,
     ///  atomically, only if `buildSnapshot` succeeds -- both under the same lock,
@@ -83,24 +127,13 @@ class RevisionTracker {
         return result;
     }
 
-    ///  Advances a state area for its next event. Unconditional by design -- an
-    ///  event represents a change the caller has already confirmed, unlike a
-    ///  snapshot pull which may or may not reflect one. Has no production caller
-    ///  yet (event delivery is Phase 4 scope; see
-    ///  roadmap/04-live-state-synchronization-foundation.md); leaves the area's
-    ///  stored fingerprint untouched, so how it should interact with
-    ///  `StartSnapshot`'s fingerprint comparison is left for whichever phase wires
-    ///  event delivery to decide.
-    ///  @param stateArea Canonical state-area identifier.
-    ///  @return Base and new revision, or no value before a baseline exists.
+    ///  @copydoc IRevisionTracker::NextEvent
     std::optional<std::pair<std::int64_t, std::int64_t>>
-    NextEvent(const std::string& stateArea);
+    NextEvent(const std::string& stateArea) override;
 
-    ///  Reads the latest revision for a state area.
-    ///  @param stateArea Canonical state-area identifier.
-    ///  @return Current revision, or no value when untracked.
+    ///  @copydoc IRevisionTracker::CurrentRevision
     [[nodiscard]] std::optional<std::int64_t>
-    CurrentRevision(const std::string& stateArea) const;
+    CurrentRevision(const std::string& stateArea) const override;
 
   private:
     ///  Computes the next revision from the already-locked `currentRevision_`,

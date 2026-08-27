@@ -3,7 +3,7 @@
 #include "application/application_test_support.hpp"
 #include "protocol/error_payload.hpp"
 #include "protocol/rename_outcome_payload.hpp"
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

@@ -19,11 +19,11 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "security/csprng.hpp"
+#include "security/environment_reader.hpp"
 #include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
-#include "security/token_provider.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
 #include "security/windows_trust_store_persistence.hpp"
@@ -76,22 +76,22 @@ class NoOpCallbackRegistry
 ///  for the real Skyrim notification (stage G); a .NET validation-client
 ///  scenario reads this line the same way it already reads the others.
 class StdoutPairingNotificationSink
-    : public dovahlink::application::PairingNotificationSink {
+    : public dovahlink::application::IPairingNotificationSink {
   public:
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingCodeAvailable
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
         std::cout << "PAIRING_CODE " << sixDigitCode << std::endl;
     }
 
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingCodeIncorrect
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingCodeIncorrect
     void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
         std::cout << "PAIRING_CODE_INCORRECT " << sixDigitCode << std::endl;
     }
 
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingAttemptsExhausted
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingAttemptsExhausted
     void NotifyPairingAttemptsExhausted() override {
         std::cout << "PAIRING_ATTEMPTS_EXHAUSTED" << std::endl;
     }
@@ -110,7 +110,7 @@ dovahlink::application::PlayContextTransition ProcessLifecycleEvent(
 
 ///  Reads a positive harness-only token lifetime override from the environment.
 std::optional<std::chrono::steady_clock::duration>
-ReadTokenTtlOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadTokenTtlOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kTokenTtlEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -133,7 +133,7 @@ ReadTokenTtlOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  play; every minted ID is otherwise CSPRNG-backed
 ///  (security::GenerateOpaqueId).
 std::optional<std::string>
-ReadPlayContextIdOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadPlayContextIdOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kPlayContextIdOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -148,7 +148,7 @@ ReadPlayContextIdOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  race on. Absent in real play; the real Skyrim plugin never reads this
 ///  variable and always binds `kBridgePort`.
 std::optional<std::uint16_t>
-ReadPortOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadPortOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kPortOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -174,7 +174,7 @@ ReadPortOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  real per-user production file
 ///  (`security::ResolveDefaultTrustStorePath`) across runs.
 std::optional<std::filesystem::path>
-ReadTrustStorePathOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadTrustStorePathOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kTrustStorePathOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;

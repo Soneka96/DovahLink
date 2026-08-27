@@ -3,7 +3,7 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/handshake_result.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "protocol/envelope.hpp"
 #include "security/failed_token_throttle.hpp"
 #include "security/token_store.hpp"
@@ -42,7 +42,7 @@ class IHandshakeHandler {
     ///  @return Response envelope and close decision for the connection.
     [[nodiscard]] virtual HandshakeResult
     Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
-           ConnectionTimeoutTracker& timeoutTracker,
+           IConnectionTimeoutTracker& timeoutTracker,
            std::chrono::steady_clock::time_point now) = 0;
 };
 
@@ -82,7 +82,7 @@ class HandshakeHandler final : public IHandshakeHandler {
     ///  @copydoc IHandshakeHandler::Handle
     [[nodiscard]] HandshakeResult
     Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
-           ConnectionTimeoutTracker& timeoutTracker,
+           IConnectionTimeoutTracker& timeoutTracker,
            std::chrono::steady_clock::time_point now) override;
 
   private:

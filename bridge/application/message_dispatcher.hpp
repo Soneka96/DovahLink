@@ -5,7 +5,7 @@
 #include "application/dispatch_result.hpp"
 #include "application/pairing_handler.hpp"
 #include "application/replay_guard.hpp"
-#include "application/session.hpp"
+#include "application/session_manager.hpp"
 #include "application/subscription_handler.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "security/inbound_message_rate_limiter.hpp"
@@ -43,9 +43,9 @@ class IMessageDispatcher {
     [[nodiscard]] virtual DispatchResult
     Process(const std::string& rawMessage, std::size_t& receivedMessageCount,
             const std::string& sessionId, ConnectionId connection,
-            ReplayGuard& replayGuard, security::IViolationTracker& violations,
+            IReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
-            ConnectionTimeoutTracker& timeoutTracker,
+            IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) = 0;
 };
 
@@ -88,9 +88,9 @@ class MessageDispatcher final : public IMessageDispatcher {
     [[nodiscard]] DispatchResult
     Process(const std::string& rawMessage, std::size_t& receivedMessageCount,
             const std::string& sessionId, ConnectionId connection,
-            ReplayGuard& replayGuard, security::IViolationTracker& violations,
+            IReplayGuard& replayGuard, security::IViolationTracker& violations,
             security::IInboundMessageRateLimiter& rateLimiter,
-            ConnectionTimeoutTracker& timeoutTracker,
+            IConnectionTimeoutTracker& timeoutTracker,
             std::chrono::steady_clock::time_point steadyNow) override;
 
   private:

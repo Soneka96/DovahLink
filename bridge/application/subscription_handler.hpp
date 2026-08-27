@@ -1,10 +1,10 @@
 #pragma once
 
+#include "application/subscribe_result.hpp"
 #include "protocol/envelope.hpp"
 
 #include <optional>
 #include <string>
-#include <vector>
 
 namespace dovahlink::application {
 
@@ -25,22 +25,6 @@ BuildBridgeCapabilities(const std::string& sessionId);
 [[nodiscard]] std::optional<protocol::Envelope>
 HandleClientCapabilities(const protocol::Envelope& capabilitiesEnvelope,
                          const std::string& sessionId);
-
-///  Contains a subscription acknowledgement and its initial snapshots.
-struct SubscribeResult {
-    ///  Acknowledgement for the subscription request.
-    protocol::Envelope subscriptionAck;
-
-    ///  Snapshots for accepted state areas, in request order. Always empty: no
-    ///  state area is currently registered.
-    std::vector<protocol::Envelope> snapshots;
-
-    ///  State areas accepted by this request, exposed structurally (beyond
-    ///  `subscriptionAck`'s encoded payload) for the dispatcher's own
-    ///  per-connection subscription bookkeeping. Always empty: no state area is
-    ///  currently registered.
-    std::vector<std::string> acceptedStateAreas;
-};
 
 ///  Handles a subscription request. No state area is currently registered
 ///  (protocol/schema/README.md's "Registered state areas"), so every requested

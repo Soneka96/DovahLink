@@ -21,7 +21,8 @@ inline constexpr const char* kTokenEnvVar = "DOVAHLINK_BRIDGE_TOKEN";
 inline constexpr const char* kGameBehaviorConfigPath =
     "Data/SKSE/Plugins/DovahLinkBridge.ini";
 
-///  INI section `game_behavior_config.cpp` reads compatibility keys from.
+///  INI section `DovahLink` from which `game_behavior_config_file_reader.cpp`
+///  reads compatibility keys.
 inline constexpr const char* kGameBehaviorConfigSection = "DovahLink";
 
 ///  INI key controlling `GameBehaviorConfig::alwaysActive`.

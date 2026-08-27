@@ -16,7 +16,7 @@ class IActiveSessionSocket {
 
     ///  Publishes a socket for one transport connection.
     virtual void Publish(ConnectionId connection,
-                         transport::WebSocketSession::SocketHandle socket) = 0;
+                         std::shared_ptr<transport::ISocket> socket) = 0;
 
     ///  Returns the current socket and connection as one coherent snapshot.
     [[nodiscard]] virtual std::optional<ActiveSessionSocketSnapshot>
@@ -34,7 +34,7 @@ class ActiveSessionSocket final : public IActiveSessionSocket {
 
     ///  @copydoc IActiveSessionSocket::Publish
     void Publish(ConnectionId connection,
-                 transport::WebSocketSession::SocketHandle socket) override;
+                 std::shared_ptr<transport::ISocket> socket) override;
 
     ///  @copydoc IActiveSessionSocket::Capture
     [[nodiscard]] std::optional<ActiveSessionSocketSnapshot>
@@ -48,7 +48,7 @@ class ActiveSessionSocket final : public IActiveSessionSocket {
     mutable std::mutex mutex_;
 
     ///  Non-owning handle to the active socket.
-    std::weak_ptr<transport::WebSocketSession::Socket> socket_;
+    std::weak_ptr<transport::ISocket> socket_;
 
     ///  Connection associated with `socket_`.
     ConnectionId connection_{};

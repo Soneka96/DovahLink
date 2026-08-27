@@ -16,7 +16,51 @@ class IBridgeTransport;
 
 ///  Owns callback, worker, and transport lifecycle and provides idempotent
 ///  shutdown.
-class Coordinator {
+class ICoordinator {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~ICoordinator() = default;
+
+    ///  Registers callbacks and starts workers and transport in order.
+    ///  Repeated calls and calls after shutdown has begun return without action.
+    ///  Lifecycle dependencies must not call coordinator lifecycle methods
+    ///  re-entrantly.
+    virtual void Start() = 0;
+
+    ///  Completes every shutdown stage on a best-effort basis; repeated calls wait
+    ///  for completion. Lifecycle implementations must not call this method
+    ///  re-entrantly from a shutdown stage.
+    virtual void Shutdown() noexcept = 0;
+
+    ///  Reports whether shutdown has started.
+    [[nodiscard]] virtual bool IsStopping() const = 0;
+
+    ///  Returns the lifetime token used by transport completions.
+    [[nodiscard]] virtual std::shared_ptr<LifetimeToken>
+    TransportLifetimeTokenHandle() const = 0;
+
+    ///  Reports whether the coordinator is available for operation.
+    [[nodiscard]] virtual bool IsAvailable() const = 0;
+
+    ///  Marks the coordinator unavailable after a contained failure.
+    virtual void RegisterFailure() = 0;
+
+    ///  Restores availability after a fresh session snapshot.
+    virtual void ResetAvailability() = 0;
+
+    ///  Runs work and converts an exception into an unavailable state.
+    ///  @param work Operation to execute.
+    ///  @return `true` when work completes without throwing.
+    virtual bool RunContained(ContainedWork work) noexcept = 0;
+
+    ///  Admits one runtime callback and contains every exception it throws.
+    ///  @param work Callback operation to execute.
+    ///  @return `true` when the callback was admitted and completed successfully.
+    virtual bool RunCallbackContained(ContainedWork work) noexcept = 0;
+};
+
+///  @copydoc ICoordinator
+class Coordinator final : public ICoordinator {
   public:
     ///  Creates a coordinator from its lifecycle components.
     ///  @param callbacks Callback registration boundary.
@@ -26,21 +70,16 @@ class Coordinator {
                 IBridgeTransport& transport);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
-    ~Coordinator() noexcept;
+    ~Coordinator() noexcept override;
 
-    ///  Registers callbacks and starts workers and transport in order.
-    ///  Repeated calls and calls after shutdown has begun return without action.
-    ///  Lifecycle dependencies must not call coordinator lifecycle methods
-    ///  re-entrantly.
-    void Start();
+    ///  @copydoc ICoordinator::Start
+    void Start() override;
 
-    ///  Completes every shutdown stage on a best-effort basis; repeated calls wait
-    ///  for completion. Lifecycle implementations must not call this method
-    ///  re-entrantly from a shutdown stage.
-    void Shutdown() noexcept;
+    ///  @copydoc ICoordinator::Shutdown
+    void Shutdown() noexcept override;
 
-    ///  Reports whether shutdown has started.
-    [[nodiscard]] bool IsStopping() const;
+    ///  @copydoc ICoordinator::IsStopping
+    [[nodiscard]] bool IsStopping() const override;
 
     ///  Tracks one callback admitted before shutdown.
     class CallbackGuard {
@@ -69,28 +108,24 @@ class Coordinator {
         bool proceed_;
     };
 
-    ///  Returns the lifetime token used by transport completions.
+    ///  @copydoc ICoordinator::TransportLifetimeTokenHandle
     [[nodiscard]] std::shared_ptr<LifetimeToken>
-    TransportLifetimeTokenHandle() const;
+    TransportLifetimeTokenHandle() const override;
 
-    ///  Reports whether the coordinator is available for operation.
-    [[nodiscard]] bool IsAvailable() const;
+    ///  @copydoc ICoordinator::IsAvailable
+    [[nodiscard]] bool IsAvailable() const override;
 
-    ///  Marks the coordinator unavailable after a contained failure.
-    void RegisterFailure();
+    ///  @copydoc ICoordinator::RegisterFailure
+    void RegisterFailure() override;
 
-    ///  Restores availability after a fresh session snapshot.
-    void ResetAvailability();
+    ///  @copydoc ICoordinator::ResetAvailability
+    void ResetAvailability() override;
 
-    ///  Runs work and converts an exception into an unavailable state.
-    ///  @param work Operation to execute.
-    ///  @return `true` when work completes without throwing.
-    bool RunContained(ContainedWork work) noexcept;
+    ///  @copydoc ICoordinator::RunContained
+    bool RunContained(ContainedWork work) noexcept override;
 
-    ///  Admits one runtime callback and contains every exception it throws.
-    ///  @param work Callback operation to execute.
-    ///  @return `true` when the callback was admitted and completed successfully.
-    bool RunCallbackContained(ContainedWork work) noexcept;
+    ///  @copydoc ICoordinator::RunCallbackContained
+    bool RunCallbackContained(ContainedWork work) noexcept override;
 
   private:
     ///  Publishes barrier completion when the owning shutdown call exits.

@@ -4,7 +4,7 @@
 #include "application/rename_handler.hpp"
 #include "protocol/bounded_json.hpp"
 #include "protocol/messages.hpp"
-#include "security/limits.hpp"
+#include "security/constants.hpp"
 
 #include <boost/json/object.hpp>
 
@@ -169,9 +169,9 @@ MessageDispatcher::MessageDispatcher(
 DispatchResult MessageDispatcher::Process(
     const std::string& rawMessage, std::size_t& receivedMessageCount,
     const std::string& sessionId, ConnectionId connection,
-    ReplayGuard& replayGuard, security::IViolationTracker& violations,
+    IReplayGuard& replayGuard, security::IViolationTracker& violations,
     security::IInboundMessageRateLimiter& rateLimiter,
-    ConnectionTimeoutTracker& timeoutTracker,
+    IConnectionTimeoutTracker& timeoutTracker,
     std::chrono::steady_clock::time_point steadyNow) {
     const auto& bridgeInstanceId = bridgeInstanceId_;
     ++receivedMessageCount;
