@@ -90,18 +90,26 @@ HandshakeResult Fail(const protocol::Envelope& helloEnvelope,
 
 } //  namespace
 
-HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
-                            security::ITokenStore& tokenStore,
-                            security::IFailedTokenThrottle& tokenThrottle,
-                            security::ITrustStore& trustStore,
-                            security::IFailedTokenThrottle& credentialThrottle,
-                            ISessionManager& sessionManager,
-                            ConnectionId connection,
-                            ConnectionTimeoutTracker& timeoutTracker,
-                            std::chrono::steady_clock::time_point now,
-                            const std::optional<std::string>& bridgeInstanceId,
-                            const IActivePlayContextReader* activePlayContext,
-                            const std::string& bridgeVersion) {
+HandshakeHandler::HandshakeHandler(
+    security::ITokenStore& tokenStore,
+    security::IFailedTokenThrottle& tokenThrottle,
+    security::ITrustStore& trustStore,
+    security::IFailedTokenThrottle& credentialThrottle,
+    ISessionManager& sessionManager,
+    const IActivePlayContextReader& activePlayContext,
+    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
+    : tokenStore_(tokenStore), tokenThrottle_(tokenThrottle),
+      trustStore_(trustStore), credentialThrottle_(credentialThrottle),
+      sessionManager_(sessionManager), activePlayContext_(activePlayContext),
+      bridgeInstanceId_(std::move(bridgeInstanceId)),
+      bridgeVersion_(std::move(bridgeVersion)) {}
+
+HandshakeResult
+HandshakeHandler::Handle(const protocol::Envelope& helloEnvelope,
+                         ConnectionId connection,
+                         ConnectionTimeoutTracker& timeoutTracker,
+                         std::chrono::steady_clock::time_point now) {
+    const auto& bridgeInstanceId = bridgeInstanceId_;
     auto hello = protocol::DecodeHelloPayload(helloEnvelope.payload);
     if (!hello.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "malformed_message",
@@ -109,7 +117,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     }
 
     if (hello->authMethod != "one_time_local_token" &&
-        trustStore.IsBlocked(hello->clientId)) {
+        trustStore_.IsBlocked(hello->clientId)) {
         return Fail(helloEnvelope, bridgeInstanceId, "blocked",
                     "This device is blocked", false);
     }
@@ -132,14 +140,14 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     std::optional<security::FailedTokenReservation> throttleReservation;
 
     if (hello->authMethod == "one_time_local_token") {
-        throttleReservation = tokenThrottle.TryReserve(now);
+        throttleReservation = tokenThrottle_.TryReserve(now);
         if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed token attempts", true);
         }
         auto bytes = presentedBytes();
         tokenReservation = bytes.has_value()
-                               ? tokenStore.TryReserve(*bytes)
+                               ? tokenStore_.TryReserve(*bytes)
                                : std::optional<security::TokenReservation>{};
         if (!tokenReservation.has_value()) {
             throttleReservation->Commit();
@@ -157,17 +165,17 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     } else {
         //  Only "trusted_device_credential" remains, per DecodeHelloPayload's
         //  validated set.
-        throttleReservation = credentialThrottle.TryReserve(now);
+        throttleReservation = credentialThrottle_.TryReserve(now);
         if (!throttleReservation.has_value()) {
             return Fail(helloEnvelope, bridgeInstanceId, "rate_limited",
                         "Too many failed credential attempts", true);
         }
         auto bytes = presentedBytes();
-        bool authenticated =
-            bytes.has_value() && trustStore.Authenticate(hello->clientId, *bytes);
+        bool authenticated = bytes.has_value() &&
+                             trustStore_.Authenticate(hello->clientId, *bytes);
         if (!authenticated) {
             throttleReservation->Commit();
-            if (trustStore.IsRevoked(hello->clientId)) {
+            if (trustStore_.IsRevoked(hello->clientId)) {
                 return Fail(helloEnvelope, bridgeInstanceId, "revoked",
                             "This device's trust was revoked", false);
             }
@@ -192,16 +200,14 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     std::string clientIdentityKind =
         hello->authMethod == "trusted_device_credential" ? "paired" : "unpaired";
 
-    auto currentContextId = activePlayContext
-                                ? activePlayContext->CurrentPlayContextId()
-                                : std::nullopt;
+    auto currentContextId = activePlayContext_.CurrentPlayContextId();
     protocol::Envelope response{
         .messageType = std::string(protocol::message_type::kHelloAck),
         .messageId = *responseMessageId,
         .sessionId = sessionId,
         .correlationId = helloEnvelope.messageId,
         .payload = protocol::EncodeHelloAckPayload(protocol::HelloAckPayload{
-            .bridgeVersion = bridgeVersion,
+            .bridgeVersion = bridgeVersion_,
             .clientIdentityKind = std::move(clientIdentityKind),
         }),
         //  bridgeInstanceId is this bridge's own identity; playContextId
@@ -213,7 +219,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         .clientId = hello->clientId,
     };
 
-    auto sessionLease = sessionManager.TryCreateSession(
+    auto sessionLease = sessionManager_.TryCreateSession(
         connection, *sessionId, hello->clientId, trustTier, authMethod);
     if (!sessionLease.has_value()) {
         return Fail(helloEnvelope, bridgeInstanceId, "unauthorized",
@@ -224,7 +230,7 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
     //  it just admitted -- see TrustLossAfterAdmission's doc comment for why this
     //  check runs here.
     if (auto trustLoss =
-            TrustLossAfterAdmission(trustStore, hello->clientId, authMethod);
+            TrustLossAfterAdmission(trustStore_, hello->clientId, authMethod);
         trustLoss.has_value()) {
         std::string message = *trustLoss == "blocked"
                                   ? "This device is blocked"
@@ -243,23 +249,6 @@ HandshakeResult HandleHello(const protocol::Envelope& helloEnvelope,
         .sessionLease = std::move(*sessionLease),
         .closeConnection = false,
     };
-}
-
-HandshakeResult HandleHello(
-    const protocol::Envelope& helloEnvelope, security::ITokenStore& tokenStore,
-    security::IFailedTokenThrottle& tokenThrottle,
-    security::ITrustStore& trustStore,
-    security::IFailedTokenThrottle& credentialThrottle,
-    ISessionManager& sessionManager, ConnectionId connection,
-    ConnectionTimeoutTracker& timeoutTracker,
-    std::chrono::steady_clock::time_point now,
-    const std::optional<std::string>& bridgeInstanceId,
-    const IActivePlayContextReader& activePlayContext,
-    const std::string& bridgeVersion) {
-    return HandleHello(helloEnvelope, tokenStore, tokenThrottle, trustStore,
-                       credentialThrottle, sessionManager, connection,
-                       timeoutTracker, now, bridgeInstanceId, &activePlayContext,
-                       bridgeVersion);
 }
 
 std::optional<std::string_view>

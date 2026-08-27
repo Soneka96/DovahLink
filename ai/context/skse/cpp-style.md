@@ -24,6 +24,18 @@
   behavior-bearing collaborator inside another class.
 - DTOs, protocol/value types, enums, pure functions, and other data-only types are not wrapped in
   artificial interfaces. This rule is adopted phase-forward and does not reopen completed phases.
+- A free function that accepts two or more plugin/connection-lifetime collaborators (values
+  identical across every call for the process's lifetime, typically an injected `I<ClassName>&`)
+  alongside per-call data (values that vary each invocation, such as the specific message or
+  timestamp being processed) must instead be expressed as a class: the lifetime collaborators
+  become constructor-injected fields, following the same `I<ClassName>` interface rule above, and
+  the function becomes a method taking only the data that varies per call. Exempt: a private,
+  file-local helper called from exactly one place inside a single larger function or class, since
+  it is an extracted fragment of its caller's own body rather than an independent production entry
+  point; and a framework-mandated plain-function signature (for example an SKSE Papyrus-bound
+  native function, which SKSE requires as a captureless function pointer), the same category of
+  hard external constraint as `IBridgeCallbackRegistry`'s dependency-wall exception below. This
+  rule is adopted phase-forward and does not reopen completed phases.
 
 ## Files and types
 

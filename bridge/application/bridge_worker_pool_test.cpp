@@ -24,6 +24,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -35,8 +36,10 @@ using dovahlink::application::ActiveSessionDisconnector;
 using dovahlink::application::ActiveSessionSocket;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ConnectionId;
+using dovahlink::application::ConnectionSession;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
+using dovahlink::application::HandshakeHandler;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
@@ -82,7 +85,7 @@ class EmptyPersistence : public ITrustStorePersistence {
 ///  `PairingNotificationSink` double that records every code it is given.
 ///  Pairing behavior itself is exercised in message_dispatcher_test.cpp and
 ///  pairing_handler_test.cpp; these tests only need a working sink to satisfy
-///  `BridgeWorkerPool`'s signature.
+///  `ConnectionSession`'s signature.
 class RecordingPairingNotificationSink : public PairingNotificationSink {
   public:
     ///  Appends `sixDigitCode` to `codes`.
@@ -100,6 +103,32 @@ class RecordingPairingNotificationSink : public PairingNotificationSink {
 
     ///  Every code this sink has been given, in order.
     std::vector<std::string> codes;
+};
+
+///  `IConnectionSession` mock proving `BridgeWorkerPool` invokes `Run` with the
+///  connection it accepted, isolated from `ConnectionSession`'s own
+///  handshake/dispatch machinery (covered directly by
+///  connection_session_test.cpp). Returns immediately without touching `ws`,
+///  so the caller's slot lease releases without a WebSocket handshake ever
+///  taking place.
+class MockConnectionSession final
+    : public dovahlink::application::IConnectionSession {
+  public:
+    void Run(dovahlink::transport::IWebSocketSession&, ConnectionId connection,
+             dovahlink::application::SteadyNowProvider) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        connections_.push_back(connection);
+    }
+
+    ///  Every connection ID `Run` has been called with, in order.
+    std::vector<ConnectionId> Connections() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return connections_;
+    }
+
+  private:
+    mutable std::mutex mutex_;
+    std::vector<ConnectionId> connections_;
 };
 
 ///  Provides the same catch-all semantics as the coordinator for isolated pool
@@ -158,22 +187,28 @@ struct Fixture {
     ///  Exposes the trust-facing disconnection capability under test.
     ActiveSessionDisconnector activeSessionDisconnector{
         activeSessionController};
+    ///  Validates and admits each accepted connection's hello.
+    HandshakeHandler handshakeHandler{tokenStore,
+                                      tokenThrottle,
+                                      trustStore,
+                                      credentialThrottle,
+                                      sessionManager,
+                                      activePlayContext,
+                                      /*bridgeInstanceId=*/std::nullopt,
+                                      /*bridgeVersion=*/kBridgeVersion};
+    ///  Runs each accepted connection's full session.
+    ConnectionSession connectionSession{handshakeHandler,
+                                        trustStore,
+                                        sessionManager,
+                                        activePlayContext,
+                                        pairingSession,
+                                        mutationCoordinator,
+                                        pairingNotificationSink,
+                                        /*bridgeInstanceId=*/std::nullopt,
+                                        /*bridgeVersion=*/kBridgeVersion};
     ///  Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4,
-                          listenerV6,
-                          slot,
-                          tokenStore,
-                          tokenThrottle,
-                          trustStore,
-                          credentialThrottle,
-                          sessionManager,
-                          activePlayContext,
-                          activeSessionSocket,
-                          pairingSession,
-                          mutationCoordinator,
-                          pairingNotificationSink,
-                          /*bridgeInstanceId=*/std::nullopt,
-                          /*bridgeVersion=*/kBridgeVersion};
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
 };
 
 } //  namespace
@@ -1137,4 +1172,37 @@ TEST_CASE("BridgeWorkerPool DisconnectActive stamps the current connection's "
 
     fixture.pool.Stop();
     fixture.pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
+          "connection, isolated from ConnectionSession's own handshake and "
+          "dispatch machinery",
+          "[application][bridge_worker_pool]") {
+    boost::asio::io_context ioc;
+    LoopbackListener listenerV4 =
+        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+    LoopbackListener listenerV6 =
+        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV6);
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (connectionSession.Connections().empty() &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(connectionSession.Connections() == std::vector<ConnectionId>{1});
+
+    pool.Stop();
+    pool.Join();
 }

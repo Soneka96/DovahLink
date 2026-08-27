@@ -95,11 +95,29 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     CHECK(source.find("playContextLifecycle);", levelSinkPos) !=
           std::string::npos);
 
+    //  `HandshakeHandler` is the read-only consumer that actually receives
+    //  `activePlayContextReader` today (`ConnectionSession` also holds it, but
+    //  `BridgeWorkerPool` itself no longer takes any play-context capability
+    //  directly -- it only holds the already-composed `ConnectionSession`).
+    std::size_t handshakeHandlerPos =
+        source.find("HandshakeHandler handshakeHandler");
+    REQUIRE(handshakeHandlerPos != std::string::npos);
+    CHECK(readerPos < handshakeHandlerPos);
+
+    //  Bounded to this statement's own closing paren so the check cannot be
+    //  satisfied by `activePlayContextReader` appearing in the later,
+    //  separate `ConnectionSession` constructor call instead.
+    std::size_t handshakeHandlerEnd = source.find(");", handshakeHandlerPos);
+    REQUIRE(handshakeHandlerEnd != std::string::npos);
+    std::size_t readerInHandshakeHandlerPos =
+        source.find("activePlayContextReader,", handshakeHandlerPos);
+    CHECK(readerInHandshakeHandlerPos != std::string::npos);
+    CHECK(readerInHandshakeHandlerPos < handshakeHandlerEnd);
+
     std::size_t workerPoolPos = source.find("BridgeWorkerPool bridgeWorkerPool");
     REQUIRE(workerPoolPos != std::string::npos);
     CHECK(readerPos < workerPoolPos);
-    CHECK(source.find("sessionManager, activePlayContextReader,", workerPoolPos) !=
-          std::string::npos);
+    CHECK(handshakeHandlerPos < workerPoolPos);
 
     std::size_t lifecycleSinkPos =
         source.find("CommonLibGameLifecycleSink lifecycleSink");

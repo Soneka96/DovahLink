@@ -5,34 +5,16 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <string>
-
 namespace dovahlink::application {
 
-BridgeWorkerPool::BridgeWorkerPool(
-    transport::LoopbackListener& listenerV4,
-    transport::LoopbackListener& listenerV6, transport::IConnectionSlot& slot,
-    security::ITokenStore& tokenStore,
-    security::IFailedTokenThrottle& tokenThrottle,
-    security::ITrustStore& trustStore,
-    security::IFailedTokenThrottle& credentialThrottle,
-    ISessionManager& sessionManager,
-    const IActivePlayContextReader& activePlayContext,
-    IActiveSessionSocket& activeSessionSocket,
-    security::IPairingSession& pairingSession,
-    ITrustMutationCoordinator& mutationCoordinator,
-    PairingNotificationSink& pairingNotificationSink,
-    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
+BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4,
+                                   transport::LoopbackListener& listenerV6,
+                                   transport::IConnectionSlot& slot,
+                                   IActiveSessionSocket& activeSessionSocket,
+                                   IConnectionSession& connectionSession)
     : listenerV4_(listenerV4), listenerV6_(listenerV6), slot_(slot),
-      tokenStore_(tokenStore), tokenThrottle_(tokenThrottle),
-      trustStore_(trustStore), credentialThrottle_(credentialThrottle),
-      sessionManager_(sessionManager), activePlayContext_(activePlayContext),
       activeSessionSocket_(activeSessionSocket),
-      pairingSession_(pairingSession),
-      mutationCoordinator_(mutationCoordinator),
-      pairingNotificationSink_(pairingNotificationSink),
-      bridgeInstanceId_(std::move(bridgeInstanceId)),
-      bridgeVersion_(std::move(bridgeVersion)) {}
+      connectionSession_(connectionSession) {}
 
 BridgeWorkerPool::~BridgeWorkerPool() {
     Stop();
@@ -103,12 +85,7 @@ void BridgeWorkerPool::RunSessionOnOwnThread(
                 }
 
                 transport::WebSocketSession session(std::move(socketHandle));
-                RunConnectionSession(session, tokenStore_, tokenThrottle_,
-                                     trustStore_, credentialThrottle_,
-                                     sessionManager_, connection, activePlayContext_,
-                                     pairingSession_, mutationCoordinator_,
-                                     pairingNotificationSink_,
-                                     bridgeInstanceId_, bridgeVersion_);
+                connectionSession_.Run(session, connection);
             });
         });
 }

@@ -1,17 +1,9 @@
 #pragma once
 
-#include "application/active_play_context_reader.hpp"
 #include "application/active_session_socket.hpp"
 #include "application/connection_session.hpp"
 #include "application/contained_work.hpp"
-#include "application/pairing_notification_sink.hpp"
 #include "application/session.hpp"
-#include "application/subscription_handler.hpp"
-#include "application/trust_mutation_coordinator.hpp"
-#include "security/failed_token_throttle.hpp"
-#include "security/pairing_session.hpp"
-#include "security/token_store.hpp"
-#include "security/trust_store.hpp"
 #include "shared/scoped_release.hpp"
 #include "transport/connection_slot.hpp"
 #include "transport/listener.hpp"
@@ -55,40 +47,14 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.
     ///  @param listenerV6 IPv6 loopback listener owned by the caller.
     ///  @param slot Admission gate enforcing the connected-client limit.
-    ///  @param tokenStore One-time token store shared by connections.
-    ///  @param tokenThrottle Failed-token throttle shared by connections.
-    ///  @param trustStore Persistent trust store shared by connections.
-    ///  @param credentialThrottle Failed device-credential attempt throttle shared
-    ///  by connections.
-    ///  @param sessionManager Session ownership manager.
-    ///  @param activePlayContext Source of the current play-context identity for
-    ///      connection responses.
-    ///  @param pairingSession Bridge-lifetime pairing challenge/pending-credential
-    ///  state machine
-    ///      shared by connections.
-    ///  @param pairingNotificationSink Displays a freshly generated pairing code
-    ///  to the user.
-    ///  @param bridgeInstanceId This bridge process's identity, stamped onto every
-    ///  response
-    ///      envelope; no value if generation failed at startup.
-    ///  @param bridgeVersion The DovahLink Bridge/mod release version exposed to
-    ///  clients in
-    ///      `hello_ack.bridgeVersion` (`ai/context/protocol/compatibility.md`).
+    ///  @param activeSessionSocket Owns active-socket publication and shutdown
+    ///      for the connected client.
+    ///  @param connectionSession Runs each accepted connection's full session.
     BridgeWorkerPool(transport::LoopbackListener& listenerV4,
                      transport::LoopbackListener& listenerV6,
                      transport::IConnectionSlot& slot,
-                     security::ITokenStore& tokenStore,
-                     security::IFailedTokenThrottle& tokenThrottle,
-                     security::ITrustStore& trustStore,
-                     security::IFailedTokenThrottle& credentialThrottle,
-                     ISessionManager& sessionManager,
-                     const IActivePlayContextReader& activePlayContext,
                      IActiveSessionSocket& activeSessionSocket,
-                     security::IPairingSession& pairingSession,
-                     ITrustMutationCoordinator& mutationCoordinator,
-                     PairingNotificationSink& pairingNotificationSink,
-                     std::optional<std::string> bridgeInstanceId,
-                     std::string bridgeVersion);
+                     IConnectionSession& connectionSession);
 
     ///  Stops and joins any workers that remain active.
     ~BridgeWorkerPool() override;
@@ -124,7 +90,7 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  holding `connectionThreadMutex_`.
     void JoinConnectionThreadLocked();
 
-    ///  Runs one accepted connection's full session (`RunConnectionSession`,
+    ///  Runs one accepted connection's full session (`IConnectionSession::Run`,
     ///  wrapped in `workerRunner`'s exception containment) on its own thread,
     ///  moving `slotLease` into that thread so the slot is held for the session's
     ///  real lifetime. Letting `AcceptLoop` return to `AcceptLoopbackOnly()`
@@ -155,42 +121,11 @@ class BridgeWorkerPool final : public IBridgeWorkerPool {
     ///  Admission gate for the active connection.
     transport::IConnectionSlot& slot_;
 
-    ///  Shared one-time authentication token store.
-    security::ITokenStore& tokenStore_;
-
-    ///  Shared failed-token throttle.
-    security::IFailedTokenThrottle& tokenThrottle_;
-
-    ///  Shared persistent trust store.
-    security::ITrustStore& trustStore_;
-
-    ///  Shared failed device-credential attempt throttle.
-    security::IFailedTokenThrottle& credentialThrottle_;
-
-    ///  Session manager shared by accepted connections.
-    ISessionManager& sessionManager_;
-
-    ///  Source of the current play-context identity for connection responses.
-    const IActivePlayContextReader& activePlayContext_;
-
     ///  Owns active-socket publication, shutdown, and administrative invalidation.
     IActiveSessionSocket& activeSessionSocket_;
 
-    ///  Shared pairing challenge/pending-credential state machine.
-    security::IPairingSession& pairingSession_;
-
-    ///  Serializes pairing finalization with administrative trust mutations.
-    ITrustMutationCoordinator& mutationCoordinator_;
-
-    ///  Displays a freshly generated pairing code to the user.
-    PairingNotificationSink& pairingNotificationSink_;
-
-    ///  This bridge process's identity, stamped onto every response envelope.
-    std::optional<std::string> bridgeInstanceId_;
-
-    ///  The DovahLink Bridge/mod release version exposed to clients in
-    ///  `hello_ack.bridgeVersion`.
-    std::string bridgeVersion_;
+    ///  Runs each accepted connection's full session.
+    IConnectionSession& connectionSession_;
 
     ///  Signals both accept workers to stop.
     std::atomic<bool> stopping_{false};

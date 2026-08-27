@@ -18,19 +18,27 @@
 #include <string>
 #include <vector>
 
+using dovahlink::application::ConnectionId;
 using dovahlink::application::ConnectionTimeoutTracker;
-using dovahlink::application::HandleHello;
+using dovahlink::application::HandshakeHandler;
+using dovahlink::application::HandshakeResult;
 using dovahlink::application::IActivePlayContextReader;
+using dovahlink::application::IHandshakeHandler;
+using dovahlink::application::ISessionManager;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
 using dovahlink::application::SessionTrustTier;
 using dovahlink::application::TrustLossAfterAdmission;
 using dovahlink::application::test_support::BuildHelloEnvelope;
+using dovahlink::application::test_support::EmptyActivePlayContext;
 using dovahlink::application::test_support::MockActivePlayContext;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::FailedTokenThrottle;
+using dovahlink::security::IFailedTokenThrottle;
+using dovahlink::security::ITokenStore;
+using dovahlink::security::ITrustStore;
 using dovahlink::security::ITrustStorePersistence;
 using dovahlink::security::kValidHexToken;
 using dovahlink::security::TokenStore;
@@ -124,7 +132,73 @@ class MockTrustStore : public dovahlink::security::ITrustStore {
     MOCK_METHOD(bool, ResetTrust, (), (override));
 };
 
+///  Constructs a `HandshakeHandler` bound to `activePlayContext` (or an empty
+///  fallback when omitted) and forwards to `Handle`, preserving the free-
+///  function call shape this file's tests already use.
+HandshakeResult
+HandleHello(const Envelope& helloEnvelope, ITokenStore& tokenStore,
+            IFailedTokenThrottle& tokenThrottle, ITrustStore& trustStore,
+            IFailedTokenThrottle& credentialThrottle,
+            ISessionManager& sessionManager, ConnectionId connection,
+            ConnectionTimeoutTracker& timeoutTracker,
+            std::chrono::steady_clock::time_point now,
+            const std::optional<std::string>& bridgeInstanceId = std::nullopt,
+            const IActivePlayContextReader* activePlayContext = nullptr,
+            const std::string& bridgeVersion = "0.0.0") {
+    EmptyActivePlayContext fallback;
+    const IActivePlayContextReader& contextRef =
+        activePlayContext ? *activePlayContext
+                          : static_cast<const IActivePlayContextReader&>(fallback);
+    HandshakeHandler handler(tokenStore, tokenThrottle, trustStore,
+                             credentialThrottle, sessionManager, contextRef,
+                             bridgeInstanceId, bridgeVersion);
+    return handler.Handle(helloEnvelope, connection, timeoutTracker, now);
+}
+
+///  Compatibility overload for tests that have an active play-context
+///  capability available.
+HandshakeResult
+HandleHello(const Envelope& helloEnvelope, ITokenStore& tokenStore,
+            IFailedTokenThrottle& tokenThrottle, ITrustStore& trustStore,
+            IFailedTokenThrottle& credentialThrottle,
+            ISessionManager& sessionManager, ConnectionId connection,
+            ConnectionTimeoutTracker& timeoutTracker,
+            std::chrono::steady_clock::time_point now,
+            const std::optional<std::string>& bridgeInstanceId,
+            const IActivePlayContextReader& activePlayContext,
+            const std::string& bridgeVersion = "0.0.0") {
+    return HandleHello(helloEnvelope, tokenStore, tokenThrottle, trustStore,
+                       credentialThrottle, sessionManager, connection,
+                       timeoutTracker, now, bridgeInstanceId, &activePlayContext,
+                       bridgeVersion);
+}
+
 } //  namespace
+
+TEST_CASE("HandshakeHandler's real behavior is reachable through "
+          "IHandshakeHandler",
+          "[application][handshake_handler][i_handshake_handler]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    EmptyActivePlayContext activePlayContext;
+    HandshakeHandler handler(tokenStore, throttle, trustStore, credentialThrottle,
+                             sessions, activePlayContext, std::nullopt, "0.0.0");
+    IHandshakeHandler& contract = handler;
+
+    auto start = std::chrono::steady_clock::now();
+    ConnectionTimeoutTracker timeout(start);
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = contract.Handle(hello, /*connection=*/1, timeout,
+                                  start + std::chrono::seconds(1));
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
+    CHECK(result.response.messageType == "hello_ack");
+}
 
 TEST_CASE("HandleHello accepts a valid token and hello",
           "[application][handshake_handler]") {
