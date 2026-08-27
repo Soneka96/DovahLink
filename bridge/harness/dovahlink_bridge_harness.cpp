@@ -196,7 +196,8 @@ int main() {
         return 1;
     }
 
-    boost::asio::io_context ioc;
+    boost::asio::io_context iocV4;
+    boost::asio::io_context iocV6;
     //  An override of "0" asks the OS for any free port instead of the fixed,
     //  documented kBridgePort -- harness-only, so concurrent test runs each get
     //  their own isolated bind instead of racing for the one real port. The real
@@ -204,7 +205,7 @@ int main() {
     std::uint16_t requestedPortV4 =
         ReadPortOverride(environmentReader).value_or(kBridgePort);
     auto listenerV4Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV4,
+        iocV4, dovahlink::transport::LoopbackListener::IpVersion::kV4,
         requestedPortV4);
     if (!listenerV4Result.has_value()) {
         std::cerr << "Failed to bind the IPv4 loopback listener on port "
@@ -219,7 +220,7 @@ int main() {
     std::uint16_t resolvedPort = listenerV4.LocalEndpoint().port();
 
     auto listenerV6Result = dovahlink::transport::LoopbackListener::Create(
-        ioc, dovahlink::transport::LoopbackListener::IpVersion::kV6,
+        iocV6, dovahlink::transport::LoopbackListener::IpVersion::kV6,
         resolvedPort);
     if (!listenerV6Result.has_value()) {
         std::cerr << "Failed to bind the IPv6 loopback listener on port "

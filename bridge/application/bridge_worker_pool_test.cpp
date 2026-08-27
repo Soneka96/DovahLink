@@ -154,14 +154,16 @@ ContainedWorkRunner MakeContainedWorkRunner() {
 ///  Owns the real transport and application dependencies shared by worker-pool
 ///  tests.
 struct Fixture {
-    ///  I/O context supplied to both loopback listeners.
-    boost::asio::io_context ioc;
+    ///  I/O context supplied to the IPv4 loopback listener.
+    boost::asio::io_context iocV4;
+    ///  I/O context supplied to the IPv6 loopback listener.
+    boost::asio::io_context iocV6;
     ///  Accepts test connections over IPv4.
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
     ///  Accepts test connections over IPv6.
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
     ///  Enforces the one-active-connection limit.
     ConnectionSlot slot;
     ///  Holds the one-time token accepted by the test session.

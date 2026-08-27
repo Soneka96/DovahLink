@@ -8,6 +8,8 @@
 
 #include <cstdint>
 #include <expected>
+#include <functional>
+#include <memory>
 
 namespace dovahlink::transport {
 
@@ -18,12 +20,22 @@ IsAcceptablePeerAddress(const boost::asio::ip::address& address);
 ///  Accepts loopback-only connections and closes the underlying acceptor.
 class ILoopbackListener {
   public:
+    ///  Handles one asynchronous accept result and returns whether acceptance
+    ///  should continue.
+    using AcceptHandler = std::function<bool(
+        std::expected<boost::asio::ip::tcp::socket, AcceptError>)>;
+
     ///  Releases the interface without performing work.
     virtual ~ILoopbackListener() = default;
 
     ///  Accepts one socket and rejects peers that are not loopback addresses.
     [[nodiscard]] virtual std::expected<boost::asio::ip::tcp::socket, AcceptError>
     AcceptLoopbackOnly() = 0;
+
+    ///  Runs asynchronous accepts until the handler stops the loop or Close()
+    ///  cancels it. The handler and acceptor operations are serialized by the
+    ///  listener's associated I/O context.
+    virtual void RunAcceptLoop(AcceptHandler handler) = 0;
 
     ///  Closes the underlying acceptor; repeated calls are harmless.
     virtual void Close() noexcept = 0;
@@ -60,6 +72,9 @@ class LoopbackListener final : public ILoopbackListener {
     [[nodiscard]] std::expected<boost::asio::ip::tcp::socket, AcceptError>
     AcceptLoopbackOnly() override;
 
+    ///  @copydoc ILoopbackListener::RunAcceptLoop
+    void RunAcceptLoop(AcceptHandler handler) override;
+
     ///  @copydoc ILoopbackListener::Close
     void Close() noexcept override;
 
@@ -69,11 +84,19 @@ class LoopbackListener final : public ILoopbackListener {
     [[nodiscard]] boost::asio::ip::tcp::endpoint LocalEndpoint() const;
 
   private:
-    ///  Stores an already-open TCP acceptor.
-    explicit LoopbackListener(boost::asio::ip::tcp::acceptor acceptor);
+    ///  Tracks asynchronous accept-loop state shared with Close().
+    struct LifecycleState;
 
+    ///  Stores an already-open TCP acceptor.
+    LoopbackListener(boost::asio::io_context& ioc,
+                     boost::asio::ip::tcp::acceptor acceptor);
+
+    ///  I/O context that owns the acceptor's executor.
+    boost::asio::io_context* ioContext_;
     ///  Owned TCP acceptor bound to the loopback endpoint.
     boost::asio::ip::tcp::acceptor acceptor_;
+    ///  Synchronizes the accept loop with Close().
+    std::shared_ptr<LifecycleState> lifecycle_;
 };
 
 } //  namespace dovahlink::transport
