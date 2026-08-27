@@ -307,10 +307,14 @@ SKSEPluginInfo(
         tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, activePlayContextReader, bridgeInstanceId,
         kBridgeVersion);
+    static dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, trustMutationCoordinator, pairingNotificationSink);
+    static dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, trustMutationCoordinator, pairingHandler,
+        activePlayContextReader, bridgeInstanceId);
     static dovahlink::application::ConnectionSession connectionSession(
-        handshakeHandler, trustStore, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
-        bridgeInstanceId, kBridgeVersion);
+        handshakeHandler, messageDispatcher, activePlayContextReader,
+        pairingSession, bridgeInstanceId);
     static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

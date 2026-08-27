@@ -42,6 +42,8 @@ using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::HandshakeHandler;
 using dovahlink::application::kBridgeVersion;
+using dovahlink::application::MessageDispatcher;
+using dovahlink::application::PairingHandler;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -201,16 +203,20 @@ struct Fixture {
                                       activePlayContext,
                                       /*bridgeInstanceId=*/std::nullopt,
                                       /*bridgeVersion=*/kBridgeVersion};
-    ///  Runs each accepted connection's full session.
-    ConnectionSession connectionSession{handshakeHandler,
+    ///  Handles pairing_request/pairing_confirm/pairing_renotify.
+    PairingHandler pairingHandler{pairingSession, mutationCoordinator,
+                                  pairingNotificationSink};
+    ///  Processes each inbound message after authentication.
+    MessageDispatcher messageDispatcher{sessionManager,
                                         trustStore,
-                                        sessionManager,
-                                        activePlayContext,
-                                        pairingSession,
                                         mutationCoordinator,
-                                        pairingNotificationSink,
-                                        /*bridgeInstanceId=*/std::nullopt,
-                                        /*bridgeVersion=*/kBridgeVersion};
+                                        pairingHandler,
+                                        activePlayContext,
+                                        /*bridgeInstanceId=*/std::nullopt};
+    ///  Runs each accepted connection's full session.
+    ConnectionSession connectionSession{handshakeHandler, messageDispatcher,
+                                        activePlayContext, pairingSession,
+                                        /*bridgeInstanceId=*/std::nullopt};
     ///  Runs the production worker-pool/session path under test.
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};

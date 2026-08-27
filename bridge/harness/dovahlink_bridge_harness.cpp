@@ -294,10 +294,14 @@ int main() {
         tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, activePlayContextReader, bridgeInstanceId,
         kBridgeVersion);
+    dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, trustMutationCoordinator, pairingNotificationSink);
+    dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, trustMutationCoordinator, pairingHandler,
+        activePlayContextReader, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
-        handshakeHandler, trustStore, sessionManager, activePlayContextReader,
-        pairingSession, trustMutationCoordinator, pairingNotificationSink,
-        bridgeInstanceId, kBridgeVersion);
+        handshakeHandler, messageDispatcher, activePlayContextReader,
+        pairingSession, bridgeInstanceId);
     dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
         listenerV4, listenerV6, connectionSlot, activeSessionSocket,
         connectionSession);

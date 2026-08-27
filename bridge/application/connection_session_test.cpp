@@ -133,6 +133,23 @@ class MockHandshakeHandler : public dovahlink::application::IHandshakeHandler {
                 (override));
 };
 
+///  `IMessageDispatcher` mock used to prove `ConnectionSession`'s message loop
+///  delegates to it, isolated from `MessageDispatcher`'s own dispatch logic
+///  (covered by message_dispatcher_test.cpp).
+class MockMessageDispatcher
+    : public dovahlink::application::IMessageDispatcher {
+  public:
+    MOCK_METHOD(dovahlink::application::DispatchResult, Process,
+                (const std::string&, std::size_t&, const std::string&,
+                 dovahlink::application::ConnectionId,
+                 dovahlink::application::ReplayGuard&,
+                 dovahlink::security::IViolationTracker&,
+                 dovahlink::security::IInboundMessageRateLimiter&,
+                 dovahlink::application::ConnectionTimeoutTracker&,
+                 std::chrono::steady_clock::time_point),
+                (override));
+};
+
 ///  Reads and decodes one protocol envelope from the test WebSocket.
 Envelope ClientReadEnvelope(
     boost::beast::websocket::stream<boost::asio::ip::tcp::socket>& clientWs) {
@@ -215,10 +232,14 @@ void RunConnectionSession(
     dovahlink::application::HandshakeHandler handshakeHandler(
         tokenStore, tokenThrottle, trustStore, credentialThrottle,
         sessionManager, activePlayContext, bridgeInstanceId, bridgeVersion);
+    dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, coordinator, pairingNotificationSink);
+    dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, coordinator, pairingHandler,
+        activePlayContext, bridgeInstanceId);
     dovahlink::application::ConnectionSession connectionSession(
-        handshakeHandler, trustStore, sessionManager, activePlayContext,
-        pairingSession, coordinator, pairingNotificationSink, bridgeInstanceId,
-        bridgeVersion);
+        handshakeHandler, messageDispatcher, activePlayContext, pairingSession,
+        bridgeInstanceId);
     connectionSession.Run(ws, connection, std::move(steadyNow));
 }
 
@@ -518,8 +539,8 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a "
           "real playContextId "
           "when a context is already active at connect time",
           "[application][connection_session]") {
-    //  The capabilities envelope is built outside ProcessInboundMessage's own
-    //  stamping loop (BuildBridgeCapabilities, sent once right after
+    //  The capabilities envelope is built outside MessageDispatcher::Process's
+    //  own stamping loop (BuildBridgeCapabilities, sent once right after
     //  hello_ack); this is its own, separately wired stamping site.
     boost::asio::io_context ioc;
     auto listener =
@@ -1326,10 +1347,14 @@ TEST_CASE("ConnectionSession's real behavior is reachable through "
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
         trustStore, pairingSession, sessionManager);
+    dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, mutationCoordinator, pairingNotificationSink);
+    dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, mutationCoordinator, pairingHandler,
+        activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
-        mockHandshakeHandler, trustStore, sessionManager, activePlayContext,
-        pairingSession, mutationCoordinator, pairingNotificationSink,
-        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+        mockHandshakeHandler, messageDispatcher, activePlayContext,
+        pairingSession, /*bridgeInstanceId=*/std::nullopt);
     IConnectionSession& contract = connectionSession;
 
     //  Only proves the interface dispatches to the real implementation; the
@@ -1353,10 +1378,14 @@ TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
         trustStore, pairingSession, sessionManager);
+    dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, mutationCoordinator, pairingNotificationSink);
+    dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, mutationCoordinator, pairingHandler,
+        activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
-        mockHandshakeHandler, trustStore, sessionManager, activePlayContext,
-        pairingSession, mutationCoordinator, pairingNotificationSink,
-        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+        mockHandshakeHandler, messageDispatcher, activePlayContext,
+        pairingSession, /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
 }
@@ -1383,10 +1412,160 @@ TEST_CASE("RunConnectionSession closes without writing when the hello read "
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
         trustStore, pairingSession, sessionManager);
+    dovahlink::application::PairingHandler pairingHandler(
+        pairingSession, mutationCoordinator, pairingNotificationSink);
+    dovahlink::application::MessageDispatcher messageDispatcher(
+        sessionManager, trustStore, mutationCoordinator, pairingHandler,
+        activePlayContext, /*bridgeInstanceId=*/std::nullopt);
     dovahlink::application::ConnectionSession connectionSession(
-        mockHandshakeHandler, trustStore, sessionManager, activePlayContext,
-        pairingSession, mutationCoordinator, pairingNotificationSink,
-        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+        mockHandshakeHandler, messageDispatcher, activePlayContext,
+        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
+}
+
+TEST_CASE("RunConnectionSession dispatches an inbound message through "
+          "IMessageDispatcher and sends its responses",
+          "[application][connection_session][i_message_dispatcher]") {
+    std::string helloRaw = HelloMessage(kValidHexToken);
+    std::string pingRaw = PingMessage("session-1");
+
+    StrictMock<MockWebSocketSession> mockWs;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(mockWs, Accept())
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(helloRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  hello_ack
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, SwitchToIdleTimeout());
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  capabilities
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(pingRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  dispatched response
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(std::unexpected(SessionError::kReadFailed)));
+        EXPECT_CALL(mockWs, Close());
+    }
+
+    StrictMock<MockHandshakeHandler> mockHandshakeHandler;
+    EXPECT_CALL(mockHandshakeHandler,
+                Handle(testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Invoke(
+            [](const Envelope&, dovahlink::application::ConnectionId,
+               dovahlink::application::ConnectionTimeoutTracker&,
+               std::chrono::steady_clock::time_point) {
+                return dovahlink::application::HandshakeResult{
+                    .response =
+                        dovahlink::protocol::Envelope{
+                            .messageType = "hello_ack",
+                            .messageId = "message-hello-ack-1",
+                            .sessionId = std::string("session-1"),
+                            .correlationId = std::nullopt,
+                            .payload = boost::json::object{},
+                            .clientId = std::string("client-1"),
+                        },
+                    .sessionLease = dovahlink::shared::ScopedRelease([] {}),
+                    .closeConnection = false,
+                };
+            }));
+
+    StrictMock<MockMessageDispatcher> mockMessageDispatcher;
+    EXPECT_CALL(
+        mockMessageDispatcher,
+        Process(pingRaw, testing::_, testing::_, testing::_, testing::_,
+                testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Return(dovahlink::application::DispatchResult{
+            .responses = {dovahlink::protocol::Envelope{
+                .messageType = "pong",
+                .messageId = "message-pong-1",
+                .sessionId = std::string("session-1"),
+                .correlationId = std::nullopt,
+                .payload = boost::json::object{},
+            }},
+        }));
+
+    PairingSession pairingSession;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::ConnectionSession connectionSession(
+        mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
+        pairingSession, /*bridgeInstanceId=*/std::nullopt);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
+}
+
+TEST_CASE("RunConnectionSession closes the connection when IMessageDispatcher "
+          "requests it, without reading another message",
+          "[application][connection_session][i_message_dispatcher]") {
+    std::string helloRaw = HelloMessage(kValidHexToken);
+    std::string pingRaw = PingMessage("session-1");
+
+    StrictMock<MockWebSocketSession> mockWs;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(mockWs, Accept())
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(helloRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  hello_ack
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, SwitchToIdleTimeout());
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  capabilities
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, ReadMessage(testing::_))
+            .WillOnce(Return(pingRaw));
+        EXPECT_CALL(mockWs, WriteMessage(testing::_)) //  dispatched response
+            .WillOnce(Return(std::expected<void, SessionError>{}));
+        EXPECT_CALL(mockWs, Close());
+        //  No further ReadMessage: closeConnection ends the loop immediately.
+    }
+
+    StrictMock<MockHandshakeHandler> mockHandshakeHandler;
+    EXPECT_CALL(mockHandshakeHandler,
+                Handle(testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Invoke(
+            [](const Envelope&, dovahlink::application::ConnectionId,
+               dovahlink::application::ConnectionTimeoutTracker&,
+               std::chrono::steady_clock::time_point) {
+                return dovahlink::application::HandshakeResult{
+                    .response =
+                        dovahlink::protocol::Envelope{
+                            .messageType = "hello_ack",
+                            .messageId = "message-hello-ack-1",
+                            .sessionId = std::string("session-1"),
+                            .correlationId = std::nullopt,
+                            .payload = boost::json::object{},
+                            .clientId = std::string("client-1"),
+                        },
+                    .sessionLease = dovahlink::shared::ScopedRelease([] {}),
+                    .closeConnection = false,
+                };
+            }));
+
+    StrictMock<MockMessageDispatcher> mockMessageDispatcher;
+    EXPECT_CALL(
+        mockMessageDispatcher,
+        Process(pingRaw, testing::_, testing::_, testing::_, testing::_,
+                testing::_, testing::_, testing::_, testing::_))
+        .WillOnce(testing::Return(dovahlink::application::DispatchResult{
+            .responses = {dovahlink::protocol::Envelope{
+                .messageType = "error",
+                .messageId = "message-error-1",
+                .sessionId = std::string("session-1"),
+                .correlationId = std::nullopt,
+                .payload = boost::json::object{},
+            }},
+            .closeConnection = true,
+        }));
+
+    PairingSession pairingSession;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::ConnectionSession connectionSession(
+        mockHandshakeHandler, mockMessageDispatcher, activePlayContext,
+        pairingSession, /*bridgeInstanceId=*/std::nullopt);
 
     connectionSession.Run(mockWs, /*connection=*/1);
 }
