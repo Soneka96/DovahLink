@@ -113,6 +113,12 @@ void BridgeWorkerPool::Join() {
     if (threadV6_.joinable()) {
         threadV6_.join();
     }
+    //  Only safe now that both accept-loop threads have fully exited: neither
+    //  can still be calling (or about to call) AcceptLoopbackOnly(), which is
+    //  the precondition ILoopbackListener::Join() documents before it stops
+    //  a listener's own owner thread.
+    listenerV4_.Join();
+    listenerV6_.Join();
     //  After both accept threads have joined, no further connection thread can be
     //  spawned; the current one (if any) is already unwinding from Stop()'s
     //  active-session controller shutdown call.

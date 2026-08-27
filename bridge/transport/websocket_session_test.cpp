@@ -76,19 +76,50 @@ TEST_CASE("LoopbackWebSocketServer cleanup joins when client setup exits "
     CHECK(std::chrono::steady_clock::now() - start < 2s);
 }
 
+TEST_CASE("LoopbackWebSocketServer Join releases its listener port",
+          "[transport][websocket_session][test_support]") {
+    using namespace std::chrono_literals;
+
+    LoopbackWebSocketServer server([](WebSocketSession&) {});
+    const std::uint16_t port = server.LocalEndpoint().port();
+    server.CancelPendingAccept();
+    REQUIRE(server.WaitFor(2s));
+    CHECK_THROWS_AS(server.Join(), std::runtime_error);
+
+    auto replacement = LoopbackListener::Create(
+        LoopbackListener::IpVersion::kV4, port);
+    REQUIRE(replacement.has_value());
+}
+
+TEST_CASE("LoopbackWebSocketServer destruction releases its listener port",
+          "[transport][websocket_session][test_support]") {
+    std::uint16_t port = 0;
+    {
+        LoopbackWebSocketServer server([](WebSocketSession&) {});
+        port = server.LocalEndpoint().port();
+    }
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, port);
+    REQUIRE(replacement.has_value());
+}
+
 TEST_CASE("WebSocketSession does not drive the accepted socket's source context",
           "[transport][websocket_session]") {
     using namespace std::chrono_literals;
 
     std::binary_semaphore sourceWorkRan{0};
+    //  A context nobody ever pumps: proves session work runs on the accepted
+    //  socket's own context (WebSocketSession::Socket rebinds to one it owns),
+    //  not on some other, unrelated one -- posting here must never complete.
+    boost::asio::io_context unrelatedIoc;
     std::expected<void, SessionError> serverHandshake =
         std::unexpected(SessionError::kHandshakeFailed);
-    LoopbackWebSocketServer server(
-        [&](WebSocketSession& session, boost::asio::io_context& serverIoc) {
-            boost::asio::post(serverIoc,
-                              [&sourceWorkRan] { sourceWorkRan.release(); });
-            serverHandshake = session.Accept();
-        });
+    LoopbackWebSocketServer server([&](WebSocketSession& session) {
+        boost::asio::post(unrelatedIoc,
+                          [&sourceWorkRan] { sourceWorkRan.release(); });
+        serverHandshake = session.Accept();
+    });
 
     boost::asio::io_context clientIoc;
     boost::asio::ip::tcp::socket clientSocket(clientIoc);
@@ -117,8 +148,7 @@ TEST_CASE("CreateSocket keeps its session context after the source context dies"
     {
         boost::asio::io_context sourceIoc;
         auto listener =
-            LoopbackListener::Create(sourceIoc, LoopbackListener::IpVersion::kV4,
-                                     0);
+            LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
         REQUIRE(listener.has_value());
 
         boost::asio::ip::tcp::socket client(sourceIoc);

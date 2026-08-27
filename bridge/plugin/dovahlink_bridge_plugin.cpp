@@ -43,8 +43,6 @@
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
-#include <boost/asio/io_context.hpp>
-
 #include <memory>
 #include <utility>
 
@@ -205,19 +203,15 @@ SKSEPluginInfo(
 
     //  Both IPv4 and IPv6 loopback listeners are required; only the port is
     //  configurable.
-    static boost::asio::io_context iocV4;
-    static boost::asio::io_context iocV6;
     auto listenerV4Result = dovahlink::transport::LoopbackListener::Create(
-        iocV4, dovahlink::transport::LoopbackListener::IpVersion::kV4,
-        kBridgePort);
+        dovahlink::transport::LoopbackListener::IpVersion::kV4, kBridgePort);
     if (!listenerV4Result.has_value()) {
         SKSE::log::error("Failed to bind the IPv4 loopback listener on port {}.",
                          kBridgePort);
         return false;
     }
     auto listenerV6Result = dovahlink::transport::LoopbackListener::Create(
-        iocV6, dovahlink::transport::LoopbackListener::IpVersion::kV6,
-        kBridgePort);
+        dovahlink::transport::LoopbackListener::IpVersion::kV6, kBridgePort);
     if (!listenerV6Result.has_value()) {
         SKSE::log::error("Failed to bind the IPv6 loopback listener on port {}.",
                          kBridgePort);

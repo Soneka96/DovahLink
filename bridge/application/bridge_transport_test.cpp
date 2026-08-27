@@ -5,7 +5,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
 
-#include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/system/error_code.hpp>
 
@@ -17,11 +16,10 @@ using testing::StrictMock;
 TEST_CASE(
     "BridgeTransport::Close closes both listeners so a subsequent accept fails",
     "[application][bridge_transport]") {
-    boost::asio::io_context ioc;
     auto listenerV4 =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     auto listenerV6 =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(listenerV4.has_value());
     REQUIRE(listenerV6.has_value());
 
@@ -29,6 +27,13 @@ TEST_CASE(
     transport.Start();
     transport.CancelCompletions();
     transport.Close();
+    //  BridgeTransport::Close() only requests closure (matching
+    //  ILoopbackListener::Close()'s non-blocking contract); Join() is the
+    //  barrier that actually waits for the acceptor to close, normally
+    //  provided by BridgeWorkerPool::Join() running before this adapter's
+    //  Close() in the real shutdown order.
+    listenerV4->Join();
+    listenerV6->Join();
 
     CHECK_FALSE(listenerV4->Acceptor().is_open());
     CHECK_FALSE(listenerV6->Acceptor().is_open());
@@ -37,11 +42,10 @@ TEST_CASE(
 TEST_CASE("BridgeTransport::Close is safe to call after the acceptors are "
           "already closed",
           "[application][bridge_transport]") {
-    boost::asio::io_context ioc;
     auto listenerV4 =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     auto listenerV6 =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(listenerV4.has_value());
     REQUIRE(listenerV6.has_value());
 

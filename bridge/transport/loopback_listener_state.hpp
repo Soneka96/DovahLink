@@ -2,29 +2,59 @@
 
 #include "transport/loopback_listener.hpp"
 
+#include <boost/asio/executor_work_guard.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+
 #include <atomic>
-#include <condition_variable>
-#include <mutex>
+#include <thread>
 
 namespace dovahlink::transport {
 
-///  Stores the private synchronization state for one loopback listener's
-///  asynchronous accept lifecycle.
-struct LoopbackListener::LifecycleState {
-    ///  Serializes lifecycle transitions and completion publication.
-    std::mutex mutex;
-    ///  Wakes Close() after the accept loop exits.
-    std::condition_variable changed;
-    ///  Indicates that one asynchronous accept operation is active.
-    bool running{false};
-    ///  Indicates that the acceptor's I/O context is still running.
-    bool contextRunning{false};
-    ///  Requests cancellation before or during an accept operation.
-    bool closeRequested{false};
-    ///  Prevents duplicate cancellation posts.
-    bool closePosted{false};
-    ///  Marks the current accept operation settled when Close() cancels it.
-    std::shared_ptr<std::atomic_bool> acceptCompleted;
+///  Owns the private asynchronous resources behind one loopback listener: its
+///  `io_context`, its bound acceptor, and the dedicated background thread
+///  that keeps that `io_context` running for the object's whole life. Held by
+///  `LoopbackListener` through a `shared_ptr` so the listener handle itself
+///  stays cheaply movable (a plain pointer copy) while every callback posted
+///  onto `ioContext` keeps a stable address to reference regardless of where
+///  the owning `LoopbackListener` handle is moved to.
+struct LoopbackListener::OwnerState {
+    ///  Default-constructs an unopened acceptor bound to a freshly owned
+    ///  `io_context`; `LoopbackListener::Create` opens, binds, and listens on
+    ///  it before starting `ownerThread`.
+    OwnerState();
+
+    ///  Drives `acceptor`'s asynchronous operations for this object's whole
+    ///  life. Only `ownerThread` touches `acceptor` while it is running;
+    ///  `LoopbackListener::Create` may still touch it synchronously before
+    ///  `ownerThread` starts, and `Join()` may touch it again synchronously
+    ///  after `ownerThread` has been joined and is thus provably no longer
+    ///  running.
+    boost::asio::io_context ioContext;
+
+    ///  Keeps `ioContext.run()` from returning while idle between accepts;
+    ///  reset only by `Join()`, once, to let the owner thread's `run()` call
+    ///  return so it can be joined.
+    boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+        workGuard;
+
+    ///  The bound, listening acceptor.
+    boost::asio::ip::tcp::acceptor acceptor;
+
+    ///  Runs `ioContext.run()` for the object's whole life, started once
+    ///  `acceptor` is successfully listening.
+    std::thread ownerThread;
+
+    ///  Rejects a concurrent `AcceptLoopbackOnly()` call while one is already
+    ///  in flight; cleared once that call's outcome is known.
+    std::atomic_bool acceptInFlight{false};
+
+    ///  Set by the first `Close()` call; later calls are no-ops.
+    std::atomic_bool closeRequested{false};
+
+    ///  Set once `Join()` has stopped `ioContext` and joined `ownerThread`;
+    ///  later calls are no-ops.
+    std::atomic_bool joined{false};
 };
 
 } //  namespace dovahlink::transport

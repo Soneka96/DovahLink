@@ -38,9 +38,13 @@ class IBridgeWorkerPool {
 };
 
 ///  Owns one accept worker per loopback listener and enforces one active client.
-///  `Stop()` closes listeners and shuts down the active session socket before
-///  `Join()` so blocked accepts, handshakes, and reads can finish. Also the
-///  owns the worker lifecycle for one active client.
+///  `Stop()` requests closure of both listeners and the active session socket
+///  without waiting for any of them, so a slow listener close can never delay
+///  the active WebSocket shutdown request from being sent. `Join()` owns the
+///  completion barrier: it joins both accept-loop threads first (so neither
+///  can still be calling `AcceptLoopbackOnly()`), then waits for each
+///  listener's own close to actually complete. Also owns the worker lifecycle
+///  for one active client.
 class BridgeWorkerPool final : public IBridgeWorkerPool {
   public:
     ///  Creates workers for the two loopback listeners.
