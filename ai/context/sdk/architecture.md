@@ -114,7 +114,7 @@ collaborator that owns behavior has its own explicit contract; data-only helpers
 interface.** One concrete class never carries multiple architectural identities through multiple
 `implements` clauses of Service-shaped interfaces — a consumer's constructor should never need to
 learn that two differently-named dependencies are secretly the same object. (This rule does not
-apply to the pre-existing, orthogonal platform-port category — `DovahLinkTransport`/`ClientStorage`
+apply to the pre-existing, orthogonal platform-port category — `IDovahLinkTransport`/`IClientStorage`
 — which is unaffected by it; see "Platform ports" above.)
 
 This rule allows no exception, including the case where a `ServiceImpl` is the sole genuine owner
@@ -170,13 +170,27 @@ policies are behavior-bearing when they make decisions and therefore require the
 
 ### Naming
 
-Major capability: `XService` (interface) / `XServiceImpl` (implementation). Supporting object:
-direct domain/mechanical noun; if behavior-bearing, it still has an explicit contract and concrete
-implementation without requiring the `Service`/`Impl` name pair. Avoid arbitrary `Manager`,
-`Handler`, `Controller`, `Provider`, `Port`, `Gateway`, `Facade` unless the word communicates a
-genuinely distinct role; `Coordinator` remains acceptable for a real sequencing collaborator
-(`ConnectionTeardownCoordinator`) because ordered, generation-checked sequencing is a genuinely
-different shape from a Service's request/response or command/report shape.
+Major capability: `IXService` (interface) / `XService` (implementation), per
+`ai/context/dart/dart-style.md`'s `I`-prefix interface-naming convention -- the implementation keeps
+the bare capability name rather than an `Impl` suffix. Supporting object: direct domain/mechanical
+noun; if behavior-bearing, it still has an explicit contract and concrete implementation without
+requiring the `I`-prefixed name pair. Avoid arbitrary `Manager`, `Handler`, `Controller`, `Provider`,
+`Port`, `Gateway`, `Facade` unless the word communicates a genuinely distinct role; `Coordinator`
+remains acceptable for a real sequencing collaborator (`ConnectionTeardownCoordinator`) because
+ordered, generation-checked sequencing is a genuinely different shape from a Service's
+request/response or command/report shape.
+
+The seven Service interfaces (`ISessionService`, `ISessionAdmissionService`,
+`ISessionTrustService`, `IRequestService`, `IAuthenticationService`, `IPairingService`,
+`IReconnectService`) and the two platform ports (`IClientStorage`, `IDovahLinkTransport`, including
+the two public exports) were renamed to this convention as an intentional pre-1.0 breaking API
+migration, since the SDK has no supported public release yet (`ai/context/common.md`'s "Pre-release
+compatibility"). Each Service's implementation dropped its `Impl` suffix in the same migration (for
+example `SessionServiceImpl` became `SessionService`), so the bare name is no longer available for
+anything but the concrete implementation. No compatibility shim or deprecated alias was added for
+the previous unprefixed interface names or the removed `Impl` suffix. This is a naming migration
+only: every renamed type's existing responsibilities, collaborator set, and consumer wiring from
+Phase 3.3 are unchanged.
 
 ### Dependency injection
 
@@ -297,7 +311,7 @@ keeps it as a field. Every other consumer — `RequestService`,
 contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
 another service merely because it's needed there; the one documented, accepted exception is
 `AuthenticationServiceImpl`'s own cached `clientId`/`bridgeVersion`, which are read-caches of values
-whose durable source of truth is `ClientStorage`, refreshed every `hello()` — not a competing copy
+whose durable source of truth is `IClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.
 
 `SessionAdmissionServiceImpl` exposes the one write command that admits a newly authenticated

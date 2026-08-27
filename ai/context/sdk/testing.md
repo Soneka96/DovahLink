@@ -7,6 +7,9 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 - Tests for a collaborator's method belong with that source unit's mirrored test file. A service test
   may prove the service's recovery behavior through a collaborator, but it must not become the
   direct test suite for the collaborator's method.
+- A mocktail mock declaration targets the `I`-prefixed contract type, per `ai/context/dart/dart-
+  style.md`'s interface-naming convention: `class MockClientStorage extends Mock implements
+  IClientStorage {}`, not the removed unprefixed name.
 
 ## Test fixtures and ownership
 
@@ -103,7 +106,7 @@ dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `Se
 bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
 `AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
-and `ClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
+and `IClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
 mocking a concrete class' single interface a one-line cost regardless of that interface's size, so

@@ -6,7 +6,7 @@
 
 **Status:** Planned. The package scaffold, protocol/transport layer, and persistence boundary
 (`clientId`, credential, `CONFIRMING` pairing-recovery state, behind a Windows DPAPI-backed
-`ClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
+`IClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
