@@ -53,8 +53,8 @@ class IWebSocketSession {
     virtual void Close() = 0;
 };
 
-///  Cross-thread shutdown capability for one accepted socket, consumed by
-///  `application::IActiveSessionSocket`/`IActiveSessionController` without
+///  Cross-thread shutdown capability for one accepted socket: lets an external
+///  collaborator cancel or notify-then-cancel the connection without
 ///  depending on `WebSocketSession::Socket`'s internal Beast/asio state.
 class ISocket {
   public:
