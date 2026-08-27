@@ -9,7 +9,6 @@ import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resol
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
@@ -191,7 +190,7 @@ class DovahLinkClient {
       requestService: _requestService,
       storage: _storage,
     );
-    _reconnectService = ReconnectServiceImpl(
+    _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
       attemptDelays: attemptDelays,
@@ -219,7 +218,7 @@ class DovahLinkClient {
   late final IPairingService _pairingService;
 
   /// Owns bounded automatic recovery from ordinary transport loss.
-  late final ReconnectService _reconnectService;
+  late final IReconnectService _reconnectService;
 
   /// The current connection lifecycle phase. Reaches
   /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never

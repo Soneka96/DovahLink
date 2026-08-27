@@ -125,8 +125,8 @@ class SessionService implements ISessionService {
 
   /// Notified when ordinary transport loss finishes tearing down the connection, so bounded
   /// automatic reconnect may begin. `null` until [DovahLinkClient] assigns it after constructing
-  /// `ReconnectServiceImpl` -- the same construction-order reasoning as [onTeardown] applies, since
-  /// `ReconnectServiceImpl` itself depends on `ISessionService`.
+  /// `ReconnectService` -- the same construction-order reasoning as [onTeardown] applies, since
+  /// `ReconnectService` itself depends on `ISessionService`.
   void Function(Uri uri)? onOrdinaryTransportLoss;
 
   /// Receives each inbound message this session's subscription reads, already filtered to the

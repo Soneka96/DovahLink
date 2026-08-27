@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -16,7 +16,7 @@ class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock authentication service -- its own `hello`/recovery logic is
 /// `authentication_service_test.dart`'s responsibility; this file only proves
-/// [ReconnectServiceImpl] reacts correctly to each classification `hello()` can produce.
+/// [ReconnectService] reacts correctly to each classification `hello()` can produce.
 class MockAuthenticationService extends Mock
     implements IAuthenticationService {}
 
@@ -62,11 +62,11 @@ void main() {
   });
 
   /// Builds a service over [sessionService] and [authenticationService], with short test delays.
-  ReconnectServiceImpl buildService({
+  ReconnectService buildService({
     List<Duration> attemptDelays = _shortDelays,
     Duration deadline = const Duration(seconds: 30),
     DateTime Function()? now,
-  }) => ReconnectServiceImpl(
+  }) => ReconnectService(
     sessionService: sessionService,
     authenticationService: authenticationService,
     attemptDelays: attemptDelays,
@@ -84,7 +84,7 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await pumpEventQueue();
@@ -117,7 +117,7 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -144,7 +144,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -180,7 +180,7 @@ void main() {
             retryable: false,
           );
         });
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -207,7 +207,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -227,7 +227,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -247,7 +247,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -267,7 +267,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -287,7 +287,7 @@ void main() {
             retryable: false,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -315,7 +315,7 @@ void main() {
         when(
           () => authenticationService.forgetCredential(),
         ).thenThrow(const DovahLinkStorageException('storage unavailable'));
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -349,7 +349,7 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           );
         });
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -378,7 +378,7 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -425,7 +425,7 @@ void main() {
             : start.add(const Duration(seconds: 100));
       }
 
-      final ReconnectServiceImpl service = buildService(
+      final ReconnectService service = buildService(
         deadline: const Duration(seconds: 10),
         now: fakeNow,
       );
@@ -474,7 +474,7 @@ void main() {
         };
       }
 
-      final ReconnectServiceImpl service = buildService(
+      final ReconnectService service = buildService(
         attemptDelays: const <Duration>[Duration.zero, Duration(seconds: 100)],
         deadline: const Duration(seconds: 10),
         now: fakeNow,
@@ -508,7 +508,7 @@ void main() {
             trustState: DovahLinkTrustState.trusted,
           ),
         );
-        final ReconnectServiceImpl service = buildService();
+        final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await pumpEventQueue();

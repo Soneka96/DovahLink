@@ -101,7 +101,7 @@ A consumer's test suite proves its own reaction to a dependency's contract — s
 failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
 and (for a mocked collaborator) that the right method was called with the right arguments — and must
 not become a second test suite for that dependency's own internal branches, which stay owned by the
-dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `ISessionService` and
+dependency's own test file. For example: `ReconnectService`'s tests mock `ISessionService` and
 `IAuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
 bookkeeping) to each classification `IAuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationService` itself decodes or classifies a rejected `hello`.

@@ -150,7 +150,7 @@ The seven Services:
 - `IAuthenticationService`/`AuthenticationService` — `hello`/authentication and credential
   recovery.
 - `IPairingService`/`PairingService` — pairing operations.
-- `ReconnectService`/`ReconnectServiceImpl` — bounded automatic recovery from ordinary transport
+- `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
   taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
 
@@ -237,9 +237,9 @@ implementations.
    `ConnectionTeardownCoordinator` already uses internally, so a duplicate `onError`+`onDone` signal
    for one dead connection fires the callback exactly once, never twice, and a later, genuinely new
    teardown still fires it again.
-2. **Ordinary transport-loss notification** → drives `ReconnectServiceImpl`'s recovery start. Same
-   reasoning: `ReconnectServiceImpl` needs `ISessionService` and `IAuthenticationService` as
-   constructor dependencies, so `SessionService` cannot hold a matching `ReconnectService`
+2. **Ordinary transport-loss notification** → drives `ReconnectService`'s recovery start. Same
+   reasoning: `ReconnectService` needs `ISessionService` and `IAuthenticationService` as
+   constructor dependencies, so `SessionService` cannot hold a matching `IReconnectService`
    reference without a cycle.
 3. **Incoming-message forwarding** → `IRequestService.handleIncoming`. `SessionService` owns
    starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
@@ -307,7 +307,7 @@ maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustServic
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `IRequestService`,
-`IAuthenticationService`, `IPairingService`, `ReconnectService` — depends on the appropriate Service
+`IAuthenticationService`, `IPairingService`, `IReconnectService` — depends on the appropriate Service
 contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
 another service merely because it's needed there; the one documented, accepted exception is
 `AuthenticationService`'s own cached `clientId`/`bridgeVersion`, which are read-caches of values
@@ -320,14 +320,14 @@ session (`admitSession`, called once by `AuthenticationService` after a successf
 called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.
 
-`ReconnectServiceImpl` never assigns connection state directly either: it only drives the same
+`ReconnectService` never assigns connection state directly either: it only drives the same
 `connect`/`disconnect` commands (via `ISessionService`) and the same `hello` call (via
 `IAuthenticationService`, an explicit constructor dependency) any other caller uses.
 `SessionService` still decides the resulting state transitions itself -- entering `reconnecting`
 only after ordinary transport loss tears down cleanly with a known endpoint (driving
-`ReconnectServiceImpl` through the `onOrdinaryTransportLoss` callback above), moving to
+`ReconnectService` through the `onOrdinaryTransportLoss` callback above), moving to
 `reauthenticating` once a recovery attempt's transport reconnects (trust not yet confirmed), and
 resolving out of that to `connected` (that attempt's `hello` actually admits a session) or
 `disconnected` (a deliberate disconnect, an administrative invalidation, or the reconnect service's
-own final give-up) -- so `ReconnectServiceImpl` orchestrates *when* to retry while `SessionService`
+own final give-up) -- so `ReconnectService` orchestrates *when* to retry while `SessionService`
 remains the sole owner of *what state that produces*.
