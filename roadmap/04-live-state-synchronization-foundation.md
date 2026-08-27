@@ -28,6 +28,29 @@ second authority for progression values.
   establishes the current level and a later level change is an ordered `state_event` whose data is
   the complete post-change level state. Correlated request/response messages remain part of the
   protocol and are not removed.
+- Represent capture, sampling, and delivery as separate policy decisions. Each captured value has a
+  `CapturePolicy` (`NativeEvent` or `Sampled`); sampled values additionally declare a `RateClass`
+  (`Fast`, `Medium`, or `Slow`); each stateful publication area declares one canonical `UpdateMode`
+  (`Snapshot` or `Event`). These policies are related but must not be collapsed into one combined
+  mode: how Skyrim supplies a value is not the same question as how the client receives it.
+- Use one shared, bounded sampler for recurring capture. Rate classes are maximum capture
+  frequencies, not publication or network-send cadences. A provisional scheduling hypothesis is
+  `Fast = 1 second`, `Medium = 2 seconds`, and `Slow = 3 seconds`, subject to profiling rather than
+  becoming a protocol constant. With those periods, an aligned cadence captures Fast/Medium/Slow at
+  second 0, Fast at 1, Fast/Medium at 2, Fast/Slow at 3, Fast/Medium at 4, Fast at 5, and all three
+  again at second 6. The shared scheduler may stagger due captures when profiling shows that an
+  aligned batch creates a noticeable game-thread spike; either way, capture work remains bounded.
+- Run both native-event capture and sampled capture through approved game-thread callbacks or hooks.
+  The callback synchronously copies a small, validated, DovahLink-owned value; workers never defer
+  a Skyrim read. Unchanged sampled values stop before they create a revision, publication, queue
+  entry, serialization work, or WebSocket traffic.
+- Keep capture units, authoritative state areas, and publication units distinct. Independently
+  captured values may update independently owned state areas; a future composed view may combine
+  them without becoming a second authority. The retired aggregate `character` area is not revived
+  by this phase.
+- A reliable Event mode requires a capture source that cannot silently miss semantically required
+  occurrences. Sampling may feed Event mode only when the supported runtime proves that sampling
+  cannot miss an occurrence; otherwise sampled data is classified as Snapshot mode.
 - Redesign the protocol as typed message families rather than one broadly nullable message model.
   Each message has one canonical JSON shape and a dedicated DTO/codec boundary. The redesign covers
   connection, pairing, state, error, invalidation, and control messages.
@@ -111,21 +134,41 @@ Game callbacks capture trustworthy values and update owned stores; they do not s
 touch WebSocket state. A worker-owned publisher builds typed snapshots/events and submits them to a
 bounded outbound organization with:
 
+- a shared capture-policy registry and cadence scheduler for sampled values, plus explicit native
+  event adapters;
+- one serialized publication path per state area so state changes and revisions have a deterministic
+  order even when capture callbacks arrive from different runtime sources;
 - latest-value replacement for replaceable Snapshot state;
 - ordered, non-coalesced delivery for reliable Event state;
 - reserved capacity for recovery/control traffic;
 - explicit slow-consumer diagnostics and disconnect behavior;
-- instrumentation for depth, coalescing, enqueue/dequeue latency, recovery, and disconnects.
+- instrumentation for capture timing, depth, coalescing, enqueue/dequeue latency, recovery, and
+  disconnects;
+- explicit queue bounds in both message count and encoded-byte size. The current security baseline
+  is 128 outbound messages per client with 16 reserved control/recovery slots and 112 event slots;
+  changing that baseline requires the documented approval and rationale rather than a silent tuning
+  change;
+- explicit lane ordering: a recovery snapshot establishes the new baseline before later events are
+  applied, and events at or below an accepted snapshot revision are discarded as superseded rather
+  than delivered after the snapshot.
 
 The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
 queued events from the previous authenticated session.
 
 #### 4.3 Production Progression Domains and Synchronization Kernel
 
-Implement and test `character_xp` Snapshot delivery and `character_level` Event delivery. The level
-domain begins with an authoritative snapshot and applies ordered complete-state events. A level-up
-is represented by the new level state; consumers may derive the transition without requiring a
-second event-only payload contract.
+Implement and test `character_xp` as `Sampled`/`Fast`/`Snapshot` and `character_level` as
+`NativeEvent`/`Event`. The level domain begins with an authoritative snapshot and applies ordered
+complete-state events. A level-up is represented by the new level state; consumers may derive the
+transition without requiring a second event-only payload contract. Each production value must first
+document its supported-runtime capture source, unavailable-value behavior, callback/thread boundary,
+change-detection rule, and expected cost.
+
+Future domains are not pulled into this phase, but their intended classification is now explicit:
+health, stamina, and similar continuously changing values are likely sampled Snapshot domains;
+quest completion and item-acquired/removed occurrences are candidates for native reliable Event
+domains; and a current inventory view may be a Snapshot domain even if item-change Events are also
+introduced later. Every future domain still requires its own runtime proof and protocol decision.
 
 In the SDK synchronization kernel, prove snapshot baselines, Event-mode ordered apply,
 duplicate/stale rejection, revision-gap detection, recovery buffering, snapshot supersession,
@@ -154,9 +197,12 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
 
 Each stateful domain declares exactly one canonical live-delivery mode, `UpdateMode`: `Snapshot` or
 `Event`. A consumer does not choose between them per subscription; the domain's protocol definition
-fixes it. `character_xp` is Snapshot mode: every delivered update is complete state and coalesced to
-latest-value. `character_level` is Event mode: it begins from an authoritative snapshot for initial
-synchronization and reconnect/gap recovery, then applies ordered complete-state events.
+fixes it. Capture policy and rate class remain separate from this choice. `character_xp` is
+`Sampled`/`Fast`/`Snapshot`: every delivered update is complete state and coalesced to latest-value.
+`character_level` is `NativeEvent`/`Event`: it begins from an authoritative snapshot for initial
+synchronization and reconnect/gap recovery, then applies ordered complete-state events. Event mode
+is reliable within one authenticated session; reconnect starts from the current authoritative
+snapshot and does not replay the previous session's queued events.
 
 ### Stateful domains versus ephemeral notifications
 
