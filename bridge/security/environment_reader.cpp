@@ -1,4 +1,4 @@
-#include "security/token_provider.hpp"
+#include "security/environment_reader.hpp"
 
 #include "security/hex.hpp"
 
@@ -44,7 +44,7 @@ WindowsEnvironmentReader::Read(std::string_view name) const {
     return std::optional<std::string>(std::in_place, value);
 }
 
-TokenReadResult ReadTokenFromEnvironment(const EnvironmentReader& env,
+TokenReadResult ReadTokenFromEnvironment(const IEnvironmentReader& env,
                                          std::string_view variableName) {
     auto raw = env.Read(variableName);
     if (!raw.has_value()) {

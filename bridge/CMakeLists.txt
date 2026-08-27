@@ -82,6 +82,7 @@ add_library(dovahlink_bridge_core STATIC
     security/constant_time_compare.cpp
     security/csprng.cpp
     security/dpapi.cpp
+    security/environment_reader.cpp
     security/factory_reset_challenge.cpp
     security/failed_token_reservation.cpp
     security/failed_token_throttle.cpp
@@ -89,7 +90,6 @@ add_library(dovahlink_bridge_core STATIC
     security/inbound_message_rate_limiter.cpp
     security/pairing_session.cpp
     security/rate_window_counter.cpp
-    security/token_provider.cpp
     security/token_reservation.cpp
     security/token_store.cpp
     security/trust_device_store.cpp
@@ -214,6 +214,7 @@ add_executable(dovahlink_bridge_tests
     security/constant_time_compare_test.cpp
     security/csprng_test.cpp
     security/dpapi_test.cpp
+    security/environment_reader_test.cpp
     security/failed_token_reservation_test.cpp
     security/factory_reset_challenge_test.cpp
     security/failed_token_throttle_test.cpp
@@ -221,7 +222,6 @@ add_executable(dovahlink_bridge_tests
     security/inbound_message_rate_limiter_test.cpp
     security/pairing_session_test.cpp
     security/rate_window_counter_test.cpp
-    security/token_provider_test.cpp
     security/token_reservation_test.cpp
     security/token_store_test.cpp
     security/trust_store_test.cpp

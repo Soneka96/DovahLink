@@ -1,4 +1,4 @@
-#include "security/token_provider.hpp"
+#include "security/environment_reader.hpp"
 
 #include "security/test_token.hpp"
 
@@ -11,7 +11,7 @@
 #include <string>
 #include <unordered_map>
 
-using dovahlink::security::EnvironmentReader;
+using dovahlink::security::IEnvironmentReader;
 using dovahlink::security::kTokenBytes;
 using dovahlink::security::kValidHexToken;
 using dovahlink::security::ReadTokenFromEnvironment;
@@ -23,9 +23,9 @@ namespace {
 constexpr const char* kVarName = "DOVAHLINK_BRIDGE_TOKEN";
 
 ///  Stores named environment values for token-provider tests.
-class FakeEnvironmentReader : public EnvironmentReader {
+class FakeEnvironmentReader : public IEnvironmentReader {
   public:
-    ///  @copydoc EnvironmentReader::Read
+    ///  @copydoc IEnvironmentReader::Read
     [[nodiscard]] std::optional<std::string>
     Read(std::string_view name) const override {
         auto it = values_.find(std::string(name));
@@ -49,7 +49,7 @@ class FakeEnvironmentReader : public EnvironmentReader {
 
 TEST_CASE(
     "WindowsEnvironmentReader returns the exact process environment value",
-    "[security][token_provider]") {
+    "[security][environment_reader]") {
     constexpr const char* kReaderTestVar = "DOVAHLINK_TOKEN_PROVIDER_READER_TEST";
     REQUIRE(SetEnvironmentVariableA(kReaderTestVar, "reader-value") != 0);
     std::unique_ptr<const char, void (*)(const char*)> clearVariable(
@@ -66,7 +66,7 @@ TEST_CASE(
 
 TEST_CASE("WindowsEnvironmentReader returns nullopt for an unset process "
           "environment variable",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     constexpr const char* kReaderTestVar =
         "DOVAHLINK_TOKEN_PROVIDER_MISSING_TEST";
     REQUIRE(SetEnvironmentVariableA(kReaderTestVar, nullptr) != 0);
@@ -77,7 +77,7 @@ TEST_CASE("WindowsEnvironmentReader returns nullopt for an unset process "
 
 TEST_CASE("ReadTokenFromEnvironment decodes a valid 64-character hex token to "
           "32 bytes",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     env.Set(kVarName, kValidHexToken);
 
@@ -92,7 +92,7 @@ TEST_CASE("ReadTokenFromEnvironment decodes a valid 64-character hex token to "
 }
 
 TEST_CASE("ReadTokenFromEnvironment treats an unset variable as Missing",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     auto result = ReadTokenFromEnvironment(env, kVarName);
     CHECK(result.outcome == TokenReadOutcome::kMissing);
@@ -101,7 +101,7 @@ TEST_CASE("ReadTokenFromEnvironment treats an unset variable as Missing",
 
 TEST_CASE(
     "ReadTokenFromEnvironment treats an empty value as Missing, not Malformed",
-    "[security][token_provider]") {
+    "[security][environment_reader]") {
     FakeEnvironmentReader env;
     env.Set(kVarName, "");
     auto result = ReadTokenFromEnvironment(env, kVarName);
@@ -110,7 +110,7 @@ TEST_CASE(
 }
 
 TEST_CASE("ReadTokenFromEnvironment treats odd-length hex as Malformed",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     env.Set(kVarName, "abc");
     auto result = ReadTokenFromEnvironment(env, kVarName);
@@ -119,7 +119,7 @@ TEST_CASE("ReadTokenFromEnvironment treats odd-length hex as Malformed",
 }
 
 TEST_CASE("ReadTokenFromEnvironment treats a non-hex character as Malformed",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     //  64 characters, but "zz" at the start is not valid hex.
     env.Set(kVarName, std::string("zz") + std::string(62, '0'));
@@ -129,7 +129,7 @@ TEST_CASE("ReadTokenFromEnvironment treats a non-hex character as Malformed",
 }
 
 TEST_CASE("ReadTokenFromEnvironment treats a too-short token as Malformed",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     //  62 hex characters decodes to 31 bytes, one short of the required 32.
     env.Set(kVarName, std::string(62, '0'));
@@ -139,7 +139,7 @@ TEST_CASE("ReadTokenFromEnvironment treats a too-short token as Malformed",
 }
 
 TEST_CASE("ReadTokenFromEnvironment treats a too-long token as Malformed",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     //  66 hex characters decodes to 33 bytes, one over the required 32.
     env.Set(kVarName, std::string(66, '0'));
@@ -149,7 +149,7 @@ TEST_CASE("ReadTokenFromEnvironment treats a too-long token as Malformed",
 }
 
 TEST_CASE("ReadTokenFromEnvironment only reads the variable it is asked for",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     env.Set("SOME_OTHER_VARIABLE", kValidHexToken);
     CHECK(ReadTokenFromEnvironment(env, kVarName).outcome ==
@@ -158,7 +158,7 @@ TEST_CASE("ReadTokenFromEnvironment only reads the variable it is asked for",
 
 TEST_CASE("ReadTokenFromEnvironment isolates variables for the Malformed and "
           "Valid outcomes too",
-          "[security][token_provider]") {
+          "[security][environment_reader]") {
     FakeEnvironmentReader env;
     env.Set(kVarName, "not-hex");
     env.Set("SOME_OTHER_VARIABLE", kValidHexToken);

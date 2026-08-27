@@ -21,9 +21,9 @@
 #include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
 #include "security/csprng.hpp"
+#include "security/environment_reader.hpp"
 #include "security/failed_token_throttle.hpp"
 #include "security/pairing_session.hpp"
-#include "security/token_provider.hpp"
 #include "security/token_store.hpp"
 #include "security/trust_store.hpp"
 #include "security/windows_trust_store_persistence.hpp"
@@ -110,7 +110,7 @@ dovahlink::application::PlayContextTransition ProcessLifecycleEvent(
 
 ///  Reads a positive harness-only token lifetime override from the environment.
 std::optional<std::chrono::steady_clock::duration>
-ReadTokenTtlOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadTokenTtlOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kTokenTtlEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -133,7 +133,7 @@ ReadTokenTtlOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  play; every minted ID is otherwise CSPRNG-backed
 ///  (security::GenerateOpaqueId).
 std::optional<std::string>
-ReadPlayContextIdOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadPlayContextIdOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kPlayContextIdOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -148,7 +148,7 @@ ReadPlayContextIdOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  race on. Absent in real play; the real Skyrim plugin never reads this
 ///  variable and always binds `kBridgePort`.
 std::optional<std::uint16_t>
-ReadPortOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadPortOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kPortOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
@@ -174,7 +174,7 @@ ReadPortOverride(const dovahlink::security::EnvironmentReader& env) {
 ///  real per-user production file
 ///  (`security::ResolveDefaultTrustStorePath`) across runs.
 std::optional<std::filesystem::path>
-ReadTrustStorePathOverride(const dovahlink::security::EnvironmentReader& env) {
+ReadTrustStorePathOverride(const dovahlink::security::IEnvironmentReader& env) {
     auto raw = env.Read(kTrustStorePathOverrideEnvVar);
     if (!raw.has_value() || raw->empty()) {
         return std::nullopt;
