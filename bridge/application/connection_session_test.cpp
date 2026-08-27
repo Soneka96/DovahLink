@@ -250,7 +250,7 @@ TEST_CASE("RunConnectionSession completes hello, capabilities, ping, and "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -345,7 +345,7 @@ TEST_CASE("RunConnectionSession completes pairing through the mutation coordinat
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -432,7 +432,7 @@ TEST_CASE("RunConnectionSession stamps bridgeInstanceId on every response, not "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -544,7 +544,7 @@ TEST_CASE("RunConnectionSession's unsolicited capabilities envelope carries a "
     //  hello_ack); this is its own, separately wired stamping site.
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -611,7 +611,7 @@ TEST_CASE("RunConnectionSession closes without creating a session when the "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -702,7 +702,7 @@ TEST_CASE("RunConnectionSession's idle-loop read closes the connection once "
     //  through this real session loop.
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -792,7 +792,7 @@ TEST_CASE(
     //  before any session exists.
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -860,7 +860,7 @@ TEST_CASE("RunConnectionSession closes with no hello_ack when hello arrives "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -938,7 +938,7 @@ TEST_CASE("RunConnectionSession's disconnect notifies PairingSession, keeping "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -1026,7 +1026,7 @@ TEST_CASE("RunConnectionSession's disconnect notification lets an owned "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -1105,7 +1105,7 @@ TEST_CASE("RunConnectionSession's successful hello notifies PairingSession of "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -1182,7 +1182,7 @@ TEST_CASE("RunConnectionSession's disconnect/reconnect wiring works on an "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -1262,7 +1262,7 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
           "[application][connection_session]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 

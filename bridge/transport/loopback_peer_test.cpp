@@ -32,8 +32,7 @@ void CheckRealLoopbackPeer(LoopbackListener::IpVersion version,
     using AcceptResult =
         std::expected<boost::asio::ip::tcp::socket, AcceptError>;
 
-    boost::asio::io_context listenerIoc;
-    auto listener = LoopbackListener::Create(listenerIoc, version, 0);
+    auto listener = LoopbackListener::Create(version, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -128,9 +127,8 @@ TEST_CASE(
 TEST_CASE(
     "AcceptLoopbackOnly exits when the acceptor is already closed",
     "[transport][loopback_peer]") {
-    boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
     boost::system::error_code closeEc;

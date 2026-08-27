@@ -154,16 +154,12 @@ ContainedWorkRunner MakeContainedWorkRunner() {
 ///  Owns the real transport and application dependencies shared by worker-pool
 ///  tests.
 struct Fixture {
-    ///  I/O context supplied to the IPv4 loopback listener.
-    boost::asio::io_context iocV4;
-    ///  I/O context supplied to the IPv6 loopback listener.
-    boost::asio::io_context iocV6;
     ///  Accepts test connections over IPv4.
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
     ///  Accepts test connections over IPv6.
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV6);
     ///  Enforces the one-active-connection limit.
     ConnectionSlot slot;
     ///  Holds the one-time token accepted by the test session.
@@ -229,13 +225,13 @@ struct Fixture {
 TEST_CASE("RequireLoopbackListener reports listener creation failure before "
           "dependent construction",
           "[application][bridge_worker_pool][test_support]") {
-    boost::asio::io_context ioc;
     LoopbackListener occupied =
-        RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
 
-    CHECK_THROWS_AS(RequireLoopbackListener(ioc, LoopbackListener::IpVersion::kV4,
-                                            occupied.LocalEndpoint().port()),
-                    std::runtime_error);
+    CHECK_THROWS_AS(
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4,
+                                occupied.LocalEndpoint().port()),
+        std::runtime_error);
 }
 
 TEST_CASE("BridgeWorkerPool runs a real session for an accepted connection",
@@ -425,6 +421,46 @@ TEST_CASE("BridgeWorkerPool Stop interrupts a connection blocked on the "
     REQUIRE(shutdown.wait_for(2s) == std::future_status::ready);
     shutdown.get();
     CHECK_FALSE(fixture.slot.IsOccupied());
+}
+
+TEST_CASE("BridgeWorkerPool Stop alone, before Join, already requests the "
+          "active WebSocket's shutdown",
+          "[application][bridge_worker_pool]") {
+    using namespace std::chrono_literals;
+
+    Fixture fixture;
+    fixture.pool.Start(MakeContainedWorkRunner());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket clientSocket(clientIoc);
+    boost::system::error_code connectEc;
+    clientSocket.connect(fixture.listenerV4.LocalEndpoint(), connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto acceptedDeadline = std::chrono::steady_clock::now() + 5s;
+    while (!fixture.slot.IsOccupied() &&
+           std::chrono::steady_clock::now() < acceptedDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    REQUIRE(fixture.slot.IsOccupied());
+
+    auto start = std::chrono::steady_clock::now();
+    fixture.pool.Stop();
+    auto stopElapsed = std::chrono::steady_clock::now() - start;
+    CHECK(stopElapsed < 100ms);
+
+    //  Stop() alone -- without calling Join(), which additionally waits for
+    //  both accept-loop threads and each listener's own owner thread --
+    //  already released the slot, proving the active WebSocket shutdown
+    //  request was sent regardless of listener shutdown speed.
+    auto releasedDeadline = std::chrono::steady_clock::now() + 5s;
+    while (fixture.slot.IsOccupied() &&
+           std::chrono::steady_clock::now() < releasedDeadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK_FALSE(fixture.slot.IsOccupied());
+
+    fixture.pool.Join();
 }
 
 TEST_CASE("BridgeWorkerPool Stop interrupts an authenticated session blocked "
@@ -1191,12 +1227,10 @@ TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
           "connection, isolated from ConnectionSession's own handshake and "
           "dispatch machinery",
           "[application][bridge_worker_pool]") {
-    boost::asio::io_context iocV4;
-    boost::asio::io_context iocV6;
     LoopbackListener listenerV4 =
-        RequireLoopbackListener(iocV4, LoopbackListener::IpVersion::kV4);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV4);
     LoopbackListener listenerV6 =
-        RequireLoopbackListener(iocV6, LoopbackListener::IpVersion::kV6);
+        RequireLoopbackListener(LoopbackListener::IpVersion::kV6);
     ConnectionSlot slot;
     ActiveSessionSocket activeSessionSocket;
     MockConnectionSession connectionSession;
@@ -1240,6 +1274,10 @@ TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
     EXPECT_CALL(listenerV6, Close());
+    //  Join() twice: once from this test's own explicit pool.Join() call
+    //  below, once more from the destructor's own Stop()+Join() sequence.
+    EXPECT_CALL(listenerV4, Join()).Times(2);
+    EXPECT_CALL(listenerV6, Join()).Times(2);
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1274,6 +1312,10 @@ TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
     //  once even though this test never calls Stop() itself.
     EXPECT_CALL(listenerV4, Close());
     EXPECT_CALL(listenerV6, Close());
+    //  Join() twice: once from this test's own explicit pool.Join() call
+    //  below, once more from the destructor's own Stop()+Join() sequence.
+    EXPECT_CALL(listenerV4, Join()).Times(2);
+    EXPECT_CALL(listenerV6, Join()).Times(2);
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1294,6 +1336,11 @@ TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
     //  Stop() again, which this test relies on staying safe to repeat.
     EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
     EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+    //  This test never calls pool.Join() itself; the destructor's own
+    //  Join() call is the only one, but AtLeast(1) stays consistent with
+    //  Close()'s own tolerance for the destructor's repeat Stop().
+    EXPECT_CALL(listenerV4, Join()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Join()).Times(testing::AtLeast(1));
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};
@@ -1326,6 +1373,8 @@ TEST_CASE("BridgeWorkerPool rearms after rejecting a full connection slot",
         .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
     EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
     EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV4, Join()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Join()).Times(testing::AtLeast(1));
 
     BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
                           connectionSession};

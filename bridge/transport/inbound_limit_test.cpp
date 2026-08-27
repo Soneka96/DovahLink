@@ -34,7 +34,7 @@ TEST_CASE("a message within the frame size limit is read normally",
           "[transport][inbound_limit]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -87,7 +87,7 @@ TEST_CASE("a message exactly at the frame size limit is accepted, not rejected",
           "[transport][inbound_limit]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 
@@ -141,7 +141,7 @@ TEST_CASE(
     "[transport][inbound_limit]") {
     boost::asio::io_context ioc;
     auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
 

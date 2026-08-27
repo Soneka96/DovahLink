@@ -8,20 +8,20 @@
 #include <boost/system/error_code.hpp>
 
 #include <chrono>
-#include <exception>
+#include <cstdint>
+#include <expected>
 #include <future>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 
+using dovahlink::transport::AcceptError;
 using dovahlink::transport::ListenerError;
 using dovahlink::transport::LoopbackListener;
 
 TEST_CASE("Create binds an IPv4 listener to exactly 127.0.0.1",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
@@ -31,9 +31,7 @@ TEST_CASE("Create binds an IPv4 listener to exactly 127.0.0.1",
 
 TEST_CASE("Create binds an IPv6 listener to exactly ::1",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(listener.has_value());
 
     boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
@@ -43,11 +41,8 @@ TEST_CASE("Create binds an IPv6 listener to exactly ::1",
 
 TEST_CASE("port 0 lets the OS assign an ephemeral port for each listener",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto first =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    auto second =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto first = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    auto second = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(first.has_value());
     REQUIRE(second.has_value());
 
@@ -58,59 +53,177 @@ TEST_CASE("port 0 lets the OS assign an ephemeral port for each listener",
 
 TEST_CASE("binding a second IPv4 listener to a port already in use fails",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto first =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto first = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(first.has_value());
     std::uint16_t boundPort = first->LocalEndpoint().port();
 
-    auto second = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4,
-                                           boundPort);
+    auto second =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
     REQUIRE_FALSE(second.has_value());
     CHECK(second.error() == ListenerError::kBindFailed);
 }
 
 TEST_CASE("binding a second IPv6 listener to a port already in use fails",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto first =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    auto first = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(first.has_value());
     std::uint16_t boundPort = first->LocalEndpoint().port();
 
-    auto second = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6,
-                                           boundPort);
+    auto second =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, boundPort);
     REQUIRE_FALSE(second.has_value());
     CHECK(second.error() == ListenerError::kBindFailed);
 }
 
 TEST_CASE("a moved-from listener's new owner still accepts connections",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto created =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto created = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(created.has_value());
     boost::asio::ip::tcp::endpoint endpoint = created->LocalEndpoint();
 
     LoopbackListener moved = std::move(*created);
     CHECK(moved.LocalEndpoint() == endpoint);
 
-    boost::asio::ip::tcp::socket client(ioc);
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
     boost::system::error_code connectEc;
     client.connect(endpoint, connectEc);
     REQUIRE_FALSE(connectEc);
 
-    boost::system::error_code acceptEc;
-    boost::asio::ip::tcp::socket accepted = moved.Acceptor().accept(acceptEc);
-    REQUIRE_FALSE(acceptEc);
-    CHECK(accepted.is_open());
+    //  Exercises the owner thread through the moved-to handle, not just a
+    //  direct synchronous Acceptor() call: proves the move genuinely carried
+    //  the owner thread/io_context along, not merely the acceptor.
+    auto accepted = moved.AcceptLoopbackOnly();
+    REQUIRE(accepted.has_value());
+    CHECK(accepted->is_open());
 }
 
-TEST_CASE("an IPv4 and an IPv6 listener can coexist on the same io_context",
+TEST_CASE("a move-assigned-to listener's new owner still accepts connections",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto v4 = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
-    auto v6 = LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    auto created = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(created.has_value());
+    boost::asio::ip::tcp::endpoint endpoint = created->LocalEndpoint();
+
+    auto other = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(other.has_value());
+    std::uint16_t replacedPort = other->LocalEndpoint().port();
+    *other = std::move(*created);
+    CHECK(other->LocalEndpoint() == endpoint);
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
+    boost::system::error_code connectEc;
+    client.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto accepted = other->AcceptLoopbackOnly();
+    REQUIRE(accepted.has_value());
+    CHECK(accepted->is_open());
+}
+
+TEST_CASE("self-move assignment leaves a listener usable",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    const auto endpoint = listener->LocalEndpoint();
+
+    *listener = std::move(*listener);
+
+    CHECK(listener->LocalEndpoint() == endpoint);
+}
+
+TEST_CASE("move assignment into a moved-from listener transfers ownership",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    const auto endpoint = source->LocalEndpoint();
+
+    LoopbackListener active = std::move(*source);
+    LoopbackListener target = std::move(*source);
+    target = std::move(active);
+
+    CHECK(target.LocalEndpoint() == endpoint);
+}
+
+TEST_CASE("move assignment from a moved-from listener releases the target",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    auto target =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(target.has_value());
+    const std::uint16_t replacedPort = target->LocalEndpoint().port();
+
+    LoopbackListener empty = std::move(*source);
+    *target = std::move(*source);
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
+}
+
+TEST_CASE("move assignment after target Join preserves the incoming listener",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    const auto sourceEndpoint = source->LocalEndpoint();
+
+    auto target =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(target.has_value());
+    const std::uint16_t replacedPort = target->LocalEndpoint().port();
+    target->Close();
+    target->Join();
+
+    *target = std::move(*source);
+
+    CHECK(target->LocalEndpoint() == sourceEndpoint);
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
+}
+
+TEST_CASE("a moved-to listener's Close and Join still release the port",
+          "[transport][listener]") {
+    auto created = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(created.has_value());
+    std::uint16_t boundPort = created->LocalEndpoint().port();
+
+    LoopbackListener moved = std::move(*created);
+    moved.Close();
+    moved.Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("the destructor is safe to run after an explicit Join",
+          "[transport][listener]") {
+    std::uint16_t boundPort = 0;
+    {
+        auto listener =
+            LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+        REQUIRE(listener.has_value());
+        boundPort = listener->LocalEndpoint().port();
+
+        listener->Close();
+        listener->Join();
+    }
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("an IPv4 and an IPv6 listener can coexist",
+          "[transport][listener]") {
+    auto v4 = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    auto v6 = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
 
     REQUIRE(v4.has_value());
     REQUIRE(v6.has_value());
@@ -121,12 +234,11 @@ TEST_CASE("an IPv4 and an IPv6 listener can coexist on the same io_context",
 TEST_CASE("a real client can connect to the IPv4 listener and the server can "
           "accept it",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
-    boost::asio::ip::tcp::socket client(ioc);
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
     boost::system::error_code connectEc;
     client.connect(listener->LocalEndpoint(), connectEc);
     REQUIRE_FALSE(connectEc);
@@ -141,12 +253,11 @@ TEST_CASE("a real client can connect to the IPv4 listener and the server can "
 TEST_CASE("a real client can connect to the IPv6 listener and the server can "
           "accept it",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV6, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(listener.has_value());
 
-    boost::asio::ip::tcp::socket client(ioc);
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
     boost::system::error_code connectEc;
     client.connect(listener->LocalEndpoint(), connectEc);
     REQUIRE_FALSE(connectEc);
@@ -160,24 +271,20 @@ TEST_CASE("a real client can connect to the IPv6 listener and the server can "
 
 TEST_CASE("Close makes the listener unavailable for a subsequent accept loop",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
     listener->Close();
 
     auto accepted = listener->AcceptLoopbackOnly();
     REQUIRE_FALSE(accepted.has_value());
-    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+    CHECK(accepted.error() == AcceptError::kAcceptFailed);
     CHECK_FALSE(listener->Acceptor().is_open());
 }
 
 TEST_CASE("Close is safe to call more than once",
           "[transport][listener]") {
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
     listener->Close();
@@ -191,12 +298,8 @@ TEST_CASE("Close cancels a pending asynchronous accept before returning",
           "[transport][listener]") {
     using namespace std::chrono_literals;
 
-    using AcceptResult =
-        std::expected<boost::asio::ip::tcp::socket,
-                      dovahlink::transport::AcceptError>;
-    boost::asio::io_context ioc;
-    auto listener =
-        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    using AcceptResult = std::expected<boost::asio::ip::tcp::socket, AcceptError>;
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
     std::promise<AcceptResult> resultPromise;
@@ -209,8 +312,142 @@ TEST_CASE("Close cancels a pending asynchronous accept before returning",
     REQUIRE(resultFuture.wait_for(2s) == std::future_status::ready);
     auto accepted = resultFuture.get();
     REQUIRE_FALSE(accepted.has_value());
-    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+    CHECK(accepted.error() == AcceptError::kAcceptFailed);
 
     acceptThread.join();
     CHECK_FALSE(listener->Acceptor().is_open());
+}
+
+TEST_CASE("Close returns promptly even while an accept is outstanding",
+          "[transport][listener]") {
+    using namespace std::chrono_literals;
+
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    std::thread acceptThread(
+        [&listener] { (void)listener->AcceptLoopbackOnly(); });
+
+    auto start = std::chrono::steady_clock::now();
+    listener->Close();
+    auto elapsed = std::chrono::steady_clock::now() - start;
+    CHECK(elapsed < 100ms);
+
+    acceptThread.join();
+}
+
+TEST_CASE("Join is safe to call more than once",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    listener->Close();
+    listener->Join();
+    listener->Join();
+}
+
+TEST_CASE("Join alone closes the listener even without an explicit prior "
+          "Close",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    std::uint16_t boundPort = listener->LocalEndpoint().port();
+
+    listener->Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("Close and Join release the port so a new IPv4 listener can bind it "
+          "immediately",
+          "[transport][listener]") {
+    //  Direct regression test for the original bug: LoopbackListener::Close()
+    //  used to block indefinitely instead of guaranteeing the acceptor was
+    //  closed before returning control to its caller, which left the port
+    //  bound after shutdown ("Failed to bind the IPv4 loopback listener on
+    //  port 58231").
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    std::uint16_t boundPort = listener->LocalEndpoint().port();
+
+    listener->Close();
+    listener->Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("Close and Join release the port so a new IPv6 listener can bind it "
+          "immediately",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(listener.has_value());
+    std::uint16_t boundPort = listener->LocalEndpoint().port();
+
+    listener->Close();
+    listener->Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("Close and Join release the port even while an accept was "
+          "outstanding",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    std::uint16_t boundPort = listener->LocalEndpoint().port();
+
+    std::thread acceptThread(
+        [&listener] { (void)listener->AcceptLoopbackOnly(); });
+
+    listener->Close();
+    //  Join()'s documented precondition: the thread that calls
+    //  AcceptLoopbackOnly() must be joined first, so no call can still be
+    //  starting once Join() stops the owner thread. BridgeWorkerPool::Join()
+    //  follows the same order (its accept-loop threads before the listener's
+    //  own Join()).
+    acceptThread.join();
+    listener->Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
+}
+
+TEST_CASE("Close and Join release the port after a real accept already "
+          "completed",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    std::uint16_t boundPort = listener->LocalEndpoint().port();
+    boost::asio::ip::tcp::endpoint endpoint = listener->LocalEndpoint();
+
+    using AcceptResult = std::expected<boost::asio::ip::tcp::socket, AcceptError>;
+    std::promise<AcceptResult> resultPromise;
+    auto resultFuture = resultPromise.get_future();
+    std::thread acceptThread([&listener, &resultPromise] {
+        resultPromise.set_value(listener->AcceptLoopbackOnly());
+    });
+
+    boost::asio::io_context clientIoc;
+    boost::asio::ip::tcp::socket client(clientIoc);
+    boost::system::error_code connectEc;
+    client.connect(endpoint, connectEc);
+    REQUIRE_FALSE(connectEc);
+
+    auto accepted = resultFuture.get();
+    acceptThread.join();
+    REQUIRE(accepted.has_value());
+
+    listener->Close();
+    listener->Join();
+
+    auto rebound =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, boundPort);
+    REQUIRE(rebound.has_value());
 }
