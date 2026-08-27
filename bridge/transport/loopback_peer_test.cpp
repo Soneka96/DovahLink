@@ -3,7 +3,7 @@
 //  is therefore tested with synthetic addresses, while accepted loopback peers
 //  are still verified through real sockets.
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

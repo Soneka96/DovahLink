@@ -15,8 +15,22 @@ namespace dovahlink::transport {
 [[nodiscard]] bool
 IsAcceptablePeerAddress(const boost::asio::ip::address& address);
 
+///  Accepts loopback-only connections and closes the underlying acceptor.
+class ILoopbackListener {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~ILoopbackListener() = default;
+
+    ///  Accepts one socket and rejects peers that are not loopback addresses.
+    [[nodiscard]] virtual std::expected<boost::asio::ip::tcp::socket, AcceptError>
+    AcceptLoopbackOnly() = 0;
+
+    ///  Closes the underlying acceptor; repeated calls are harmless.
+    virtual void Close() noexcept = 0;
+};
+
 ///  Owns a TCP acceptor permanently bound to an IPv4 or IPv6 loopback address.
-class LoopbackListener {
+class LoopbackListener final : public ILoopbackListener {
   public:
     ///  Selects the loopback address family used by a listener.
     enum class IpVersion {
@@ -42,9 +56,12 @@ class LoopbackListener {
     ///  Returns mutable access to the underlying acceptor.
     [[nodiscard]] boost::asio::ip::tcp::acceptor& Acceptor();
 
-    ///  Accepts one socket and rejects peers that are not loopback addresses.
+    ///  @copydoc ILoopbackListener::AcceptLoopbackOnly
     [[nodiscard]] std::expected<boost::asio::ip::tcp::socket, AcceptError>
-    AcceptLoopbackOnly();
+    AcceptLoopbackOnly() override;
+
+    ///  @copydoc ILoopbackListener::Close
+    void Close() noexcept override;
 
     ///  Returns the endpoint actually bound by the listener.
     ///  The endpoint is always loopback; the underlying accessor may throw if

@@ -8,7 +8,7 @@
 #include "protocol/messages.hpp"
 #include "security/hex.hpp"
 #include "security/test_token.hpp"
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>

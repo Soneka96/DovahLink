@@ -99,7 +99,7 @@ add_library(dovahlink_bridge_core STATIC
     security/windows_trust_store_persistence.cpp
     shared/scoped_release.cpp
     transport/connection_slot.cpp
-    transport/listener.cpp
+    transport/loopback_listener.cpp
     transport/websocket_session.cpp
 )
 target_include_directories(dovahlink_bridge_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -249,7 +249,7 @@ add_executable(dovahlink_bridge_tests
     shared/scoped_release_test.cpp
     transport/connection_slot_test.cpp
     transport/inbound_limit_test.cpp
-    transport/listener_test.cpp
+    transport/loopback_listener_test.cpp
     transport/loopback_peer_test.cpp
     transport/websocket_session_test.cpp
 )

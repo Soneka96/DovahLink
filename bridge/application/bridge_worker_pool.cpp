@@ -7,8 +7,8 @@
 
 namespace dovahlink::application {
 
-BridgeWorkerPool::BridgeWorkerPool(transport::LoopbackListener& listenerV4,
-                                   transport::LoopbackListener& listenerV6,
+BridgeWorkerPool::BridgeWorkerPool(transport::ILoopbackListener& listenerV4,
+                                   transport::ILoopbackListener& listenerV6,
                                    transport::IConnectionSlot& slot,
                                    IActiveSessionSocket& activeSessionSocket,
                                    IConnectionSession& connectionSession)
@@ -21,7 +21,7 @@ BridgeWorkerPool::~BridgeWorkerPool() {
     Join();
 }
 
-void BridgeWorkerPool::AcceptLoop(transport::LoopbackListener& listener,
+void BridgeWorkerPool::AcceptLoop(transport::ILoopbackListener& listener,
                                   const ContainedWorkRunner& workerRunner) {
     while (!stopping_.load(std::memory_order_acquire)) {
         auto accepted = listener.AcceptLoopbackOnly();
@@ -103,9 +103,8 @@ void BridgeWorkerPool::Start(ContainedWorkRunner workerRunner) {
 
 void BridgeWorkerPool::Stop() {
     stopping_.store(true, std::memory_order_release);
-    boost::system::error_code ec;
-    listenerV4_.Acceptor().close(ec);
-    listenerV6_.Acceptor().close(ec);
+    listenerV4_.Close();
+    listenerV6_.Close();
     activeSessionSocket_.Shutdown();
 }
 

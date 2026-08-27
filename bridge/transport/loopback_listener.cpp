@@ -1,4 +1,4 @@
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/socket_base.hpp>
@@ -86,6 +86,11 @@ LoopbackListener::AcceptLoopbackOnly() {
 
 boost::asio::ip::tcp::endpoint LoopbackListener::LocalEndpoint() const {
     return acceptor_.local_endpoint();
+}
+
+void LoopbackListener::Close() noexcept {
+    boost::system::error_code ec;
+    acceptor_.close(ec);
 }
 
 } //  namespace dovahlink::transport

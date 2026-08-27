@@ -1,4 +1,4 @@
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -151,4 +151,32 @@ TEST_CASE("a real client can connect to the IPv6 listener and the server can "
     REQUIRE_FALSE(acceptEc);
     CHECK(accepted.is_open());
     CHECK(accepted.remote_endpoint().address().is_loopback());
+}
+
+TEST_CASE("Close makes a subsequent AcceptLoopbackOnly fail",
+          "[transport][listener]") {
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    listener->Close();
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
+}
+
+TEST_CASE("Close is safe to call more than once",
+          "[transport][listener]") {
+    boost::asio::io_context ioc;
+    auto listener =
+        LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+
+    listener->Close();
+    listener->Close();
+
+    auto accepted = listener->AcceptLoopbackOnly();
+    CHECK_FALSE(accepted.has_value());
 }

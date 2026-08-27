@@ -1,7 +1,9 @@
 #pragma once
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 #include "transport/websocket_session.hpp"
+
+#include <gmock/gmock.h>
 
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
@@ -273,6 +275,16 @@ class LoopbackWebSocketServer {
     bool completed_{false};
     ///  Owns and joins the one server worker.
     std::jthread thread_;
+};
+
+//  ---- Reusable contract mocks ----
+
+///  GoogleMock loopback-listener contract double.
+class MockLoopbackListener : public ILoopbackListener {
+  public:
+    MOCK_METHOD((std::expected<boost::asio::ip::tcp::socket, AcceptError>),
+                AcceptLoopbackOnly, (), (override));
+    MOCK_METHOD(void, Close, (), (noexcept, override));
 };
 
 } //  namespace dovahlink::transport::test_support

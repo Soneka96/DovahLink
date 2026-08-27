@@ -12,6 +12,7 @@
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -56,9 +57,13 @@ using dovahlink::security::PairingSession;
 using dovahlink::security::TokenStore;
 using dovahlink::security::TrustStore;
 using dovahlink::security::TrustStoreSnapshot;
+using dovahlink::transport::AcceptError;
 using dovahlink::transport::ConnectionSlot;
+using dovahlink::transport::ILoopbackListener;
 using dovahlink::transport::LoopbackListener;
+using dovahlink::transport::test_support::MockLoopbackListener;
 using dovahlink::transport::test_support::RequireLoopbackListener;
+using testing::StrictMock;
 
 namespace {
 
@@ -1205,4 +1210,83 @@ TEST_CASE("BridgeWorkerPool calls IConnectionSession::Run with the accepted "
 
     pool.Stop();
     pool.Join();
+}
+
+TEST_CASE("BridgeWorkerPool's accept loop stops immediately on accept "
+          "failure, isolated from real sockets",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+
+    EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+        .Times(1)
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .Times(1)
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
+    //  once even though this test never calls Stop() itself.
+    EXPECT_CALL(listenerV4, Close());
+    EXPECT_CALL(listenerV6, Close());
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(connectionSession.Connections().empty());
+}
+
+TEST_CASE("BridgeWorkerPool's accept loop retries a rejected peer before "
+          "stopping on accept failure, isolated from real sockets",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+            .WillOnce(testing::Return(
+                std::unexpected(AcceptError::kNonLoopbackPeerRejected)));
+        EXPECT_CALL(listenerV4, AcceptLoopbackOnly())
+            .WillOnce(
+                testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    }
+    //  V6 fails immediately; only V4's retry behavior is under test here.
+    EXPECT_CALL(listenerV6, AcceptLoopbackOnly())
+        .WillOnce(testing::Return(std::unexpected(AcceptError::kAcceptFailed)));
+    //  BridgeWorkerPool's destructor calls Stop(), which closes both listeners
+    //  once even though this test never calls Stop() itself.
+    EXPECT_CALL(listenerV4, Close());
+    EXPECT_CALL(listenerV6, Close());
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Start(MakeContainedWorkRunner());
+    pool.Join();
+
+    CHECK(connectionSession.Connections().empty());
+}
+
+TEST_CASE("BridgeWorkerPool::Stop closes both listeners through the contract",
+          "[application][bridge_worker_pool]") {
+    StrictMock<MockLoopbackListener> listenerV4;
+    StrictMock<MockLoopbackListener> listenerV6;
+    ConnectionSlot slot;
+    ActiveSessionSocket activeSessionSocket;
+    MockConnectionSession connectionSession;
+    //  At least once, not exactly once: BridgeWorkerPool's destructor calls
+    //  Stop() again, which this test relies on staying safe to repeat.
+    EXPECT_CALL(listenerV4, Close()).Times(testing::AtLeast(1));
+    EXPECT_CALL(listenerV6, Close()).Times(testing::AtLeast(1));
+
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
+    pool.Stop();
 }

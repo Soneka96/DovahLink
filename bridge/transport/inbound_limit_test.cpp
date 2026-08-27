@@ -4,7 +4,7 @@
 //  the application-layer ViolationTracker; the final test models the boundary
 //  convention explicitly with both production components.
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 #include "transport/websocket_session.hpp"
 
 #include "security/limits.hpp"

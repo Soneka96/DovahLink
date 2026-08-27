@@ -1,6 +1,6 @@
 #pragma once
 
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 namespace dovahlink::application {
 
@@ -28,8 +28,8 @@ class BridgeTransport : public IBridgeTransport {
     ///  Keeps references to the already-bound IPv4 and IPv6 listeners.
     ///  @param listenerV4 IPv4 loopback listener owned by the caller.
     ///  @param listenerV6 IPv6 loopback listener owned by the caller.
-    BridgeTransport(transport::LoopbackListener& listenerV4,
-                    transport::LoopbackListener& listenerV6);
+    BridgeTransport(transport::ILoopbackListener& listenerV4,
+                    transport::ILoopbackListener& listenerV6);
 
     ///  Leaves the already-bound listeners unchanged.
     void Start() override;
@@ -42,10 +42,10 @@ class BridgeTransport : public IBridgeTransport {
 
   private:
     ///  IPv4 listener referenced by this lifecycle adapter.
-    transport::LoopbackListener& listenerV4_;
+    transport::ILoopbackListener& listenerV4_;
 
     ///  IPv6 listener referenced by this lifecycle adapter.
-    transport::LoopbackListener& listenerV6_;
+    transport::ILoopbackListener& listenerV6_;
 };
 
 } //  namespace dovahlink::application

@@ -28,7 +28,7 @@
 #include "security/trust_store.hpp"
 #include "security/windows_trust_store_persistence.hpp"
 #include "transport/connection_slot.hpp"
-#include "transport/listener.hpp"
+#include "transport/loopback_listener.hpp"
 
 #include <boost/asio/io_context.hpp>
 
