@@ -73,6 +73,17 @@ LoopbackListener::Create(IpVersion version, std::uint16_t port) {
 LoopbackListener::LoopbackListener(std::shared_ptr<OwnerState> state)
     : state_(std::move(state)) {}
 
+LoopbackListener& LoopbackListener::operator=(LoopbackListener&& other) {
+    if (this == &other) {
+        return *this;
+    }
+    if (state_) {
+        Join();
+    }
+    state_ = std::move(other.state_);
+    return *this;
+}
+
 void LoopbackListener::RunOwnerThread(
     std::shared_ptr<OwnerState> state) noexcept {
     try {

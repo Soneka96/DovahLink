@@ -106,8 +106,13 @@ TEST_CASE("a move-assigned-to listener's new owner still accepts connections",
 
     auto other = LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
     REQUIRE(other.has_value());
+    std::uint16_t replacedPort = other->LocalEndpoint().port();
     *other = std::move(*created);
     CHECK(other->LocalEndpoint() == endpoint);
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
 
     boost::asio::io_context clientIoc;
     boost::asio::ip::tcp::socket client(clientIoc);
@@ -118,6 +123,68 @@ TEST_CASE("a move-assigned-to listener's new owner still accepts connections",
     auto accepted = other->AcceptLoopbackOnly();
     REQUIRE(accepted.has_value());
     CHECK(accepted->is_open());
+}
+
+TEST_CASE("self-move assignment leaves a listener usable",
+          "[transport][listener]") {
+    auto listener = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(listener.has_value());
+    const auto endpoint = listener->LocalEndpoint();
+
+    *listener = std::move(*listener);
+
+    CHECK(listener->LocalEndpoint() == endpoint);
+}
+
+TEST_CASE("move assignment into a moved-from listener transfers ownership",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    const auto endpoint = source->LocalEndpoint();
+
+    LoopbackListener active = std::move(*source);
+    LoopbackListener target = std::move(*source);
+    target = std::move(active);
+
+    CHECK(target.LocalEndpoint() == endpoint);
+}
+
+TEST_CASE("move assignment from a moved-from listener releases the target",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    auto target =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(target.has_value());
+    const std::uint16_t replacedPort = target->LocalEndpoint().port();
+
+    LoopbackListener empty = std::move(*source);
+    *target = std::move(*source);
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
+}
+
+TEST_CASE("move assignment after target Join preserves the incoming listener",
+          "[transport][listener]") {
+    auto source = LoopbackListener::Create(LoopbackListener::IpVersion::kV4, 0);
+    REQUIRE(source.has_value());
+    const auto sourceEndpoint = source->LocalEndpoint();
+
+    auto target =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, 0);
+    REQUIRE(target.has_value());
+    const std::uint16_t replacedPort = target->LocalEndpoint().port();
+    target->Close();
+    target->Join();
+
+    *target = std::move(*source);
+
+    CHECK(target->LocalEndpoint() == sourceEndpoint);
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV6, replacedPort);
+    REQUIRE(replacement.has_value());
 }
 
 TEST_CASE("a moved-to listener's Close and Join still release the port",

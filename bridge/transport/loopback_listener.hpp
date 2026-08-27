@@ -70,8 +70,9 @@ class LoopbackListener final : public ILoopbackListener {
 
     ///  Transfers listener ownership from another instance.
     LoopbackListener(LoopbackListener&&) = default;
-    ///  Transfers listener ownership from another instance.
-    LoopbackListener& operator=(LoopbackListener&&) = default;
+    ///  Closes and joins the current listener before transferring ownership
+    ///  from another instance. Self-move is harmless.
+    LoopbackListener& operator=(LoopbackListener&& other);
     ///  Prevents copying the underlying acceptor.
     LoopbackListener(const LoopbackListener&) = delete;
     ///  Prevents copying the underlying acceptor.
