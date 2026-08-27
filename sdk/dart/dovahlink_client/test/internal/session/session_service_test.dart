@@ -228,6 +228,32 @@ void main() {
         );
         verify(() => state.markConnectFailed()).called(1);
         verifyNever(() => state.markConnected());
+        verifyNever(() => transport.close());
+      },
+    );
+
+    test(
+      'Method connect times out and abandons the transport when connect() never completes',
+      () async {
+        when(
+          () => transport.connect(any()),
+        ).thenAnswer((_) => Completer<void>().future);
+        final SessionService timeoutService = SessionService(
+          transport: transport,
+          state: state,
+          lifecycleQueue: lifecycleQueue,
+          teardownCoordinator: teardownCoordinator,
+          connectTimeout: const Duration(milliseconds: 10),
+        );
+
+        await expectLater(
+          timeoutService.connect(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verify(() => transport.close()).called(1);
+        verify(() => state.markConnectFailed()).called(1);
+        verifyNever(() => state.markConnected());
+        verifyNever(() => transport.messages);
       },
     );
 
@@ -259,6 +285,7 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verify(() => state.markConnectFailed()).called(1);
+        verifyNever(() => transport.close());
       },
     );
   });

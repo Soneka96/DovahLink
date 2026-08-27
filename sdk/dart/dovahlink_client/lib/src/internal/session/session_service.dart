@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_co
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
+import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
@@ -37,8 +38,11 @@ abstract interface class ISessionService {
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason;
 
-  /// Establishes the transport connection to [uri].
-  /// @throws [DovahLinkConnectionException] if the socket cannot be established.
+  /// Establishes the transport connection to [uri]. An attempt that has not completed within the
+  /// centrally tuned connect timeout is abandoned rather than left to resolve indefinitely, so it
+  /// can never block automatic recovery's own deadline.
+  /// @throws [DovahLinkConnectionException] if the socket cannot be established, including when
+  /// the attempt times out.
   Future<void> connect(Uri uri);
 
   /// Closes the connection and resets in-memory session state. Idempotent. A `retrySafe` pending
@@ -103,17 +107,25 @@ class SessionService implements ISessionService {
   /// before this constructor runs; see the caller's own composition code.
   final ConnectionTeardownCoordinator _teardownCoordinator;
 
+  /// The bounded wait allowed for one [IDovahLinkTransport.connect] attempt before it is
+  /// abandoned as failed. Defaults to the centrally tuned [kConnectTimeout]; overridable so a test
+  /// can exercise timeout handling with millisecond-scale delays instead of real seconds.
+  final Duration _connectTimeout;
+
   /// Creates a session service over [transport] and [state], coordinating teardown through
-  /// [teardownCoordinator] and serializing lifecycle operations through [lifecycleQueue].
+  /// [teardownCoordinator], serializing lifecycle operations through [lifecycleQueue], and
+  /// bounding each connect attempt by [connectTimeout].
   SessionService({
     required IDovahLinkTransport transport,
     required SessionState state,
     required LifecycleOperationQueue lifecycleQueue,
     required ConnectionTeardownCoordinator teardownCoordinator,
+    Duration connectTimeout = kConnectTimeout,
   }) : _transport = transport,
        _state = state,
        _lifecycleQueue = lifecycleQueue,
-       _teardownCoordinator = teardownCoordinator;
+       _teardownCoordinator = teardownCoordinator,
+       _connectTimeout = connectTimeout;
 
   /// Notified after a real (non-duplicate) teardown, so pending operations can be failed or
   /// orphaned. `null` until [DovahLinkClient] assigns an [IRequestService.failAll] tear-off after
@@ -165,15 +177,22 @@ class SessionService implements ISessionService {
   /// connects, [SessionState.markConnected] moves such an attempt to `reauthenticating` rather than
   /// `connected` -- trust is not yet confirmed until the caller's own `hello` following this method
   /// admits a session. An ordinary, non-recovery call still shows the normal `connecting` ->
-  /// `connected`/`disconnected` transition. See [SessionState.beginConnectAttempt].
+  /// `connected`/`disconnected` transition. See [SessionState.beginConnectAttempt]. An attempt
+  /// exceeding [_connectTimeout] is abandoned via [IDovahLinkTransport.close] -- so a socket
+  /// handshake that never completes cannot block this method, or transitively `ReconnectService`'s
+  /// own bounded-recovery deadline, indefinitely -- and fails with [DovahLinkConnectionException]
+  /// the same as any other connect failure.
   @override
   Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
     _state.beginConnectAttempt(uri);
     try {
-      await _transport.connect(uri);
+      await _transport.connect(uri).timeout(_connectTimeout);
       _state.markConnected();
       _startReceiving();
     } on Object catch (error) {
+      if (error is TimeoutException) {
+        unawaited(_transport.close());
+      }
       _state.markConnectFailed();
       throw DovahLinkConnectionException('Failed to connect to $uri: $error');
     }
