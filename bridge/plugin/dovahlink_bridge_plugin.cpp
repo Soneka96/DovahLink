@@ -14,6 +14,7 @@
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_behavior_config.hpp"
+#include "application/game_behavior_config_file_reader.hpp"
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"

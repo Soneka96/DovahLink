@@ -1,4 +1,4 @@
-#include "application/game_behavior_config.hpp"
+#include "application/game_behavior_config_file_reader.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -8,7 +8,7 @@
 #include <utility>
 
 using dovahlink::application::GameBehaviorConfig;
-using dovahlink::application::GameBehaviorConfigFileReader;
+using dovahlink::application::IGameBehaviorConfigFileReader;
 using dovahlink::application::ReadGameBehaviorConfig;
 
 namespace {
@@ -16,9 +16,9 @@ namespace {
 constexpr const char* kPath = "Data/SKSE/Plugins/DovahLinkBridge.ini";
 
 ///  Serves fixed file text for one path, without touching the real filesystem.
-class FakeGameBehaviorConfigFileReader : public GameBehaviorConfigFileReader {
+class FakeGameBehaviorConfigFileReader : public IGameBehaviorConfigFileReader {
   public:
-    ///  @copydoc GameBehaviorConfigFileReader::Read
+    ///  @copydoc IGameBehaviorConfigFileReader::Read
     [[nodiscard]] std::optional<std::string>
     Read(const std::filesystem::path& path) const override {
         auto it = files_.find(path.generic_string());
@@ -42,7 +42,7 @@ class FakeGameBehaviorConfigFileReader : public GameBehaviorConfigFileReader {
 
 TEST_CASE("ReadGameBehaviorConfig defaults both flags to true when the file is "
           "missing",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
 
     GameBehaviorConfig config = ReadGameBehaviorConfig(reader, kPath);
@@ -52,7 +52,7 @@ TEST_CASE("ReadGameBehaviorConfig defaults both flags to true when the file is "
 }
 
 TEST_CASE("ReadGameBehaviorConfig reads both keys set to 0",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=0\nbAchievementCompat=0\n");
 
@@ -63,7 +63,7 @@ TEST_CASE("ReadGameBehaviorConfig reads both keys set to 0",
 }
 
 TEST_CASE("ReadGameBehaviorConfig reads both keys set to 1",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=1\nbAchievementCompat=1\n");
 
@@ -74,7 +74,7 @@ TEST_CASE("ReadGameBehaviorConfig reads both keys set to 1",
 }
 
 TEST_CASE("ReadGameBehaviorConfig treats each key independently",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=0\n");
 
@@ -86,7 +86,7 @@ TEST_CASE("ReadGameBehaviorConfig treats each key independently",
 
 TEST_CASE("ReadGameBehaviorConfig defaults a key with a malformed value "
           "instead of failing",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=maybe\nbAchievementCompat=0\n");
 
@@ -97,7 +97,7 @@ TEST_CASE("ReadGameBehaviorConfig defaults a key with a malformed value "
 }
 
 TEST_CASE("ReadGameBehaviorConfig ignores keys outside the [DovahLink] section",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath,
                "[General]\nbAlwaysActive=0\n[DovahLink]\nbAchievementCompat=0\n");
@@ -110,7 +110,7 @@ TEST_CASE("ReadGameBehaviorConfig ignores keys outside the [DovahLink] section",
 
 TEST_CASE("ReadGameBehaviorConfig tolerates comments, blank lines, and "
           "surrounding whitespace",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "; DovahLink compatibility settings\n"
                       "\n"
@@ -126,7 +126,7 @@ TEST_CASE("ReadGameBehaviorConfig tolerates comments, blank lines, and "
 }
 
 TEST_CASE("ReadGameBehaviorConfig ignores an unrecognized key",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbSomethingElse=0\n");
 
@@ -137,7 +137,7 @@ TEST_CASE("ReadGameBehaviorConfig ignores an unrecognized key",
 }
 
 TEST_CASE("ReadGameBehaviorConfig treats the section header as case-sensitive",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[dovahlink]\nbAlwaysActive=0\n");
 
@@ -148,7 +148,7 @@ TEST_CASE("ReadGameBehaviorConfig treats the section header as case-sensitive",
 
 TEST_CASE(
     "ReadGameBehaviorConfig stops applying keys once a later section begins",
-    "[application][game_behavior_config]") {
+    "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath,
                "[DovahLink]\nbAlwaysActive=0\n[Other]\nbAchievementCompat=0\n");
@@ -161,7 +161,7 @@ TEST_CASE(
 
 TEST_CASE(
     "ReadGameBehaviorConfig lets a repeated section header's keys apply again",
-    "[application][game_behavior_config]") {
+    "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=0\n[Other]\n[DovahLink]"
                       "\nbAchievementCompat=0\n");
@@ -173,7 +173,7 @@ TEST_CASE(
 }
 
 TEST_CASE("ReadGameBehaviorConfig lets a later duplicate key win",
-          "[application][game_behavior_config]") {
+          "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=0\nbAlwaysActive=1\n");
 
@@ -184,7 +184,7 @@ TEST_CASE("ReadGameBehaviorConfig lets a later duplicate key win",
 
 TEST_CASE(
     "ReadGameBehaviorConfig strips a trailing inline comment from a value",
-    "[application][game_behavior_config]") {
+    "[application][game_behavior_config_file_reader]") {
     FakeGameBehaviorConfigFileReader reader;
     reader.Set(kPath, "[DovahLink]\nbAlwaysActive=0 ; disabled for "
                       "testing\nbAchievementCompat=1 # note\n");

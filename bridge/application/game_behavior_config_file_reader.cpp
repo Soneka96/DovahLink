@@ -1,4 +1,4 @@
-#include "application/game_behavior_config.hpp"
+#include "application/game_behavior_config_file_reader.hpp"
 
 #include "application/bridge_config.hpp"
 
@@ -87,7 +87,7 @@ std::optional<std::string> FilesystemGameBehaviorConfigFileReader::Read(
 }
 
 GameBehaviorConfig
-ReadGameBehaviorConfig(const GameBehaviorConfigFileReader& reader,
+ReadGameBehaviorConfig(const IGameBehaviorConfigFileReader& reader,
                        const std::filesystem::path& path) {
     auto text = reader.Read(path);
     if (!text.has_value()) {
