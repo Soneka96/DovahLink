@@ -23,6 +23,7 @@ using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::HandshakeHandler;
 using dovahlink::application::HandshakeResult;
 using dovahlink::application::IActivePlayContextReader;
+using dovahlink::application::IConnectionTimeoutTracker;
 using dovahlink::application::IHandshakeHandler;
 using dovahlink::application::ISessionManager;
 using dovahlink::application::SessionAuthMethod;
@@ -32,6 +33,7 @@ using dovahlink::application::TrustLossAfterAdmission;
 using dovahlink::application::test_support::BuildHelloEnvelope;
 using dovahlink::application::test_support::EmptyActivePlayContext;
 using dovahlink::application::test_support::MockActivePlayContext;
+using dovahlink::application::test_support::MockConnectionTimeoutTracker;
 using dovahlink::protocol::Envelope;
 using dovahlink::security::BlockOutcome;
 using dovahlink::security::DecodeHex;
@@ -255,6 +257,30 @@ TEST_CASE("HandleHello accepts a valid token and hello",
     //  switching to the 60s idle deadline, start+6s would already be timed
     //  out.
     CHECK_FALSE(timeout.IsTimedOut(start + std::chrono::seconds(6)));
+}
+
+TEST_CASE("HandleHello calls IConnectionTimeoutTracker::MarkAuthenticated with "
+          "now after a successful hello, isolated from "
+          "ConnectionTimeoutTracker's own deadline math",
+          "[application][handshake_handler][i_connection_timeout_tracker]") {
+    TokenStore tokenStore(ValidTokenBytes());
+    FailedTokenThrottle throttle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    SessionManager sessions;
+    EmptyActivePlayContext activePlayContext;
+    HandshakeHandler handler(tokenStore, throttle, trustStore, credentialThrottle,
+                             sessions, activePlayContext, std::nullopt, "0.0.0");
+    StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
+    auto now = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    EXPECT_CALL(timeoutTracker, MarkAuthenticated(now));
+
+    auto hello = BuildHelloEnvelope(kValidHexToken);
+    auto result = handler.Handle(hello, /*connection=*/1, timeoutTracker, now);
+
+    CHECK_FALSE(result.closeConnection);
+    REQUIRE(result.sessionLease.has_value());
 }
 
 TEST_CASE("HandleHello stamps the supplied bridgeInstanceId onto the response",

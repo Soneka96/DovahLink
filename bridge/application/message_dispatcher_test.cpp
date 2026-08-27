@@ -45,6 +45,8 @@ using dovahlink::application::test_support::BuildPairingRequestEnvelope;
 using dovahlink::application::test_support::BuildRenameRequestEnvelope;
 using dovahlink::application::test_support::EmptyActivePlayContext;
 using dovahlink::application::test_support::MockActivePlayContext;
+using dovahlink::application::test_support::MockConnectionTimeoutTracker;
+using dovahlink::application::test_support::MockReplayGuard;
 using dovahlink::security::DecodeHex;
 using dovahlink::security::InboundMessageRateLimiter;
 using dovahlink::security::ITrustStorePersistence;
@@ -163,23 +165,64 @@ struct Fixture {
     DispatchResult
     Process(const std::string& rawMessage,
             SteadyClock::time_point steadyNow = SteadyClock::now()) {
-        return ProcessWithContext(activePlayContext, rawMessage, steadyNow);
+        return ProcessWithCollaborators(activePlayContext, replayGuard, timeout,
+                                        rawMessage, steadyNow);
     }
 
-    ///  Processes one raw message through a supplied active-context contract.
-    ///  Constructs the dispatcher fresh each call so it always reflects the
-    ///  fixture's current `bridgeInstanceId`, which some tests mutate after
-    ///  construction.
+    ///  Processes one raw message through a supplied active-context contract,
+    ///  with every other collaborator left as the fixture's own.
     DispatchResult ProcessWithContext(
         const IActivePlayContextReader& activeContext,
+        const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessWithCollaborators(activeContext, replayGuard, timeout,
+                                        rawMessage, steadyNow);
+    }
+
+    ///  Processes one raw message through a supplied `IReplayGuard`, with every
+    ///  other collaborator left as the fixture's own.
+    DispatchResult ProcessWithReplayGuard(
+        IReplayGuard& guard, const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessWithCollaborators(activePlayContext, guard, timeout,
+                                        rawMessage, steadyNow);
+    }
+
+    ///  Processes one raw message through a supplied `IConnectionTimeoutTracker`,
+    ///  with every other collaborator left as the fixture's own.
+    DispatchResult ProcessWithTimeoutTracker(
+        IConnectionTimeoutTracker& timeoutTracker, const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessWithCollaborators(activePlayContext, replayGuard,
+                                        timeoutTracker, rawMessage, steadyNow);
+    }
+
+    ///  Processes one raw message through supplied `IReplayGuard` and
+    ///  `IConnectionTimeoutTracker` collaborators together, with every other
+    ///  collaborator left as the fixture's own.
+    DispatchResult ProcessWithReplayGuardAndTimeoutTracker(
+        IReplayGuard& guard, IConnectionTimeoutTracker& timeoutTracker,
+        const std::string& rawMessage,
+        SteadyClock::time_point steadyNow = SteadyClock::now()) {
+        return ProcessWithCollaborators(activePlayContext, guard, timeoutTracker,
+                                        rawMessage, steadyNow);
+    }
+
+    ///  Processes one raw message through fully-specified collaborator
+    ///  overrides. Constructs the dispatcher fresh each call so it always
+    ///  reflects the fixture's current `bridgeInstanceId`, which some tests
+    ///  mutate after construction.
+    DispatchResult ProcessWithCollaborators(
+        const IActivePlayContextReader& activeContext, IReplayGuard& guard,
+        IConnectionTimeoutTracker& timeoutTracker,
         const std::string& rawMessage,
         SteadyClock::time_point steadyNow = SteadyClock::now()) {
         MessageDispatcher dispatcher(sessions, trustStore, mutationCoordinator,
                                      pairingHandler, activeContext,
                                      bridgeInstanceId);
         return dispatcher.Process(rawMessage, receivedMessageCount, kSessionId,
-                                  kConnection, replayGuard, violations,
-                                  rateLimiter, timeout, steadyNow);
+                                  kConnection, guard, violations, rateLimiter,
+                                  timeoutTracker, steadyNow);
     }
 };
 
@@ -278,33 +321,6 @@ dovahlink::protocol::Envelope StubPairingResponse() {
     return dovahlink::protocol::BuildErrorEnvelope(
         std::nullopt, std::string(kSessionId), "internal_error", "stub", false);
 }
-
-///  `IReplayGuard` mock used to prove `MessageDispatcher::Process` calls
-///  `RecordMessage` with the envelope's exact messageId, isolated from
-///  `ReplayGuard`'s own dedup behavior (covered by replay_guard_test.cpp).
-class MockReplayGuard : public IReplayGuard {
-  public:
-    MOCK_METHOD(MessageIdCheckResult, RecordMessage, (const std::string&),
-                (override));
-    MOCK_METHOD(std::size_t, Count, (), (const, override));
-};
-
-///  `IConnectionTimeoutTracker` mock used to prove `MessageDispatcher::Process`
-///  checks `IsTimedOut` before any other work and, on a valid message, calls
-///  `RecordActivity` afterward -- isolated from
-///  `ConnectionTimeoutTracker`'s own deadline math (covered by
-///  connection_timeout_tracker_test.cpp).
-class MockConnectionTimeoutTracker : public IConnectionTimeoutTracker {
-  public:
-    MOCK_METHOD(void, MarkAuthenticated, (std::chrono::steady_clock::time_point),
-                (override));
-    MOCK_METHOD(void, RecordActivity, (std::chrono::steady_clock::time_point),
-                (override));
-    MOCK_METHOD(bool, IsTimedOut, (std::chrono::steady_clock::time_point),
-                (const, override));
-    MOCK_METHOD(std::chrono::steady_clock::time_point, Deadline, (),
-                (const, override));
-};
 
 } //  namespace
 
@@ -1298,18 +1314,11 @@ TEST_CASE("ProcessInboundMessage calls IReplayGuard::RecordMessage with the "
           "[application][message_dispatcher][i_replay_guard]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
-                                 fixture.mutationCoordinator,
-                                 fixture.pairingHandler, fixture.activePlayContext,
-                                 fixture.bridgeInstanceId);
     StrictMock<MockReplayGuard> replayGuard;
     EXPECT_CALL(replayGuard, RecordMessage(std::string("message-ping-1")))
         .WillOnce(testing::Return(MessageIdCheckResult::kAccepted));
 
-    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
-                                     kSessionId, kConnection, replayGuard,
-                                     fixture.violations, fixture.rateLimiter,
-                                     fixture.timeout, SteadyClock::now());
+    auto result = fixture.ProcessWithReplayGuard(replayGuard, PingMessage());
 
     CHECK_FALSE(result.closeConnection);
     REQUIRE(result.responses.size() == 1);
@@ -1322,10 +1331,6 @@ TEST_CASE("ProcessInboundMessage checks IConnectionTimeoutTracker::IsTimedOut "
           "[application][message_dispatcher][i_connection_timeout_tracker]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
-                                 fixture.mutationCoordinator,
-                                 fixture.pairingHandler, fixture.activePlayContext,
-                                 fixture.bridgeInstanceId);
     StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
     EXPECT_CALL(timeoutTracker, IsTimedOut(testing::_))
         .WillOnce(testing::Return(true));
@@ -1333,10 +1338,8 @@ TEST_CASE("ProcessInboundMessage checks IConnectionTimeoutTracker::IsTimedOut "
     //  A StrictMock with only IsTimedOut expected fails the test on any other
     //  call, proving Process short-circuits before reaching RecordMessage,
     //  RecordActivity, or any handler.
-    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
-                                     kSessionId, kConnection, fixture.replayGuard,
-                                     fixture.violations, fixture.rateLimiter,
-                                     timeoutTracker, SteadyClock::now());
+    auto result =
+        fixture.ProcessWithTimeoutTracker(timeoutTracker, PingMessage());
 
     CHECK(result.closeConnection);
     CHECK(result.responses.empty());
@@ -1347,10 +1350,6 @@ TEST_CASE("ProcessInboundMessage checks IsTimedOut before calling "
           "[application][message_dispatcher][i_connection_timeout_tracker]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
-                                 fixture.mutationCoordinator,
-                                 fixture.pairingHandler, fixture.activePlayContext,
-                                 fixture.bridgeInstanceId);
     StrictMock<MockConnectionTimeoutTracker> timeoutTracker;
     auto steadyNow = SteadyClock::now();
     {
@@ -1360,10 +1359,8 @@ TEST_CASE("ProcessInboundMessage checks IsTimedOut before calling "
         EXPECT_CALL(timeoutTracker, RecordActivity(steadyNow));
     }
 
-    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
-                                     kSessionId, kConnection, fixture.replayGuard,
-                                     fixture.violations, fixture.rateLimiter,
-                                     timeoutTracker, steadyNow);
+    auto result = fixture.ProcessWithTimeoutTracker(timeoutTracker, PingMessage(),
+                                                    steadyNow);
 
     CHECK_FALSE(result.closeConnection);
 }
@@ -1374,10 +1371,6 @@ TEST_CASE("ProcessInboundMessage does not call RecordActivity when "
           "[i_connection_timeout_tracker]") {
     Fixture fixture(SessionTrustTier::kFull,
                     SessionAuthMethod::kTrustedDeviceCredential);
-    MessageDispatcher dispatcher(fixture.sessions, fixture.trustStore,
-                                 fixture.mutationCoordinator,
-                                 fixture.pairingHandler, fixture.activePlayContext,
-                                 fixture.bridgeInstanceId);
     StrictMock<MockReplayGuard> replayGuard;
     EXPECT_CALL(replayGuard, RecordMessage(std::string("message-ping-1")))
         .WillOnce(testing::Return(MessageIdCheckResult::kReplayed));
@@ -1388,10 +1381,8 @@ TEST_CASE("ProcessInboundMessage does not call RecordActivity when "
     //  test if Process calls it after a replayed message, proving the reject
     //  path short-circuits before recording activity.
 
-    auto result = dispatcher.Process(PingMessage(), fixture.receivedMessageCount,
-                                     kSessionId, kConnection, replayGuard,
-                                     fixture.violations, fixture.rateLimiter,
-                                     timeoutTracker, SteadyClock::now());
+    auto result = fixture.ProcessWithReplayGuardAndTimeoutTracker(
+        replayGuard, timeoutTracker, PingMessage());
 
     CHECK_FALSE(result.closeConnection);
     REQUIRE(result.responses.size() == 1);
