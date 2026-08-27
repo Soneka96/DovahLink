@@ -11,10 +11,10 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service_impl.d
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Mock transport used to isolate [SessionServiceImpl]'s lifecycle behavior.
-class MockDovahLinkTransport extends Mock implements DovahLinkTransport {}
+class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 
 /// Mock session state used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- its own
 /// state-derivation behavior (for example preserving `reconnecting` through a failed recovery

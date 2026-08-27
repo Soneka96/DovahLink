@@ -8,13 +8,13 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_boo
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Owns one pending operation's wire attempt: message-ID generation, registration, timeout
 /// arming, envelope construction, and fire-and-forget transport error reporting.
 class PendingOperationTransmitter {
   /// The transport used for the wire attempt.
-  final DovahLinkTransport _transport;
+  final IDovahLinkTransport _transport;
 
   /// The bounded timeout policy applied to the operation's timeout class.
   final Map<TimeoutClass, Duration> _timeoutDurations;
@@ -28,7 +28,7 @@ class PendingOperationTransmitter {
 
   /// Creates a transmitter for one request service's transport and pending-operation bookkeeping.
   PendingOperationTransmitter({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required Map<TimeoutClass, Duration> timeoutDurations,
     required SessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,

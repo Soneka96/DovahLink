@@ -8,7 +8,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// Implements [SessionService], per `ai/context/sdk/architecture.md`'s "Internal composition" and
 /// "Session-state ownership". Backed by [SessionState], the single authoritative owner of every
@@ -20,7 +20,7 @@ import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 /// instance this class holds.
 class SessionServiceImpl implements SessionService {
   /// The transport this service connects, sends over, and closes.
-  final DovahLinkTransport _transport;
+  final IDovahLinkTransport _transport;
 
   /// The single authoritative owner of this session's mutable facts.
   final SessionState _state;
@@ -38,7 +38,7 @@ class SessionServiceImpl implements SessionService {
   /// Creates a session service over [transport] and [state], coordinating teardown through
   /// [teardownCoordinator] and serializing lifecycle operations through [lifecycleQueue].
   SessionServiceImpl({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required SessionState state,
     required LifecycleOperationQueue lifecycleQueue,
     required ConnectionTeardownCoordinator teardownCoordinator,

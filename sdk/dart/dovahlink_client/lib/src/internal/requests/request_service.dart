@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns pending requests, timeouts, retry behavior, and inbound message routing, per
 /// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
-/// per `DovahLinkTransport` connection; see `ai/context/sdk/architecture.md`'s "Inbound message
+/// per `IDovahLinkTransport` connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements, and "Request/session boundary" for why
 /// [sendAndAwait] checks `SessionService.connectionState` instead of the eliminated
 /// `ensureReceiving` mechanism.

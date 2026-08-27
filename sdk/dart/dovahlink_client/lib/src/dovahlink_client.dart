@@ -32,7 +32,6 @@ import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storag
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/transport/dovahlink_transport.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
@@ -50,7 +49,7 @@ class DovahLinkClient {
   /// deterministic tests. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
   DovahLinkClient({
-    DovahLinkTransport? transport,
+    IDovahLinkTransport? transport,
     required IClientStorage storage,
   }) : this._build(
          transport: transport ?? WebSocketTransport(),
@@ -68,7 +67,7 @@ class DovahLinkClient {
   /// the unnamed constructor so every operation shares the same centrally tuned timeout policy.
   @visibleForTesting
   DovahLinkClient.withTimeoutDurations({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
   }) : this._build(
@@ -81,7 +80,7 @@ class DovahLinkClient {
   /// must use the unnamed constructor so reconnect shares the centrally tuned policy.
   @visibleForTesting
   DovahLinkClient.withReconnectPolicy({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required IClientStorage storage,
     required List<Duration> attemptDelays,
     required Duration deadline,
@@ -103,7 +102,7 @@ class DovahLinkClient {
   /// handed to its consumer as an already-built constructor parameter; no class below this
   /// composition root ever constructs one of its own dependencies.
   DovahLinkClient._build({
-    required DovahLinkTransport transport,
+    required IDovahLinkTransport transport,
     required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
@@ -336,7 +335,7 @@ class DovahLinkClient {
       _pairingService.recoverPendingPairing();
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
-  /// is a best-effort cleanup operation, matching [DovahLinkTransport.close]'s own "Idempotent"
+  /// is a best-effort cleanup operation, matching [IDovahLinkTransport.close]'s own "Idempotent"
   /// contract. In-memory state resets even when the underlying transport cannot be closed
   /// cleanly -- a broken close must not leave [connectionState]/[trustState]/[sessionId] lying
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are

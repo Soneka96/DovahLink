@@ -45,7 +45,7 @@ class PendingReplyQueue {
   }
 }
 
-/// A controllable [DovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
+/// A controllable [IDovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
 /// semantics for the single continuous, single-subscription inbound stream this SDK's receiver
 /// depends on: [connect] establishes a fresh single-subscription stream (mirroring the real
 /// transport's fresh socket per connection, and its "only ever listened to once" constraint), and
@@ -64,7 +64,7 @@ class PendingReplyQueue {
 /// earlier-queued reply still waiting on its own [send], so relative queue order is always
 /// preserved. [queueRawResponse] is the escape hatch for a test that deliberately wants an
 /// unrewritten -- including deliberately mismatched -- `correlationId`, delivered immediately.
-class FakeDovahLinkTransport implements DovahLinkTransport {
+class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Every raw text message sent, in order.
   final List<String> sent = <String>[];
 
@@ -130,7 +130,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     unawaited(incoming.close());
   }
 
-  /// See [DovahLinkTransport.connect].
+  /// See [IDovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     final Object? failure = failConnectWith;
@@ -144,7 +144,7 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     _incoming = StreamController<String>();
   }
 
-  /// See [DovahLinkTransport.send].
+  /// See [IDovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     final Object? failure = failSendWith;
@@ -158,11 +158,11 @@ class FakeDovahLinkTransport implements DovahLinkTransport {
     );
   }
 
-  /// See [DovahLinkTransport.messages].
+  /// See [IDovahLinkTransport.messages].
   @override
   Stream<String> get messages => _requireIncoming().stream;
 
-  /// See [DovahLinkTransport.close].
+  /// See [IDovahLinkTransport.close].
   @override
   Future<void> close() async {
     closeCalled = true;

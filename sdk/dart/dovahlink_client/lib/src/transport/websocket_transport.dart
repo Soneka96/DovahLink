@@ -1,10 +1,26 @@
 import 'dart:io';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+/// The raw text-message transport a [DovahLinkClient] sends and receives encoded protocol
+/// envelopes over. Deliberately narrow: framing, connection lifecycle, and message delivery only
+/// -- no protocol knowledge. Implementations own how a connection is actually established (a real
+/// WebSocket, or an in-memory double for tests).
+abstract interface class IDovahLinkTransport {
+  /// Establishes the connection to [uri]. Must be called before [send] or [messages].
+  Future<void> connect(Uri uri);
 
-/// A [DovahLinkTransport] backed by `dart:io`'s built-in [WebSocket] -- no additional package
+  /// Sends one complete text message.
+  Future<void> send(String text);
+
+  /// Emits one complete text message per received frame, in arrival order.
+  Stream<String> get messages;
+
+  /// Closes the connection. Idempotent.
+  Future<void> close();
+}
+
+/// An [IDovahLinkTransport] backed by `dart:io`'s built-in [WebSocket] -- no additional package
 /// dependency needed for this desktop client.
-class WebSocketTransport implements DovahLinkTransport {
+class WebSocketTransport implements IDovahLinkTransport {
   /// The underlying socket, once [connect] has succeeded.
   WebSocket? _socket;
 
@@ -24,7 +40,7 @@ class WebSocketTransport implements DovahLinkTransport {
   /// of every [connect] call, since one transport instance is reused across reconnects.
   bool _abandoned = false;
 
-  /// See [DovahLinkTransport.connect].
+  /// See [IDovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     if (_socket != null) {
@@ -57,13 +73,13 @@ class WebSocketTransport implements DovahLinkTransport {
     });
   }
 
-  /// See [DovahLinkTransport.send].
+  /// See [IDovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     _requireSocket().add(text);
   }
 
-  /// See [DovahLinkTransport.messages].
+  /// See [IDovahLinkTransport.messages].
   @override
   Stream<String> get messages {
     final Stream<String>? messages = _messages;
@@ -73,7 +89,7 @@ class WebSocketTransport implements DovahLinkTransport {
     return messages;
   }
 
-  /// See [DovahLinkTransport.close].
+  /// See [IDovahLinkTransport.close].
   @override
   Future<void> close() async {
     _abandoned = true;
