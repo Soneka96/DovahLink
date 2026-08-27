@@ -142,14 +142,14 @@ The seven Services:
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session
   recovery cohesive in one place.
 - `ISessionTrustService`/`SessionTrustService` — `markTrusted`, a privileged capability injected
-  only into `PairingServiceImpl`.
+  only into `PairingService`.
 - `IRequestService`/`RequestService` — owns pending requests, timeout policy, retry behavior,
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
   `failAll`, `retryOrphanedOperations`. Privately owns `MessageRouter` and
   `PendingOperationTransmitter`.
 - `IAuthenticationService`/`AuthenticationService` — `hello`/authentication and credential
   recovery.
-- `PairingService`/`PairingServiceImpl` — pairing operations.
+- `IPairingService`/`PairingService` — pairing operations.
 - `ReconnectService`/`ReconnectServiceImpl` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
   taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
@@ -198,7 +198,7 @@ Constructor injection is the default and, aside from the three named callbacks b
 wiring mechanism. No service locator, no static/global dependency lookup, no hidden singleton
 access inside a Service implementation. A single Service instance may legitimately be injected into
 multiple consumers — `IRequestService` is injected into `SessionAdmissionService`,
-`AuthenticationService`, and `PairingServiceImpl` — that is expected and does not duplicate the
+`AuthenticationService`, and `PairingService` — that is expected and does not duplicate the
 Service or its state.
 
 No exceptions for privately-owned collaborators. A class never constructs its own dependency —
@@ -291,7 +291,7 @@ dependency; there is no cycle and no callback involved on this side.
 
 `ISessionAdmissionService` and `ISessionTrustService` exist specifically because `admitSession` and
 `markTrusted` are real privileged capabilities that must never be reachable from a class other than
-the one that legitimately performs them — `AuthenticationService` and `PairingServiceImpl`
+the one that legitimately performs them — `AuthenticationService` and `PairingService`
 respectively, and nothing else. This is enforced by the dependency graph itself: no other consumer
 is ever given either interface.
 
@@ -307,7 +307,7 @@ maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustServic
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `IRequestService`,
-`IAuthenticationService`, `PairingService`, `ReconnectService` — depends on the appropriate Service
+`IAuthenticationService`, `IPairingService`, `ReconnectService` — depends on the appropriate Service
 contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
 another service merely because it's needed there; the one documented, accepted exception is
 `AuthenticationService`'s own cached `clientId`/`bridgeVersion`, which are read-caches of values
@@ -317,7 +317,7 @@ of anything `SessionState` owns.
 `SessionAdmissionService` exposes the one write command that admits a newly authenticated
 session (`admitSession`, called once by `AuthenticationService` after a successful `hello`);
 `SessionTrustService` exposes the one write command that upgrades trust standing (`markTrusted`,
-called by `PairingServiceImpl` after a successful pairing acknowledgement). No other class assigns
+called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.
 
 `ReconnectServiceImpl` never assigns connection state directly either: it only drives the same

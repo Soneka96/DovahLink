@@ -1,6 +1,6 @@
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 
-/// Upgrades trust standing, a privileged capability injected only into `PairingServiceImpl`, per
+/// Upgrades trust standing, a privileged capability injected only into `PairingService`, per
 /// `ai/context/sdk/architecture.md`'s "Composing narrow authority". Nothing else may ever upgrade
 /// trust standing.
 abstract interface class ISessionTrustService {

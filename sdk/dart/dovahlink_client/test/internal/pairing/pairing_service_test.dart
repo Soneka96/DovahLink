@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
@@ -22,11 +22,11 @@ class MockRequestService extends Mock implements IRequestService {}
 
 /// Mock session trust service -- its own trust-upgrade logic is
 /// `session_trust_service_test.dart`'s responsibility; this file only proves
-/// [PairingServiceImpl] calls it after a successful acknowledgement.
+/// [PairingService] calls it after a successful acknowledgement.
 class MockSessionTrustService extends Mock implements ISessionTrustService {}
 
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
-/// test file; this file only proves [PairingServiceImpl] reads and writes the right state, and
+/// test file; this file only proves [PairingService] reads and writes the right state, and
 /// never touches it on a rejected outcome.
 class MockClientStorage extends Mock implements IClientStorage {}
 
@@ -89,7 +89,7 @@ void main() {
   late MockRequestService requestService;
   late MockSessionTrustService sessionTrustService;
   late MockClientStorage storage;
-  late PairingServiceImpl service;
+  late PairingService service;
 
   setUpAll(() {
     registerFallbackValue(ProtocolMessageType.pairingRequest);
@@ -112,7 +112,7 @@ void main() {
       (_) async => Fixtures.buildPersistedClientState(clientId: 'client-1'),
     );
     when(() => storage.save(any())).thenAnswer((_) async {});
-    service = PairingServiceImpl(
+    service = PairingService(
       sessionTrustService: sessionTrustService,
       requestService: requestService,
       storage: storage,

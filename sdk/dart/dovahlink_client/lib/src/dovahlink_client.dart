@@ -7,7 +7,6 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service_impl.dart';
@@ -187,7 +186,7 @@ class DovahLinkClient {
         );
       }
     };
-    _pairingService = PairingServiceImpl(
+    _pairingService = PairingService(
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
       storage: _storage,
@@ -217,7 +216,7 @@ class DovahLinkClient {
   late final IAuthenticationService _authenticationService;
 
   /// Owns pairing operations.
-  late final PairingService _pairingService;
+  late final IPairingService _pairingService;
 
   /// Owns bounded automatic recovery from ordinary transport loss.
   late final ReconnectService _reconnectService;
