@@ -9,10 +9,10 @@ namespace dovahlink::application {
 ///  how it reaches the user -- a native Skyrim notification in the real
 ///  implementation (a later phase), a recording double in tests and the
 ///  Skyrim-independent test harness.
-class PairingNotificationSink {
+class IPairingNotificationSink {
   public:
     ///  Releases the interface without performing work.
-    virtual ~PairingNotificationSink() = default;
+    virtual ~IPairingNotificationSink() = default;
 
     ///  Displays `sixDigitCode` to the user for this pairing attempt only. Used
     ///  both for a freshly started challenge and for a manual "show code again"

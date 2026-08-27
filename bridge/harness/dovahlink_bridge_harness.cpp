@@ -76,22 +76,22 @@ class NoOpCallbackRegistry
 ///  for the real Skyrim notification (stage G); a .NET validation-client
 ///  scenario reads this line the same way it already reads the others.
 class StdoutPairingNotificationSink
-    : public dovahlink::application::PairingNotificationSink {
+    : public dovahlink::application::IPairingNotificationSink {
   public:
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingCodeAvailable
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingCodeAvailable
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {
         std::cout << "PAIRING_CODE " << sixDigitCode << std::endl;
     }
 
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingCodeIncorrect
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingCodeIncorrect
     void NotifyPairingCodeIncorrect(std::string_view sixDigitCode) override {
         std::cout << "PAIRING_CODE_INCORRECT " << sixDigitCode << std::endl;
     }
 
     ///  @copydoc
-    ///  dovahlink::application::PairingNotificationSink::NotifyPairingAttemptsExhausted
+    ///  dovahlink::application::IPairingNotificationSink::NotifyPairingAttemptsExhausted
     void NotifyPairingAttemptsExhausted() override {
         std::cout << "PAIRING_ATTEMPTS_EXHAUSTED" << std::endl;
     }

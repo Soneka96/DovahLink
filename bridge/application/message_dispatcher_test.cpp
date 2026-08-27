@@ -25,9 +25,9 @@ using dovahlink::application::ConnectionTimeoutTracker;
 using dovahlink::application::DispatchResult;
 using dovahlink::application::IActivePlayContextReader;
 using dovahlink::application::IPairingHandler;
+using dovahlink::application::IPairingNotificationSink;
 using dovahlink::application::MessageDispatcher;
 using dovahlink::application::PairingHandler;
-using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::ReplayGuard;
 using dovahlink::application::SessionAuthMethod;
 using dovahlink::application::SessionManager;
@@ -75,8 +75,8 @@ class EmptyPersistence : public ITrustStorePersistence {
     bool Save(const TrustStoreSnapshot&) override { return true; }
 };
 
-///  `PairingNotificationSink` double that records every code it is given.
-class RecordingPairingNotificationSink : public PairingNotificationSink {
+///  `IPairingNotificationSink` double that records every code it is given.
+class RecordingPairingNotificationSink : public IPairingNotificationSink {
   public:
     ///  Appends `sixDigitCode` to `codes`.
     void NotifyPairingCodeAvailable(std::string_view sixDigitCode) override {

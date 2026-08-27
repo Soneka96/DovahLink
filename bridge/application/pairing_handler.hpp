@@ -102,7 +102,7 @@ class PairingHandler final : public IPairingHandler {
     ///  redisplays one after a wrong attempt or reports attempts exhausted.
     PairingHandler(security::IPairingSession& pairingSession,
                    ITrustMutationCoordinator& mutationCoordinator,
-                   PairingNotificationSink& notificationSink);
+                   IPairingNotificationSink& notificationSink);
 
     ///  @copydoc IPairingHandler::HandleRequest
     [[nodiscard]] protocol::Envelope
@@ -130,7 +130,7 @@ class PairingHandler final : public IPairingHandler {
     ITrustMutationCoordinator& mutationCoordinator_;
 
     ///  Displays a freshly generated pairing code to the user.
-    PairingNotificationSink& notificationSink_;
+    IPairingNotificationSink& notificationSink_;
 };
 
 ///  Handles a `pairing_ack`: idempotently checks whether `clientId` is already
