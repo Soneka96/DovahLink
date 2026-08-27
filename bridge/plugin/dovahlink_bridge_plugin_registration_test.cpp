@@ -103,8 +103,16 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
         source.find("HandshakeHandler handshakeHandler");
     REQUIRE(handshakeHandlerPos != std::string::npos);
     CHECK(readerPos < handshakeHandlerPos);
-    CHECK(source.find("activePlayContextReader,", handshakeHandlerPos) !=
-          std::string::npos);
+
+    //  Bounded to this statement's own closing paren so the check cannot be
+    //  satisfied by `activePlayContextReader` appearing in the later,
+    //  separate `ConnectionSession` constructor call instead.
+    std::size_t handshakeHandlerEnd = source.find(");", handshakeHandlerPos);
+    REQUIRE(handshakeHandlerEnd != std::string::npos);
+    std::size_t readerInHandshakeHandlerPos =
+        source.find("activePlayContextReader,", handshakeHandlerPos);
+    CHECK(readerInHandshakeHandlerPos != std::string::npos);
+    CHECK(readerInHandshakeHandlerPos < handshakeHandlerEnd);
 
     std::size_t workerPoolPos = source.find("BridgeWorkerPool bridgeWorkerPool");
     REQUIRE(workerPoolPos != std::string::npos);
