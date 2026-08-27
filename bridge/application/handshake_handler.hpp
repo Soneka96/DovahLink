@@ -2,6 +2,7 @@
 
 #include "application/active_play_context_reader.hpp"
 #include "application/connection_timeout_tracker.hpp"
+#include "application/handshake_result.hpp"
 #include "application/session.hpp"
 #include "protocol/envelope.hpp"
 #include "security/failed_token_throttle.hpp"
@@ -14,18 +15,6 @@
 #include <string_view>
 
 namespace dovahlink::application {
-
-///  Result of processing one client hello message.
-struct HandshakeResult {
-    ///  Response envelope to send to the client.
-    protocol::Envelope response;
-
-    ///  Ownership of the authenticated session on success.
-    std::optional<shared::ScopedRelease> sessionLease;
-
-    ///  Whether the connection must close after sending `response`.
-    bool closeConnection = false;
-};
 
 ///  Validates and admits one client hello.
 class IHandshakeHandler {
