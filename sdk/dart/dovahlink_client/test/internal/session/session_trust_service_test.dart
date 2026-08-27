@@ -2,20 +2,20 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 
-/// Mock session state used to isolate [SessionTrustServiceImpl]'s own behavior, per
+/// Mock session state used to isolate [SessionTrustService]'s own behavior, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
 class MockSessionState extends Mock implements SessionState {}
 
 /// Runs session-trust-service behavior tests.
 void main() {
   late MockSessionState state;
-  late SessionTrustServiceImpl service;
+  late SessionTrustService service;
 
   setUp(() {
     state = MockSessionState();
-    service = SessionTrustServiceImpl(state: state);
+    service = SessionTrustService(state: state);
   });
 
   group('Method markTrusted behaves correctly', () {

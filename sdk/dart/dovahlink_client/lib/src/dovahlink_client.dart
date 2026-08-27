@@ -22,7 +22,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_qu
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service_impl.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
@@ -157,7 +157,7 @@ class DovahLinkClient {
 
     final SessionAdmissionService sessionAdmissionService =
         SessionAdmissionService(state: state, requestService: _requestService);
-    final SessionTrustServiceImpl sessionTrustService = SessionTrustServiceImpl(
+    final SessionTrustService sessionTrustService = SessionTrustService(
       state: state,
     );
     final ClientIdResolver clientIdResolver = ClientIdResolver(

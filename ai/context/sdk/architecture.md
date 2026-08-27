@@ -141,7 +141,7 @@ The seven Services:
   injected only into `AuthenticationServiceImpl`. Also triggers `RequestService`'s
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session
   recovery cohesive in one place.
-- `SessionTrustService`/`SessionTrustServiceImpl` — `markTrusted`, a privileged capability injected
+- `ISessionTrustService`/`SessionTrustService` — `markTrusted`, a privileged capability injected
   only into `PairingServiceImpl`.
 - `RequestService`/`RequestServiceImpl` — owns pending requests, timeout policy, retry behavior,
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
@@ -289,7 +289,7 @@ dependency; there is no cycle and no callback involved on this side.
 
 ### Composing narrow authority
 
-`ISessionAdmissionService` and `SessionTrustService` exist specifically because `admitSession` and
+`ISessionAdmissionService` and `ISessionTrustService` exist specifically because `admitSession` and
 `markTrusted` are real privileged capabilities that must never be reachable from a class other than
 the one that legitimately performs them — `AuthenticationServiceImpl` and `PairingServiceImpl`
 respectively, and nothing else. This is enforced by the dependency graph itself: no other consumer
@@ -302,7 +302,7 @@ single authoritative owner of every session-scoped mutable fact this engine has:
 `sessionId`, trust state, the administrative invalidation reason, the connection generation, the
 last-connected URI, and the transport's message subscription. Direct `SessionState` access is
 limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustServiceImpl`, and
+maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustService`, and
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
@@ -316,7 +316,7 @@ of anything `SessionState` owns.
 
 `SessionAdmissionService` exposes the one write command that admits a newly authenticated
 session (`admitSession`, called once by `AuthenticationServiceImpl` after a successful `hello`);
-`SessionTrustServiceImpl` exposes the one write command that upgrades trust standing (`markTrusted`,
+`SessionTrustService` exposes the one write command that upgrades trust standing (`markTrusted`,
 called by `PairingServiceImpl` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.
 

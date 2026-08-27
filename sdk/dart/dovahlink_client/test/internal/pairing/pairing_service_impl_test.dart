@@ -21,9 +21,9 @@ import '../../fixtures/fixtures.dart';
 class MockRequestService extends Mock implements RequestService {}
 
 /// Mock session trust service -- its own trust-upgrade logic is
-/// `session_trust_service_impl_test.dart`'s responsibility; this file only proves
+/// `session_trust_service_test.dart`'s responsibility; this file only proves
 /// [PairingServiceImpl] calls it after a successful acknowledgement.
-class MockSessionTrustService extends Mock implements SessionTrustService {}
+class MockSessionTrustService extends Mock implements ISessionTrustService {}
 
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
 /// test file; this file only proves [PairingServiceImpl] reads and writes the right state, and
