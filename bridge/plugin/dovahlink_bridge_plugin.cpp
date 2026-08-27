@@ -11,8 +11,10 @@
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/character_state_store.hpp"
+#include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
 #include "application/game_behavior_config.hpp"
+#include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/session.hpp"
@@ -301,12 +303,17 @@ SKSEPluginInfo(
                                                                    listenerV6);
     static dovahlink::application::TrustMutationCoordinator
         trustMutationCoordinator(trustStore, pairingSession, sessionManager);
-    static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
-        listenerV4, listenerV6, connectionSlot, tokenStore, tokenThrottle,
-        trustStore, credentialThrottle, sessionManager, activePlayContextReader,
-        activeSessionSocket, pairingSession, trustMutationCoordinator,
-        pairingNotificationSink,
+    static dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContextReader, bridgeInstanceId,
+        kBridgeVersion);
+    static dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContextReader,
+        pairingSession, trustMutationCoordinator, pairingNotificationSink,
         bridgeInstanceId, kBridgeVersion);
+    static dovahlink::application::BridgeWorkerPool bridgeWorkerPool(
+        listenerV4, listenerV6, connectionSlot, activeSessionSocket,
+        connectionSession);
 
     //  Registers the optional trust-administration console adapter
     //  (ai/context/protocol/security.md's "Trust administration surface").

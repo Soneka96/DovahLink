@@ -159,7 +159,7 @@ as permanently unavailable. The required token length, source, and failure behav
 ### Known limitation: no reconnect after a successful session, within one bridge lifetime
 
 `TokenStore` has no awareness of session lifecycle: committing a matching reservation marks the token consumed
-permanently, and nothing -- not `RunConnectionSession`'s cleanup, not a disconnect, not a
+permanently, and nothing -- not `ConnectionSession::Run`'s cleanup, not a disconnect, not a
 timeout -- ever makes it available again. This is deliberate, not an oversight, but it has a real
 consequence: once one connection successfully authenticates, no later connection -- the same
 client reconnecting after a network blip or app restart, or any other client -- can ever

@@ -35,8 +35,10 @@ using dovahlink::application::ActiveSessionDisconnector;
 using dovahlink::application::ActiveSessionSocket;
 using dovahlink::application::BridgeWorkerPool;
 using dovahlink::application::ConnectionId;
+using dovahlink::application::ConnectionSession;
 using dovahlink::application::ContainedWork;
 using dovahlink::application::ContainedWorkRunner;
+using dovahlink::application::HandshakeHandler;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionAuthMethod;
@@ -82,7 +84,7 @@ class EmptyPersistence : public ITrustStorePersistence {
 ///  `PairingNotificationSink` double that records every code it is given.
 ///  Pairing behavior itself is exercised in message_dispatcher_test.cpp and
 ///  pairing_handler_test.cpp; these tests only need a working sink to satisfy
-///  `BridgeWorkerPool`'s signature.
+///  `ConnectionSession`'s signature.
 class RecordingPairingNotificationSink : public PairingNotificationSink {
   public:
     ///  Appends `sixDigitCode` to `codes`.
@@ -158,22 +160,28 @@ struct Fixture {
     ///  Exposes the trust-facing disconnection capability under test.
     ActiveSessionDisconnector activeSessionDisconnector{
         activeSessionController};
+    ///  Validates and admits each accepted connection's hello.
+    HandshakeHandler handshakeHandler{tokenStore,
+                                      tokenThrottle,
+                                      trustStore,
+                                      credentialThrottle,
+                                      sessionManager,
+                                      activePlayContext,
+                                      /*bridgeInstanceId=*/std::nullopt,
+                                      /*bridgeVersion=*/kBridgeVersion};
+    ///  Runs each accepted connection's full session.
+    ConnectionSession connectionSession{handshakeHandler,
+                                        trustStore,
+                                        sessionManager,
+                                        activePlayContext,
+                                        pairingSession,
+                                        mutationCoordinator,
+                                        pairingNotificationSink,
+                                        /*bridgeInstanceId=*/std::nullopt,
+                                        /*bridgeVersion=*/kBridgeVersion};
     ///  Runs the production worker-pool/session path under test.
-    BridgeWorkerPool pool{listenerV4,
-                          listenerV6,
-                          slot,
-                          tokenStore,
-                          tokenThrottle,
-                          trustStore,
-                          credentialThrottle,
-                          sessionManager,
-                          activePlayContext,
-                          activeSessionSocket,
-                          pairingSession,
-                          mutationCoordinator,
-                          pairingNotificationSink,
-                          /*bridgeInstanceId=*/std::nullopt,
-                          /*bridgeVersion=*/kBridgeVersion};
+    BridgeWorkerPool pool{listenerV4, listenerV6, slot, activeSessionSocket,
+                          connectionSession};
 };
 
 } //  namespace
