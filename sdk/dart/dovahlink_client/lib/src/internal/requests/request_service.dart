@@ -8,7 +8,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
 /// per `IDovahLinkTransport` connection; see `ai/context/sdk/architecture.md`'s "Inbound message
 /// handling" for the correlation model this implements, and "Request/session boundary" for why
-/// [sendAndAwait] checks `SessionService.connectionState` instead of the eliminated
+/// [sendAndAwait] checks `ISessionService.connectionState` instead of the eliminated
 /// `ensureReceiving` mechanism.
 abstract interface class RequestService {
   /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. Fails

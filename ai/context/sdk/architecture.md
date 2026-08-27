@@ -132,7 +132,7 @@ collaborator's own dependency port and pass `this`.
 
 The seven Services:
 
-- `SessionService`/`SessionServiceImpl` — owns transport lifecycle, connection state, and stream
+- `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
   `currentTrustState`, `invalidationReason`), and the reactive signals `onUnhealthy`,
   `onProtocolViolation`, `onSessionInvalidated`, `onUnsolicitedError`. Privately owns
@@ -152,7 +152,7 @@ The seven Services:
 - `PairingService`/`PairingServiceImpl` — pairing operations.
 - `ReconnectService`/`ReconnectServiceImpl` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
-  taking over transport or authentication state from `SessionService`/`AuthenticationService`.
+  taking over transport or authentication state from `ISessionService`/`AuthenticationService`.
 
 Each interface and its implementation are named classes in their own files under `src/`, absent
 from the public barrel per `ai/context/sdk/api-design.md`'s "curated public exports".
@@ -219,7 +219,7 @@ inversion points, not permission to bypass the rule for ordinary collaborators.
 
 ### Callbacks
 
-Exactly three late-bound, function-typed, nullable fields exist on `SessionServiceImpl`, each
+Exactly three late-bound, function-typed, nullable fields exist on `SessionService`, each
 because a named constructor dependency in that direction would create a genuine construction-order
 cycle:
 
@@ -227,28 +227,28 @@ These are the SDK's explicitly enumerated lifecycle-inversion exceptions to ordi
 injection. They are typed, assigned once by the composition root, and do not construct or resolve
 implementations.
 
-1. **Teardown notification** → `RequestService.failAll`. `SessionServiceImpl` can detect a
+1. **Teardown notification** → `RequestService.failAll`. `SessionService` can detect a
    connection failure entirely internally (its own transport subscription's `onError`/`onDone`) and
    must trigger pending-operation failure/orphaning after tearing down, but cannot hold a
-   `RequestService` reference, because `RequestServiceImpl` is constructed after `SessionServiceImpl`
-   and itself depends on `SessionService`. Assigned once by the composition root as a method
-   tear-off (`sessionServiceImpl.onTeardown = requestServiceImpl.failAll`), not as
+   `RequestService` reference, because `RequestServiceImpl` is constructed after `SessionService`
+   and itself depends on `ISessionService`. Assigned once by the composition root as a method
+   tear-off (`sessionService.onTeardown = requestServiceImpl.failAll`), not as
    `RequestServiceImpl` implementing a second interface. Gated by the same generation check
    `ConnectionTeardownCoordinator` already uses internally, so a duplicate `onError`+`onDone` signal
    for one dead connection fires the callback exactly once, never twice, and a later, genuinely new
    teardown still fires it again.
 2. **Ordinary transport-loss notification** → drives `ReconnectServiceImpl`'s recovery start. Same
-   reasoning: `ReconnectServiceImpl` needs `SessionService` and `AuthenticationService` as
-   constructor dependencies, so `SessionServiceImpl` cannot hold a matching `ReconnectService`
+   reasoning: `ReconnectServiceImpl` needs `ISessionService` and `AuthenticationService` as
+   constructor dependencies, so `SessionService` cannot hold a matching `ReconnectService`
    reference without a cycle.
-3. **Incoming-message forwarding** → `RequestService.handleIncoming`. `SessionServiceImpl` owns
+3. **Incoming-message forwarding** → `RequestService.handleIncoming`. `SessionService` owns
    starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
    session boundary" below) and is the only class that ever sees a raw inbound message land, but
    decoding, correlation, and unsolicited routing belong to `RequestService`, and the same
-   construction-order cycle applies: `RequestServiceImpl` depends on `SessionService`, so
-   `SessionServiceImpl` cannot hold a `RequestService` reference. Assigned by the composition root
-   alongside `onTeardown` (`sessionServiceImpl.onIncomingMessage = requestServiceImpl.handleIncoming`).
-   `SessionServiceImpl`'s own subscription handler discards a message from an already-superseded
+   construction-order cycle applies: `RequestServiceImpl` depends on `ISessionService`, so
+   `SessionService` cannot hold a `RequestService` reference. Assigned by the composition root
+   alongside `onTeardown` (`sessionService.onIncomingMessage = requestServiceImpl.handleIncoming`).
+   `SessionService`'s own subscription handler discards a message from an already-superseded
    connection generation before this callback ever runs, so a stale message never reaches
    `RequestService`.
 
@@ -258,9 +258,9 @@ needed, that is a signal to stop and re-derive the dependency graph, not to add 
 
 ### Request/session boundary
 
-`RequestService` depends on `SessionService` (a normal constructor dependency, not a callback —
+`RequestService` depends on `ISessionService` (a normal constructor dependency, not a callback —
 there is no construction cycle in this direction) for two reasons. First, reads: `sendAndAwait`
-checks `SessionService.connectionState` before transmitting and fails immediately with a typed
+checks `ISessionService.connectionState` before transmitting and fails immediately with a typed
 `DovahLinkConnectionException` unless it is `connected` -- with one narrow exception: `hello`
 itself is admitted while `reauthenticating`, since that is precisely the message a bounded-recovery
 attempt sends to find out whether this device is trusted, blocked, or revoked, and it cannot itself
@@ -274,17 +274,17 @@ orphaned is a separate mechanism, unaffected by this guard: `RequestServiceImpl.
 retransmits it directly, bypassing
 `sendAndAwait` entirely, only after `SessionAdmissionServiceImpl` admits a fresh session
 post-reconnect (see "Internal composition" above). Starting the transport's
-inbound subscription is fully private to `SessionServiceImpl.connect()`'s own implementation and is
-never exposed on `SessionService`'s interface: a successful `connect()` already guarantees receiving
+inbound subscription is fully private to `SessionService.connect()`'s own implementation and is
+never exposed on `ISessionService`'s interface: a successful `connect()` already guarantees receiving
 is active for the connection's whole lifetime, so the `connectionState` check alone is enough to
 guard a caller that sends before `connect` was ever called, without leaking receiver/subscription
 plumbing into a public contract. Second, reports: the four reactive signals
 (`onUnhealthy`, `onProtocolViolation`, `onSessionInvalidated`, `onUnsolicitedError`) are genuine
-members of `SessionService`'s one interface, not internal plumbing that happens to need a home —
+members of `ISessionService`'s one interface, not internal plumbing that happens to need a home —
 they are the reactive half of the same domain concept `connect`/`disconnect` are the commanded half
 of ("owning a connection's lifecycle"), carrying genuinely different, already-well-typed payloads
 that don't reduce to a redundant restatement of something else `RequestService` could already see.
-`RequestServiceImpl`, constructed after `SessionServiceImpl`, calls these directly as a normal
+`RequestServiceImpl`, constructed after `SessionService`, calls these directly as a normal
 dependency; there is no cycle and no callback involved on this side.
 
 ### Composing narrow authority
@@ -302,8 +302,8 @@ single authoritative owner of every session-scoped mutable fact this engine has:
 `sessionId`, trust state, the administrative invalidation reason, the connection generation, the
 last-connected URI, and the transport's message subscription. Direct `SessionState` access is
 limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionServiceImpl`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`, and
-`ConnectionTeardownCoordinator` (`SessionServiceImpl`'s own supporting collaborator, per
+maintaining it: `SessionService`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`, and
+`ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `RequestService`,
@@ -321,13 +321,13 @@ called by `PairingServiceImpl` after a successful pairing acknowledgement). No o
 `sessionId` or trust state directly.
 
 `ReconnectServiceImpl` never assigns connection state directly either: it only drives the same
-`connect`/`disconnect` commands (via `SessionService`) and the same `hello` call (via
+`connect`/`disconnect` commands (via `ISessionService`) and the same `hello` call (via
 `AuthenticationService`, an explicit constructor dependency) any other caller uses.
-`SessionServiceImpl` still decides the resulting state transitions itself -- entering `reconnecting`
+`SessionService` still decides the resulting state transitions itself -- entering `reconnecting`
 only after ordinary transport loss tears down cleanly with a known endpoint (driving
 `ReconnectServiceImpl` through the `onOrdinaryTransportLoss` callback above), moving to
 `reauthenticating` once a recovery attempt's transport reconnects (trust not yet confirmed), and
 resolving out of that to `connected` (that attempt's `hello` actually admits a session) or
 `disconnected` (a deliberate disconnect, an administrative invalidation, or the reconnect service's
-own final give-up) -- so `ReconnectServiceImpl` orchestrates *when* to retry while `SessionServiceImpl`
+own final give-up) -- so `ReconnectServiceImpl` orchestrates *when* to retry while `SessionService`
 remains the sole owner of *what state that produces*.

@@ -16,7 +16,7 @@ class ConnectionTeardownCoordinator {
   /// Fails or orphans pending operations after resource cleanup completes. A plain callback,
   /// rather than a constructor dependency on the pending-operation owner itself, so a caller
   /// whose own pending-operation owner does not exist yet at construction time (see
-  /// `SessionServiceImpl.onTeardown`) can supply a forwarding closure instead.
+  /// `SessionService.onTeardown`) can supply a forwarding closure instead.
   final void Function(
     Exception reason, {
     required bool orphanRetrySafeOperations,

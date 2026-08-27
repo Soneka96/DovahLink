@@ -10,7 +10,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to capture unsolicited-message decisions.
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Runs unsolicited-message handler behavior tests.
 void main() {

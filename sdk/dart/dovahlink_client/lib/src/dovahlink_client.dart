@@ -21,7 +21,6 @@ import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_co
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/session/session_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
@@ -114,8 +113,8 @@ class DovahLinkClient {
     // Forwards to `_sessionService.onTeardown`, referenced here before `_sessionService` is
     // assigned below -- resolved only when a real teardown later invokes it, by which point
     // construction has completed. `ConnectionTeardownCoordinator` must exist before
-    // `SessionServiceImpl` (which owns it), but the failure handler it needs can only be supplied
-    // by `RequestServiceImpl`, which itself depends on `SessionService` and so must be built after
+    // `SessionService` (which owns it), but the failure handler it needs can only be supplied
+    // by `RequestServiceImpl`, which itself depends on `ISessionService` and so must be built after
     // it -- see `ai/context/sdk/architecture.md`'s "Callbacks".
     final ConnectionTeardownCoordinator teardownCoordinator =
         ConnectionTeardownCoordinator(
@@ -129,7 +128,7 @@ class DovahLinkClient {
                   ),
           state: state,
         );
-    _sessionService = SessionServiceImpl(
+    _sessionService = SessionService(
       transport: transport,
       state: state,
       lifecycleQueue: lifecycleQueue,
@@ -212,9 +211,9 @@ class DovahLinkClient {
   /// Owns transport lifecycle, connection state, and stream ownership -- the sole owner of every
   /// socket-scoped field this client has; see `ai/context/sdk/architecture.md`'s "Session-state
   /// ownership". This façade never assigns session state directly; session transitions remain
-  /// owned by [SessionServiceImpl]. Typed as the implementation, not [SessionService], because only
+  /// owned by [SessionService]. Typed as the implementation, not [ISessionService], because only
   /// [DovahLinkClient] itself assigns its late-bound callback fields.
-  late final SessionServiceImpl _sessionService;
+  late final SessionService _sessionService;
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final RequestService _requestService;
@@ -241,7 +240,7 @@ class DovahLinkClient {
 
   /// A stream of every [connectionState] transition: the current value immediately on listen,
   /// then each subsequent real change -- including administrative invalidation, without waiting
-  /// for another request to notice it. See [SessionService.connectionStateChanges].
+  /// for another request to notice it. See [ISessionService.connectionStateChanges].
   Stream<DovahLinkConnectionState> get connectionStateChanges =>
       _sessionService.connectionStateChanges;
 

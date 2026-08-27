@@ -13,14 +13,14 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Reconnects to the endpoint the session last connected to and re-authenticates, up to a bounded
 /// attempt budget and a hard overall deadline (each defaulting to the centrally tuned
 /// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
-/// `SessionServiceImpl` continues to own transport/session state and teardown, and
+/// `SessionService` continues to own transport/session state and teardown, and
 /// `AuthenticationServiceImpl` continues to own authentication; this class only orchestrates when
 /// and how often to retry both. [sessionService] and [authenticationService] are supplied by the
 /// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
 /// constructs one of its own dependencies.
 class ReconnectServiceImpl implements ReconnectService {
   /// Reconnects to and disconnects from the bridge, and reports live connection state.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Re-authenticates the reconnected transport, admitting a fresh session on success.
   final AuthenticationService _authenticationService;
@@ -42,7 +42,7 @@ class ReconnectServiceImpl implements ReconnectService {
   /// Creates a reconnect service recovering through [sessionService], re-authenticating through
   /// [authenticationService].
   ReconnectServiceImpl({
-    required SessionService sessionService,
+    required ISessionService sessionService,
     required AuthenticationService authenticationService,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration deadline = kReconnectDeadline,

@@ -1,5 +1,5 @@
 /// Owns bounded automatic recovery from ordinary transport loss, per
-/// `ai/context/sdk/architecture.md`'s "Internal composition". Driven by `SessionServiceImpl`
+/// `ai/context/sdk/architecture.md`'s "Internal composition". Driven by `SessionService`
 /// through the `onOrdinaryTransportLoss` callback described in
 /// `ai/context/sdk/architecture.md`'s "Callbacks".
 abstract interface class ReconnectService {

@@ -12,20 +12,20 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition" and "Inbound message handling". Does
 /// not itself own connection state or transport lifecycle -- a decoded event it cannot resolve
 /// itself (a correlated reply, an authoritative `session_invalidated` push, a protocol violation)
-/// is reported to [SessionService] or resolved through [PendingOperationBookkeeping] instead.
+/// is reported to [ISessionService] or resolved through [PendingOperationBookkeeping] instead.
 class MessageRouter {
   /// Where a correlated reply is resolved by its correlation ID.
   final PendingOperationBookkeeping _bookkeeping;
 
   /// Where an unsolicited `session_invalidated` push and every protocol violation this router
   /// detects are reported.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Creates a message router resolving correlated replies through [bookkeeping] and
   /// reporting everything else to [sessionService].
   MessageRouter({
     required PendingOperationBookkeeping bookkeeping,
-    required SessionService sessionService,
+    required ISessionService sessionService,
   }) : _bookkeeping = bookkeeping,
        _sessionService = sessionService {
     _unsolicitedMessageHandler = UnsolicitedMessageHandler(

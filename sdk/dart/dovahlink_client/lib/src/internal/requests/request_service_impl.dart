@@ -16,11 +16,11 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// [PendingOperationTransmitter], [MessageRouter]) is supplied by the caller per
 /// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
 /// its own dependencies. [PendingOperationTransmitter] and [MessageRouter] depend directly on
-/// [SessionService] and [PendingOperationBookkeeping], the same instances this class holds --
+/// [ISessionService] and [PendingOperationBookkeeping], the same instances this class holds --
 /// no adapter stands between them.
 class RequestServiceImpl implements RequestService {
   /// The session this service reads identity/trust from.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Owns every pending and orphaned-for-retry operation this service tracks.
   final PendingOperationBookkeeping _bookkeeping;
@@ -34,7 +34,7 @@ class RequestServiceImpl implements RequestService {
   /// Creates a request service over already-constructed [sessionService], [bookkeeping],
   /// [transmitter], and [messageRouter].
   RequestServiceImpl({
-    required SessionService sessionService,
+    required ISessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,
     required PendingOperationTransmitter transmitter,
     required MessageRouter messageRouter,
@@ -44,7 +44,7 @@ class RequestServiceImpl implements RequestService {
        _messageRouter = messageRouter;
 
   /// Implements [RequestService.sendAndAwait]. Fails immediately, before registering or
-  /// transmitting anything, unless [SessionService.connectionState] is currently `connected` --
+  /// transmitting anything, unless [ISessionService.connectionState] is currently `connected` --
   /// replacing the eliminated `ensureReceiving` mechanism per
   /// `ai/context/sdk/architecture.md`'s "Request/session boundary". The one narrow exception is
   /// [ProtocolMessageType.hello] itself while `reauthenticating` -- that is precisely the message

@@ -81,7 +81,7 @@ mocktail mock (`class MockX extends Mock implements X {}`) for synchronous, stat
 interaction-only dependencies; use a controllable thread-safe fake when timing, lifetime,
 cross-thread access, synchronization, or mutable state is part of the behavior under test. This
 applies uniformly to every class this package tests, not only the seven
-Services: `SessionServiceImpl`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
+Services: `SessionService`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
 `ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
 `PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks
 `LifecycleOperationQueue`, in turn. A class's own test file is the only place that class's real
@@ -101,11 +101,11 @@ A consumer's test suite proves its own reaction to a dependency's contract — s
 failure mode, each retry/terminal classification the dependency's typed result or exception exposes,
 and (for a mocked collaborator) that the right method was called with the right arguments — and must
 not become a second test suite for that dependency's own internal branches, which stay owned by the
-dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `SessionService` and
+dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `ISessionService` and
 `AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
 bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
-`AuthenticationServiceImpl`'s tests mock `SessionService`, `SessionAdmissionService`, `RequestService`,
+`AuthenticationServiceImpl`'s tests mock `ISessionService`, `SessionAdmissionService`, `RequestService`,
 and `IClientStorage`. `SessionAdmissionServiceImpl`'s and `SessionTrustServiceImpl`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
@@ -118,10 +118,10 @@ codebase; every Service interface exists because of a genuine architectural reas
 
 Two behaviors need their own explicit tests, not just whatever coverage happens to exist elsewhere:
 
-- `SessionServiceImpl`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
+- `SessionService`'s `onTeardown` callback must fire exactly once per real, non-stale teardown,
   and never fire for a duplicate signal belonging to an already-torn-down generation (for example a
   transport's `onError` and `onDone` both firing for one dead connection). Under "Service test
-  boundaries"' full mock isolation, `SessionServiceImpl`'s own test proves only that it calls
+  boundaries"' full mock isolation, `SessionService`'s own test proves only that it calls
   `ConnectionTeardownCoordinator.tearDown` with the right arguments for each reactive signal;
   `ConnectionTeardownCoordinator`'s own generation-check dedup logic is proven in its own test file;
   the full, real, composed guarantee (a real coordinator over a real queue actually deduplicating a

@@ -18,7 +18,7 @@ import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to control connection state and trust state, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock pending-operation bookkeeping -- its own fail/orphan logic is
 /// `pending_operation_bookkeeping_test.dart`'s responsibility; this file only proves

@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// The single authoritative owner of every session-scoped mutable fact this engine has, per
 /// `ai/context/sdk/architecture.md`'s "Session-state ownership". Created exactly once by the
 /// composition root and shared by direct reference only with the session subsystem's own internal
-/// components (`SessionServiceImpl`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`) that
+/// components (`SessionService`, `SessionAdmissionServiceImpl`, `SessionTrustServiceImpl`) that
 /// legitimately participate in maintaining it; every other consumer depends on the appropriate
 /// Service contract instead. A plain, direct-noun supporting class per
 /// `ai/context/sdk/architecture.md`'s "Not everything is a Service" -- it holds state and exposes

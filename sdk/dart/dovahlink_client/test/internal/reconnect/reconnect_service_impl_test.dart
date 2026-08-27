@@ -12,7 +12,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Mock session service used to control connection state and count recovery attempts, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock authentication service -- its own `hello`/recovery logic is
 /// `authentication_service_impl_test.dart`'s responsibility; this file only proves

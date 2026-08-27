@@ -18,7 +18,7 @@ import '../../fixtures/fixtures.dart';
 
 /// Mock session service used to isolate authentication service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock session admission service -- its own admit/retry logic is
 /// `session_admission_service_impl_test.dart`'s responsibility; this file only proves

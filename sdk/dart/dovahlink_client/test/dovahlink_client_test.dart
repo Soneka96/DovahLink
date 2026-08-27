@@ -669,7 +669,7 @@ void main() {
       );
 
       expect(transport.closeCalled, isTrue);
-      // The send failure is ordinary transport loss, so SessionServiceImpl hands off to bounded
+      // The send failure is ordinary transport loss, so SessionService hands off to bounded
       // automatic reconnect once teardown resolves to disconnected. Clear the injected send
       // failure first so the recovery attempt's own re-authentication does not fail the same way
       // and repeat the same hand-off, then deliberately disconnect before its delayed next

@@ -19,7 +19,7 @@ class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 
 /// Mock session service used to supply the current session identity and capture timeout and
 /// send-failure notifications, per `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockSessionService extends Mock implements SessionService {}
+class MockSessionService extends Mock implements ISessionService {}
 
 /// Mock pending-operation owner used to capture message-ID registration and failure.
 class MockPendingOperationBookkeeping extends Mock
@@ -35,7 +35,7 @@ const Map<TimeoutClass, Duration> _shortTimeouts = <TimeoutClass, Duration>{
 /// Builds a transmitter from the supplied test doubles and timeout policy.
 PendingOperationTransmitter buildTransmitter({
   required IDovahLinkTransport transport,
-  required SessionService sessionService,
+  required ISessionService sessionService,
   required PendingOperationBookkeeping bookkeeping,
   Map<TimeoutClass, Duration> timeoutDurations = _shortTimeouts,
 }) => PendingOperationTransmitter(

@@ -21,7 +21,7 @@ class PendingOperationTransmitter {
 
   /// Supplies the session ID stamped onto the outgoing envelope, and receives timeout and
   /// transport-failure notifications.
-  final SessionService _sessionService;
+  final ISessionService _sessionService;
 
   /// Owns registration and terminal failure of the pending operation.
   final PendingOperationBookkeeping _bookkeeping;
@@ -30,7 +30,7 @@ class PendingOperationTransmitter {
   PendingOperationTransmitter({
     required IDovahLinkTransport transport,
     required Map<TimeoutClass, Duration> timeoutDurations,
-    required SessionService sessionService,
+    required ISessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,
   }) : _transport = transport,
        _timeoutDurations = timeoutDurations,
@@ -41,7 +41,7 @@ class PendingOperationTransmitter {
   final RandomIdGenerator _randomIdGenerator = RandomIdGenerator();
 
   /// Generates a message ID, registers [operation], arms its timeout, and sends its envelope.
-  /// Send and timeout failures are reported through [SessionService] rather than failed directly
+  /// Send and timeout failures are reported through [ISessionService] rather than failed directly
   /// here, so a timed-out operation is failed or orphaned for retry through the same
   /// connection-teardown path as every other pending operation on the connection, per
   /// [RequestPolicy.retrySafe] -- not force-failed ahead of its siblings merely because its own
