@@ -27,79 +27,106 @@ struct HandshakeResult {
     bool closeConnection = false;
 };
 
-///  Validates one decoded hello and consumes the presented credential only after
-///  session admission succeeds. Credentialed attempts reserve one failed-auth
-///  slot before validation; invalid credentials commit that slot, while
-///  successful or abandoned attempts release it. Successful handshakes bind a
-///  new session to `connection`; failures close the connection. Branches on
-///  `hello.auth.method`: `one_time_local_token` (developer authentication,
-///  admits `kFull`) and `trusted_device_credential` (a persisted pairing
-///  credential checked via `trustStore.Authenticate`, admits `kFull`) both
-///  require a matching secret; `unpaired` requires none and admits
-///  `kRestricted`. `hello_ack.clientIdentityKind` is `"paired"` only for
-///  `trusted_device_credential`; both other methods report `"unpaired"`, per
-///  `security.md`'s "Hello authentication and session trust tiers".
-///  @param helloEnvelope Decoded client hello envelope.
-///  @param tokenStore One-time token store, consulted for `auth.method:
-///  "one_time_local_token"`.
-///  @param tokenThrottle Global failed one-time-token attempt throttle; its
-///      reservation is held through validation and session admission.
-///  @param trustStore Persistent trust store, consulted for `auth.method:
-///      "trusted_device_credential"`.
-///  @param credentialThrottle Global failed device-credential attempt throttle,
-///      separate from `tokenThrottle` so guessing one cannot block or be blocked
-///      by the other; its reservation is held through validation and session
-///      admission.
-///  @param sessionManager Session registry.
-///  @param connection Transport connection identifier.
-///  @param timeoutTracker Connection timeout tracker.
-///  @param now Current monotonic time.
-///  @param bridgeInstanceId This bridge process's identity, stamped onto the
-///  response; no value if
-///      generation failed at startup, or if this call site does not participate
-///      in identity stamping (the default, for callers that do not care, e.g.
-///      most handshake-mechanics tests).
-///  @param activePlayContext Source of the play context active at connect time,
-///  stamped onto the
-///      response's `playContextId`; an empty (kNoContext) default when
-///      unspecified.
-///  @param bridgeVersion The DovahLink Bridge/mod release version exposed to the
-///  client in
-///      `hello_ack.bridgeVersion` for its own compatibility check
-///      (`ai/context/protocol/compatibility.md`); a placeholder default for call
-///      sites that do not exercise bridge-version behavior.
-///  @return Response envelope and close decision for the connection.
-[[nodiscard]] HandshakeResult
-HandleHello(const protocol::Envelope& helloEnvelope,
-            security::ITokenStore& tokenStore,
-            security::IFailedTokenThrottle& tokenThrottle,
-            security::ITrustStore& trustStore,
-            security::IFailedTokenThrottle& credentialThrottle,
-            ISessionManager& sessionManager, ConnectionId connection,
-            ConnectionTimeoutTracker& timeoutTracker,
-            std::chrono::steady_clock::time_point now,
-            const std::optional<std::string>& bridgeInstanceId = std::nullopt,
-            const IActivePlayContextReader* activePlayContext = nullptr,
-            const std::string& bridgeVersion = "0.0.0");
+///  Validates and admits one client hello.
+class IHandshakeHandler {
+  public:
+    ///  Releases the interface without performing work.
+    virtual ~IHandshakeHandler() = default;
 
-///  Compatibility overload for callers that have an active play-context
-///  capability available.
-[[nodiscard]] HandshakeResult
-HandleHello(const protocol::Envelope& helloEnvelope,
-            security::ITokenStore& tokenStore,
-            security::IFailedTokenThrottle& tokenThrottle,
-            security::ITrustStore& trustStore,
-            security::IFailedTokenThrottle& credentialThrottle,
-            ISessionManager& sessionManager, ConnectionId connection,
-            ConnectionTimeoutTracker& timeoutTracker,
-            std::chrono::steady_clock::time_point now,
-            const std::optional<std::string>& bridgeInstanceId,
-            const IActivePlayContextReader& activePlayContext,
-            const std::string& bridgeVersion = "0.0.0");
+    ///  Validates one decoded hello and consumes the presented credential only
+    ///  after session admission succeeds. Credentialed attempts reserve one
+    ///  failed-auth slot before validation; invalid credentials commit that
+    ///  slot, while successful or abandoned attempts release it. Successful
+    ///  handshakes bind a new session to `connection`; failures close the
+    ///  connection. Branches on `hello.auth.method`: `one_time_local_token`
+    ///  (developer authentication, admits `kFull`) and
+    ///  `trusted_device_credential` (a persisted pairing credential checked via
+    ///  the trust store's `Authenticate`, admits `kFull`) both require a
+    ///  matching secret; `unpaired` requires none and admits `kRestricted`.
+    ///  `hello_ack.clientIdentityKind` is `"paired"` only for
+    ///  `trusted_device_credential`; both other methods report `"unpaired"`,
+    ///  per `security.md`'s "Hello authentication and session trust tiers".
+    ///  @param helloEnvelope Decoded client hello envelope.
+    ///  @param connection Transport connection identifier.
+    ///  @param timeoutTracker Connection timeout tracker.
+    ///  @param now Current monotonic time.
+    ///  @return Response envelope and close decision for the connection.
+    [[nodiscard]] virtual HandshakeResult
+    Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
+           ConnectionTimeoutTracker& timeoutTracker,
+           std::chrono::steady_clock::time_point now) = 0;
+};
+
+///  Binds handshake validation to its plugin-lifetime collaborators, per
+///  `ai/context/skse/cpp-style.md`'s rule against a free function mixing
+///  lifetime collaborators with per-call data.
+class HandshakeHandler final : public IHandshakeHandler {
+  public:
+    ///  Binds every collaborator `Handle` needs.
+    ///  @param tokenStore One-time token store, consulted for `auth.method:
+    ///  "one_time_local_token"`.
+    ///  @param tokenThrottle Global failed one-time-token attempt throttle; its
+    ///      reservation is held through validation and session admission.
+    ///  @param trustStore Persistent trust store, consulted for `auth.method:
+    ///      "trusted_device_credential"`.
+    ///  @param credentialThrottle Global failed device-credential attempt
+    ///  throttle, separate from `tokenThrottle` so guessing one cannot block or
+    ///      be blocked by the other; its reservation is held through validation
+    ///      and session admission.
+    ///  @param sessionManager Session registry.
+    ///  @param activePlayContext Source of the play context active at connect
+    ///  time, stamped onto the response's `playContextId`.
+    ///  @param bridgeInstanceId This bridge process's identity, stamped onto
+    ///  the response; no value if generation failed at startup.
+    ///  @param bridgeVersion The DovahLink Bridge/mod release version exposed
+    ///  to the client in `hello_ack.bridgeVersion` for its own compatibility
+    ///      check (`ai/context/protocol/compatibility.md`).
+    HandshakeHandler(security::ITokenStore& tokenStore,
+                     security::IFailedTokenThrottle& tokenThrottle,
+                     security::ITrustStore& trustStore,
+                     security::IFailedTokenThrottle& credentialThrottle,
+                     ISessionManager& sessionManager,
+                     const IActivePlayContextReader& activePlayContext,
+                     std::optional<std::string> bridgeInstanceId,
+                     std::string bridgeVersion);
+
+    ///  @copydoc IHandshakeHandler::Handle
+    [[nodiscard]] HandshakeResult
+    Handle(const protocol::Envelope& helloEnvelope, ConnectionId connection,
+           ConnectionTimeoutTracker& timeoutTracker,
+           std::chrono::steady_clock::time_point now) override;
+
+  private:
+    ///  One-time token store, consulted for `auth.method:
+    ///  "one_time_local_token"`.
+    security::ITokenStore& tokenStore_;
+
+    ///  Global failed one-time-token attempt throttle.
+    security::IFailedTokenThrottle& tokenThrottle_;
+
+    ///  Persistent trust store, consulted for `auth.method:
+    ///  "trusted_device_credential"`.
+    security::ITrustStore& trustStore_;
+
+    ///  Global failed device-credential attempt throttle.
+    security::IFailedTokenThrottle& credentialThrottle_;
+
+    ///  Session registry.
+    ISessionManager& sessionManager_;
+
+    ///  Source of the play context active at connect time.
+    const IActivePlayContextReader& activePlayContext_;
+
+    ///  This bridge process's identity, stamped onto every response.
+    std::optional<std::string> bridgeInstanceId_;
+
+    ///  The DovahLink Bridge/mod release version exposed to clients.
+    std::string bridgeVersion_;
+};
 
 ///  Reports why `clientId`'s trust, re-read from `trustStore` after session
 ///  admission, no longer permits the just-admitted `authMethod` -- or that it
-///  still does. `HandleHello` calls this immediately after
+///  still does. `HandshakeHandler::Handle` calls this immediately after
 ///  `SessionManager::TryCreateSession` succeeds, before declaring the handshake
 ///  successful -- not only via the earlier pre-admission trust checks -- because
 ///  a revoke or block that lands after those earlier checks but before admission
