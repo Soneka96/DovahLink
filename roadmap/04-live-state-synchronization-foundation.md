@@ -20,6 +20,50 @@ first production domains are deliberately small: `character_xp` uses Snapshot mo
 redesigned contract; a future phase may add it as a composed character view without creating a
 second authority for progression values.
 
+### Architecture model
+
+Stage 4 treats capture, authoritative state, and client publication as related but distinct layers:
+
+- A **capture unit** is one value or event acquired from Skyrim. Its `CapturePolicy` is either
+  `NativeEvent` or `Sampled`.
+- A sampled capture unit declares a `RateClass`: `Fast`, `Medium`, or `Slow`. The rate controls the
+  maximum frequency at which DovahLink checks Skyrim, not the frequency of revisions or network
+  messages.
+- An **authoritative state area** owns the current DovahLink value, availability, play-context
+  identity, and revision sequence. It is the ordering point for applying captured values and
+  assigning revisions.
+- A stateful publication area declares one canonical `UpdateMode`: `Snapshot` or `Event`. A
+  `Snapshot` is replaceable latest state; an `Event` is an ordered complete post-change state that
+  advances from a known revision baseline.
+- A **publication unit** is the client-facing representation produced from an authoritative state
+  area. Capture units, state areas, and publication units may be different sizes: several captured
+  values may contribute to a future composed view, while one captured event may update one focused
+  state area.
+- `CapturePolicy`, `RateClass`, and `UpdateMode` are Bridge-side policy metadata and are not new
+  wire fields by themselves. The wire exposes registered `stateArea` contracts through the existing
+  typed state messages.
+
+The normal flow is:
+
+```text
+Skyrim event or shared sampler
+        ↓
+small owned captured value
+        ↓
+state-area ordering point and change detection
+        ↓
+authoritative revision
+        ↓
+Snapshot or Event publication
+        ↓
+bounded session delivery
+```
+
+These policies are orthogonal in meaning, but not every combination is valid. In particular,
+reliable Event mode requires a runtime source that cannot miss semantically required occurrences;
+sampling is Event-compatible only when that property is proved for the specific value. Otherwise the
+value is a Snapshot domain.
+
 ### Scope and behavior
 
 - Replace the Phase 1 request/response polling loop with full-duplex asynchronous delivery. The
@@ -33,39 +77,31 @@ second authority for progression values.
   (`Fast`, `Medium`, or `Slow`); each stateful publication area declares one canonical `UpdateMode`
   (`Snapshot` or `Event`). These policies are related but must not be collapsed into one combined
   mode: how Skyrim supplies a value is not the same question as how the client receives it.
-- Use one shared, bounded sampler for recurring capture. Rate classes are maximum capture
-  frequencies, not publication or network-send cadences. A provisional scheduling hypothesis is
-  `Fast = 1 second`, `Medium = 2 seconds`, and `Slow = 3 seconds`, subject to profiling rather than
-  becoming a protocol constant. With those periods, an aligned cadence captures Fast/Medium/Slow at
-  second 0, Fast at 1, Fast/Medium at 2, Fast/Slow at 3, Fast/Medium at 4, Fast at 5, and all three
-  again at second 6. The scheduler uses a monotonic clock and a bounded base cadence; it skips a
-  missed sample rather than issuing an unbounded catch-up burst. It may stagger due captures when
-  profiling shows that an aligned batch creates a noticeable game-thread spike, but the initial
-  schedule remains easy to reason about and test.
+- Use one shared, bounded sampler for recurring capture. A provisional test schedule is `Fast = 1
+  second`, `Medium = 2 seconds`, and `Slow = 3 seconds`; these are not production or protocol
+  constants. The monotonic scheduler may align due values at second 0 and then capture Fast at 1,
+  Fast/Medium at 2, Fast/Slow at 3, Fast/Medium at 4, Fast at 5, and all three at second 6. If a
+  callback is late, it skips the missed sample instead of issuing a catch-up burst. If profiling
+  shows that aligned work creates a game-thread spike, due values may be staggered while retaining
+  their declared maximum frequencies.
 - Run both native-event capture and sampled capture through approved game-thread callbacks or hooks.
   The callback synchronously copies a small, validated, DovahLink-owned value; workers never defer
   a Skyrim read. Unchanged sampled values stop before they create a revision, publication, queue
   entry, serialization work, or WebSocket traffic.
-- Keep capture units, authoritative state areas, and publication units distinct. Independently
-  captured values may update independently owned state areas; a future composed view may combine
-  them without becoming a second authority. The retired aggregate `character` area is not revived
-  by this phase.
-- A reliable Event mode requires a capture source that cannot silently miss semantically required
-  occurrences. Sampling may feed Event mode only when the supported runtime proves that sampling
-  cannot miss an occurrence; otherwise sampled data is classified as Snapshot mode.
 - Redesign the protocol as typed message families rather than one broadly nullable message model.
   Each message has one canonical JSON shape and a dedicated DTO/codec boundary. The redesign covers
   connection, pairing, state, error, invalidation, and control messages.
-- Prefer native events and sample only where no trustworthy event exists.
-- Treat rate classes as maximum frequencies and publish unsolicited replaceable state only on
-  authoritative change.
-- Separate replaceable state, ordered reliable events, and recovery/control traffic.
-- Coalesce replaceable state to its latest value under pressure.
+- Prefer native events for values that require reliable occurrence delivery, and sample only where no
+  trustworthy event exists or where the product only needs current state.
+- Publish unsolicited replaceable state only after an authoritative change; initial, recovery, and
+  explicitly requested snapshots are delivered even when unchanged.
 - Always deliver initial, recovery, and explicitly requested snapshots, even when the state is
   unchanged; these snapshots reuse the current authoritative revision.
 - A subscriber receives complete post-change state rather than a patch. Initial, recovery, and
   explicitly requested snapshots are always delivered, while unchanged unsolicited replaceable state
   produces no traffic.
+- Separate replaceable state, ordered reliable state events, recovery/control traffic, and ephemeral
+  notifications; each category follows its own contract.
 - Slow-client behavior is explicit: a client that cannot consume them in time is explicitly disconnected without stalling Skyrim or healthy clients.
 - Keep game-thread capture small and perform network I/O and serialization elsewhere.
 - Instrument capture, queues, coalescing, disconnects, and recovery before tuning thresholds.
