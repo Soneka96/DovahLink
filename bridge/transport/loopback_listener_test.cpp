@@ -167,12 +167,9 @@ TEST_CASE("Close makes the listener unavailable for a subsequent accept loop",
 
     listener->Close();
 
-    bool handlerCalled = false;
-    listener->RunAcceptLoop([&handlerCalled](auto) {
-        handlerCalled = true;
-        return false;
-    });
-    CHECK_FALSE(handlerCalled);
+    auto accepted = listener->AcceptLoopbackOnly();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
     CHECK_FALSE(listener->Acceptor().is_open());
 }
 
@@ -186,170 +183,33 @@ TEST_CASE("Close is safe to call more than once",
     listener->Close();
     listener->Close();
 
-    CHECK_FALSE(listener->Acceptor().is_open());
+    auto accepted = listener->AcceptLoopbackOnly();
+    CHECK_FALSE(accepted.has_value());
 }
 
-TEST_CASE("RunAcceptLoop accepts a client and Close cancels its next accept",
+TEST_CASE("Close cancels a pending asynchronous accept before returning",
           "[transport][listener]") {
     using namespace std::chrono_literals;
 
-    boost::asio::io_context listenerIoc;
-    auto listener =
-        LoopbackListener::Create(listenerIoc, LoopbackListener::IpVersion::kV4,
-                                 0);
-    REQUIRE(listener.has_value());
-
-    std::promise<void> acceptedPromise;
-    auto accepted = acceptedPromise.get_future();
-    std::thread acceptThread([&listener, &acceptedPromise] {
-        listener->RunAcceptLoop(
-            [&acceptedPromise](auto result) {
-                if (result.has_value()) {
-                    acceptedPromise.set_value();
-                }
-                return true;
-            });
-    });
-
-    boost::asio::io_context clientIoc;
-    boost::asio::ip::tcp::socket client(clientIoc);
-    boost::system::error_code connectEc;
-    client.connect(listener->LocalEndpoint(), connectEc);
-    REQUIRE_FALSE(connectEc);
-    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
-
-    auto closeFuture = std::async(std::launch::async, [&listener] {
-        listener->Close();
-    });
-    REQUIRE(closeFuture.wait_for(2s) == std::future_status::ready);
-    closeFuture.get();
-
-    acceptThread.join();
-    CHECK_FALSE(listener->Acceptor().is_open());
-}
-
-TEST_CASE("RunAcceptLoop does not start after Close",
-          "[transport][listener]") {
+    using AcceptResult =
+        std::expected<boost::asio::ip::tcp::socket,
+                      dovahlink::transport::AcceptError>;
     boost::asio::io_context ioc;
     auto listener =
         LoopbackListener::Create(ioc, LoopbackListener::IpVersion::kV4, 0);
     REQUIRE(listener.has_value());
 
+    std::promise<AcceptResult> resultPromise;
+    auto resultFuture = resultPromise.get_future();
+    std::thread acceptThread([&listener, &resultPromise] {
+        resultPromise.set_value(listener->AcceptLoopbackOnly());
+    });
+
     listener->Close();
-    bool handlerCalled = false;
-    listener->RunAcceptLoop([&handlerCalled](auto) {
-        handlerCalled = true;
-        return false;
-    });
-
-    CHECK_FALSE(handlerCalled);
-    CHECK_FALSE(listener->Acceptor().is_open());
-}
-
-TEST_CASE("RunAcceptLoop stops cleanly when its handler returns false",
-          "[transport][listener]") {
-    using namespace std::chrono_literals;
-
-    boost::asio::io_context listenerIoc;
-    auto listener =
-        LoopbackListener::Create(listenerIoc, LoopbackListener::IpVersion::kV4,
-                                 0);
-    REQUIRE(listener.has_value());
-
-    std::promise<bool> handledPromise;
-    auto handled = handledPromise.get_future();
-    std::thread acceptThread([&listener, &handledPromise] {
-        listener->RunAcceptLoop([&handledPromise](auto result) {
-            handledPromise.set_value(result.has_value());
-            return false;
-        });
-    });
-
-    boost::asio::io_context clientIoc;
-    boost::asio::ip::tcp::socket client(clientIoc);
-    boost::system::error_code connectEc;
-    client.connect(listener->LocalEndpoint(), connectEc);
-    REQUIRE_FALSE(connectEc);
-    REQUIRE(handled.wait_for(2s) == std::future_status::ready);
-    CHECK(handled.get());
-
-    acceptThread.join();
-    CHECK_FALSE(listener->Acceptor().is_open());
-}
-
-TEST_CASE("RunAcceptLoop propagates handler exceptions after stopping",
-          "[transport][listener]") {
-    using namespace std::chrono_literals;
-
-    boost::asio::io_context listenerIoc;
-    auto listener =
-        LoopbackListener::Create(listenerIoc, LoopbackListener::IpVersion::kV4,
-                                 0);
-    REQUIRE(listener.has_value());
-
-    std::promise<std::exception_ptr> failurePromise;
-    auto failure = failurePromise.get_future();
-    std::thread acceptThread([&listener, &failurePromise] {
-        try {
-            listener->RunAcceptLoop([](auto) -> bool {
-                throw std::runtime_error("accept handler failed");
-            });
-        } catch (...) {
-            failurePromise.set_value(std::current_exception());
-        }
-    });
-
-    boost::asio::io_context clientIoc;
-    boost::asio::ip::tcp::socket client(clientIoc);
-    boost::system::error_code connectEc;
-    client.connect(listener->LocalEndpoint(), connectEc);
-    REQUIRE_FALSE(connectEc);
-    REQUIRE(failure.wait_for(2s) == std::future_status::ready);
-
-    acceptThread.join();
-    CHECK_THROWS_AS(std::rethrow_exception(failure.get()),
-                    std::runtime_error);
-}
-
-TEST_CASE("RunAcceptLoop accepts IPv6 and Close cancels its next accept",
-          "[transport][listener]") {
-    using namespace std::chrono_literals;
-
-    boost::asio::io_context listenerIoc;
-    auto listener =
-        LoopbackListener::Create(listenerIoc, LoopbackListener::IpVersion::kV6,
-                                 0);
-    REQUIRE(listener.has_value());
-
-    std::promise<void> acceptedPromise;
-    auto accepted = acceptedPromise.get_future();
-    std::thread acceptThread([&listener, &acceptedPromise] {
-        listener->RunAcceptLoop(
-            [&acceptedPromise](auto result) {
-                if (result.has_value()) {
-                    acceptedPromise.set_value();
-                }
-                return true;
-            });
-    });
-
-    boost::asio::io_context clientIoc;
-    boost::asio::ip::tcp::socket client(clientIoc);
-    boost::system::error_code connectEc;
-    client.connect(listener->LocalEndpoint(), connectEc);
-    REQUIRE_FALSE(connectEc);
-    REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
-
-    auto firstClose = std::async(std::launch::async, [&listener] {
-        listener->Close();
-    });
-    auto secondClose = std::async(std::launch::async, [&listener] {
-        listener->Close();
-    });
-    REQUIRE(firstClose.wait_for(2s) == std::future_status::ready);
-    REQUIRE(secondClose.wait_for(2s) == std::future_status::ready);
-    firstClose.get();
-    secondClose.get();
+    REQUIRE(resultFuture.wait_for(2s) == std::future_status::ready);
+    auto accepted = resultFuture.get();
+    REQUIRE_FALSE(accepted.has_value());
+    CHECK(accepted.error() == dovahlink::transport::AcceptError::kAcceptFailed);
 
     acceptThread.join();
     CHECK_FALSE(listener->Acceptor().is_open());

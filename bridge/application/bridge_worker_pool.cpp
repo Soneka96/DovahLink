@@ -23,16 +23,17 @@ BridgeWorkerPool::~BridgeWorkerPool() {
 
 void BridgeWorkerPool::AcceptLoop(transport::ILoopbackListener& listener,
                                   const ContainedWorkRunner& workerRunner) {
-    listener.RunAcceptLoop([this, &workerRunner](auto accepted) {
+    while (!stopping_.load(std::memory_order_acquire)) {
+        auto accepted = listener.AcceptLoopbackOnly();
         if (!accepted.has_value()) {
             if (accepted.error() ==
                 transport::AcceptError::kNonLoopbackPeerRejected) {
                 //  The acceptor itself is still fine; only this one peer was
-                //  rejected. Ask the listener to accept again.
-                return !stopping_.load(std::memory_order_acquire);
+                //  rejected. Try again.
+                continue;
             }
             //  kAcceptFailed means this acceptor cannot be used again.
-            return false;
+            return;
         }
 
         boost::asio::ip::tcp::socket socket = std::move(*accepted);
@@ -43,15 +44,14 @@ void BridgeWorkerPool::AcceptLoop(transport::ILoopbackListener& listener,
             //  handshake, matching ConnectionSlot's documented contract.
             boost::system::error_code ec;
             socket.close(ec);
-            return !stopping_.load(std::memory_order_acquire);
+            continue;
         }
 
         ConnectionId connection =
             nextConnectionId_.fetch_add(1, std::memory_order_relaxed);
         RunSessionOnOwnThread(workerRunner, connection, std::move(socket),
                               std::move(*slotLease));
-        return !stopping_.load(std::memory_order_acquire);
-    });
+    }
 }
 
 void BridgeWorkerPool::JoinConnectionThreadLocked() {

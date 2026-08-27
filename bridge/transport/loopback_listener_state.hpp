@@ -2,8 +2,8 @@
 
 #include "transport/loopback_listener.hpp"
 
+#include <atomic>
 #include <condition_variable>
-#include <exception>
 #include <mutex>
 
 namespace dovahlink::transport {
@@ -15,16 +15,16 @@ struct LoopbackListener::LifecycleState {
     std::mutex mutex;
     ///  Wakes Close() after the accept loop exits.
     std::condition_variable changed;
-    ///  Prevents more than one accept loop from owning the listener.
-    bool started{false};
-    ///  Indicates that the accept loop has not completed yet.
+    ///  Indicates that one asynchronous accept operation is active.
     bool running{false};
-    ///  Requests cancellation before or during accept-loop startup.
+    ///  Indicates that the acceptor's I/O context is still running.
+    bool contextRunning{false};
+    ///  Requests cancellation before or during an accept operation.
     bool closeRequested{false};
     ///  Prevents duplicate cancellation posts.
     bool closePosted{false};
-    ///  Transfers callback failures back through RunAcceptLoop().
-    std::exception_ptr failure;
+    ///  Marks the current accept operation settled when Close() cancels it.
+    std::shared_ptr<std::atomic_bool> acceptCompleted;
 };
 
 } //  namespace dovahlink::transport

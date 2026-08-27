@@ -3,12 +3,12 @@
 
 #include <boost/asio/error.hpp>
 #include <boost/asio/ip/address.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/socket_base.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <condition_variable>
 #include <exception>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -68,140 +68,100 @@ LoopbackListener::Create(boost::asio::io_context& ioc, IpVersion version,
 LoopbackListener::LoopbackListener(
     boost::asio::io_context& ioc, boost::asio::ip::tcp::acceptor acceptor)
     : ioContext_(&ioc), acceptor_(std::move(acceptor)),
-      acceptedSocketIoContext_(std::make_shared<boost::asio::io_context>()),
       lifecycle_(std::make_shared<LifecycleState>()) {}
 
 boost::asio::ip::tcp::acceptor& LoopbackListener::Acceptor() {
     return acceptor_;
 }
 
-void LoopbackListener::RunAcceptLoop(AcceptHandler handler) {
+std::expected<boost::asio::ip::tcp::socket, AcceptError>
+LoopbackListener::AcceptLoopbackOnly() {
     const auto lifecycle = lifecycle_;
+    auto socket =
+        std::make_shared<boost::asio::ip::tcp::socket>(*ioContext_);
+    auto acceptEc = std::make_shared<boost::system::error_code>();
+    auto acceptCompleted = std::make_shared<std::atomic_bool>(false);
     {
         std::lock_guard lock(lifecycle->mutex);
-        if (lifecycle->started || lifecycle->closeRequested) {
-            return;
+        if (lifecycle->running || lifecycle->closeRequested) {
+            return std::unexpected(AcceptError::kAcceptFailed);
         }
-        lifecycle->started = true;
         lifecycle->running = true;
+        lifecycle->contextRunning = true;
+        lifecycle->acceptCompleted = acceptCompleted;
     }
-
-    using WorkGuard = boost::asio::executor_work_guard<
-        boost::asio::ip::tcp::acceptor::executor_type>;
-    std::shared_ptr<WorkGuard> workGuard;
     std::exception_ptr failure;
 
     try {
-        workGuard = std::make_shared<WorkGuard>(
-            boost::asio::make_work_guard(acceptor_.get_executor()));
-        auto acceptNext = std::make_shared<std::function<void()>>();
-
-        *acceptNext = [this, lifecycle, handler = std::move(handler), acceptNext,
-                       workGuard]() mutable {
-            {
-                std::lock_guard lock(lifecycle->mutex);
-                if (lifecycle->closeRequested) {
-                    workGuard->reset();
-                    return;
-                }
-            }
-
-            auto socket =
-                std::make_shared<boost::asio::ip::tcp::socket>(
-                    *acceptedSocketIoContext_);
+        ioContext_->restart();
+        bool shouldAccept = false;
+        {
+            std::lock_guard lock(lifecycle->mutex);
+            shouldAccept = !lifecycle->closeRequested;
+        }
+        if (shouldAccept) {
             acceptor_.async_accept(
                 *socket,
-                [this, lifecycle, handler, acceptNext, workGuard,
-                 socket](boost::system::error_code ec) mutable {
-                    auto stop = [this, workGuard] {
-                        boost::system::error_code ignored;
-                        acceptor_.close(ignored);
-                        workGuard->reset();
-                    };
-
-                    try {
-                        {
-                            std::lock_guard lock(lifecycle->mutex);
-                            if (lifecycle->closeRequested) {
-                                workGuard->reset();
-                                return;
-                            }
-                        }
-
-                        if (ec) {
-                            if (ec == boost::asio::error::operation_aborted) {
-                                workGuard->reset();
-                                return;
-                            }
-                            if (!handler(
-                                    std::unexpected(AcceptError::kAcceptFailed))) {
-                                stop();
-                                return;
-                            }
-                            (*acceptNext)();
-                            return;
-                        }
-
-                        boost::system::error_code remoteEc;
-                        const auto remote = socket->remote_endpoint(remoteEc);
-                        if (remoteEc ||
-                            !IsAcceptablePeerAddress(remote.address())) {
-                            boost::system::error_code closeEc;
-                            socket->close(closeEc);
-                            if (!handler(std::unexpected(
-                                    AcceptError::kNonLoopbackPeerRejected))) {
-                                stop();
-                                return;
-                            }
-                        } else if (!handler(std::move(*socket))) {
-                            stop();
-                            return;
-                        }
-
-                        (*acceptNext)();
-                    } catch (...) {
-                        {
-                            std::lock_guard lock(lifecycle->mutex);
-                            lifecycle->failure = std::current_exception();
-                        }
-                        stop();
-                    }
+                [acceptEc, acceptCompleted](boost::system::error_code ec) {
+                    *acceptEc = ec;
+                    acceptCompleted->store(true, std::memory_order_release);
                 });
-        };
-
-        (*acceptNext)();
-        ioContext_->run();
+            while (!acceptCompleted->load(std::memory_order_acquire)) {
+                const auto ran = ioContext_->run_one();
+                if (ran == 0) {
+                    break;
+                }
+            }
+        }
     } catch (...) {
         failure = std::current_exception();
-        if (workGuard) {
-            workGuard->reset();
+    }
+
+    {
+        std::lock_guard lock(lifecycle->mutex);
+        lifecycle->contextRunning = false;
+    }
+    //  A Close() posted just before run() returned may still be queued. Drain
+    //  it while this thread still owns the acceptor, before publishing that the
+    //  one-shot operation is complete.
+    ioContext_->poll();
+
+    bool closeRequested = false;
+    {
+        std::lock_guard lock(lifecycle->mutex);
+        closeRequested = lifecycle->closeRequested;
+    }
+
+    std::expected<boost::asio::ip::tcp::socket, AcceptError> result =
+        std::unexpected(AcceptError::kAcceptFailed);
+    if (!failure && !*acceptEc && socket->is_open() && !closeRequested) {
+        boost::system::error_code remoteEc;
+        const auto remote = socket->remote_endpoint(remoteEc);
+        if (remoteEc || !IsAcceptablePeerAddress(remote.address())) {
+            boost::system::error_code closeEc;
+            socket->close(closeEc);
+            result = std::unexpected(AcceptError::kNonLoopbackPeerRejected);
+        } else {
+            result = std::move(*socket);
         }
     }
 
-    if (workGuard) {
-        workGuard->reset();
-    }
-
-    //  The fallback path for a failed cancellation post stops the context
-    //  without running the queued handler, so close the acceptor only after
-    //  this accept-loop thread has regained exclusive access to it.
-    {
-        boost::system::error_code ec;
-        acceptor_.close(ec);
+    if (closeRequested || failure) {
+        boost::system::error_code closeEc;
+        acceptor_.close(closeEc);
     }
 
     {
         std::lock_guard lock(lifecycle->mutex);
         lifecycle->running = false;
-        if (!failure) {
-            failure = lifecycle->failure;
-        }
+        lifecycle->acceptCompleted.reset();
     }
     lifecycle->changed.notify_all();
 
     if (failure) {
-        std::rethrow_exception(failure);
+        return std::unexpected(AcceptError::kAcceptFailed);
     }
+    return result;
 }
 
 boost::asio::ip::tcp::endpoint LoopbackListener::LocalEndpoint() const {
@@ -211,46 +171,49 @@ boost::asio::ip::tcp::endpoint LoopbackListener::LocalEndpoint() const {
 void LoopbackListener::Close() noexcept {
     const auto lifecycle = lifecycle_;
     bool closeDirectly = false;
-    bool postCancellation = false;
     bool waitForLoop = false;
+    std::shared_ptr<std::atomic_bool> acceptCompleted;
 
-    {
-        std::lock_guard lock(lifecycle->mutex);
-        lifecycle->closeRequested = true;
-        if (!lifecycle->running) {
-            closeDirectly = true;
-        } else {
-            waitForLoop = true;
-            if (!lifecycle->closePosted) {
-                lifecycle->closePosted = true;
-                postCancellation = true;
+    std::unique_lock lock(lifecycle->mutex);
+    lifecycle->closeRequested = true;
+    if (!lifecycle->running) {
+        closeDirectly = true;
+    } else {
+        waitForLoop = true;
+        if (!lifecycle->contextRunning) {
+            //  The accept operation has already settled. Its worker still
+            //  owns final acceptor cleanup and will publish completion.
+        } else if (!lifecycle->closePosted) {
+            lifecycle->closePosted = true;
+            acceptCompleted = lifecycle->acceptCompleted;
+            try {
+                boost::asio::post(
+                    *ioContext_, [this, acceptCompleted] {
+                        boost::system::error_code ec;
+                        acceptor_.cancel(ec);
+                        acceptor_.close(ec);
+                        if (acceptCompleted) {
+                            acceptCompleted->store(
+                                true, std::memory_order_release);
+                        }
+                    });
+            } catch (...) {
+                //  Stopping the listener's dedicated context lets
+                //  AcceptLoopbackOnly() regain sole access and close the
+                //  acceptor on its own thread.
+                ioContext_->stop();
             }
         }
     }
 
     if (closeDirectly) {
+        lock.unlock();
         boost::system::error_code ec;
         acceptor_.close(ec);
         return;
     }
 
-    if (postCancellation) {
-        try {
-            boost::asio::post(*ioContext_, [this] {
-                boost::system::error_code ec;
-                acceptor_.cancel(ec);
-                acceptor_.close(ec);
-                ioContext_->stop();
-            });
-        } catch (...) {
-            //  Stopping the listener's dedicated context lets RunAcceptLoop()
-            //  regain sole access and close the acceptor on its own thread.
-            ioContext_->stop();
-        }
-    }
-
     if (waitForLoop) {
-        std::unique_lock lock(lifecycle->mutex);
         lifecycle->changed.wait(lock,
                                 [&lifecycle] { return !lifecycle->running; });
     }

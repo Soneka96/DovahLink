@@ -303,8 +303,8 @@ class LoopbackWebSocketServer {
 ///  GoogleMock loopback-listener contract double.
 class MockLoopbackListener : public ILoopbackListener {
   public:
-    MOCK_METHOD(void, RunAcceptLoop,
-                (ILoopbackListener::AcceptHandler handler), (override));
+    MOCK_METHOD((std::expected<boost::asio::ip::tcp::socket, AcceptError>),
+                AcceptLoopbackOnly, (), (override));
     MOCK_METHOD(void, Close, (), (noexcept, override));
 };
 

@@ -40,10 +40,7 @@ void CheckRealLoopbackPeer(LoopbackListener::IpVersion version,
     std::promise<AcceptResult> acceptedPromise;
     auto acceptedFuture = acceptedPromise.get_future();
     std::thread acceptThread([&listener, &acceptedPromise] {
-        listener->RunAcceptLoop([&acceptedPromise](AcceptResult result) {
-            acceptedPromise.set_value(std::move(result));
-            return false;
-        });
+        acceptedPromise.set_value(listener->AcceptLoopbackOnly());
     });
 
     boost::asio::io_context clientIoc;
@@ -117,19 +114,19 @@ TEST_CASE(
 }
 
 TEST_CASE(
-    "RunAcceptLoop returns a valid socket for a real IPv4 loopback peer",
+    "AcceptLoopbackOnly returns a valid socket for a real IPv4 loopback peer",
     "[transport][loopback_peer]") {
     CheckRealLoopbackPeer(LoopbackListener::IpVersion::kV4, "127.0.0.1");
 }
 
 TEST_CASE(
-    "RunAcceptLoop returns a valid socket for a real IPv6 loopback peer",
+    "AcceptLoopbackOnly returns a valid socket for a real IPv6 loopback peer",
     "[transport][loopback_peer]") {
     CheckRealLoopbackPeer(LoopbackListener::IpVersion::kV6, "::1");
 }
 
 TEST_CASE(
-    "RunAcceptLoop exits when the acceptor is already closed",
+    "AcceptLoopbackOnly exits when the acceptor is already closed",
     "[transport][loopback_peer]") {
     boost::asio::io_context ioc;
     auto listener =
@@ -140,10 +137,6 @@ TEST_CASE(
     listener->Acceptor().close(closeEc);
     REQUIRE_FALSE(closeEc);
 
-    bool handlerCalled = false;
-    listener->RunAcceptLoop([&handlerCalled](auto) {
-        handlerCalled = true;
-        return false;
-    });
-    CHECK_FALSE(handlerCalled);
+    auto accepted = listener->AcceptLoopbackOnly();
+    CHECK_FALSE(accepted.has_value());
 }
