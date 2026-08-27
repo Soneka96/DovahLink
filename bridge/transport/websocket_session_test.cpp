@@ -76,6 +76,34 @@ TEST_CASE("LoopbackWebSocketServer cleanup joins when client setup exits "
     CHECK(std::chrono::steady_clock::now() - start < 2s);
 }
 
+TEST_CASE("LoopbackWebSocketServer Join releases its listener port",
+          "[transport][websocket_session][test_support]") {
+    using namespace std::chrono_literals;
+
+    LoopbackWebSocketServer server([](WebSocketSession&) {});
+    const std::uint16_t port = server.LocalEndpoint().port();
+    server.CancelPendingAccept();
+    REQUIRE(server.WaitFor(2s));
+    CHECK_THROWS_AS(server.Join(), std::runtime_error);
+
+    auto replacement = LoopbackListener::Create(
+        LoopbackListener::IpVersion::kV4, port);
+    REQUIRE(replacement.has_value());
+}
+
+TEST_CASE("LoopbackWebSocketServer destruction releases its listener port",
+          "[transport][websocket_session][test_support]") {
+    std::uint16_t port = 0;
+    {
+        LoopbackWebSocketServer server([](WebSocketSession&) {});
+        port = server.LocalEndpoint().port();
+    }
+
+    auto replacement =
+        LoopbackListener::Create(LoopbackListener::IpVersion::kV4, port);
+    REQUIRE(replacement.has_value());
+}
+
 TEST_CASE("WebSocketSession does not drive the accepted socket's source context",
           "[transport][websocket_session]") {
     using namespace std::chrono_literals;

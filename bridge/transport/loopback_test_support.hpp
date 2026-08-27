@@ -131,6 +131,7 @@ class LoopbackWebSocketServer {
         if (thread_.joinable()) {
             thread_.join();
         }
+        listener_.Join();
         if (serverException_) {
             std::rethrow_exception(serverException_);
         }
@@ -210,14 +211,13 @@ class LoopbackWebSocketServer {
     ///  Stops an accept or active session and joins without throwing from
     ///  destruction.
     void StopAndJoin() noexcept {
-        if (!thread_.joinable()) {
-            return;
+        if (thread_.joinable()) {
+            thread_.request_stop();
+            CancelPendingAccept();
+            ShutdownActiveSession();
+            thread_.join();
         }
-
-        thread_.request_stop();
-        CancelPendingAccept();
-        ShutdownActiveSession();
-        thread_.join();
+        listener_.Join();
     }
 
     ///  Accepts the one loopback connection this server drives.
