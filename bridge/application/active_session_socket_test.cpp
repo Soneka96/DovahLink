@@ -1,16 +1,22 @@
 #include "application/active_session_socket.hpp"
 
+#include "application/application_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
 #include <atomic>
 #include <barrier>
+#include <memory>
 #include <thread>
 
 using dovahlink::application::ActiveSessionSocket;
+using dovahlink::application::test_support::MockSocket;
 using dovahlink::transport::WebSocketSession;
+using testing::StrictMock;
 
 TEST_CASE("ActiveSessionSocket captures a published connection and socket pair",
           "[application][active_session_socket]") {
@@ -58,6 +64,17 @@ TEST_CASE(
     //  A second call must not crash: Socket::Shutdown() owns its own
     //  single-fire guard, so ActiveSessionSocket must stay safe calling it
     //  repeatedly.
+    registry.Shutdown();
+}
+
+TEST_CASE("ActiveSessionSocket Shutdown calls ISocket::Shutdown on the "
+          "published socket",
+          "[application][active_session_socket][i_socket]") {
+    auto socket = std::make_shared<StrictMock<MockSocket>>();
+    EXPECT_CALL(*socket, Shutdown());
+    ActiveSessionSocket registry;
+    registry.Publish(7, socket);
+
     registry.Shutdown();
 }
 
