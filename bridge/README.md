@@ -212,7 +212,7 @@ All adapted code will carry the required MIT attribution for SkyrimWebSocket
 The current transitional contract does not register a state area, so `subscribe` and
 `snapshot_request` reject state requests and no state snapshot is produced. Phase 1 did not
 implement an outbound event queue or coalescer; registered progression domains and unprompted
-`state_event` delivery are Stage 4 work. `RunConnectionSession` remains purely request/response
+`state_event` delivery are Stage 4 work. `ConnectionSession::Run` remains purely request/response
 until that phase's full-duplex transport work lands.
 
 This is a deliberate, roadmap-tracked deferral, not an oversight. Delivering an unprompted push
@@ -220,12 +220,12 @@ requires a connection to write independent of its own next read, which the curre
 one-operation-at-a-time session loop cannot do without an unsafe concurrent write against
 Boost.Beast's "shared objects: unsafe" `websocket::stream`. `WebSocketSession` now runs each
 operation through Beast's async API for safe cancellation and timeouts, but its public facade and
-`RunConnectionSession` remain deliberately linear. The full-duplex loop, along with the
+`ConnectionSession::Run` remain deliberately linear. The full-duplex loop, along with the
 outbound-lane and rate-class design it enables, is
 [Stage 4 roadmap](../roadmap/04-live-state-synchronization-foundation.md), Live State Synchronization Foundation. The architecture
 already agreed for that phase, recorded here so Phase 4 does not have to rediscover it:
 
-- Refactor the linear session facade and `RunConnectionSession` into a full-duplex async loop using
+- Refactor the linear session facade and `ConnectionSession::Run` into a full-duplex async loop using
   C++20/23 coroutines (`co_await`): coroutine code stays close to the current linear control flow,
   while the existing executor-owned async transport operations already provide safe cancellation
   and bounded I/O.

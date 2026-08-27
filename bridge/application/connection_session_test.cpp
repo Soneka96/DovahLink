@@ -33,6 +33,7 @@
 #include <vector>
 
 using dovahlink::application::IActivePlayContextReader;
+using dovahlink::application::IConnectionSession;
 using dovahlink::application::kBridgeVersion;
 using dovahlink::application::PairingNotificationSink;
 using dovahlink::application::SessionManager;
@@ -200,11 +201,14 @@ void RunConnectionSession(
     dovahlink::application::TrustMutationCoordinator coordinator(trustStore,
                                                                  pairingSession,
                                                                  sessionManager);
-    dovahlink::application::RunConnectionSession(
-        ws, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-        sessionManager, connection, activePlayContext, pairingSession,
-        coordinator, pairingNotificationSink, bridgeInstanceId, bridgeVersion,
-        std::move(steadyNow));
+    dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, bridgeInstanceId, bridgeVersion);
+    dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContext,
+        pairingSession, coordinator, pairingNotificationSink, bridgeInstanceId,
+        bridgeVersion);
+    connectionSession.Run(ws, connection, std::move(steadyNow));
 }
 
 } //  namespace
@@ -1295,6 +1299,40 @@ TEST_CASE("RunConnectionSession's reconnect notification for a client owning "
     REQUIRE_FALSE(serverAcceptEc);
 }
 
+TEST_CASE("ConnectionSession's real behavior is reachable through "
+          "IConnectionSession",
+          "[application][connection_session][i_connection_session]") {
+    StrictMock<MockWebSocketSession> mockWs;
+    EXPECT_CALL(mockWs, Accept())
+        .WillOnce(Return(std::unexpected(SessionError::kHandshakeFailed)));
+
+    TokenStore tokenStore(*DecodeHex(kValidHexToken));
+    FailedTokenThrottle tokenThrottle;
+    EmptyPersistence persistence;
+    auto trustStore = TrustStore::Load(persistence);
+    FailedTokenThrottle credentialThrottle;
+    PairingSession pairingSession;
+    RecordingPairingNotificationSink pairingNotificationSink;
+    SessionManager sessionManager;
+    EmptyActivePlayContext activePlayContext;
+    dovahlink::application::TrustMutationCoordinator mutationCoordinator(
+        trustStore, pairingSession, sessionManager);
+    dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, /*bridgeInstanceId=*/std::nullopt,
+        kBridgeVersion);
+    dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContext,
+        pairingSession, mutationCoordinator, pairingNotificationSink,
+        /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+    IConnectionSession& contract = connectionSession;
+
+    //  Only proves the interface dispatches to the real implementation; the
+    //  StrictMock below already proves this exact "Accept fails" branch calls
+    //  nothing else, so that assertion is not repeated here.
+    contract.Run(mockWs, /*connection=*/1);
+}
+
 TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
           "[application][connection_session][i_web_socket_session]") {
     StrictMock<MockWebSocketSession> mockWs;
@@ -1312,12 +1350,16 @@ TEST_CASE("RunConnectionSession makes no other session calls when Accept fails",
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
         trustStore, pairingSession, sessionManager);
-
-    dovahlink::application::RunConnectionSession(
-        mockWs, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-        sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-        mutationCoordinator, pairingNotificationSink,
+    dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, /*bridgeInstanceId=*/std::nullopt,
+        kBridgeVersion);
+    dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContext,
+        pairingSession, mutationCoordinator, pairingNotificationSink,
         /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
 }
 
 TEST_CASE("RunConnectionSession closes without writing when the hello read "
@@ -1344,10 +1386,14 @@ TEST_CASE("RunConnectionSession closes without writing when the hello read "
     EmptyActivePlayContext activePlayContext;
     dovahlink::application::TrustMutationCoordinator mutationCoordinator(
         trustStore, pairingSession, sessionManager);
-
-    dovahlink::application::RunConnectionSession(
-        mockWs, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-        sessionManager, /*connection=*/1, activePlayContext, pairingSession,
-        mutationCoordinator, pairingNotificationSink,
+    dovahlink::application::HandshakeHandler handshakeHandler(
+        tokenStore, tokenThrottle, trustStore, credentialThrottle,
+        sessionManager, activePlayContext, /*bridgeInstanceId=*/std::nullopt,
+        kBridgeVersion);
+    dovahlink::application::ConnectionSession connectionSession(
+        handshakeHandler, trustStore, sessionManager, activePlayContext,
+        pairingSession, mutationCoordinator, pairingNotificationSink,
         /*bridgeInstanceId=*/std::nullopt, kBridgeVersion);
+
+    connectionSession.Run(mockWs, /*connection=*/1);
 }

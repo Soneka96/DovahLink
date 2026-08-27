@@ -747,7 +747,7 @@ TEST_CASE("a session closed by the idle watchdog reports shutdown requested "
           "[transport][websocket_session]") {
     //  Proves the full observable lifecycle after a watchdog-triggered closure
     //  matches an externally-triggered one (Socket::Shutdown is the same function
-    //  either way): the real caller (RunConnectionSession) always calls Close()
+    //  either way): the real caller (ConnectionSession::Run) always calls Close()
     //  during teardown regardless of why the read loop ended, and that must stay a
     //  safe no-op here, not a second, redundant close attempt.
     std::expected<void, SessionError> serverHandshakeResult =

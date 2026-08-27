@@ -127,9 +127,14 @@ class WebSocketSession final : public IWebSocketSession {
     void SwitchToIdleTimeout() override;
 
     ///  @copydoc IWebSocketSession::ReadMessage
-    [[nodiscard]] std::expected<std::string, SessionError> ReadMessage(
-        std::optional<std::chrono::steady_clock::time_point> idleDeadline)
-        override;
+    ///  Repeats the base interface's default so existing callers that hold a
+    ///  concrete `WebSocketSession&` (rather than an `IWebSocketSession&`) can
+    ///  still omit `idleDeadline`; default arguments resolve by the static
+    ///  type of the call expression, not the dynamic type, so the interface's
+    ///  own default does not apply through a concrete-typed reference.
+    [[nodiscard]] std::expected<std::string, SessionError>
+    ReadMessage(std::optional<std::chrono::steady_clock::time_point>
+                    idleDeadline = std::nullopt) override;
 
     ///  @copydoc IWebSocketSession::WriteMessage
     [[nodiscard]] std::expected<void, SessionError>

@@ -1,7 +1,6 @@
 #include "application/connection_session.hpp"
 
 #include "application/connection_timeout_tracker.hpp"
-#include "application/handshake_handler.hpp"
 #include "application/message_dispatcher.hpp"
 #include "application/replay_guard.hpp"
 #include "protocol/bounded_json.hpp"
@@ -11,6 +10,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <utility>
 
 namespace dovahlink::application {
 
@@ -27,20 +27,25 @@ void SendIfPossible(transport::IWebSocketSession& ws,
 
 } //  namespace
 
-void RunConnectionSession(transport::IWebSocketSession& ws,
-                          security::ITokenStore& tokenStore,
-                          security::IFailedTokenThrottle& tokenThrottle,
-                          security::ITrustStore& trustStore,
-                          security::IFailedTokenThrottle& credentialThrottle,
-                          ISessionManager& sessionManager,
-                          ConnectionId connection,
-                          const IActivePlayContextReader& activePlayContext,
-                          security::IPairingSession& pairingSession,
-                          ITrustMutationCoordinator& mutationCoordinator,
-                          PairingNotificationSink& pairingNotificationSink,
-                          const std::optional<std::string>& bridgeInstanceId,
-                          const std::string& bridgeVersion,
-                          SteadyNowProvider steadyNow) {
+ConnectionSession::ConnectionSession(
+    IHandshakeHandler& handshakeHandler, security::ITrustStore& trustStore,
+    ISessionManager& sessionManager,
+    const IActivePlayContextReader& activePlayContext,
+    security::IPairingSession& pairingSession,
+    ITrustMutationCoordinator& mutationCoordinator,
+    PairingNotificationSink& pairingNotificationSink,
+    std::optional<std::string> bridgeInstanceId, std::string bridgeVersion)
+    : handshakeHandler_(handshakeHandler), trustStore_(trustStore),
+      sessionManager_(sessionManager), activePlayContext_(activePlayContext),
+      pairingSession_(pairingSession),
+      mutationCoordinator_(mutationCoordinator),
+      pairingNotificationSink_(pairingNotificationSink),
+      bridgeInstanceId_(std::move(bridgeInstanceId)),
+      bridgeVersion_(std::move(bridgeVersion)) {}
+
+void ConnectionSession::Run(transport::IWebSocketSession& ws,
+                            ConnectionId connection,
+                            SteadyNowProvider steadyNow) {
     if (!ws.Accept().has_value()) {
         return;
     }
@@ -68,16 +73,15 @@ void RunConnectionSession(transport::IWebSocketSession& ws,
     if (timeout.IsTimedOut(postReadNow)) {
         //  The hello itself arrived, but only after trickling in slowly
         //  enough to keep the WebSocket operation's inactivity timeout from
-        //  firing on its own. This is the message-layer backstop HandleHello's
-        //  own doc comment expects "whatever owns the read loop" to provide.
+        //  firing on its own. This is the message-layer backstop
+        //  `IHandshakeHandler::Handle`'s own doc comment expects "whatever
+        //  owns the read loop" to provide.
         ws.Close();
         return;
     }
 
-    auto handshake = HandleHello(
-        *helloEnvelope, tokenStore, tokenThrottle, trustStore, credentialThrottle,
-        sessionManager, connection, timeout, postReadNow, bridgeInstanceId,
-        &activePlayContext, bridgeVersion);
+    auto handshake =
+        handshakeHandler_.Handle(*helloEnvelope, connection, timeout, postReadNow);
     SendIfPossible(ws, handshake.response);
     if (handshake.closeConnection) {
         ws.Close();
@@ -100,15 +104,15 @@ void RunConnectionSession(transport::IWebSocketSession& ws,
     //  degrades to skipping notification rather than dereferencing nothing.
     std::optional<std::string> clientId = handshake.response.clientId;
     if (clientId.has_value()) {
-        pairingSession.NotifyReconnected(*clientId, postReadNow);
+        pairingSession_.NotifyReconnected(*clientId, postReadNow);
     }
 
     ws.SwitchToIdleTimeout();
 
     auto capabilities = BuildBridgeCapabilities(sessionId);
     if (capabilities.has_value()) {
-        capabilities->bridgeInstanceId = bridgeInstanceId;
-        capabilities->playContextId = activePlayContext.CurrentPlayContextId();
+        capabilities->bridgeInstanceId = bridgeInstanceId_;
+        capabilities->playContextId = activePlayContext_.CurrentPlayContextId();
         SendIfPossible(ws, *capabilities);
     }
     //  If BuildBridgeCapabilities itself failed (the same unreachable-in-
@@ -133,10 +137,10 @@ void RunConnectionSession(transport::IWebSocketSession& ws,
         }
 
         auto dispatch = ProcessInboundMessage(
-            *raw, receivedMessageCount, sessionId, connection, sessionManager,
-            replayGuard, violations, rateLimiter, timeout, activePlayContext,
-            pairingSession, trustStore, mutationCoordinator,
-            pairingNotificationSink, bridgeInstanceId, steadyNow());
+            *raw, receivedMessageCount, sessionId, connection, sessionManager_,
+            replayGuard, violations, rateLimiter, timeout, activePlayContext_,
+            pairingSession_, trustStore_, mutationCoordinator_,
+            pairingNotificationSink_, bridgeInstanceId_, steadyNow());
         for (const protocol::Envelope& response : dispatch.responses) {
             SendIfPossible(ws, response);
         }
@@ -146,7 +150,7 @@ void RunConnectionSession(transport::IWebSocketSession& ws,
     }
 
     if (clientId.has_value()) {
-        pairingSession.NotifyDisconnected(*clientId, steadyNow());
+        pairingSession_.NotifyDisconnected(*clientId, steadyNow());
     }
     sessionLease.reset();
     ws.Close();
