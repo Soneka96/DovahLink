@@ -7,7 +7,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
-abstract interface class PairingRemoteDataSource {
+abstract interface class IPairingRemoteDataSource {
   /// Connects and authenticates, recovering an interrupted pairing
   /// confirmation when the session authenticates as unpaired.
   Future<Either<Failure, PairingHandshakeEntity>> authenticate();
@@ -51,14 +51,14 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
-class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
+class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// Creates a data source backed by [_client].
-  PairingRemoteDataSourceImpl(this._client);
+  PairingRemoteDataSource(this._client);
 
   /// The wrapped SDK client.
   final DovahLinkClient _client;
 
-  /// See [PairingRemoteDataSource.authenticate]. Delegates to [DovahLinkClient.authenticate],
+  /// See [IPairingRemoteDataSource.authenticate]. Delegates to [DovahLinkClient.authenticate],
   /// which recovers from a rejected `trusted_device_credential` hello by discarding the stale
   /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
   /// [HelloResult.recoveredFromRejectedCredential] when that happened.
@@ -121,7 +121,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     null => null,
   };
 
-  /// See [PairingRemoteDataSource.requestPairingCode].
+  /// See [IPairingRemoteDataSource.requestPairingCode].
   @override
   Future<Either<Failure, int?>> requestPairingCode() async {
     try {
@@ -152,7 +152,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// See [PairingRemoteDataSource.confirmPairingCode].
+  /// See [IPairingRemoteDataSource.confirmPairingCode].
   @override
   Future<Either<Failure, Unit>> confirmPairingCode({
     required String code,
@@ -187,7 +187,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// See [PairingRemoteDataSource.disconnect].
+  /// See [IPairingRemoteDataSource.disconnect].
   @override
   Future<Either<Failure, Unit>> disconnect() async {
     try {
@@ -215,7 +215,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     _ => 'Pairing could not be completed. Please try again.',
   };
 
-  /// See [PairingRemoteDataSource.requestPairingRenotify].
+  /// See [IPairingRemoteDataSource.requestPairingRenotify].
   @override
   Future<Either<Failure, int?>> requestPairingRenotify() async {
     try {
@@ -240,7 +240,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// See [PairingRemoteDataSource.cancelPairing].
+  /// See [IPairingRemoteDataSource.cancelPairing].
   @override
   Future<Either<Failure, Unit>> cancelPairing() async {
     try {
@@ -262,7 +262,7 @@ class PairingRemoteDataSourceImpl implements PairingRemoteDataSource {
     }
   }
 
-  /// See [PairingRemoteDataSource.connectionStatus]. `connecting` carries no distinct status for
+  /// See [IPairingRemoteDataSource.connectionStatus]. `connecting` carries no distinct status for
   /// this feature -- it never occurs for a trusted session's own bounded recovery (see
   /// `SessionState.beginConnectAttempt`'s "reconnecting" mid-recovery guard), and this data
   /// source is only ever observed post-trust -- so it maps to `null` and is filtered out before

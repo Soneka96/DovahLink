@@ -13,7 +13,7 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the remote data source for [PairingRepositoryImpl] tests.
 class MockPairingRemoteDataSource extends Mock
-    implements PairingRemoteDataSource {}
+    implements IPairingRemoteDataSource {}
 
 /// Exercises [PairingRepositoryImpl]'s pass-through delegation.
 void main() {

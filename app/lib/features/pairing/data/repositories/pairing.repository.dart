@@ -6,13 +6,13 @@ import 'package:dovahlink_client/features/pairing/domain/repositories/Ipairing.r
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
-/// Implements [IPairingRepository] over [PairingRemoteDataSource].
+/// Implements [IPairingRepository] over [IPairingRemoteDataSource].
 class PairingRepositoryImpl implements IPairingRepository {
   /// Creates a repository backed by [_remoteDataSource].
   PairingRepositoryImpl(this._remoteDataSource);
 
   /// The remote data source this repository delegates to.
-  final PairingRemoteDataSource _remoteDataSource;
+  final IPairingRemoteDataSource _remoteDataSource;
 
   /// See [IPairingRepository.authenticate].
   @override

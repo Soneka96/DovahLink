@@ -63,7 +63,7 @@ void main() {
     test('initDependencies registers the pairing remote data source', () {
       initDependencies();
 
-      expect(sl.isRegistered<PairingRemoteDataSource>(), isTrue);
+      expect(sl.isRegistered<IPairingRemoteDataSource>(), isTrue);
     });
 
     test('initDependencies registers the pairing repository', () {
