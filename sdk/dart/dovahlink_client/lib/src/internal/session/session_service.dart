@@ -116,7 +116,7 @@ class SessionService implements ISessionService {
        _teardownCoordinator = teardownCoordinator;
 
   /// Notified after a real (non-duplicate) teardown, so pending operations can be failed or
-  /// orphaned. `null` until [DovahLinkClient] assigns a [RequestService.failAll] tear-off after
+  /// orphaned. `null` until [DovahLinkClient] assigns an [IRequestService.failAll] tear-off after
   /// constructing it -- this service is built before its `RequestService`, which itself depends on
   /// `ISessionService`, so a constructor dependency in this direction would cycle; see
   /// `ai/context/sdk/architecture.md`'s "Callbacks".
@@ -131,8 +131,8 @@ class SessionService implements ISessionService {
 
   /// Receives each inbound message this session's subscription reads, already filtered to the
   /// current connection generation. `null` until `DovahLinkClient` assigns
-  /// `requestServiceImpl.handleIncoming` -- the same construction-order reasoning as [onTeardown]
-  /// applies, since `RequestServiceImpl` itself depends on `ISessionService`.
+  /// `requestService.handleIncoming` -- the same construction-order reasoning as [onTeardown]
+  /// applies, since `RequestService` itself depends on `ISessionService`.
   void Function(String raw)? onIncomingMessage;
 
   /// Implements [ISessionService.connectionState].

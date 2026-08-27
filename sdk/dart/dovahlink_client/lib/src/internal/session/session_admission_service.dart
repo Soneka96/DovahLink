@@ -25,13 +25,13 @@ class SessionAdmissionService implements ISessionAdmissionService {
 
   /// Retransmits any retry-safe operation an earlier ordinary transport loss orphaned, once the
   /// newly admitted session's trust state is known.
-  final RequestService _requestService;
+  final IRequestService _requestService;
 
   /// Creates a session admission service over [state], retrying orphaned operations through
   /// [requestService].
   SessionAdmissionService({
     required SessionState state,
-    required RequestService requestService,
+    required IRequestService requestService,
   }) : _state = state,
        _requestService = requestService;
 

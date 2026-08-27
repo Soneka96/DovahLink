@@ -11,9 +11,9 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 class MockSessionState extends Mock implements SessionState {}
 
 /// Mock request service -- its own orphaned-retry logic is
-/// `request_service_impl_test.dart`'s responsibility; this file only proves
+/// `request_service_test.dart`'s responsibility; this file only proves
 /// [SessionAdmissionService] calls it after admitting.
-class MockRequestService extends Mock implements RequestService {}
+class MockRequestService extends Mock implements IRequestService {}
 
 /// Runs session-admission-service behavior tests.
 void main() {

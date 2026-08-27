@@ -82,7 +82,7 @@ interaction-only dependencies; use a controllable thread-safe fake when timing, 
 cross-thread access, synchronization, or mutable state is part of the behavior under test. This
 applies uniformly to every class this package tests, not only the seven
 Services: `SessionService`'s test mocks `SessionState`, `LifecycleOperationQueue`, and
-`ConnectionTeardownCoordinator`; `RequestServiceImpl`'s test mocks `PendingOperationBookkeeping`,
+`ConnectionTeardownCoordinator`; `RequestService`'s test mocks `PendingOperationBookkeeping`,
 `PendingOperationTransmitter`, and `MessageRouter`; `ConnectionTeardownCoordinator`'s own test mocks
 `LifecycleOperationQueue`, in turn. A class's own test file is the only place that class's real
 behavior runs; every consumer treats it as a black box and verifies via `verify()`/`captureAny()`
@@ -105,7 +105,7 @@ dependency's own test file. For example: `ReconnectServiceImpl`'s tests mock `IS
 `AuthenticationService` and prove reconnect's own reaction (continue vs. stop, attempt/deadline
 bookkeeping) to each classification `AuthenticationService.hello()` can produce, without re-proving
 how `AuthenticationServiceImpl` itself decodes or classifies a rejected `hello`.
-`AuthenticationServiceImpl`'s tests mock `ISessionService`, `ISessionAdmissionService`, `RequestService`,
+`AuthenticationServiceImpl`'s tests mock `ISessionService`, `ISessionAdmissionService`, `IRequestService`,
 and `IClientStorage`. `SessionAdmissionService`'s and `SessionTrustService`'s tests mock
 `SessionState` and the Service dependencies each one actually declares. Do not introduce a Service
 interface solely because mocking a dependency is convenient — `mocktail`'s pattern already makes
@@ -129,6 +129,6 @@ Two behaviors need their own explicit tests, not just whatever coverage happens 
   integration test (`test/dovahlink_client_test.dart`'s "Behavior composition-root teardown
   deduplication" group) — never re-derived at any individual Service's own mocked-everything
   unit-test level.
-- `RequestServiceImpl.sendAndAwait`'s `connectionState` guard must fail a request issued before any
+- `IRequestService.sendAndAwait`'s `connectionState` guard must fail a request issued before any
   `connect()` call immediately and synchronously with a typed `DovahLinkConnectionException`,
   without registering or transmitting anything.

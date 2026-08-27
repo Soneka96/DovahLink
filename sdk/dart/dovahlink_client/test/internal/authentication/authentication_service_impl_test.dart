@@ -27,7 +27,7 @@ class MockSessionAdmissionService extends Mock
     implements ISessionAdmissionService {}
 
 /// Mock request service used to isolate authentication service tests.
-class MockRequestService extends Mock implements RequestService {}
+class MockRequestService extends Mock implements IRequestService {}
 
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
 /// test file; this file only proves [AuthenticationServiceImpl] reads and writes the right state.

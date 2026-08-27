@@ -5,7 +5,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 /// `ai/context/sdk/architecture.md`'s "Internal composition". A plain, no-interface supporting
 /// object per "Not everything is a Service" -- it holds state and the small set of transitions
 /// that state can undergo, and performs no wire I/O or session/trust reasoning of its own, so
-/// `RequestServiceImpl` can hand [ReplyResolverImpl] and [PendingOperationRegistryImpl] a real,
+/// `RequestService` can hand [ReplyResolverImpl] and [PendingOperationRegistryImpl] a real,
 /// distinct object over this bookkeeping instead of implementing those pre-decomposition ports
 /// itself.
 class PendingOperationBookkeeping {

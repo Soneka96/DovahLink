@@ -16,7 +16,6 @@ import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/requests/request_service_impl.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -114,7 +113,7 @@ class DovahLinkClient {
     // assigned below -- resolved only when a real teardown later invokes it, by which point
     // construction has completed. `ConnectionTeardownCoordinator` must exist before
     // `SessionService` (which owns it), but the failure handler it needs can only be supplied
-    // by `RequestServiceImpl`, which itself depends on `ISessionService` and so must be built after
+    // by `RequestService`, which itself depends on `ISessionService` and so must be built after
     // it -- see `ai/context/sdk/architecture.md`'s "Callbacks".
     final ConnectionTeardownCoordinator teardownCoordinator =
         ConnectionTeardownCoordinator(
@@ -147,7 +146,7 @@ class DovahLinkClient {
       bookkeeping: bookkeeping,
       sessionService: _sessionService,
     );
-    _requestService = RequestServiceImpl(
+    _requestService = RequestService(
       sessionService: _sessionService,
       bookkeeping: bookkeeping,
       transmitter: transmitter,
@@ -213,7 +212,7 @@ class DovahLinkClient {
   late final SessionService _sessionService;
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
-  late final RequestService _requestService;
+  late final IRequestService _requestService;
 
   /// Owns `hello`/authentication and credential-rejection recovery.
   late final AuthenticationService _authenticationService;

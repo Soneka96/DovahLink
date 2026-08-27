@@ -143,7 +143,7 @@ The seven Services:
   recovery cohesive in one place.
 - `ISessionTrustService`/`SessionTrustService` — `markTrusted`, a privileged capability injected
   only into `PairingServiceImpl`.
-- `RequestService`/`RequestServiceImpl` — owns pending requests, timeout policy, retry behavior,
+- `IRequestService`/`RequestService` — owns pending requests, timeout policy, retry behavior,
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
   `failAll`, `retryOrphanedOperations`. Privately owns `MessageRouter` and
   `PendingOperationTransmitter`.
@@ -197,7 +197,7 @@ Phase 3.3 are unchanged.
 Constructor injection is the default and, aside from the three named callbacks below, the only
 wiring mechanism. No service locator, no static/global dependency lookup, no hidden singleton
 access inside a Service implementation. A single Service instance may legitimately be injected into
-multiple consumers — `RequestService` is injected into `SessionAdmissionService`,
+multiple consumers — `IRequestService` is injected into `SessionAdmissionService`,
 `AuthenticationServiceImpl`, and `PairingServiceImpl` — that is expected and does not duplicate the
 Service or its state.
 
@@ -227,13 +227,13 @@ These are the SDK's explicitly enumerated lifecycle-inversion exceptions to ordi
 injection. They are typed, assigned once by the composition root, and do not construct or resolve
 implementations.
 
-1. **Teardown notification** → `RequestService.failAll`. `SessionService` can detect a
+1. **Teardown notification** → `IRequestService.failAll`. `SessionService` can detect a
    connection failure entirely internally (its own transport subscription's `onError`/`onDone`) and
-   must trigger pending-operation failure/orphaning after tearing down, but cannot hold a
-   `RequestService` reference, because `RequestServiceImpl` is constructed after `SessionService`
+   must trigger pending-operation failure/orphaning after tearing down, but cannot hold an
+   `IRequestService` reference, because `RequestService` is constructed after `SessionService`
    and itself depends on `ISessionService`. Assigned once by the composition root as a method
-   tear-off (`sessionService.onTeardown = requestServiceImpl.failAll`), not as
-   `RequestServiceImpl` implementing a second interface. Gated by the same generation check
+   tear-off (`sessionService.onTeardown = requestService.failAll`), not as
+   `RequestService` implementing a second interface. Gated by the same generation check
    `ConnectionTeardownCoordinator` already uses internally, so a duplicate `onError`+`onDone` signal
    for one dead connection fires the callback exactly once, never twice, and a later, genuinely new
    teardown still fires it again.
@@ -241,13 +241,13 @@ implementations.
    reasoning: `ReconnectServiceImpl` needs `ISessionService` and `AuthenticationService` as
    constructor dependencies, so `SessionService` cannot hold a matching `ReconnectService`
    reference without a cycle.
-3. **Incoming-message forwarding** → `RequestService.handleIncoming`. `SessionService` owns
+3. **Incoming-message forwarding** → `IRequestService.handleIncoming`. `SessionService` owns
    starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
    session boundary" below) and is the only class that ever sees a raw inbound message land, but
    decoding, correlation, and unsolicited routing belong to `RequestService`, and the same
-   construction-order cycle applies: `RequestServiceImpl` depends on `ISessionService`, so
-   `SessionService` cannot hold a `RequestService` reference. Assigned by the composition root
-   alongside `onTeardown` (`sessionService.onIncomingMessage = requestServiceImpl.handleIncoming`).
+   construction-order cycle applies: `RequestService` depends on `ISessionService`, so
+   `SessionService` cannot hold an `IRequestService` reference. Assigned by the composition root
+   alongside `onTeardown` (`sessionService.onIncomingMessage = requestService.handleIncoming`).
    `SessionService`'s own subscription handler discards a message from an already-superseded
    connection generation before this callback ever runs, so a stale message never reaches
    `RequestService`.
@@ -270,7 +270,7 @@ delay, then an in-flight `connect()` attempt) during which no transport is guara
 Once the transport reconnects, the attempt moves to `reauthenticating` -- transport up, trust not
 yet confirmed -- and `connectionState` only reaches `connected` once that attempt's `hello` actually
 admits a session. An already-pending `retrySafe` operation an earlier ordinary transport loss
-orphaned is a separate mechanism, unaffected by this guard: `RequestServiceImpl.retryOrphanedOperations`
+orphaned is a separate mechanism, unaffected by this guard: `IRequestService.retryOrphanedOperations`
 retransmits it directly, bypassing
 `sendAndAwait` entirely, only after `SessionAdmissionService` admits a fresh session
 post-reconnect (see "Internal composition" above). Starting the transport's
@@ -284,7 +284,7 @@ members of `ISessionService`'s one interface, not internal plumbing that happens
 they are the reactive half of the same domain concept `connect`/`disconnect` are the commanded half
 of ("owning a connection's lifecycle"), carrying genuinely different, already-well-typed payloads
 that don't reduce to a redundant restatement of something else `RequestService` could already see.
-`RequestServiceImpl`, constructed after `SessionService`, calls these directly as a normal
+`RequestService`, constructed after `SessionService`, calls these directly as a normal
 dependency; there is no cycle and no callback involved on this side.
 
 ### Composing narrow authority
@@ -306,7 +306,7 @@ maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustServic
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
-keeps it as a field. Every other consumer — `RequestService`,
+keeps it as a field. Every other consumer — `IRequestService`,
 `AuthenticationService`, `PairingService`, `ReconnectService` — depends on the appropriate Service
 contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
 another service merely because it's needed there; the one documented, accepted exception is

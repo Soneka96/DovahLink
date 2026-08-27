@@ -18,7 +18,7 @@ import '../../fixtures/fixtures.dart';
 
 /// Mock request service used to isolate pairing service tests, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
-class MockRequestService extends Mock implements RequestService {}
+class MockRequestService extends Mock implements IRequestService {}
 
 /// Mock session trust service -- its own trust-upgrade logic is
 /// `session_trust_service_test.dart`'s responsibility; this file only proves

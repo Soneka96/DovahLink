@@ -18,7 +18,7 @@ import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Implements [PairingService], per `ai/context/sdk/architecture.md`'s "Internal composition".
-/// Every collaborator ([ISessionTrustService], [RequestService], [IClientStorage]) is supplied by
+/// Every collaborator ([ISessionTrustService], [IRequestService], [IClientStorage]) is supplied by
 /// the caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
 /// constructs one of its own dependencies.
 class PairingServiceImpl implements PairingService {
@@ -27,7 +27,7 @@ class PairingServiceImpl implements PairingService {
   final ISessionTrustService _sessionTrustService;
 
   /// Sends a pairing message and awaits its correlated reply.
-  final RequestService _requestService;
+  final IRequestService _requestService;
 
   /// The SDK-owned persistence boundary for this client's credential and pairing recovery state.
   final IClientStorage _storage;
@@ -35,7 +35,7 @@ class PairingServiceImpl implements PairingService {
   /// Creates a pairing service over [sessionTrustService], [requestService], and [storage].
   PairingServiceImpl({
     required ISessionTrustService sessionTrustService,
-    required RequestService requestService,
+    required IRequestService requestService,
     required IClientStorage storage,
   }) : _sessionTrustService = sessionTrustService,
        _requestService = requestService,
