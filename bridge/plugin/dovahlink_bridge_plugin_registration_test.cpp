@@ -168,3 +168,87 @@ TEST_CASE("SKSEPluginLoad passes trust administration through service contracts"
               "trustDeviceAdminServiceContract, trustResetServiceContract") !=
           std::string::npos);
 }
+
+//  Stage 5's production capture and lifecycle composition
+//  (ai/context/skse/architecture.md's "Production capture and lifecycle
+//  composition") has no unit-testable behavior of its own at the plugin
+//  boundary -- each component's own tests prove its behavior. This
+//  structural check proves only that the composition root wires every
+//  component in dependency order, since a constructor reference argument
+//  requires its referent to already be constructed.
+TEST_CASE("SKSEPluginLoad constructs the production capture and lifecycle "
+          "composition chain in dependency order",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    std::size_t revisionTrackerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::RevisionTracker revisionTracker;");
+    REQUIRE(revisionTrackerPos != std::string::npos);
+    std::size_t routerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::ActiveSessionPublicationRouter "
+                "activeSessionPublicationRouter;");
+    REQUIRE(routerPos != std::string::npos);
+    std::size_t statePublisherPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::StatePublisher statePublisher("
+                "revisionTracker, activeSessionPublicationRouter);");
+    REQUIRE(statePublisherPos != std::string::npos);
+    CHECK(revisionTrackerPos < statePublisherPos);
+    CHECK(routerPos < statePublisherPos);
+
+    std::size_t captureWorkerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CaptureDispatchWorker "
+                "captureDispatchWorker(statePublisher);");
+    REQUIRE(captureWorkerPos != std::string::npos);
+    CHECK(statePublisherPos < captureWorkerPos);
+
+    std::size_t taskMarshallerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::game_state::CommonLibTaskMarshaller "
+                "taskMarshaller;");
+    REQUIRE(taskMarshallerPos != std::string::npos);
+    std::size_t cadenceSchedulerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CadenceScheduler "
+                "cadenceScheduler;");
+    REQUIRE(cadenceSchedulerPos != std::string::npos);
+    std::size_t tickDriverPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CadenceTickDriver "
+                "cadenceTickDriver(cadenceScheduler, captureDispatchWorker, "
+                "taskMarshaller);");
+    REQUIRE(tickDriverPos != std::string::npos);
+    CHECK(cadenceSchedulerPos < tickDriverPos);
+    CHECK(captureWorkerPos < tickDriverPos);
+    CHECK(taskMarshallerPos < tickDriverPos);
+
+    std::size_t diagnosticsPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::game_state::CommonLibPublicationDiagnostics "
+                "publicationDiagnostics;");
+    REQUIRE(diagnosticsPos != std::string::npos);
+    std::size_t factoryPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::SessionPublicationFactory "
+                "sessionPublicationFactory(activeSessionPublicationRouter, "
+                "publicationDiagnostics);");
+    REQUIRE(factoryPos != std::string::npos);
+    CHECK(routerPos < factoryPos);
+    CHECK(diagnosticsPos < factoryPos);
+}
+
+//  CaptureDispatchWorker and CadenceTickDriver each own their own background
+//  thread only once Start() is called; this proves the composition root
+//  actually starts both, alongside the coordinator, rather than leaving
+//  them constructed but inert.
+TEST_CASE("SKSEPluginLoad starts the capture worker and cadence tick driver "
+          "alongside the coordinator after kDataLoaded",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    std::size_t dataLoadedPos = source.find("kDataLoaded) {");
+    REQUIRE(dataLoadedPos != std::string::npos);
+    std::size_t coordinatorStartPos =
+        source.find("coordinator.Start();", dataLoadedPos);
+    REQUIRE(coordinatorStartPos != std::string::npos);
+    std::size_t workerStartPos =
+        source.find("captureDispatchWorker.Start();", coordinatorStartPos);
+    REQUIRE(workerStartPos != std::string::npos);
+    std::size_t tickStartPos =
+        source.find("cadenceTickDriver.Start();", workerStartPos);
+    REQUIRE(tickStartPos != std::string::npos);
+}

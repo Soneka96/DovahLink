@@ -6,10 +6,15 @@
 
 #include "application/active_play_context_level_sink.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_publication_router.hpp"
 #include "application/bridge_callback_registry.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/cadence_scheduler.hpp"
+#include "application/cadence_tick_driver.hpp"
+#include "application/capture_dispatch_worker.hpp"
+#include "application/capture_policy_registry.hpp"
 #include "application/character_state_store.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
@@ -18,13 +23,19 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "application/registered_state_area_policy.hpp"
+#include "application/revision_tracker.hpp"
 #include "application/session_manager.hpp"
+#include "application/session_publication_factory.hpp"
+#include "application/state_publisher.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/commonlib_pairing_notification_sink.hpp"
+#include "game_state/commonlib_publication_diagnostics.hpp"
+#include "game_state/commonlib_task_marshaller.hpp"
 #include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/player_level_accessor.hpp"
@@ -342,6 +353,35 @@ SKSEPluginInfo(
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
         trustDeviceAdminServiceContract, trustResetServiceContract);
 
+    //  Production capture and lifecycle composition
+    //  (ai/context/skse/architecture.md's "Production capture and lifecycle
+    //  composition"): constructs and injects the capture, worker-handoff,
+    //  and publication-routing chain. `capturePolicyRegistry` and
+    //  `registeredStateAreaPolicy` are stable, bridge-lifetime instances
+    //  with no consumer yet -- 4.2 registers zero state areas, so
+    //  `activeSessionPublicationRouter` has nothing attached and every
+    //  publication `statePublisher` builds is dropped, matching "When no
+    //  session is connected, authoritative state continues to update."
+    static dovahlink::application::CapturePolicyRegistry capturePolicyRegistry;
+    static dovahlink::application::CadenceScheduler cadenceScheduler;
+    static dovahlink::application::RevisionTracker revisionTracker;
+    static dovahlink::application::RegisteredStateAreaPolicy
+        registeredStateAreaPolicy;
+    static dovahlink::application::ActiveSessionPublicationRouter
+        activeSessionPublicationRouter;
+    static dovahlink::application::StatePublisher statePublisher(
+        revisionTracker, activeSessionPublicationRouter);
+    static dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
+        statePublisher);
+    static dovahlink::game_state::CommonLibTaskMarshaller taskMarshaller;
+    static dovahlink::application::CadenceTickDriver cadenceTickDriver(
+        cadenceScheduler, captureDispatchWorker, taskMarshaller);
+    static dovahlink::game_state::CommonLibPublicationDiagnostics
+        publicationDiagnostics;
+    static dovahlink::application::SessionPublicationFactory
+        sessionPublicationFactory(activeSessionPublicationRouter,
+                                  publicationDiagnostics);
+
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport);
 
@@ -374,6 +414,8 @@ SKSEPluginInfo(
             (void)coordinator.RunCallbackContained([] {
                 levelIncreaseHandler.HandleLevelIncrease();
                 coordinator.Start();
+                captureDispatchWorker.Start();
+                cadenceTickDriver.Start();
                 SKSE::log::info(
                     "DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).",
                     kBridgePort);
