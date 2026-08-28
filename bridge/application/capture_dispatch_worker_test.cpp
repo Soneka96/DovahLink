@@ -200,14 +200,15 @@ TEST_CASE("Join waits for an in-flight dispatch to finish",
     worker.Stop();
 
     std::promise<void> joined;
+    std::shared_future<void> joinedFuture = joined.get_future();
     std::thread joiner([&] {
         worker.Join();
         joined.set_value();
     });
 
-    CHECK(joined.get_future().wait_for(100ms) == std::future_status::timeout);
+    CHECK(joinedFuture.wait_for(100ms) == std::future_status::timeout);
 
     release.set_value();
-    joined.get_future().wait();
+    joinedFuture.wait();
     joiner.join();
 }
