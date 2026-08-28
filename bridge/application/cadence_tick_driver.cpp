@@ -12,9 +12,11 @@ namespace dovahlink::application {
 CadenceTickDriver::CadenceTickDriver(ICadenceScheduler& scheduler,
                                      ICaptureDispatchWorker& worker,
                                      ITaskMarshaller& taskMarshaller,
+                                     IActivePlayContextProvider& activeContext,
                                      std::chrono::milliseconds tickInterval)
     : scheduler_(scheduler), worker_(worker), taskMarshaller_(taskMarshaller),
-      tickInterval_(tickInterval), callbackState_(std::make_shared<CallbackState>()) {
+      activeContext_(activeContext), tickInterval_(tickInterval),
+      callbackState_(std::make_shared<CallbackState>()) {
     callbackState_->owner = this;
 }
 
@@ -122,24 +124,35 @@ void CadenceTickDriver::RunQueuedTick(
 }
 
 void CadenceTickDriver::OnGameThreadTick() {
-    //  Runs on the game thread; per ai/context/skse/architecture.md's
-    //  "Threading and callbacks", an exception here must never escape onto
+    //  Runs on the game thread; an exception here must never escape onto
     //  SKSE's own call stack.
     try {
+        //  Pinned once, before the due-key check, and reused for every due
+        //  key this tick -- the same atomic guard-then-pin shape native-event
+        //  capture uses, so no due-key check or capture happens while
+        //  loading or before an authoritative play context exists.
+        auto context = activeContext_.CurrentPlayContext();
+        if (!context) {
+            return;
+        }
         auto now = std::chrono::steady_clock::now();
         for (const auto& key : scheduler_.DueKeys(now)) {
-            //  `buildData` always returns an empty object: no caller ever
+            //  The closure always reports no change: no caller ever
             //  registers a key with `scheduler_`, so `DueKeys` never returns
             //  one and this loop body never runs in production today. It is
-            //  not a template for Phase 4.3's real per-domain data builders --
-            //  there is no domain-independent abstraction here to build a
-            //  real payload from, since a sampled value's shape is inherently
+            //  not a template for Phase 4.3's real per-domain apply/compare
+            //  logic -- there is no domain-independent abstraction here to
+            //  build one from, since a sampled value's shape is inherently
             //  domain-specific. Whichever phase registers the first sampled
-            //  domain supplies its own `buildData` for that key.
+            //  domain supplies its own closure for that key.
             CaptureWorkItem item{
+                .playContext = context,
                 .stateArea = key,
                 .mode = CaptureMode::kSnapshot,
-                .buildData = [] { return boost::json::object{}; },
+                .applyAndBuildIfChanged =
+                    [](PlayContext&) -> std::optional<boost::json::object> {
+                    return std::nullopt;
+                },
                 .occurredAt = std::chrono::system_clock::now(),
             };
             (void)worker_.TryEnqueue(std::move(item));

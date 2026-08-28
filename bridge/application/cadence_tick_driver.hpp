@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/active_play_context_provider.hpp"
 #include "application/cadence_scheduler.hpp"
 #include "application/capture_dispatch_worker.hpp"
 #include "application/constants.hpp"
@@ -34,32 +35,37 @@ class ICadenceTickDriver {
 
 ///  Owns a dedicated background thread that wakes every `tickInterval`
 ///  (`kCadenceTickInterval` in production) and marshals one due-key check
-///  onto the game thread through the injected `ITaskMarshaller`, per
-///  `ai/context/skse/architecture.md`'s "Production capture and lifecycle
-///  composition". Only the due-key evaluation and any resulting capture
-///  happen on the game thread; the interval timing itself runs on this
-///  ordinary background thread.
+///  onto the game thread through the injected `ITaskMarshaller`. Only the
+///  due-key evaluation and any resulting capture happen on the game thread;
+///  the interval timing itself runs on this ordinary background thread.
 ///
-///  For each key `ICadenceScheduler::DueKeys` reports, this hands off a
-///  `CaptureWorkItem` to `ICaptureDispatchWorker` with an empty payload
-///  builder: no state area is registered before a later phase, so
+///  Each game-thread tick pins the active play context once, before
+///  checking `ICadenceScheduler::DueKeys`, and reuses that same pinned
+///  context for every due key in that tick -- the same atomic guard-then-pin
+///  shape native-event capture uses -- skipping the whole due-key check when
+///  no context is active. For each due key, this hands off a
+///  `CaptureWorkItem` to `ICaptureDispatchWorker` with a closure that
+///  reports no change: no state area is registered before a later phase, so
 ///  `DueKeys` never reports a real key in production and this path is
-///  exercised only by tests. Building real per-key data belongs to whichever
-///  phase registers a sampled domain and gives this class a real key to
-///  build data for.
+///  exercised only by tests. Building the real per-key apply-and-compare
+///  closure belongs to whichever phase registers a sampled domain and gives
+///  this class a real key to build data for.
 class CadenceTickDriver final : public ICadenceTickDriver {
   public:
-    ///  Binds the driver to its scheduler, dispatch worker, and game-thread
-    ///  marshaller.
+    ///  Binds the driver to its scheduler, dispatch worker, pinned-context
+    ///  provider, and game-thread marshaller.
     ///  @param scheduler Reports due sampled-capture keys.
     ///  @param worker Receives a work item for each due key.
     ///  @param taskMarshaller Marshals the due-key check onto the game
     ///  thread.
+    ///  @param activeContext Provides the play context each tick's due keys
+    ///  are captured against.
     ///  @param tickInterval Background timer interval; defaults to the
     ///  approved production value.
     CadenceTickDriver(ICadenceScheduler& scheduler,
                       ICaptureDispatchWorker& worker,
                       ITaskMarshaller& taskMarshaller,
+                      IActivePlayContextProvider& activeContext,
                       std::chrono::milliseconds tickInterval =
                           kCadenceTickInterval);
 
@@ -129,6 +135,9 @@ class CadenceTickDriver final : public ICadenceTickDriver {
 
     ///  Marshals the due-key check onto the game thread.
     ITaskMarshaller& taskMarshaller_;
+
+    ///  Provides the play context each tick's due keys are captured against.
+    IActivePlayContextProvider& activeContext_;
 
     ///  Background timer interval.
     std::chrono::milliseconds tickInterval_;
