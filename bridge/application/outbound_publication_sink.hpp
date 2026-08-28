@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <list>
 #include <mutex>
 #include <optional>
@@ -16,6 +17,8 @@
 #include <unordered_map>
 
 namespace dovahlink::application {
+
+class SessionPublicationFactory;
 
 ///  Receives typed publications from `IStatePublisher` toward the bounded
 ///  outbound organization. It is the handoff seam between publication-mode
@@ -86,7 +89,9 @@ class IOutboundPublicationSink {
 ///  one authenticated session's socket and its own `sessionId`; a reconnect
 ///  constructs a fresh instance rather than reusing this one, so a previous
 ///  session's undelivered traffic and barriers are never carried into a new
-///  one.
+///  one. A queue created by `SessionPublicationFactory` detaches its own router
+///  binding before destruction, and an older queue can never detach a newer
+///  replacement binding.
 class BoundedOutboundQueue final : public IOutboundPublicationSink {
   public:
     ///  Binds the queue to the live session socket it drains into, the
@@ -101,7 +106,8 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
                          std::string sessionId);
 
     ///  Prevents late socket completions from accessing this queue after its
-    ///  owning session has destroyed it.
+    ///  owning session has destroyed it, and releases its router binding first
+    ///  when the queue was created by `SessionPublicationFactory`.
     ~BoundedOutboundQueue() noexcept;
 
     ///  @copydoc IOutboundPublicationSink::PublishSnapshot
@@ -121,6 +127,13 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     void PublishControl(protocol::Envelope envelope) override;
 
   private:
+    friend class SessionPublicationFactory;
+
+    ///  Installs the teardown callback used to release this queue's router
+    ///  binding before the queue becomes invalid.
+    ///  @param callback No-throw callback that detaches this queue's binding.
+    void SetDetachCallback(std::function<void()> callback);
+
     ///  One data-lane entry awaiting delivery: a keyed, replaceable Snapshot
     ///  slot, or an ordered, non-coalesced Event entry.
     struct PendingEntry {
@@ -267,6 +280,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
 
     ///  Identity stamped onto every delivered envelope.
     std::string sessionId_;
+
+    ///  Detaches this queue's router binding before destruction.
+    std::function<void()> detachCallback_;
 
     ///  Serializes all queue state.
     std::mutex mutex_;

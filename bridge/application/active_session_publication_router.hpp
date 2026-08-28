@@ -33,13 +33,21 @@ class ActiveSessionPublicationRouter final : public IOutboundPublicationSink {
   public:
     ///  Binds the currently attached sink, replacing any previous binding.
     ///  Does not take ownership; `sink` must outlive either this call's
-    ///  matching `Detach()` or a later `Attach()` replacing it.
+    ///  matching `Detach()` or a later `Attach()` replacing it. A factory-created
+    ///  queue installs an identity-checked teardown callback for this binding.
     ///  @param sink Session-scoped sink to route publications into.
     void Attach(IOutboundPublicationSink& sink);
 
     ///  Clears the currently attached sink, if any. Publications made after
     ///  this call are dropped until a new sink is attached.
     void Detach();
+
+    ///  Clears the currently attached sink only when it is `expected`. This
+    ///  prevents an older session's teardown from detaching a replacement
+    ///  session that was attached later. The caller must keep the router alive
+    ///  until this operation completes.
+    ///  @param expected Sink whose binding is being torn down.
+    void Detach(IOutboundPublicationSink& expected);
 
     ///  @copydoc IOutboundPublicationSink::PublishSnapshot
     void PublishSnapshot(std::string stateArea,

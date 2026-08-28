@@ -76,5 +76,36 @@ TEST_CASE("A second CreateForSession call replaces the router's previous "
 
     std::unique_ptr<BoundedOutboundQueue> secondQueue =
         factory.CreateForSession(secondSocket, "session-2");
+    firstQueue.reset();
     router.PublishControl(BuildEnvelope());
+}
+
+TEST_CASE("Destroying the attached queue detaches its router binding",
+          "[application][session_publication_factory]") {
+    ActiveSessionPublicationRouter router;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    NiceMock<MockSocket> socket;
+    SessionPublicationFactory factory(router, diagnostics);
+    std::unique_ptr<BoundedOutboundQueue> queue =
+        factory.CreateForSession(socket, "session-1");
+
+    queue.reset();
+    router.PublishControl(BuildEnvelope());
+}
+
+TEST_CASE("The returned queue may outlive its factory",
+          "[application][session_publication_factory]") {
+    ActiveSessionPublicationRouter router;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    NiceMock<MockSocket> socket;
+    std::unique_ptr<BoundedOutboundQueue> queue;
+    {
+        SessionPublicationFactory factory(router, diagnostics);
+        queue = factory.CreateForSession(socket, "session-1");
+    }
+
+    EXPECT_CALL(socket, Send(HasSubstr("session-1"), _)).Times(1);
+    router.PublishControl(BuildEnvelope());
+    queue.reset();
+    router.PublishControl(BuildEnvelope("after-destruction"));
 }

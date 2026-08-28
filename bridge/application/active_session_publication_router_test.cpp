@@ -128,3 +128,26 @@ TEST_CASE("Attach replaces a previously attached sink",
 
     router.PublishSnapshot("character_level", BuildTestEnvelope());
 }
+
+TEST_CASE("expected detach does not remove a replacement binding",
+          "[application][active_session_publication_router]") {
+    ActiveSessionPublicationRouter router;
+    StrictMock<MockOutboundPublicationSink> firstSink;
+    StrictMock<MockOutboundPublicationSink> secondSink;
+    router.Attach(firstSink);
+    router.Attach(secondSink);
+    EXPECT_CALL(secondSink, PublishSnapshot("character_level", _)).Times(1);
+
+    router.Detach(firstSink);
+    router.PublishSnapshot("character_level", BuildTestEnvelope());
+}
+
+TEST_CASE("expected detach clears its matching binding",
+          "[application][active_session_publication_router]") {
+    ActiveSessionPublicationRouter router;
+    StrictMock<MockOutboundPublicationSink> sink;
+    router.Attach(sink);
+
+    router.Detach(sink);
+    router.PublishSnapshot("character_level", BuildTestEnvelope());
+}

@@ -29,7 +29,8 @@ class ISessionPublicationFactory {
     ///  @param socket Live session socket; must outlive the returned queue.
     ///  @param sessionId Identity of the authenticated session.
     ///  @return The newly created, already-attached queue. The caller owns
-    ///  it and must keep it alive for the session's lifetime.
+    ///  it and must keep it alive for the session's lifetime; its destruction
+    ///  automatically detaches only that queue's router binding.
     [[nodiscard]] virtual std::unique_ptr<BoundedOutboundQueue>
     CreateForSession(transport::ISocket& socket, std::string sessionId) = 0;
 };
@@ -46,6 +47,8 @@ class SessionPublicationFactory final : public ISessionPublicationFactory {
     ///  @param router Shared publisher's session-binding seam.
     ///  @param diagnostics Diagnostics sink; must outlive every created
     ///  queue.
+    ///  The router must also outlive every created queue because each queue
+    ///  releases its identity-checked binding during destruction.
     SessionPublicationFactory(ActiveSessionPublicationRouter& router,
                               IPublicationDiagnostics& diagnostics);
 

@@ -14,6 +14,13 @@ void ActiveSessionPublicationRouter::Detach() {
     attached_ = nullptr;
 }
 
+void ActiveSessionPublicationRouter::Detach(IOutboundPublicationSink& expected) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (attached_ == &expected) {
+        attached_ = nullptr;
+    }
+}
+
 void ActiveSessionPublicationRouter::PublishSnapshot(
     std::string stateArea, protocol::Envelope envelope) {
     std::lock_guard<std::mutex> lock(mutex_);

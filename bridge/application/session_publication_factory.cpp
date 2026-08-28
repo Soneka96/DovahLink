@@ -13,6 +13,10 @@ SessionPublicationFactory::CreateForSession(transport::ISocket& socket,
                                             std::string sessionId) {
     auto queue = std::make_unique<BoundedOutboundQueue>(socket, diagnostics_,
                                                         std::move(sessionId));
+    auto* router = &router_;
+    auto* expected = static_cast<IOutboundPublicationSink*>(queue.get());
+    queue->SetDetachCallback(
+        [router, expected]() noexcept { router->Detach(*expected); });
     router_.Attach(*queue);
     return queue;
 }
