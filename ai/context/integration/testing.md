@@ -32,7 +32,8 @@ Cover at least:
 - unchanged sampled values producing no revision, publication, serialization, or network traffic
 - Snapshot latest-value replacement and Event FIFO preservation under outbound pressure
 - Normal/Heavy publication classification, four-slot Heavy capacity, and Heavy Snapshot/Event
-  behavior across the wire
+  behavior across the wire using a deterministic larger structured publication fixture rather than
+  a production inventory, map, or asset domain
 - Snapshot dirty-marker retry after pressure and bounded queue-byte accounting
 - reliable Event overflow explicitly disconnecting the slow client without blocking game capture
 - duplicate and out-of-order events

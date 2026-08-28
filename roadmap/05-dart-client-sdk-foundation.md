@@ -94,10 +94,12 @@ trusted connection
     -> UI reads AppState
 ```
 
-The proof surface remains intentionally small: it shows the current XP and level values, unavailable
+The proof surface shows the current XP, health, magicka, stamina, and level values, plus unavailable
 state, stale/recovering state, compatibility failure, connection lifecycle, and slow-consumer
 diagnostics without introducing the later theme system, dashboard customization, discovery, or
-mobile presentation work.
+mobile presentation work. The SDK may also expose a read-only composed resource view, but it must
+preserve the individual state-area synchronization statuses rather than claim an atomic combined
+revision.
 
 #### 5.5 Version-Impact Audit and Stage 5 Closure
 

@@ -181,6 +181,9 @@ bounded outbound organization with:
   reliable Event entries remain FIFO in either the Normal or Heavy data lane; Snapshot pressure may
   replace or defer an unsolicited value, but Event pressure closes the slow client rather than
   dropping an Event;
+- a deterministic bounded Heavy-lane proof fixture representing a larger structured publication;
+  this validates size classification, four-slot accounting, Snapshot replacement, and reliable Event
+  overflow without pulling inventory, maps, or assets into Stage 4;
 - explicit slow-consumer diagnostics and disconnect behavior;
 - instrumentation for capture timing, depth, coalescing, enqueue/dequeue latency, recovery, and
   disconnects;
@@ -261,15 +264,22 @@ expected cost. Tests must also prove the shared scheduler's aligned cadence, mis
 optional staggering seam, unchanged-sample short-circuit, and the mode-specific queue behavior before
 future domains are added.
 
-Before either domain is published, Stage 4.3 registers its canonical state area in the protocol
-schema and capabilities, defines the exact `data` shape and domain codec/validator, and adds the
-shared Bridge/SDK/.NET fixtures. A domain contract records its capture unit, capture policy, rate
+Before any of these state areas is published, Stage 4.3 registers its canonical state area in the
+protocol schema and capabilities, defines the exact `data` shape and domain codec/validator, and adds
+the shared Bridge/SDK/.NET fixtures. A domain contract records its capture unit, capture policy, rate
 class when sampled, update mode, authoritative revision behavior, unavailable-value behavior,
 initial/recovery snapshot behavior, and whether it is stateful or ephemeral. The existing generic
 state envelope remains reusable, but production domain data must not stay an unvalidated arbitrary
 JSON map once the area is registered. The domain contract also identifies whether a change is
 reconstructable current state or a one-time occurrence; only the former may be recovered or
 superseded by a state snapshot.
+
+The four resource areas remain separate authoritative state areas so each can be captured and
+revised independently. The SDK may expose a read-only composed resource view from the latest accepted
+`character_health`, `character_magicka`, and `character_stamina` values for presentation convenience;
+the Bridge does not revive the retired aggregate `character` area or create a second resource
+authority. The composed view must preserve each area's synchronization status and must not claim an
+atomic cross-area revision unless a later protocol decision adds one.
 
 Future domains are not pulled into this phase, but their intended classification is now explicit:
 location, combat summaries, and similar continuously changing values are likely sampled Snapshot
