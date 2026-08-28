@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 
 namespace dovahlink::application {
 
@@ -18,5 +19,13 @@ inline constexpr std::chrono::seconds kMediumCapturePeriod{1};
 
 ///  Maximum capture period for a `RateClass::kSlow` value: 2 seconds.
 inline constexpr std::chrono::seconds kSlowCapturePeriod{2};
+
+//  ---- Registered state areas ----
+
+///  Maximum number of state-area keys `RegisteredStateAreaPolicy` accepts.
+///  Sized for a small number of near-term production character domains with
+///  modest headroom (`ai/context/protocol/security.md`'s "Input limits");
+///  raising it later requires only a constant change, not a protocol change.
+inline constexpr std::size_t kMaxRegisteredStateAreas = 8;
 
 } //  namespace dovahlink::application
