@@ -7,11 +7,22 @@
 
 namespace dovahlink::application {
 
-BoundedOutboundQueue::BoundedOutboundQueue(transport::ISocket& socket,
-                                           IPublicationDiagnostics& diagnostics,
-                                           std::string sessionId)
+BoundedOutboundQueue::BoundedOutboundQueue(
+    transport::ISocket& socket, IPublicationDiagnostics& diagnostics,
+    std::string sessionId)
     : socket_(socket), diagnostics_(diagnostics),
-      sessionId_(std::move(sessionId)) {}
+      sessionId_(std::move(sessionId)),
+      completionState_(std::make_shared<CompletionState>()) {
+    completionState_->owner = this;
+}
+
+BoundedOutboundQueue::~BoundedOutboundQueue() noexcept {
+    std::unique_lock<std::mutex> lock(completionState_->mutex);
+    completionState_->destroying = true;
+    completionState_->owner = nullptr;
+    completionState_->changed.wait(
+        lock, [this] { return completionState_->callbacksInFlight == 0; });
+}
 
 QueueClass BoundedOutboundQueue::Classify(const std::string& encoded) {
     return encoded.size() >= security::kHeavyPublicationThresholdBytes
@@ -26,16 +37,20 @@ bool BoundedOutboundQueue::CanAdmitNewLocked(QueueClass queueClass,
     std::size_t laneCapacity = queueClass == QueueClass::kNormal
                                    ? security::kNormalDataSlots
                                    : security::kHeavyDataSlots;
-    return laneUsed < laneCapacity &&
-           totalBytesUsed_ + bytes <= security::kOutboundQueueByteBudget;
+    if (bytes > security::kOutboundQueueByteBudget ||
+        totalBytesUsed_ > security::kOutboundQueueByteBudget - bytes) {
+        return false;
+    }
+    return laneUsed < laneCapacity;
 }
 
-bool BoundedOutboundQueue::CanReplaceLocked(QueueClass oldClass,
-                                            std::size_t oldBytes,
-                                            QueueClass newClass,
-                                            std::size_t newBytes) const {
-    if (totalBytesUsed_ - oldBytes + newBytes >
-        security::kOutboundQueueByteBudget) {
+bool BoundedOutboundQueue::CanReplaceLocked(
+    QueueClass oldClass, std::size_t oldBytes, QueueClass newClass,
+    std::size_t newBytes) const {
+    if (oldBytes > totalBytesUsed_ ||
+        newBytes > security::kOutboundQueueByteBudget ||
+        totalBytesUsed_ - oldBytes >
+            security::kOutboundQueueByteBudget - newBytes) {
         return false;
     }
     if (newClass == oldClass) {
@@ -100,7 +115,10 @@ void BoundedOutboundQueue::TryPromoteOneDirtyLocked() {
     for (auto it = dirtyMarkers_.begin(); it != dirtyMarkers_.end(); ++it) {
         const std::string& stateArea = it->first;
         QueueClass queueClass = it->second.queueClass;
-        std::size_t bytes = it->second.encoded.size();
+        if (!it->second.encoded.has_value()) {
+            continue;
+        }
+        std::size_t bytes = it->second.encoded->size();
         auto slotIt = snapshotSlots_.find(stateArea);
         bool fits = slotIt != snapshotSlots_.end()
                         ? CanReplaceLocked(slotIt->second->queueClass,
@@ -111,7 +129,7 @@ void BoundedOutboundQueue::TryPromoteOneDirtyLocked() {
             continue;
         }
         std::string area = stateArea;
-        std::string encoded = std::move(it->second.encoded);
+        std::string encoded = std::move(*it->second.encoded);
         dirtyMarkers_.erase(it);
         if (slotIt != snapshotSlots_.end()) {
             ApplyReplaceLocked(slotIt->second, queueClass, std::move(encoded));
@@ -133,8 +151,7 @@ std::size_t BoundedOutboundQueue::SupersedeQueuedEventsLocked(
     std::size_t supersededCount = 0;
     auto it = dataPending_.begin();
     if (sendInFlight_ && !sendingReserved_ && it != dataPending_.end()) {
-        //  The front entry is already in flight; its bytes cannot be
-        //  recalled, matching ISocket::Send's own "no take-backs" contract.
+        //  The front entry is already in flight; its bytes cannot be recalled.
         ++it;
     }
     while (it != dataPending_.end()) {
@@ -151,196 +168,278 @@ std::size_t BoundedOutboundQueue::SupersedeQueuedEventsLocked(
     return supersededCount;
 }
 
-void BoundedOutboundQueue::MaybeStartSendLocked() {
+std::optional<std::string> BoundedOutboundQueue::MaybeStartSendLocked() {
     if (sendInFlight_) {
-        return;
+        return std::nullopt;
     }
     if (!reservedPending_.empty()) {
         sendInFlight_ = true;
         sendingReserved_ = true;
-        std::string next = reservedPending_.front().encoded;
-        socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
-        return;
+        return reservedPending_.front().encoded;
     }
     if (!dataPending_.empty()) {
         sendInFlight_ = true;
         sendingReserved_ = false;
-        std::string next = dataPending_.front().encoded;
-        socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
+        return dataPending_.front().encoded;
     }
+    return std::nullopt;
 }
 
-void BoundedOutboundQueue::OnSendComplete(bool ok) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    sendInFlight_ = false;
-    if (sendingReserved_) {
-        if (!reservedPending_.empty()) {
-            ReservedEntry finished = std::move(reservedPending_.front());
-            reservedPending_.pop_front();
-            --reservedSlotsUsed_;
-            diagnostics_.RecordDequeueLatency(std::chrono::steady_clock::now() -
-                                              finished.enqueuedAt);
-            diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
-                                          reservedSlotsUsed_, totalBytesUsed_);
-        }
-    } else if (!dataPending_.empty()) {
-        PendingEntry finished = std::move(dataPending_.front());
-        dataPending_.pop_front();
-        if (finished.isSnapshot) {
-            snapshotSlots_.erase(finished.stateArea);
-        }
-        DecrementLaneLocked(finished.queueClass);
-        totalBytesUsed_ -= finished.encoded.size();
-        diagnostics_.RecordDequeueLatency(std::chrono::steady_clock::now() -
-                                          finished.enqueuedAt);
-        diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
-                                      reservedSlotsUsed_, totalBytesUsed_);
-    }
+void BoundedOutboundQueue::DispatchSend(std::string encoded) noexcept {
+    auto completionState = completionState_;
+    socket_.Send(
+        std::move(encoded),
+        [completionState](bool ok) noexcept {
+            BoundedOutboundQueue* owner = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(completionState->mutex);
+                if (completionState->destroying ||
+                    completionState->owner == nullptr) {
+                    return;
+                }
+                ++completionState->callbacksInFlight;
+                owner = completionState->owner;
+            }
 
-    if (!ok) {
-        //  Send's own contract leaves closing the connection to its caller
-        //  on failure; a broken socket cannot keep delivering the rest of
-        //  this queue, so the queue stops draining and ends the session.
-        stopped_ = true;
-        diagnostics_.RecordDisconnect(DisconnectReason::kSendFailed);
-        socket_.Shutdown();
-        return;
-    }
+            owner->OnSendComplete(ok);
 
-    TryPromoteOneDirtyLocked();
-    MaybeStartSendLocked();
+            {
+                std::lock_guard<std::mutex> lock(completionState->mutex);
+                --completionState->callbacksInFlight;
+            }
+            completionState->changed.notify_all();
+        });
+}
+
+void BoundedOutboundQueue::OnSendComplete(bool ok) noexcept {
+    std::optional<std::string> next;
+    bool disconnect = false;
+    try {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            sendInFlight_ = false;
+            if (sendingReserved_) {
+                if (!reservedPending_.empty()) {
+                    ReservedEntry finished = std::move(reservedPending_.front());
+                    reservedPending_.pop_front();
+                    --reservedSlotsUsed_;
+                    diagnostics_.RecordDequeueLatency(
+                        std::chrono::steady_clock::now() - finished.enqueuedAt);
+                    diagnostics_.RecordQueueDepth(
+                        normalSlotsUsed_, heavySlotsUsed_, reservedSlotsUsed_,
+                        totalBytesUsed_);
+                }
+            } else if (!dataPending_.empty()) {
+                PendingEntry finished = std::move(dataPending_.front());
+                dataPending_.pop_front();
+                if (finished.isSnapshot) {
+                    snapshotSlots_.erase(finished.stateArea);
+                }
+                DecrementLaneLocked(finished.queueClass);
+                totalBytesUsed_ -= finished.encoded.size();
+                diagnostics_.RecordDequeueLatency(
+                    std::chrono::steady_clock::now() - finished.enqueuedAt);
+                diagnostics_.RecordQueueDepth(
+                    normalSlotsUsed_, heavySlotsUsed_, reservedSlotsUsed_,
+                    totalBytesUsed_);
+            }
+
+            if (!ok) {
+                stopped_ = true;
+                diagnostics_.RecordDisconnect(DisconnectReason::kSendFailed);
+                disconnect = true;
+            } else {
+                TryPromoteOneDirtyLocked();
+                next = MaybeStartSendLocked();
+            }
+        }
+        if (disconnect) {
+            socket_.Shutdown();
+        } else if (next.has_value()) {
+            DispatchSend(std::move(*next));
+        }
+    } catch (...) {
+        //  Completion handlers are a noexcept boundary. A diagnostics or
+        //  allocation failure still ends the session rather than escaping the
+        //  transport callback.
+        try {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                stopped_ = true;
+                sendInFlight_ = false;
+            }
+            socket_.Shutdown();
+        } catch (...) {
+            //  Keep this final guard for non-conforming test doubles.
+        }
+    }
 }
 
 void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
                                            protocol::Envelope envelope) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) {
-        return;
+    std::optional<std::string> next;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) {
+            return;
+        }
+        envelope.sessionId = sessionId_;
+        std::string encoded = protocol::EncodeEnvelope(envelope);
+        QueueClass queueClass = Classify(encoded);
+        std::size_t bytes = encoded.size();
+
+        auto slotIt = snapshotSlots_.find(stateArea);
+        bool hasSlot = slotIt != snapshotSlots_.end();
+        //  The front data-lane entry's bytes have already been handed to
+        //  Send while it is in flight, so a newer value uses the dirty marker
+        //  until completion accounts for the original entry.
+        bool slotInFlight = hasSlot && sendInFlight_ && !sendingReserved_ &&
+                            slotIt->second == dataPending_.begin();
+
+        if (hasSlot && !slotInFlight &&
+            CanReplaceLocked(slotIt->second->queueClass,
+                             slotIt->second->encoded.size(), queueClass,
+                             bytes)) {
+            dirtyMarkers_.erase(stateArea);
+            ApplyReplaceLocked(slotIt->second, queueClass, std::move(encoded));
+        } else if (!hasSlot && CanAdmitNewLocked(queueClass, bytes)) {
+            dirtyMarkers_.erase(stateArea);
+            ApplyAdmitNewLocked(PendingEntry{
+                .isSnapshot = true,
+                .stateArea = std::move(stateArea),
+                .revision = std::nullopt,
+                .encoded = std::move(encoded),
+                .queueClass = queueClass,
+            });
+        } else {
+            //  A publication larger than the whole data-byte budget cannot
+            //  ever be admitted. Keep only bounded metadata and rely on the
+            //  authoritative store plus a later bounded capture to retry it.
+            std::optional<std::string> retained =
+                bytes <= security::kOutboundQueueByteBudget
+                    ? std::optional<std::string>(std::move(encoded))
+                    : std::nullopt;
+            dirtyMarkers_[std::move(stateArea)] = DirtyEntry{
+                .encoded = std::move(retained),
+                .encodedBytes = bytes,
+                .queueClass = queueClass};
+        }
+
+        next = MaybeStartSendLocked();
     }
-    envelope.sessionId = sessionId_;
-    std::string encoded = protocol::EncodeEnvelope(envelope);
-    QueueClass queueClass = Classify(encoded);
-    std::size_t bytes = encoded.size();
-
-    auto slotIt = snapshotSlots_.find(stateArea);
-    bool hasSlot = slotIt != snapshotSlots_.end();
-    //  The front data-lane entry's `.encoded` has already been handed to
-    //  socket_.Send() by the time it is in flight (MaybeStartSendLocked
-    //  copies it out before calling Send) -- mutating it in place here would
-    //  silently diverge the wire bytes from what OnSendComplete's byte
-    //  accounting assumes was sent, and the caller's newer value would never
-    //  actually reach the peer. Route that case through the dirty marker
-    //  instead so it is applied only once this entry's completion has been
-    //  accounted for.
-    bool slotInFlight = hasSlot && sendInFlight_ && !sendingReserved_ &&
-                        slotIt->second == dataPending_.begin();
-
-    if (hasSlot && !slotInFlight &&
-        CanReplaceLocked(slotIt->second->queueClass,
-                         slotIt->second->encoded.size(), queueClass, bytes)) {
-        ApplyReplaceLocked(slotIt->second, queueClass, std::move(encoded));
-    } else if (!hasSlot && CanAdmitNewLocked(queueClass, bytes)) {
-        ApplyAdmitNewLocked(PendingEntry{
-            .isSnapshot = true,
-            .stateArea = std::move(stateArea),
-            .revision = std::nullopt,
-            .encoded = std::move(encoded),
-            .queueClass = queueClass,
-        });
-    } else {
-        dirtyMarkers_[std::move(stateArea)] =
-            DirtyEntry{.encoded = std::move(encoded), .queueClass = queueClass};
+    if (next.has_value()) {
+        DispatchSend(std::move(*next));
     }
-
-    MaybeStartSendLocked();
 }
 
 void BoundedOutboundQueue::PublishEvent(std::string stateArea,
                                         protocol::Envelope envelope) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) {
-        return;
+    std::optional<std::string> next;
+    bool disconnect = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) {
+            return;
+        }
+
+        auto decodedPayload = protocol::DecodeStateEventPayload(envelope.payload);
+        std::optional<std::int64_t> revision;
+        if (decodedPayload.has_value()) {
+            revision = decodedPayload->revision;
+        }
+
+        auto barrierIt = barriers_.find(stateArea);
+        if (barrierIt != barriers_.end() && revision.has_value() &&
+            *revision <= barrierIt->second) {
+            return;
+        }
+
+        envelope.sessionId = sessionId_;
+        std::string encoded = protocol::EncodeEnvelope(envelope);
+        QueueClass queueClass = Classify(encoded);
+        std::size_t bytes = encoded.size();
+
+        if (!CanAdmitNewLocked(queueClass, bytes)) {
+            stopped_ = true;
+            diagnostics_.RecordDisconnect(DisconnectReason::kEventOverflow);
+            disconnect = true;
+        } else {
+            ApplyAdmitNewLocked(PendingEntry{
+                .isSnapshot = false,
+                .stateArea = std::move(stateArea),
+                .revision = revision,
+                .encoded = std::move(encoded),
+                .queueClass = queueClass,
+            });
+            next = MaybeStartSendLocked();
+        }
     }
-
-    //  Decoded from the envelope this queue is itself handed, rather than
-    //  taken as a separate parameter: IOutboundPublicationSink::PublishEvent
-    //  is Stage 2's frozen contract and does not carry a revision field of
-    //  its own.
-    auto decodedPayload = protocol::DecodeStateEventPayload(envelope.payload);
-    std::optional<std::int64_t> revision;
-    if (decodedPayload.has_value()) {
-        revision = decodedPayload->revision;
-    }
-
-    auto barrierIt = barriers_.find(stateArea);
-    if (barrierIt != barriers_.end() && revision.has_value() &&
-        *revision <= barrierIt->second) {
-        //  Superseded by an already-accepted recovery snapshot for this
-        //  state area -- discarded rather than delivered after it.
-        return;
-    }
-
-    envelope.sessionId = sessionId_;
-    std::string encoded = protocol::EncodeEnvelope(envelope);
-    QueueClass queueClass = Classify(encoded);
-    std::size_t bytes = encoded.size();
-
-    if (!CanAdmitNewLocked(queueClass, bytes)) {
-        //  Reliable Event traffic is never dropped or coalesced -- a client
-        //  that cannot keep up is disconnected instead
-        //  (ai/context/skse/architecture.md's "Failure semantics").
-        stopped_ = true;
-        diagnostics_.RecordDisconnect(DisconnectReason::kEventOverflow);
+    if (disconnect) {
         socket_.Shutdown();
-        return;
+    } else if (next.has_value()) {
+        DispatchSend(std::move(*next));
     }
-
-    ApplyAdmitNewLocked(PendingEntry{
-        .isSnapshot = false,
-        .stateArea = std::move(stateArea),
-        .revision = revision,
-        .encoded = std::move(encoded),
-        .queueClass = queueClass,
-    });
-
-    MaybeStartSendLocked();
 }
 
-void BoundedOutboundQueue::PublishRecoverySnapshot(std::string stateArea,
-                                                   protocol::Envelope envelope,
-                                                   std::int64_t revision) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) {
-        return;
+void BoundedOutboundQueue::PublishRecoverySnapshot(
+    std::string stateArea, protocol::Envelope envelope,
+    std::int64_t revision) {
+    std::optional<std::string> next;
+    bool disconnect = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) {
+            return;
+        }
+
+        std::size_t supersededCount =
+            SupersedeQueuedEventsLocked(stateArea, revision);
+        barriers_[stateArea] = revision;
+        diagnostics_.RecordRecovery(stateArea, revision, supersededCount);
+
+        envelope.sessionId = sessionId_;
+        disconnect = AdmitReservedOrDisconnectLocked(
+            protocol::EncodeEnvelope(envelope));
+        if (!disconnect) {
+            next = MaybeStartSendLocked();
+        }
     }
-
-    std::size_t supersededCount = SupersedeQueuedEventsLocked(stateArea, revision);
-    barriers_[stateArea] = revision;
-    diagnostics_.RecordRecovery(stateArea, revision, supersededCount);
-
-    envelope.sessionId = sessionId_;
-    AdmitReservedOrDisconnectLocked(protocol::EncodeEnvelope(envelope));
+    if (disconnect) {
+        socket_.Shutdown();
+    } else if (next.has_value()) {
+        DispatchSend(std::move(*next));
+    }
 }
 
 void BoundedOutboundQueue::PublishControl(protocol::Envelope envelope) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopped_) {
-        return;
-    }
+    std::optional<std::string> next;
+    bool disconnect = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopped_) {
+            return;
+        }
 
-    envelope.sessionId = sessionId_;
-    AdmitReservedOrDisconnectLocked(protocol::EncodeEnvelope(envelope));
+        envelope.sessionId = sessionId_;
+        disconnect = AdmitReservedOrDisconnectLocked(
+            protocol::EncodeEnvelope(envelope));
+        if (!disconnect) {
+            next = MaybeStartSendLocked();
+        }
+    }
+    if (disconnect) {
+        socket_.Shutdown();
+    } else if (next.has_value()) {
+        DispatchSend(std::move(*next));
+    }
 }
 
-void BoundedOutboundQueue::AdmitReservedOrDisconnectLocked(std::string encoded) {
+bool BoundedOutboundQueue::AdmitReservedOrDisconnectLocked(
+    std::string encoded) {
     if (reservedSlotsUsed_ >= security::kReservedControlRecoverySlots) {
-        //  ai/context/protocol/security.md's "Input limits": "If reserved
-        //  control/recovery capacity is full, the client is marked
-        //  unavailable and the connection is closed."
         stopped_ = true;
         diagnostics_.RecordDisconnect(DisconnectReason::kReservedLaneFull);
-        socket_.Shutdown();
-        return;
+        return true;
     }
 
     ++reservedSlotsUsed_;
@@ -349,7 +448,7 @@ void BoundedOutboundQueue::AdmitReservedOrDisconnectLocked(std::string encoded) 
                       .enqueuedAt = std::chrono::steady_clock::now()});
     diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
                                   reservedSlotsUsed_, totalBytesUsed_);
-    MaybeStartSendLocked();
+    return false;
 }
 
 } //  namespace dovahlink::application

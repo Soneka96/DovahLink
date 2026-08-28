@@ -51,7 +51,19 @@ boost::beast::error_code RunOperation(boost::asio::io_context& ioContext,
 struct PendingWrite {
     std::string message;
     std::function<void(bool)> onComplete;
+    std::shared_ptr<boost::asio::steady_timer> timeout;
 };
+
+///  Invokes a transport completion without allowing a non-conforming callback
+///  to escape the noexcept transport boundary.
+void CompletePendingWrite(const std::shared_ptr<PendingWrite>& pending,
+                          bool ok) noexcept {
+    try {
+        pending->onComplete(ok);
+    } catch (...) {
+        //  Completion consumers must not be able to terminate the I/O thread.
+    }
+}
 
 } //  namespace
 
@@ -200,7 +212,12 @@ void WebSocketSession::Socket::ShutdownWithNotification(
 void WebSocketSession::Socket::Send(std::string message,
                                     std::function<void(bool)> onComplete) noexcept {
     if (shutdownRequested_.load(std::memory_order_acquire)) {
-        onComplete(false);
+        try {
+            onComplete(false);
+        } catch (...) {
+            //  Completion is a noexcept boundary even for an already-closed
+            //  socket.
+        }
         return;
     }
 
@@ -223,7 +240,7 @@ void WebSocketSession::Socket::Send(std::string message,
                 if (!activeSocket ||
                     activeSocket->shutdownRequested_.load(
                         std::memory_order_acquire)) {
-                    pending->onComplete(false);
+                    CompletePendingWrite(pending, false);
                     return;
                 }
                 if (!activeSocket->handshakeSettled_.load(
@@ -232,32 +249,53 @@ void WebSocketSession::Socket::Send(std::string message,
                     //  stream_ -- starting a websocket-level write now would
                     //  race it unsafely, matching
                     //  ShutdownWithNotification's own check.
-                    pending->onComplete(false);
+                    CompletePendingWrite(pending, false);
                     return;
                 }
                 try {
-                    //  The connection's own read loop may currently be
-                    //  blocked inside ReadMessage, which explicitly disables
-                    //  the write timeout for its own duration
-                    //  (DisableWriteTimeout) -- this write needs its own
-                    //  bounded deadline, matching
-                    //  ShutdownWithNotification's own reasoning.
-                    boost::beast::get_lowest_layer(activeSocket->stream_)
-                        .expires_after(security::kHandshakeTimeout);
+                    //  The lowest-layer expiry is shared by Beast's read and
+                    //  write operations. Use a separate timer so a successful
+                    //  push cannot replace a blocked read's deadline. If the
+                    //  write itself stalls, cancel the socket and let the
+                    //  caller's completion policy decide whether to close it.
+                    pending->timeout = std::make_shared<boost::asio::steady_timer>(
+                        *activeSocket->ioContext_);
+                    pending->timeout->expires_after(security::kHandshakeTimeout);
+                    pending->timeout->async_wait(
+                        [socket, pending](boost::system::error_code ec) {
+                            if (ec) {
+                                return;
+                            }
+                            auto activeSocket = socket.lock();
+                            if (!activeSocket) {
+                                return;
+                            }
+                            try {
+                                activeSocket->stream_.next_layer().cancel();
+                            } catch (...) {
+                                //  The write completion reports the failure.
+                            }
+                        });
                     activeSocket->stream_.text(true);
                     activeSocket->stream_.async_write(
                         boost::asio::buffer(pending->message),
                         [socket, pending](boost::beast::error_code ec,
                                           std::size_t) {
+                            if (pending->timeout) {
+                                pending->timeout->cancel();
+                            }
                             auto activeSocket = socket.lock();
                             bool ok = !ec && activeSocket &&
                                       !activeSocket->shutdownRequested_.load(
                                           std::memory_order_acquire);
-                            pending->onComplete(ok);
+                            CompletePendingWrite(pending, ok);
                         });
                 } catch (...) {
                     //  The write itself failed to even start.
-                    pending->onComplete(false);
+                    if (pending->timeout) {
+                        pending->timeout->cancel();
+                    }
+                    CompletePendingWrite(pending, false);
                 }
             });
     } catch (...) {
@@ -265,9 +303,13 @@ void WebSocketSession::Socket::Send(std::string message,
         //  whichever callback is still safe to call: `onComplete` itself once
         //  the pending write state has not been constructed.
         if (pending) {
-            pending->onComplete(false);
+            CompletePendingWrite(pending, false);
         } else {
-            onComplete(false);
+            try {
+                onComplete(false);
+            } catch (...) {
+                //  Completion is a noexcept boundary even when posting fails.
+            }
         }
     }
 }

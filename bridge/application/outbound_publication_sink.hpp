@@ -6,6 +6,7 @@
 #include "transport/websocket_session.hpp"
 
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -99,6 +100,10 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
                          IPublicationDiagnostics& diagnostics,
                          std::string sessionId);
 
+    ///  Prevents late socket completions from accessing this queue after its
+    ///  owning session has destroyed it.
+    ~BoundedOutboundQueue() noexcept;
+
     ///  @copydoc IOutboundPublicationSink::PublishSnapshot
     void PublishSnapshot(std::string stateArea,
                          protocol::Envelope envelope) override;
@@ -142,7 +147,12 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  submitted, retained so it can be retried once capacity frees.
     struct DirtyEntry {
         ///  Already-encoded, session-stamped wire text awaiting capacity.
-        std::string encoded;
+        ///  Empty when the publication itself exceeds the queue-wide byte
+        ///  budget; the authoritative store remains the source for a later
+        ///  bounded retry.
+        std::optional<std::string> encoded;
+        ///  Encoded size used for diagnostics and classification decisions.
+        std::size_t encodedBytes;
         ///  Data lane this value would occupy once admitted.
         QueueClass queueClass;
     };
@@ -201,7 +211,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  `ai/context/protocol/security.md`'s "If reserved control/recovery
     ///  capacity is full, the client is marked unavailable and the
     ///  connection is closed." Caller must hold `mutex_`.
-    void AdmitReservedOrDisconnectLocked(std::string encoded);
+    ///  @return `true` when the caller must request socket shutdown after
+    ///  releasing `mutex_`.
+    [[nodiscard]] bool AdmitReservedOrDisconnectLocked(std::string encoded);
 
     ///  Removes queued, not-yet-in-flight Event entries for `stateArea`
     ///  whose own revision is at or below `revision`: superseded by the
@@ -216,13 +228,36 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
 
     ///  Starts draining the next pending entry when nothing is currently in
     ///  flight, preferring the reserved control/recovery lane over the data
-    ///  lanes. Caller must hold `mutex_`.
-    void MaybeStartSendLocked();
+    ///  lanes. Caller must hold `mutex_`. The returned message is handed to
+    ///  the socket only after the caller releases `mutex_`.
+    [[nodiscard]] std::optional<std::string> MaybeStartSendLocked();
+
+    ///  Hands one already-selected message to the socket without holding the
+    ///  queue mutex. The completion is guarded by `completionState_`.
+    void DispatchSend(std::string encoded) noexcept;
 
     ///  Handles one `Send` completion: releases the delivered entry's
     ///  capacity, stops the queue and disconnects on failure, and otherwise
-    ///  promotes a retained dirty value and continues draining.
-    void OnSendComplete(bool ok);
+    ///  promotes a retained dirty value and continues draining. The callback
+    ///  boundary is noexcept so transport threads cannot observe an exception.
+    void OnSendComplete(bool ok) noexcept;
+
+    ///  Lifetime gate shared by queued transport completions. It is nested
+    ///  because it exists only to protect this queue's private state from a
+    ///  completion that may outlive the queue object itself.
+    struct CompletionState {
+        ///  Synchronizes owner detachment and callback admission.
+        std::mutex mutex;
+        ///  Wakes queue destruction after callbacks already using the owner
+        ///  have returned.
+        std::condition_variable changed;
+        ///  Queue owner while destruction has not begun.
+        BoundedOutboundQueue* owner = nullptr;
+        ///  Prevents new callbacks from entering a destroying queue.
+        bool destroying = false;
+        ///  Number of callbacks currently executing queue code.
+        std::size_t callbacksInFlight = 0;
+    };
 
     ///  Live session socket this queue drains into.
     transport::ISocket& socket_;
@@ -235,6 +270,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
 
     ///  Serializes all queue state.
     std::mutex mutex_;
+
+    ///  Guards the queue owner pointer captured by asynchronous completions.
+    std::shared_ptr<CompletionState> completionState_;
 
     ///  Reserved-lane entries (initial/recovery snapshots) in delivery
     ///  order, already fully encoded.

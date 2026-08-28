@@ -4,6 +4,7 @@
 #include "protocol/envelope.hpp"
 #include "protocol/state_event_payload.hpp"
 #include "security/constants.hpp"
+#include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <gmock/gmock.h>
@@ -13,11 +14,17 @@
 
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <functional>
+#include <iterator>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <semaphore>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -30,6 +37,15 @@ using testing::StrictMock;
 
 namespace {
 
+///  Reads the outbound queue source for structural lifetime and storage
+///  assertions that do not expose private state to production.
+std::string ReadOutboundPublicationSource() {
+    std::ifstream source(DOVAHLINK_OUTBOUND_PUBLICATION_SOURCE_FILE);
+    REQUIRE(source.good());
+    return {std::istreambuf_iterator<char>(source),
+            std::istreambuf_iterator<char>()};
+}
+
 ///  Controllable, thread-safe fake `ISocket` that never completes a `Send`
 ///  on its own -- the test drives completion explicitly, matching
 ///  `ai/context/skse/testing.md`'s "controllable thread-safe fake" guidance
@@ -38,8 +54,15 @@ class FakeOutboundSocket final : public dovahlink::transport::ISocket {
   public:
     ///  Records the shutdown request.
     void Shutdown() noexcept override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        shutdownCalled_ = true;
+        std::function<void()> reentrantAction;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            shutdownCalled_ = true;
+            reentrantAction = std::move(onShutdown_);
+        }
+        if (reentrantAction) {
+            reentrantAction();
+        }
     }
 
     ///  Records the shutdown request; the notification text itself is not
@@ -53,9 +76,49 @@ class FakeOutboundSocket final : public dovahlink::transport::ISocket {
     ///  trigger explicitly.
     void Send(std::string message,
               std::function<void(bool)> onComplete) noexcept override {
+        std::function<void(bool)> synchronousCompletion;
+        std::function<void()> reentrantAction;
+        bool synchronousResult = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            sent_.push_back(std::move(message));
+            reentrantAction = std::move(onSend_);
+            if (completeSynchronously_) {
+                synchronousCompletion = std::move(onComplete);
+                synchronousResult = synchronousResult_;
+            } else {
+                pendingCompletion_ = std::move(onComplete);
+            }
+        }
+        if (reentrantAction) {
+            reentrantAction();
+        }
+        if (synchronousCompletion) {
+            synchronousCompletion(synchronousResult);
+        }
+    }
+
+    ///  Runs one action after `Send` releases this fake's mutex, allowing a
+    ///  test to re-enter the queue and prove the queue mutex is not held across
+    ///  the external socket call.
+    void SetOnSend(std::function<void()> action) {
         std::lock_guard<std::mutex> lock(mutex_);
-        sent_.push_back(std::move(message));
-        pendingCompletion_ = std::move(onComplete);
+        onSend_ = std::move(action);
+    }
+
+    ///  Runs one action after `Shutdown` releases this fake's mutex, allowing
+    ///  a test to prove the queue does not hold its mutex across shutdown.
+    void SetOnShutdown(std::function<void()> action) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        onShutdown_ = std::move(action);
+    }
+
+    ///  Makes the next `Send` completion run synchronously after the fake
+    ///  releases its own mutex, exercising re-entrant queue behavior.
+    void CompleteSendsSynchronously(bool ok) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        completeSynchronously_ = true;
+        synchronousResult_ = ok;
     }
 
     ///  Invokes the outstanding `Send` completion with the given outcome.
@@ -89,6 +152,14 @@ class FakeOutboundSocket final : public dovahlink::transport::ISocket {
     std::vector<std::string> sent_;
     ///  Outstanding completion for the most recent `Send` call.
     std::function<void(bool)> pendingCompletion_;
+    ///  Whether future sends complete immediately after releasing `mutex_`.
+    bool completeSynchronously_{false};
+    ///  Result supplied to synchronous completions.
+    bool synchronousResult_{false};
+    ///  One re-entrant action run after a send is recorded.
+    std::function<void()> onSend_;
+    ///  One re-entrant action run after shutdown is recorded.
+    std::function<void()> onShutdown_;
     ///  Whether a shutdown was requested.
     bool shutdownCalled_{false};
 };
@@ -207,6 +278,245 @@ TEST_CASE("PublishSnapshot stamps the queue's own sessionId, overriding any "
     Envelope decoded = DecodeSent(sent.front());
     REQUIRE(decoded.sessionId.has_value());
     CHECK(*decoded.sessionId == "session-42");
+}
+
+TEST_CASE("a synchronous failed Send completion cannot deadlock the queue",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    socket.CompleteSendsSynchronously(false);
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    CHECK_NOTHROW(queue.PublishSnapshot("area", BuildSnapshotEnvelope()));
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("the queue does not hold its mutex across an external Send call",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+    socket.SetOnSend([&queue] {
+        queue.PublishControl(BuildControlEnvelope("reentrant-control"));
+    });
+
+    CHECK_NOTHROW(queue.PublishSnapshot("area", BuildSnapshotEnvelope()));
+    REQUIRE(socket.SentMessages().size() == 1);
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 2);
+    CHECK(DecodeSent(socket.SentMessages().at(1)).messageId ==
+          "reentrant-control");
+}
+
+TEST_CASE("the queue does not hold its mutex across shutdown",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+    socket.SetOnShutdown([&queue] {
+        queue.PublishControl(BuildControlEnvelope("reentrant-control"));
+    });
+
+    for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
+        queue.PublishEvent("area", BuildEventEnvelope());
+    }
+
+    CHECK_NOTHROW(queue.PublishEvent("area", BuildEventEnvelope()));
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("synchronous successful Send completions drain the next entry",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    socket.CompleteSendsSynchronously(true);
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+    bool submittedReentrantEntry = false;
+    socket.SetOnSend([&] {
+        if (!submittedReentrantEntry) {
+            submittedReentrantEntry = true;
+            queue.PublishEvent("area", BuildEventEnvelope());
+        }
+    });
+
+    queue.PublishEvent("area", BuildEventEnvelope());
+
+    CHECK(socket.SentMessages().size() == 2);
+    CHECK_FALSE(socket.ShutdownCalled());
+}
+
+TEST_CASE("synchronous successful reserved-lane completion is delivered",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    socket.CompleteSendsSynchronously(true);
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery"),
+                                  1);
+
+    REQUIRE(socket.SentMessages().size() == 1);
+    CHECK(DecodeSent(socket.SentMessages().front()).messageId == "recovery");
+    CHECK_FALSE(socket.ShutdownCalled());
+}
+
+TEST_CASE("a Send completion arriving after queue destruction is ignored",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    {
+        NiceMock<MockPublicationDiagnostics> diagnostics;
+        BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+        queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    }
+
+    CHECK_NOTHROW(socket.CompletePendingSend(false));
+    CHECK(socket.SentMessages().size() == 1);
+}
+
+TEST_CASE("queue destruction waits for a completion already using queue state",
+          "[application][outbound_publication_sink][lifetime]") {
+    using namespace std::chrono_literals;
+
+    std::binary_semaphore completionEntered{0};
+    std::binary_semaphore releaseCompletion{0};
+    std::binary_semaphore destructionFinished{0};
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics, RecordDequeueLatency(testing::_))
+        .WillOnce(testing::Invoke([&](std::chrono::steady_clock::duration) {
+            completionEntered.release();
+            releaseCompletion.acquire();
+        }));
+
+    FakeOutboundSocket socket;
+    auto queue = std::make_unique<BoundedOutboundQueue>(
+        socket, diagnostics, "session-1");
+    queue->PublishSnapshot("area", BuildSnapshotEnvelope());
+
+    std::thread completion([&socket] { socket.CompletePendingSend(true); });
+    completionEntered.acquire();
+
+    std::thread destruction([&queue, &destructionFinished] {
+        queue.reset();
+        destructionFinished.release();
+    });
+
+    releaseCompletion.release();
+
+    completion.join();
+    destruction.join();
+    CHECK(destructionFinished.try_acquire());
+}
+
+TEST_CASE("a cancelled Send completion after Shutdown is handled once",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    socket.Shutdown();
+
+    CHECK_NOTHROW(socket.CompletePendingSend(false));
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("a throwing diagnostic cannot escape a Send completion",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics, RecordDequeueLatency(testing::_))
+        .WillOnce(testing::Invoke([](std::chrono::steady_clock::duration) {
+            throw std::runtime_error("diagnostic failure");
+        }));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+
+    CHECK_NOTHROW(socket.CompletePendingSend(true));
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("queue source contract detaches late completions and drops oversized payloads",
+          "[application][outbound_publication_sink][lifetime]") {
+    const std::string source = ReadOutboundPublicationSource();
+
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "completionState_->owner = nullptr;"));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "completionState_->changed.wait("));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "std::optional<std::string> retained"));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "bytes <= security::kOutboundQueueByteBudget"));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "if (!it->second.encoded.has_value())"));
+}
+
+TEST_CASE("oversized dirty Snapshots retain bounded metadata and are replaced "
+          "by a later admissible value without disconnecting",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    std::string oversizedFiller(
+        dovahlink::security::kOutboundQueueByteBudget + 1024, 'x');
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        boost::json::object payload;
+        payload["filler"] = oversizedFiller;
+        queue.PublishSnapshot(
+            "area",
+            Envelope{.messageType = "state_snapshot",
+                     .messageId = "oversized-" + std::to_string(attempt),
+                     .sessionId = std::nullopt,
+                     .correlationId = std::nullopt,
+                     .payload = std::move(payload)});
+    }
+
+    CHECK(socket.SentMessages().empty());
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    REQUIRE(socket.SentMessages().size() == 1);
+    socket.CompletePendingSend(true);
+    CHECK(socket.SentMessages().size() == 1);
+}
+
+TEST_CASE("an oversized dirty Snapshot does not displace an in-flight value "
+          "and is replaced by a later bounded value",
+          "[application][outbound_publication_sink][lifetime]") {
+    FakeOutboundSocket socket;
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+
+    boost::json::object oversizedPayload;
+    oversizedPayload["filler"] = std::string(
+        dovahlink::security::kOutboundQueueByteBudget + 1024, 'x');
+    queue.PublishSnapshot(
+        "area", Envelope{.messageType = "state_snapshot",
+                         .messageId = "oversized",
+                         .sessionId = std::nullopt,
+                         .correlationId = std::nullopt,
+                         .payload = std::move(oversizedPayload)});
+
+    boost::json::object boundedPayload;
+    boundedPayload["value"] = "latest";
+    queue.PublishSnapshot(
+        "area", Envelope{.messageType = "state_snapshot",
+                         .messageId = "bounded",
+                         .sessionId = std::nullopt,
+                         .correlationId = std::nullopt,
+                         .payload = std::move(boundedPayload)});
+
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 2);
+    CHECK(DecodeSent(socket.SentMessages().at(1)).messageId == "bounded");
+    socket.CompletePendingSend(true);
+    CHECK(socket.SentMessages().size() == 2);
+    CHECK_FALSE(socket.ShutdownCalled());
 }
 
 TEST_CASE("PublishSnapshot for a new state area is delivered immediately "

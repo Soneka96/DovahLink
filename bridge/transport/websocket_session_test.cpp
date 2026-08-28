@@ -1,6 +1,7 @@
 #include "transport/websocket_session.hpp"
 
 #include "security/constants.hpp"
+#include "test_support/source_text_test_support.hpp"
 #include "transport/loopback_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -17,7 +18,9 @@
 
 #include <chrono>
 #include <expected>
+#include <fstream>
 #include <future>
+#include <iterator>
 #include <semaphore>
 #include <stdexcept>
 #include <string>
@@ -31,6 +34,14 @@ using dovahlink::transport::WebSocketSession;
 using dovahlink::transport::test_support::LoopbackWebSocketServer;
 
 namespace {
+
+///  Reads the WebSocket session source for a structural timeout assertion.
+std::string ReadWebSocketSessionSource() {
+    std::ifstream source(DOVAHLINK_WEBSOCKET_SESSION_SOURCE_FILE);
+    REQUIRE(source.good());
+    return {std::istreambuf_iterator<char>(source),
+            std::istreambuf_iterator<char>()};
+}
 
 ///  Releases one test semaphore during early scope exit unless released
 ///  explicitly.
@@ -1522,7 +1533,10 @@ TEST_CASE("Send delivers a message to a real peer while a read is blocked and "
     std::future<bool> sendCompletedFuture = sendCompleted.get_future();
     server.SendOnActiveSession(
         "pushed while blocked",
-        [&sendCompleted](bool ok) { sendCompleted.set_value(ok); });
+        [&sendCompleted](bool ok) {
+            sendCompleted.set_value(ok);
+            throw std::runtime_error("asynchronous completion failure");
+        });
 
     boost::beast::flat_buffer buffer;
     boost::system::error_code readEc;
@@ -1763,6 +1777,38 @@ TEST_CASE("Send after Shutdown reports failure without delivering a message",
 
     REQUIRE(serverHandshakeResult.has_value());
     CHECK_FALSE(serverReadResult.has_value());
+}
+
+TEST_CASE("Send contains an exception from an immediate completion callback",
+          "[transport][websocket_session]") {
+    boost::asio::io_context ioContext;
+    auto socket = WebSocketSession::CreateSocket(
+        boost::asio::ip::tcp::socket(ioContext));
+    socket->Shutdown();
+
+    CHECK_NOTHROW(socket->Send("not delivered", [](bool) {
+        throw std::runtime_error("completion failure");
+    }));
+}
+
+TEST_CASE("Send uses a private timer instead of changing the shared stream expiry",
+          "[transport][websocket_session]") {
+    const std::string source = ReadWebSocketSessionSource();
+    const std::size_t sendStart =
+        source.find("void WebSocketSession::Socket::Send(");
+    const std::size_t sendEnd =
+        source.find("WebSocketSession::WebSocketSession(", sendStart);
+    REQUIRE(sendStart != std::string::npos);
+    REQUIRE(sendEnd != std::string::npos);
+
+    const std::string sendSource = source.substr(sendStart, sendEnd - sendStart);
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        sendSource,
+        "pending->timeout = std::make_shared<boost::asio::steady_timer>("));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        sendSource, "pending->timeout->cancel();"));
+    CHECK(sendSource.find("get_lowest_layer(activeSocket->stream_)") ==
+          std::string::npos);
 }
 
 TEST_CASE("a ReadMessage failure through IWebSocketSession reports the same "
