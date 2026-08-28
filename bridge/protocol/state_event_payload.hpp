@@ -28,4 +28,7 @@ struct StateEventPayload {
 std::expected<StateEventPayload, MessageError>
 DecodeStateEventPayload(const boost::json::object& payload);
 
+///  Encodes a state event payload.
+boost::json::object EncodeStateEventPayload(const StateEventPayload& payload);
+
 } //  namespace dovahlink::protocol

@@ -42,4 +42,14 @@ DecodeStateEventPayload(const boost::json::object& payload) {
     };
 }
 
+boost::json::object EncodeStateEventPayload(const StateEventPayload& payload) {
+    boost::json::object obj;
+    obj["stateArea"] = payload.stateArea;
+    obj["baseRevision"] = payload.baseRevision;
+    obj["revision"] = payload.revision;
+    obj["occurredAt"] = payload.occurredAt;
+    obj["data"] = payload.data;
+    return obj;
+}
+
 } //  namespace dovahlink::protocol
