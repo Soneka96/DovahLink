@@ -13,9 +13,17 @@ class ICharacterStateStore {
     ///  Allows destruction through the interface.
     virtual ~ICharacterStateStore() = default;
 
-    ///  Stores one captured player level, or an unavailable value.
+    ///  Stores one captured player level, or an unavailable value, only when
+    ///  it differs from the value already stored. Comparing
+    ///  `std::optional<std::int64_t>` directly gives the correct
+    ///  available/unavailable-transition rule for free: an unavailable
+    ///  capture equals a prior unavailable capture (no change), while any
+    ///  other differing pair -- including a transition to or from
+    ///  unavailable -- is a change.
     ///  @param level Captured level, or no value when unavailable.
-    virtual void OnLevelCaptured(std::optional<std::int64_t> level) = 0;
+    ///  @return `true` when the stored value changed; `false` when it
+    ///  already matched `level`.
+    virtual bool OnLevelCaptured(std::optional<std::int64_t> level) = 0;
 
     ///  Returns the most recently captured character state.
     [[nodiscard]] virtual CharacterSnapshot CurrentCharacterSnapshot() const = 0;
@@ -27,7 +35,7 @@ class ICharacterStateStore {
 class CharacterStateStore final : public ICharacterStateStore {
   public:
     ///  @copydoc ICharacterStateStore::OnLevelCaptured
-    void OnLevelCaptured(std::optional<std::int64_t> level) override;
+    bool OnLevelCaptured(std::optional<std::int64_t> level) override;
 
     ///  @copydoc ICharacterStateStore::CurrentCharacterSnapshot
     [[nodiscard]] CharacterSnapshot CurrentCharacterSnapshot() const;
