@@ -1,6 +1,6 @@
-#include "game_state/commonlib_task_marshaller.hpp"
-
 #include "SKSE/SKSE.h"
+
+#include "game_state/commonlib_task_marshaller.hpp"
 
 #include <utility>
 

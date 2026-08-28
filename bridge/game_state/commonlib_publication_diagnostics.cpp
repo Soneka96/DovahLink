@@ -1,6 +1,6 @@
-#include "game_state/commonlib_publication_diagnostics.hpp"
-
 #include "SKSE/SKSE.h"
+
+#include "game_state/commonlib_publication_diagnostics.hpp"
 
 namespace dovahlink::game_state {
 

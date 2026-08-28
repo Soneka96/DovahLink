@@ -304,6 +304,9 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
     DOVAHLINK_COORDINATOR_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/coordinator.hpp"
     DOVAHLINK_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_task_marshaller.cpp"
+    DOVAHLINK_PLAYER_LEVEL_ACCESSOR_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/player_level_accessor.cpp"
+    DOVAHLINK_GAME_BEHAVIOR_COMPATIBILITY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_game_behavior_compatibility.cpp"
+    DOVAHLINK_PAIRING_NOTIFICATION_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_pairing_notification_sink.cpp"
 )
 if(WIN32)
     target_compile_definitions(dovahlink_bridge_tests PRIVATE _WIN32_WINNT=0x0A00)
