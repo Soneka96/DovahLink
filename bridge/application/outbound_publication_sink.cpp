@@ -294,6 +294,21 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(std::string stateArea,
     SupersedeQueuedEventsLocked(stateArea, revision);
     barriers_[stateArea] = revision;
 
+    envelope.sessionId = sessionId_;
+    AdmitReservedOrDisconnectLocked(protocol::EncodeEnvelope(envelope));
+}
+
+void BoundedOutboundQueue::PublishControl(protocol::Envelope envelope) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopped_) {
+        return;
+    }
+
+    envelope.sessionId = sessionId_;
+    AdmitReservedOrDisconnectLocked(protocol::EncodeEnvelope(envelope));
+}
+
+void BoundedOutboundQueue::AdmitReservedOrDisconnectLocked(std::string encoded) {
     if (reservedSlotsUsed_ >= security::kReservedControlRecoverySlots) {
         //  ai/context/protocol/security.md's "Input limits": "If reserved
         //  control/recovery capacity is full, the client is marked
@@ -303,11 +318,8 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(std::string stateArea,
         return;
     }
 
-    envelope.sessionId = sessionId_;
-    std::string encoded = protocol::EncodeEnvelope(envelope);
     ++reservedSlotsUsed_;
     reservedPending_.push_back(std::move(encoded));
-
     MaybeStartSendLocked();
 }
 

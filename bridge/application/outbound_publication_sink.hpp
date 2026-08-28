@@ -57,6 +57,14 @@ class IOutboundPublicationSink {
     virtual void PublishRecoverySnapshot(std::string stateArea,
                                          protocol::Envelope envelope,
                                          std::int64_t revision) = 0;
+
+    ///  Submits an acknowledgement, error, or other recovery/control message
+    ///  through the same reserved control/recovery lane as
+    ///  `PublishRecoverySnapshot`, sharing its capacity and priority over the
+    ///  bounded data lanes. Carries no state area of its own and never
+    ///  establishes or consults a recovery barrier.
+    ///  @param envelope Built control-category envelope.
+    virtual void PublishControl(protocol::Envelope envelope) = 0;
 };
 
 ///  Bounded outbound organization consuming `IStatePublisher`'s typed
@@ -67,10 +75,11 @@ class IOutboundPublicationSink {
 ///  growing the queue, and disconnects the session outright when a reliable
 ///  Event or a reserved-lane message cannot be admitted rather than dropping
 ///  it. A reserved control/recovery lane, unaffected by data-lane pressure or
-///  the data byte budget, carries initial and recovery Snapshots ahead of
-///  ordinary data-lane traffic; each one establishes its state area's
-///  recovery barrier, which supersedes an Event at or below that revision
-///  rather than delivering it after the snapshot. One instance is scoped to
+///  the data byte budget, carries initial and recovery Snapshots and control
+///  messages (acknowledgements, errors) ahead of ordinary data-lane traffic;
+///  each recovery Snapshot establishes its state area's recovery barrier,
+///  which supersedes an Event at or below that revision rather than
+///  delivering it after the snapshot. One instance is scoped to
 ///  one authenticated session's socket and its own `sessionId`; a reconnect
 ///  constructs a fresh instance rather than reusing this one, so a previous
 ///  session's undelivered traffic and barriers are never carried into a new
@@ -96,6 +105,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     void PublishRecoverySnapshot(std::string stateArea,
                                  protocol::Envelope envelope,
                                  std::int64_t revision) override;
+
+    ///  @copydoc IOutboundPublicationSink::PublishControl
+    void PublishControl(protocol::Envelope envelope) override;
 
   private:
     ///  One data-lane entry awaiting delivery: a keyed, replaceable Snapshot
@@ -164,6 +176,14 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  bounding retry to one attempt per freed slot rather than an
     ///  unbounded catch-up burst. Caller must hold `mutex_`.
     void TryPromoteOneDirtyLocked();
+
+    ///  Admits an already-encoded reserved-lane message when the 16-slot
+    ///  capacity allows it, shared by `PublishRecoverySnapshot` and
+    ///  `PublishControl`. Otherwise stops the queue and disconnects, per
+    ///  `ai/context/protocol/security.md`'s "If reserved control/recovery
+    ///  capacity is full, the client is marked unavailable and the
+    ///  connection is closed." Caller must hold `mutex_`.
+    void AdmitReservedOrDisconnectLocked(std::string encoded);
 
     ///  Removes queued, not-yet-in-flight Event entries for `stateArea`
     ///  whose own revision is at or below `revision`: superseded by the

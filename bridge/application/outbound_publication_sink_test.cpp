@@ -170,6 +170,18 @@ Envelope BuildRecoveryEnvelope(std::string messageId) {
     };
 }
 
+///  Builds a representative control-category envelope (e.g. an
+///  acknowledgement or error) with a distinct `messageId`.
+Envelope BuildControlEnvelope(std::string messageId) {
+    return Envelope{
+        .messageType = "error",
+        .messageId = std::move(messageId),
+        .sessionId = std::nullopt,
+        .correlationId = std::nullopt,
+        .payload = {},
+    };
+}
+
 } //  namespace
 
 TEST_CASE("PublishSnapshot stamps the queue's own sessionId, overriding any "
@@ -895,4 +907,146 @@ TEST_CASE("recovery snapshot admission into the reserved lane is unaffected "
     auto sent = socket.SentMessages();
     REQUIRE(sent.size() == 2);
     CHECK(DecodeSent(sent.at(1)).messageId == "recovery-1");
+}
+
+TEST_CASE("PublishControl stamps the queue's own sessionId, overriding any "
+          "value already on the envelope",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-55");
+
+    queue.PublishControl(Envelope{.messageType = "error",
+                                  .messageId = "control-1",
+                                  .sessionId = std::string("stale"),
+                                  .correlationId = std::nullopt,
+                                  .payload = {}});
+
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 1);
+    Envelope decoded = DecodeSent(sent.front());
+    REQUIRE(decoded.sessionId.has_value());
+    CHECK(*decoded.sessionId == "session-55");
+}
+
+TEST_CASE("PublishControl is delivered through the reserved lane ahead of "
+          "already-queued data-lane traffic",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    REQUIRE(socket.SentMessages().size() == 1);
+
+    queue.PublishSnapshot("area-2", BuildSnapshotEnvelope());
+    queue.PublishControl(BuildControlEnvelope("control-1"));
+
+    socket.CompletePendingSend(true); //  blocker
+
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 2);
+    CHECK(DecodeSent(sent.at(1)).messageId == "control-1");
+}
+
+TEST_CASE("PublishControl and PublishRecoverySnapshot share the same "
+          "reserved-lane capacity",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    //  One recovery snapshot plus fifteen control messages exactly fill the
+    //  16-slot reserved lane.
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+    for (std::size_t i = 0;
+         i < dovahlink::security::kReservedControlRecoverySlots - 1; ++i) {
+        queue.PublishControl(BuildControlEnvelope("control-" + std::to_string(i)));
+    }
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    queue.PublishControl(BuildControlEnvelope("control-overflow"));
+
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("PublishControl overflow of the reserved lane disconnects the "
+          "session",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    for (std::size_t i = 0;
+         i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
+        queue.PublishControl(BuildControlEnvelope("control-" + std::to_string(i)));
+    }
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    queue.PublishControl(BuildControlEnvelope("control-overflow"));
+
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("publications submitted after a PublishControl overflow "
+          "disconnect are silently dropped without further delivery",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    for (std::size_t i = 0;
+         i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
+        queue.PublishControl(BuildControlEnvelope("control-" + std::to_string(i)));
+    }
+    queue.PublishControl(BuildControlEnvelope("control-overflow"));
+    REQUIRE(socket.ShutdownCalled());
+    std::size_t sentBeforeExtra = socket.SentMessages().size();
+
+    queue.PublishControl(BuildControlEnvelope("late-control"));
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("late-recovery"),
+                                  1);
+
+    CHECK(socket.SentMessages().size() == sentBeforeExtra);
+}
+
+TEST_CASE("multiple PublishControl messages are delivered through the "
+          "reserved lane in FIFO order",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishControl(BuildControlEnvelope("first"));
+    queue.PublishControl(BuildControlEnvelope("second"));
+    queue.PublishControl(BuildControlEnvelope("third"));
+
+    REQUIRE(socket.SentMessages().size() == 1);
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 2);
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 3);
+
+    auto sent = socket.SentMessages();
+    CHECK(DecodeSent(sent.at(0)).messageId == "first");
+    CHECK(DecodeSent(sent.at(1)).messageId == "second");
+    CHECK(DecodeSent(sent.at(2)).messageId == "third");
+}
+
+TEST_CASE("PublishControl and PublishRecoverySnapshot interleave in the "
+          "reserved lane in submission order",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishControl(BuildControlEnvelope("control-1"));
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+    queue.PublishControl(BuildControlEnvelope("control-2"));
+
+    REQUIRE(socket.SentMessages().size() == 1);
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 2);
+    socket.CompletePendingSend(true);
+    REQUIRE(socket.SentMessages().size() == 3);
+
+    auto sent = socket.SentMessages();
+    CHECK(DecodeSent(sent.at(0)).messageId == "control-1");
+    CHECK(DecodeSent(sent.at(1)).messageId == "recovery-1");
+    CHECK(DecodeSent(sent.at(2)).messageId == "control-2");
 }

@@ -328,6 +328,7 @@ class MockOutboundPublicationSink : public IOutboundPublicationSink {
                 (override));
     MOCK_METHOD(void, PublishRecoverySnapshot,
                 (std::string, protocol::Envelope, std::int64_t), (override));
+    MOCK_METHOD(void, PublishControl, (protocol::Envelope), (override));
 };
 
 } //  namespace dovahlink::application::test_support
