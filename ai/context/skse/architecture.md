@@ -143,6 +143,10 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
   thread. Unsolicited Snapshot values use the bounded data capacity and may be replaced or deferred.
   If reserved control/recovery capacity is full, the client is marked unavailable and the connection
   is closed.
+- Within the current 128-message outbound bound, the 16 reserved control/recovery slots and the 112
+  data slots are further organized as 108 Normal data slots and 4 Heavy data slots. A worker assigns
+  Normal or Heavy after measuring the encoded publication; this classification changes storage only,
+  not the Snapshot/Event reliability rule.
 - The outbound organization has one authoritative ordering point per state area for applying captured
   values and assigning revisions. A recovery snapshot establishes the new baseline in the single
   serialized outbound order before later stateful events are applied; events at or below an accepted

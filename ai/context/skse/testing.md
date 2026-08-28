@@ -86,6 +86,8 @@ Cover:
   catch-up burst, and the optional staggering seam
 - unchanged sampled values producing no revision, publication, serialization, or network traffic
 - keyed latest-value replacement for Snapshot entries and FIFO preservation for reliable Event entries
+- worker-side encoded-size classification into the 108-slot Normal lane or 4-slot Heavy lane,
+  including a Heavy Snapshot replacement and Heavy Event overflow path
 - Snapshot dirty-marker retry after data pressure without an unbounded pending-value structure
 - reliable Event overflow disconnecting the slow client without blocking game capture
 - capture, change detection, authoritative-store update, revision assignment, and publication-intent

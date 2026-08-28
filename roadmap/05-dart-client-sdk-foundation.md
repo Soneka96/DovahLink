@@ -60,8 +60,9 @@ reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 
-Expose the Stage 4 synchronization kernel through curated typed models for `character_xp` Snapshot
-state and `character_level` Event state. A state stream carries a typed value plus its domain
+Expose the Stage 4 synchronization kernel through curated typed models for the character Snapshot
+state areas (`character_xp`, `character_health`, `character_magicka`, and `character_stamina`) and
+`character_level` Event state. A state stream carries a typed value plus its domain
 synchronization status (`notSubscribed`, `unavailable`, `synchronized`, `stale`, `recovering`, or
 `failed`); global connection lifecycle remains a separate stream.
 
@@ -140,7 +141,8 @@ from the Dart SDK.
   Dart SDK.
 - Middleware owns SDK state-stream subscriptions and translates typed values/statuses into Redux
   actions; widgets and screens do not consume SDK streams directly.
-- The minimal live-state proof demonstrates Snapshot and Event domains, revision-gap recovery,
+- The minimal live-state proof demonstrates the character Snapshot domains and `character_level`
+  Event state, revision-gap recovery,
   ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Bridge
   handling.
 - The manually invoked version-audit skill completes the phase's version/changelog/compatibility

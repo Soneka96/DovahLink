@@ -31,6 +31,8 @@ Cover at least:
 - shared sampled-capture cadence, including aligned due times and missed-tick handling
 - unchanged sampled values producing no revision, publication, serialization, or network traffic
 - Snapshot latest-value replacement and Event FIFO preservation under outbound pressure
+- Normal/Heavy publication classification, four-slot Heavy capacity, and Heavy Snapshot/Event
+  behavior across the wire
 - Snapshot dirty-marker retry after pressure and bounded queue-byte accounting
 - reliable Event overflow explicitly disconnecting the slow client without blocking game capture
 - duplicate and out-of-order events
