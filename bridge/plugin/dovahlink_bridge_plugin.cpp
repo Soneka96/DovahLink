@@ -5,6 +5,7 @@
 #include "SKSE/SKSE.h"
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_publication_router.hpp"
 #include "application/bridge_callback_registry.hpp"
@@ -24,12 +25,12 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/registered_state_area_policy.hpp"
-#include "application/revision_tracker.hpp"
 #include "application/session_manager.hpp"
 #include "application/session_publication_factory.hpp"
 #include "application/state_publisher.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
+#include "game_state/commonlib_capture_queue_diagnostics.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
@@ -294,6 +295,8 @@ SKSEPluginInfo(
         lifecycleSinkContract = lifecycleSink;
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(playContextLifecycle);
+    static dovahlink::application::ActivePlayContextProvider
+        activePlayContextProvider(playContextLifecycle);
     static dovahlink::application::ActiveSessionSocket activeSessionSocket;
     static dovahlink::application::ActiveSessionController
         activeSessionController(sessionManager, activeSessionSocket,
@@ -344,33 +347,39 @@ SKSEPluginInfo(
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
         trustDeviceAdminServiceContract, trustResetServiceContract);
 
-    //  Production capture and lifecycle composition
-    //  (ai/context/skse/architecture.md's "Production capture and lifecycle
-    //  composition"): constructs and injects the capture, worker-handoff,
-    //  and publication-routing chain. `registeredStateAreaPolicy` now has a
-    //  real caller -- `levelSink` below gates its worker handoff on it --
-    //  though 4.2 registers zero state areas, so that gate always reports
-    //  unregistered and the handoff stays unreachable in production.
-    //  `capturePolicyRegistry` still has no consumer: nothing in 4.2 has a
-    //  capture policy to classify, since classifying a policy presupposes a
-    //  registered domain and Phase 4.3 is what supplies the first one.
+    //  Production capture and lifecycle composition: constructs and injects
+    //  the capture, worker-handoff, and publication-routing chain.
+    //  `registeredStateAreaPolicy` has a real caller -- `levelSink` below
+    //  gates its worker handoff on it -- though 4.2 registers zero state
+    //  areas, so that gate always reports unregistered and the handoff
+    //  stays unreachable in production. `capturePolicyRegistry` still has
+    //  no consumer: nothing in 4.2 has a capture policy to classify, since
+    //  classifying a policy presupposes a registered domain and Phase 4.3
+    //  is what supplies the first one -- this remains a deliberately
+    //  deferred Stage 5 criterion, not an oversight.
     //  `activeSessionPublicationRouter` has nothing attached, so every
-    //  publication `statePublisher` builds is dropped, matching "When no
-    //  session is connected, authoritative state continues to update."
+    //  publication `statePublisher` builds is dropped, matching "authoritative
+    //  state continues to update when no session is connected." Revisions
+    //  belong to whichever `PlayContext` a capture was pinned against
+    //  (reached through `activePlayContextProvider`), not to a
+    //  process-lifetime tracker: a new play context always starts with a
+    //  fresh, empty revision sequence.
     static dovahlink::application::CapturePolicyRegistry capturePolicyRegistry;
     static dovahlink::application::CadenceScheduler cadenceScheduler;
-    static dovahlink::application::RevisionTracker revisionTracker;
     static dovahlink::application::RegisteredStateAreaPolicy
         registeredStateAreaPolicy;
     static dovahlink::application::ActiveSessionPublicationRouter
         activeSessionPublicationRouter;
     static dovahlink::application::StatePublisher statePublisher(
-        revisionTracker, activeSessionPublicationRouter);
+        activeSessionPublicationRouter);
+    static dovahlink::game_state::CommonLibCaptureQueueDiagnostics
+        captureQueueDiagnostics;
     static dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
-        statePublisher);
+        statePublisher, activePlayContextProvider, captureQueueDiagnostics);
     static dovahlink::game_state::CommonLibTaskMarshaller taskMarshaller;
     static dovahlink::application::CadenceTickDriver cadenceTickDriver(
-        cadenceScheduler, captureDispatchWorker, taskMarshaller);
+        cadenceScheduler, captureDispatchWorker, taskMarshaller,
+        activePlayContextProvider);
     static dovahlink::game_state::CommonLibPublicationDiagnostics
         publicationDiagnostics;
     static dovahlink::application::SessionPublicationFactory
@@ -379,17 +388,14 @@ SKSEPluginInfo(
 
     //  `levelSink` binds the native-event level capture built in
     //  `bridge/game_state/level_increase_handler.cpp` to the same
-    //  registered-area gate and worker handoff sampled capture uses
-    //  (`ai/context/skse/architecture.md`'s "Production capture and
-    //  lifecycle composition"). "character_level" is the roadmap-documented
-    //  state-area identity for this native event
-    //  (roadmap/04-live-state-synchronization-foundation.md); using it here
-    //  only as a lookup key for a registry nothing ever registers into does
-    //  not register the domain or define its wire contract -- both remain
-    //  Phase 4.3 scope.
+    //  pinned-context provider, registered-area gate, and worker handoff
+    //  sampled capture uses. "character_level" is this native event's
+    //  documented state-area identity; using it here only as a lookup key
+    //  for a registry nothing ever registers into does not register the
+    //  domain or define its wire contract -- both remain Phase 4.3 scope.
     static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        playContextLifecycle, registeredStateAreaPolicy, captureDispatchWorker,
-        "character_level");
+        activePlayContextProvider, registeredStateAreaPolicy,
+        captureDispatchWorker, "character_level");
     static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
     static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
         levelAccessor, levelSink);

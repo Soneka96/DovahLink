@@ -68,6 +68,7 @@ add_library(dovahlink_bridge_core STATIC
     application/capture_dispatch_worker.cpp
     application/cadence_tick_driver.cpp
     application/session_publication_factory.cpp
+    application/active_play_context_provider.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -140,6 +141,7 @@ add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
     game_state/commonlib_publication_diagnostics.cpp
     game_state/commonlib_task_marshaller.cpp
+    game_state/commonlib_capture_queue_diagnostics.cpp
     application/bridge_callback_registry.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
@@ -221,6 +223,7 @@ add_executable(dovahlink_bridge_tests
     application/capture_dispatch_worker_test.cpp
     application/cadence_tick_driver_test.cpp
     application/session_publication_factory_test.cpp
+    application/active_play_context_provider_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
@@ -230,6 +233,7 @@ add_executable(dovahlink_bridge_tests
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     game_state/commonlib_publication_diagnostics_test.cpp
     game_state/commonlib_task_marshaller_test.cpp
+    game_state/commonlib_capture_queue_diagnostics_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
     plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
@@ -292,6 +296,7 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_LEVEL_INCREASE_SINK_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_level_increase_sink.cpp"
     DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_trust_admin_papyrus_adapter.cpp"
     DOVAHLINK_PUBLICATION_DIAGNOSTICS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_publication_diagnostics.cpp"
+    DOVAHLINK_CAPTURE_QUEUE_DIAGNOSTICS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_capture_queue_diagnostics.cpp"
     DOVAHLINK_OUTBOUND_PUBLICATION_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/outbound_publication_sink.cpp"
     DOVAHLINK_WEBSOCKET_SESSION_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/transport/websocket_session.cpp"
     DOVAHLINK_CALLBACK_REGISTRY_CONTRACT_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/i_bridge_callback_registry.hpp"
