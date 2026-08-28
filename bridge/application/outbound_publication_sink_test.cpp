@@ -451,6 +451,45 @@ TEST_CASE("a throwing diagnostic cannot escape a Send completion",
     CHECK(socket.ShutdownCalled());
 }
 
+TEST_CASE("a throwing enqueue diagnostic cannot suppress transport progress",
+          "[application][outbound_publication_sink][diagnostics]") {
+    SECTION("selected send") {
+        FakeOutboundSocket socket;
+        socket.CompleteSendsSynchronously(true);
+        NiceMock<MockPublicationDiagnostics> diagnostics;
+        EXPECT_CALL(diagnostics, RecordEnqueueLatency(testing::_))
+            .WillOnce(testing::Invoke(
+                [](std::chrono::steady_clock::duration) {
+                    throw std::runtime_error("diagnostic failure");
+                }));
+        BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+        CHECK_NOTHROW(queue.PublishSnapshot("area", BuildSnapshotEnvelope()));
+        CHECK(socket.SentMessages().size() == 1);
+        CHECK_FALSE(socket.ShutdownCalled());
+    }
+
+    SECTION("required shutdown") {
+        FakeOutboundSocket socket;
+        NiceMock<MockPublicationDiagnostics> diagnostics;
+        EXPECT_CALL(diagnostics, RecordEnqueueLatency(testing::_))
+            .Times(dovahlink::security::kReservedControlRecoverySlots + 1)
+            .WillRepeatedly(testing::Invoke(
+                [](std::chrono::steady_clock::duration) {
+                    throw std::runtime_error("diagnostic failure");
+                }));
+        BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+        for (std::size_t i = 0;
+             i < dovahlink::security::kReservedControlRecoverySlots + 1; ++i) {
+            queue.PublishControl(BuildControlEnvelope("control-" +
+                                                      std::to_string(i)));
+        }
+
+        CHECK(socket.ShutdownCalled());
+    }
+}
+
 TEST_CASE("queue source contract detaches late completions and drops oversized payloads",
           "[application][outbound_publication_sink][lifetime]") {
     const std::string source = ReadOutboundPublicationSource();

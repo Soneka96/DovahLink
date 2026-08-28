@@ -7,6 +7,23 @@
 
 namespace dovahlink::application {
 
+namespace {
+
+///  Telemetry must not prevent a selected send or required shutdown from
+///  reaching the transport when a diagnostic sink is non-conforming.
+void RecordEnqueueLatencyNoexcept(
+    IPublicationDiagnostics& diagnostics,
+    std::chrono::steady_clock::duration latency) noexcept {
+    try {
+        diagnostics.RecordEnqueueLatency(latency);
+    } catch (...) {
+        //  Diagnostics are advisory and must not alter queue or transport
+        //  behavior.
+    }
+}
+
+} //  namespace
+
 BoundedOutboundQueue::BoundedOutboundQueue(
     transport::ISocket& socket, IPublicationDiagnostics& diagnostics,
     std::string sessionId)
@@ -328,8 +345,8 @@ void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
 
         next = MaybeStartSendLocked();
     }
-    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
-                                      submittedAt);
+    RecordEnqueueLatencyNoexcept(
+        diagnostics_, std::chrono::steady_clock::now() - submittedAt);
     if (next.has_value()) {
         DispatchSend(std::move(*next));
     }
@@ -381,8 +398,8 @@ void BoundedOutboundQueue::PublishEvent(std::string stateArea,
         }
     }
     if (enqueueDecided) {
-        diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
-                                          submittedAt);
+        RecordEnqueueLatencyNoexcept(
+            diagnostics_, std::chrono::steady_clock::now() - submittedAt);
     }
     if (disconnect) {
         socket_.Shutdown();
@@ -415,8 +432,8 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(
             next = MaybeStartSendLocked();
         }
     }
-    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
-                                      submittedAt);
+    RecordEnqueueLatencyNoexcept(
+        diagnostics_, std::chrono::steady_clock::now() - submittedAt);
     if (disconnect) {
         socket_.Shutdown();
     } else if (next.has_value()) {
@@ -441,8 +458,8 @@ void BoundedOutboundQueue::PublishControl(protocol::Envelope envelope) {
             next = MaybeStartSendLocked();
         }
     }
-    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
-                                      submittedAt);
+    RecordEnqueueLatencyNoexcept(
+        diagnostics_, std::chrono::steady_clock::now() - submittedAt);
     if (disconnect) {
         socket_.Shutdown();
     } else if (next.has_value()) {
