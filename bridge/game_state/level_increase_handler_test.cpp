@@ -28,6 +28,7 @@ TEST_CASE("HandleLevelIncrease pushes the accessor's current level to the sink",
           "[game_state][level_increase_handler]") {
     StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive()).WillOnce(testing::Return(true));
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{15}));
     EXPECT_CALL(sink, OnLevelCaptured(std::optional<std::int64_t>{15}));
@@ -42,6 +43,7 @@ TEST_CASE("HandleLevelIncrease pushes nullopt when the accessor has no "
           "[game_state][level_increase_handler]") {
     StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive()).WillOnce(testing::Return(true));
     EXPECT_CALL(accessor, ReadLevel()).WillOnce(testing::Return(std::nullopt));
     EXPECT_CALL(sink, OnLevelCaptured(std::optional<std::int64_t>{}));
     LevelIncreaseHandler handler(accessor, sink);
@@ -54,6 +56,9 @@ TEST_CASE("HandleLevelIncrease re-reads the accessor on every call rather than "
           "[game_state][level_increase_handler]") {
     StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive())
+        .Times(3)
+        .WillRepeatedly(testing::Return(true));
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{10}))
         .WillOnce(testing::Return(std::optional<std::int64_t>{11}))
@@ -76,11 +81,43 @@ TEST_CASE("HandleLevelIncrease routes an untrustworthy raw value through "
     //  the accessor's raw value directly.
     StrictMock<MockPlayerLevelAccessor> accessor;
     StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive()).WillOnce(testing::Return(true));
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{0}));
     EXPECT_CALL(sink, OnLevelCaptured(std::optional<std::int64_t>{}));
     LevelIncreaseHandler handler(accessor, sink);
 
+    handler.HandleLevelIncrease();
+}
+
+TEST_CASE("HandleLevelIncrease does not read the accessor while capture is "
+          "inactive",
+          "[game_state][level_increase_handler]") {
+    //  StrictMock<MockPlayerLevelAccessor> with no ReadLevel() expectation
+    //  fails the test if the accessor is read at all -- proving the guard
+    //  runs before the runtime read, not only before OnLevelCaptured.
+    StrictMock<MockPlayerLevelAccessor> accessor;
+    StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive()).WillOnce(testing::Return(false));
+    LevelIncreaseHandler handler(accessor, sink);
+
+    handler.HandleLevelIncrease();
+}
+
+TEST_CASE("HandleLevelIncrease resumes reading the accessor once capture "
+          "becomes active again",
+          "[game_state][level_increase_handler]") {
+    StrictMock<MockPlayerLevelAccessor> accessor;
+    StrictMock<MockActivePlayContextLevelSink> sink;
+    EXPECT_CALL(sink, IsCaptureActive())
+        .WillOnce(testing::Return(false))
+        .WillOnce(testing::Return(true));
+    EXPECT_CALL(accessor, ReadLevel())
+        .WillOnce(testing::Return(std::optional<std::int64_t>{20}));
+    EXPECT_CALL(sink, OnLevelCaptured(std::optional<std::int64_t>{20}));
+    LevelIncreaseHandler handler(accessor, sink);
+
+    handler.HandleLevelIncrease();
     handler.HandleLevelIncrease();
 }
 

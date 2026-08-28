@@ -32,3 +32,37 @@ TEST_CASE("ActivePlayContextLevelSink forwards an unavailable level",
 
     sink.OnLevelCaptured(std::nullopt);
 }
+
+TEST_CASE("ActivePlayContextLevelSink's IsCaptureActive forwards the "
+          "lifecycle's active state",
+          "[application][active_play_context_level_sink]") {
+    StrictMock<MockPlayContextLifecycle> lifecycle;
+    EXPECT_CALL(lifecycle, CurrentState())
+        .WillOnce(testing::Return(dovahlink::application::LifecycleState::kActive));
+    ActivePlayContextLevelSink sink(lifecycle);
+    IActivePlayContextLevelSink& sinkContract = sink;
+
+    CHECK(sinkContract.IsCaptureActive());
+}
+
+TEST_CASE("ActivePlayContextLevelSink's IsCaptureActive reports inactive "
+          "while loading",
+          "[application][active_play_context_level_sink]") {
+    StrictMock<MockPlayContextLifecycle> lifecycle;
+    EXPECT_CALL(lifecycle, CurrentState())
+        .WillOnce(testing::Return(dovahlink::application::LifecycleState::kLoading));
+    ActivePlayContextLevelSink sink(lifecycle);
+
+    CHECK_FALSE(sink.IsCaptureActive());
+}
+
+TEST_CASE("ActivePlayContextLevelSink's IsCaptureActive reports inactive "
+          "with no play context",
+          "[application][active_play_context_level_sink]") {
+    StrictMock<MockPlayContextLifecycle> lifecycle;
+    EXPECT_CALL(lifecycle, CurrentState())
+        .WillOnce(testing::Return(dovahlink::application::LifecycleState::kNoContext));
+    ActivePlayContextLevelSink sink(lifecycle);
+
+    CHECK_FALSE(sink.IsCaptureActive());
+}

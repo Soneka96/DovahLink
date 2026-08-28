@@ -7,6 +7,9 @@ LevelIncreaseHandler::LevelIncreaseHandler(const IPlayerLevelAccessor& accessor,
     : accessor_(accessor), sink_(sink) {}
 
 void LevelIncreaseHandler::HandleLevelIncrease() {
+    if (!sink_.IsCaptureActive()) {
+        return;
+    }
     sink_.OnLevelCaptured(CaptureLevel(accessor_));
 }
 

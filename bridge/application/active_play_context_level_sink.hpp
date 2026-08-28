@@ -16,6 +16,12 @@ class IActivePlayContextLevelSink {
     ///  Routes one captured player level, or an unavailable value.
     ///  @param level Captured level, or no value when unavailable.
     virtual void OnLevelCaptured(std::optional<std::int64_t> level) = 0;
+
+    ///  Reports whether a runtime read should be captured right now. A caller
+    ///  must check this before reading the runtime value, not only before
+    ///  routing the captured result, so no read happens while loading or
+    ///  before an authoritative play context exists.
+    [[nodiscard]] virtual bool IsCaptureActive() const = 0;
 };
 
 ///  Routes captured level values into the lifecycle aggregate, which drops
@@ -28,6 +34,9 @@ class ActivePlayContextLevelSink final : public IActivePlayContextLevelSink {
 
     ///  @copydoc IActivePlayContextLevelSink::OnLevelCaptured
     void OnLevelCaptured(std::optional<std::int64_t> level) override;
+
+    ///  @copydoc IActivePlayContextLevelSink::IsCaptureActive
+    [[nodiscard]] bool IsCaptureActive() const override;
 
   private:
     ///  Lifecycle aggregate receiving the captured level.

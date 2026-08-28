@@ -208,6 +208,7 @@ class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
   public:
     MOCK_METHOD(void, OnLevelCaptured, (std::optional<std::int64_t>),
                 (override));
+    MOCK_METHOD(bool, IsCaptureActive, (), (const, override));
 };
 
 ///  GoogleMock active-session disconnection contract double.
