@@ -190,6 +190,84 @@ void WebSocketSession::Socket::ShutdownWithNotification(
     }
 }
 
+void WebSocketSession::Socket::Send(std::string message,
+                                    std::function<void(bool)> onComplete) noexcept {
+    if (shutdownRequested_.load(std::memory_order_acquire)) {
+        onComplete(false);
+        return;
+    }
+
+    //  Declared outside the try so the catch block below can still reach a
+    //  callback that was successfully moved into it before a later statement
+    //  in the same try (for example boost::asio::post) throws -- `onComplete`
+    //  itself is left moved-from (and therefore unsafe to invoke) the instant
+    //  the make_shared below runs.
+    std::shared_ptr<std::function<void(bool)>> sharedOnComplete;
+    try {
+        auto socket = weak_from_this();
+        //  Shared for the same reason as ShutdownWithNotification's own
+        //  sharedMessage: async_write only registers the write before
+        //  returning, and the actual bytes are copied on a later io_context
+        //  turn.
+        auto sharedMessage = std::make_shared<std::string>(std::move(message));
+        sharedOnComplete =
+            std::make_shared<std::function<void(bool)>>(std::move(onComplete));
+        boost::asio::post(
+            *ioContext_, [socket = std::move(socket), sharedMessage,
+                          sharedOnComplete] {
+                auto activeSocket = socket.lock();
+                if (!activeSocket ||
+                    activeSocket->shutdownRequested_.load(
+                        std::memory_order_acquire)) {
+                    (*sharedOnComplete)(false);
+                    return;
+                }
+                if (!activeSocket->handshakeSettled_.load(
+                        std::memory_order_acquire)) {
+                    //  Accept()'s own handshake operation may still be using
+                    //  stream_ -- starting a websocket-level write now would
+                    //  race it unsafely, matching
+                    //  ShutdownWithNotification's own check.
+                    (*sharedOnComplete)(false);
+                    return;
+                }
+                try {
+                    //  The connection's own read loop may currently be
+                    //  blocked inside ReadMessage, which explicitly disables
+                    //  the write timeout for its own duration
+                    //  (DisableWriteTimeout) -- this write needs its own
+                    //  bounded deadline, matching
+                    //  ShutdownWithNotification's own reasoning.
+                    boost::beast::get_lowest_layer(activeSocket->stream_)
+                        .expires_after(security::kHandshakeTimeout);
+                    activeSocket->stream_.text(true);
+                    activeSocket->stream_.async_write(
+                        boost::asio::buffer(*sharedMessage),
+                        [socket, sharedOnComplete](boost::beast::error_code ec,
+                                                   std::size_t) {
+                            auto activeSocket = socket.lock();
+                            bool ok = !ec && activeSocket &&
+                                      !activeSocket->shutdownRequested_.load(
+                                          std::memory_order_acquire);
+                            (*sharedOnComplete)(ok);
+                        });
+                } catch (...) {
+                    //  The write itself failed to even start.
+                    (*sharedOnComplete)(false);
+                }
+            });
+    } catch (...) {
+        //  Best-effort noexcept boundary, matching Shutdown(). Routes through
+        //  whichever callback is still safe to call: `onComplete` itself once
+        //  `sharedOnComplete`'s construction has moved it empty.
+        if (sharedOnComplete) {
+            (*sharedOnComplete)(false);
+        } else {
+            onComplete(false);
+        }
+    }
+}
+
 WebSocketSession::WebSocketSession(boost::asio::ip::tcp::socket socket)
     : WebSocketSession(CreateSocket(std::move(socket))) {}
 

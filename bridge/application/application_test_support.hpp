@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -314,6 +315,8 @@ class MockSocket : public transport::ISocket {
   public:
     MOCK_METHOD(void, Shutdown, (), (noexcept, override));
     MOCK_METHOD(void, ShutdownWithNotification, (std::string), (noexcept, override));
+    MOCK_METHOD(void, Send, (std::string, std::function<void(bool)>),
+                (noexcept, override));
 };
 
 ///  GoogleMock outbound-publication-sink contract double.
