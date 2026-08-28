@@ -5,6 +5,7 @@
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/connection_timeout_tracker.hpp"
+#include "application/outbound_publication_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/replay_guard.hpp"
@@ -313,6 +314,15 @@ class MockSocket : public transport::ISocket {
   public:
     MOCK_METHOD(void, Shutdown, (), (noexcept, override));
     MOCK_METHOD(void, ShutdownWithNotification, (std::string), (noexcept, override));
+};
+
+///  GoogleMock outbound-publication-sink contract double.
+class MockOutboundPublicationSink : public IOutboundPublicationSink {
+  public:
+    MOCK_METHOD(void, PublishSnapshot, (std::string, protocol::Envelope),
+                (override));
+    MOCK_METHOD(void, PublishEvent, (std::string, protocol::Envelope),
+                (override));
 };
 
 } //  namespace dovahlink::application::test_support

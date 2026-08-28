@@ -82,6 +82,24 @@ Cover:
 - queue-full behavior without blocking the callback
 - latest-state coalescing and forced fresh-snapshot recovery after queue loss
 - next-game-callback recovery capture after queue loss without worker-side runtime reads
+- shared sampled-capture cadence, including aligned due times, missed-tick skipping without a
+  catch-up burst, and the optional staggering seam
+- unchanged sampled values producing no revision, publication, serialization, or network traffic
+- keyed latest-value replacement for Snapshot entries and FIFO preservation for reliable Event entries
+- worker-side encoded-size classification into the 108-slot Normal lane or 4-slot Heavy lane,
+  including a deterministic larger structured publication fixture, Heavy Snapshot replacement, and
+  Heavy Event overflow path
+- Snapshot dirty-marker retry after data pressure without an unbounded pending-value structure
+- reliable Event overflow disconnecting the slow client without blocking game capture
+- capture, change detection, authoritative-store update, revision assignment, and publication-intent
+  creation occurring in the documented per-state-area order
+- available/unavailable transitions advancing revisions while repeated equivalent unavailable values do
+  not
+- recovery snapshots establishing a baseline before later stateful Events, with superseded stateful
+  Events discarded and ephemeral notifications kept outside snapshot recovery
+- recovery barriers preserving serialized writer order without requiring a snapshot acknowledgement
+- the bounded registered-area count, Snapshot-slot accounting, message/byte queue limits, and failed
+  cutover leaving canonical writers unchanged
 - registration and unregistration ordering
 - each SKSE runtime interface with a call-once registration contract (for example `SKSE::MessagingInterface::RegisterListener`, which SKSE allows exactly one call to per plugin and which fails both registrations silently on a second call) has exactly one call site; verify this structurally, since the failure only surfaces inside a running SKSE process
 - callbacks that enter during shutdown and callbacks already in flight at unregister time
@@ -91,12 +109,14 @@ Cover:
 - transport completions already running during shutdown are drained or rejected by a generation guard
 - transport disconnect and reconnect
 - slow-client or full-queue behavior
-- reserved recovery/control capacity while the event lane is full
+- reserved recovery/control capacity while the data lane is full
 - critical outbound message handling when the control lane is full
 - worker failure transitions to unavailable and recovery/reconnect behavior
 - worker restart requires a fresh snapshot before publication resumes
 - stale or out-of-order state updates
 - malformed, incompatible, and unknown protocol messages
+- registered state-area capability advertisement, exact domain data validation, and unknown-area
+  rejection against the canonical shared fixtures
 
 ## Test boundaries
 

@@ -72,6 +72,31 @@ enum class MessageIdCheckResult {
     kReplayed,
 };
 
+//  ---- Capture ----
+
+///  How a captured value is supplied to the bridge, independent of how a
+///  subscriber receives it (`UpdateMode`). `CapturePolicy` pairs this with a
+///  `RateClass` for `kSampled`.
+enum class CapturePolicyKind {
+    ///  Captured synchronously from a trustworthy Skyrim/SKSE event; no
+    ///  polling cadence applies.
+    kNativeEvent,
+    ///  Captured on a recurring cadence bounded by a `RateClass`.
+    kSampled,
+};
+
+///  Maximum capture frequency for a `kSampled` value. A rate class bounds how
+///  often the shared cadence scheduler may capture a value; it is not a
+///  publication or network-send cadence.
+enum class RateClass {
+    ///  Captured at most once per `kFastCapturePeriod`.
+    kFast,
+    ///  Captured at most once per `kMediumCapturePeriod`.
+    kMedium,
+    ///  Captured at most once per `kSlowCapturePeriod`.
+    kSlow,
+};
+
 } //  namespace dovahlink::application
 
 namespace dovahlink::security {

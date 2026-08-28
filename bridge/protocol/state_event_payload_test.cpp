@@ -59,3 +59,22 @@ TEST_CASE("state_event is rejected when baseRevision is missing",
     auto event = dovahlink::protocol::DecodeStateEventPayload(payload);
     REQUIRE_FALSE(event.has_value());
 }
+
+TEST_CASE("EncodeStateEventPayload round-trips the state-event fixture's "
+          "payload",
+          "[protocol][state_event_payload]") {
+    auto envelope = DecodeFixtureEnvelope("state/state-event.json");
+    auto original = dovahlink::protocol::DecodeStateEventPayload(envelope.payload);
+    REQUIRE(original.has_value());
+
+    boost::json::object encoded =
+        dovahlink::protocol::EncodeStateEventPayload(*original);
+    auto roundTripped = dovahlink::protocol::DecodeStateEventPayload(encoded);
+
+    REQUIRE(roundTripped.has_value());
+    CHECK(roundTripped->stateArea == original->stateArea);
+    CHECK(roundTripped->baseRevision == original->baseRevision);
+    CHECK(roundTripped->revision == original->revision);
+    CHECK(roundTripped->occurredAt == original->occurredAt);
+    CHECK(roundTripped->data == original->data);
+}

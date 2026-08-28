@@ -1063,7 +1063,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
         self.assertEqual(roadmap.count("**Status:** Complete"), 9)
-        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 26)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
         )
@@ -1083,10 +1083,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ):
                 expected_statuses = ["**Status:** Complete"]
             elif heading == "4. Live State Synchronization Foundation":
-                # Stage 4's own status stays Planned until every phase (4.1-4.5) is done; its span
+                # Stage 4 is Active while its phases (4.1-4.5) are in progress; its span
                 # also carries Phase 4.1's own "**Status:** Complete" line, since 4.1-4.5 are
                 # subsections of this stage rather than independent headings the way 3.1-3.3 are.
-                expected_statuses = ["**Status:** Planned", "**Status:** Complete"]
+                expected_statuses = ["**Status:** Active", "**Status:** Complete"]
             elif heading.startswith("5. "):
                 expected_statuses = [phase_5_status]
             elif heading.startswith("28. "):

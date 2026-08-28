@@ -6,6 +6,9 @@ Integration tests prove that the SKSE bridge and Flutter client agree on the can
 
 - Keep language-neutral protocol fixtures in the protocol area, not inside only the Flutter or SKSE test tree.
 - Include valid snapshots, valid events, unavailable values, malformed messages, unknown optional fields, and stale revisions.
+- When Stage 4 registers production state areas, assert their capability advertisement, exact domain
+  data shape, update mode, revision behavior, and unavailable-value representation from shared
+  Bridge/SDK/.NET fixtures.
 - Expected decoded values are asserted in the consuming test rather than duplicated in fixture metadata.
 - Shared fixtures are the source of truth for cross-side contract tests; client- or bridge-only fixtures must not redefine them.
 
@@ -22,10 +25,21 @@ Cover at least:
 
 - compatibility bootstrap
 - capability exchange
+- registered state-area capabilities and rejection of unknown state areas
 - snapshot delivery
 - ordered event delivery
+- shared sampled-capture cadence, including aligned due times and missed-tick handling
+- unchanged sampled values producing no revision, publication, serialization, or network traffic
+- Snapshot latest-value replacement and Event FIFO preservation under outbound pressure
+- Normal/Heavy publication classification, four-slot Heavy capacity, and Heavy Snapshot/Event
+  behavior across the wire using a deterministic larger structured publication fixture rather than
+  a production inventory, map, or asset domain
+- Snapshot dirty-marker retry after pressure and bounded queue-byte accounting
+- reliable Event overflow explicitly disconnecting the slow client without blocking game capture
 - duplicate and out-of-order events
 - reconnect and snapshot recovery
+- reconnect after an unhealthy Event session receiving only the current authoritative snapshot, with
+  no replay of the previous session's queued events
 - an incompatible Bridge/client version during the compatibility bootstrap
 - unsupported capability
 - malformed message
@@ -41,6 +55,10 @@ Cover at least:
 - transport disconnect while state is changing
 - revision-gap detection entering recovery, and the domain not exposing state as synchronized until an authoritative recovery snapshot arrives
 - recovery buffering of events that arrive while a recovery snapshot is in flight, including a later snapshot superseding already-buffered events at or below its revision
+- recovery ordering proving that stateful events after the accepted snapshot are applied in order and
+  ephemeral notifications are not incorrectly treated as snapshot-recoverable state
+- failed compatibility or domain-readiness checks leaving canonical writers on the old contract rather
+  than performing a partial cutover
 - bounded recovery buffering: abandoning a buffered recovery attempt and requesting a fresh snapshot when the bound is exceeded, rather than growing unbounded
 - a recovery snapshot request that times out or fails, causing the connection to be treated as unhealthy and recovery to proceed through the applicable bounded reconnect behavior followed by fresh synchronization
 

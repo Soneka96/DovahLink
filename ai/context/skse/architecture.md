@@ -112,7 +112,14 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 - Make ownership and thread handoff explicit.
 - Capture must be bounded, validated, and non-blocking. Unbounded scans, waits, network calls, and uncontrolled allocation are forbidden in callbacks.
 - Do not access game objects from a worker thread unless the approved runtime API explicitly permits it.
-- If a bounded queue is full, never block the game thread: apply the documented latest-state coalescing or drop policy and record the loss.
+- Recurring sampled capture may be grouped behind one coordinator-owned scheduler with per-value
+  due times and rate classes. The scheduler must be driven by an approved game-thread callback or
+  hook; a worker may process captured values but must never request a deferred Skyrim read. Late
+  ticks skip missed samples rather than issuing an unbounded catch-up burst.
+- If a bounded queue is full, never block the game thread: a replaceable Snapshot may replace an
+  already-pending value for the same state area or be deferred behind one bounded dirty marker per
+  registered state area, while a reliable Event must remain ordered and causes the slow client to be
+  disconnected rather than being coalesced or dropped; record the outcome diagnostically.
 - Shutdown must stop workers and close transport resources before the plugin unloads.
 
 ## Ownership and shutdown
@@ -126,10 +133,31 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
 ## Failure semantics
 
 - If plugin startup cannot establish a required runtime capability, disable the affected capability and log a clear reason; do not publish fabricated state.
-- Queue overflow must produce an observable diagnostic and leave the next published state marked as potentially incomplete or recovered by a fresh snapshot.
-- The v1 queue policy is latest-state coalescing per state area: intermediate updates may be dropped, but the next client-visible state must come from a fresh snapshot capture before it is presented as current.
-- Outbound capacity is split into a reserved control/recovery lane and an event lane. Events may be coalesced or dropped; snapshots, acknowledgements, errors, and recovery messages are never silently dropped or allowed to block the game thread. If the control lane is full, the client is marked unavailable and the connection is closed.
-- When queue loss marks a state area for recovery, the next eligible game callback synchronously captures a fresh owned value through the game-state adapter and places it in the reserved recovery lane; workers never request or perform a deferred runtime read.
+- Queue overflow must produce an observable diagnostic. Snapshot loss marks the affected state area
+  incomplete until a fresh authoritative snapshot is captured; reliable Event overflow disconnects
+  the slow client and ends that session rather than silently losing an Event.
+- The v1 queue policy is mode-aware: replaceable Snapshot values are latest-value-wins per state
+  area, while reliable Event values are ordered FIFO and are never coalesced or dropped. Initial,
+  recovery, and explicitly requested snapshots, acknowledgements, errors, and recovery messages use
+  the reserved control/recovery capacity and are never silently dropped or allowed to block the game
+  thread. Unsolicited Snapshot values use the bounded data capacity and may be replaced or deferred.
+  If reserved control/recovery capacity is full, the client is marked unavailable and the connection
+  is closed.
+- Within the current 128-message outbound bound, the 16 reserved control/recovery slots and the 112
+  data slots are further organized as 108 Normal data slots and 4 Heavy data slots. A worker assigns
+  Normal or Heavy after measuring the encoded publication; this classification changes storage only,
+  not the Snapshot/Event reliability rule.
+- The outbound organization has one authoritative ordering point per state area for applying captured
+  values and assigning revisions. A recovery snapshot establishes the new baseline in the single
+  serialized outbound order before later stateful events are applied; events at or below an accepted
+  snapshot revision are superseded. This does not convert an ephemeral notification into recoverable
+  state.
+- When Snapshot loss marks a state area for recovery, the next eligible game callback synchronously
+  captures a fresh owned value through the game-state adapter and places it in the reserved recovery
+  lane; workers never request or perform a deferred runtime read.
+- After reliable Event overflow or any resulting transport disconnect, the authoritative store and
+  revision remain valid, but the session queue is discarded and the next authenticated session
+  begins with fresh synchronization rather than replaying the old queue.
 - A transport disconnect marks the client unavailable and triggers the approved reconnect policy; it must not block game-state capture.
 - If a worker exits unexpectedly, the coordinator enters `unavailable`, stops publishing state as current, reports a controlled `internal_error`, and either restarts the worker through an approved policy or requires a clean reconnect. A restarted worker must receive a fresh snapshot before publication resumes on the existing session.
 - Malformed or incompatible messages are rejected at the protocol boundary and never reach game APIs.

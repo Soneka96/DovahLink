@@ -219,6 +219,78 @@ TEST_CASE("CommitSnapshotIfBuilt leaves the revision uncommitted when the "
     CHECK(tracker.StartSnapshot(kAreaA, kFingerprintB) == 2);
 }
 
+TEST_CASE("CommitEventIfBuilt commits the assigned event revision when the "
+          "builder succeeds",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kAreaA, kFingerprintA);
+
+    auto result = tracker.CommitEventIfBuilt(
+        kAreaA,
+        [](std::int64_t baseRevision,
+           std::int64_t revision) -> std::optional<std::pair<std::int64_t,
+                                                             std::int64_t>> {
+            return std::make_pair(baseRevision, revision);
+        });
+
+    REQUIRE(result.has_value());
+    CHECK(*result == std::make_pair(std::int64_t{1}, std::int64_t{2}));
+    CHECK(tracker.CurrentRevision(kAreaA) == 2);
+}
+
+TEST_CASE("CommitEventIfBuilt leaves the revision unchanged when the builder "
+          "returns no value",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kAreaA, kFingerprintA);
+
+    auto result = tracker.CommitEventIfBuilt(
+        kAreaA, [](std::int64_t, std::int64_t) -> std::optional<std::pair<std::int64_t, std::int64_t>> {
+            return std::nullopt;
+        });
+
+    CHECK_FALSE(result.has_value());
+    CHECK(tracker.CurrentRevision(kAreaA) == 1);
+
+    auto nextEvent = tracker.NextEvent(kAreaA);
+    REQUIRE(nextEvent.has_value());
+    CHECK(*nextEvent == std::make_pair(std::int64_t{1}, std::int64_t{2}));
+}
+
+TEST_CASE("CommitEventIfBuilt does not invoke the builder without a snapshot "
+          "baseline",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    bool builderCalled = false;
+
+    auto result = tracker.CommitEventIfBuilt(
+        kAreaA, [&](std::int64_t, std::int64_t) -> std::optional<std::pair<std::int64_t, std::int64_t>> {
+            builderCalled = true;
+            return std::make_pair(std::int64_t{0}, std::int64_t{0});
+        });
+
+    CHECK_FALSE(result.has_value());
+    CHECK_FALSE(builderCalled);
+    CHECK_FALSE(tracker.CurrentRevision(kAreaA).has_value());
+}
+
+TEST_CASE("CommitEventIfBuilt leaves the revision uncommitted when the builder "
+          "throws",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kAreaA, kFingerprintA);
+
+    CHECK_THROWS_AS(
+        tracker.CommitEventIfBuilt(
+            kAreaA, [](std::int64_t, std::int64_t) -> std::optional<std::pair<std::int64_t, std::int64_t>> {
+                throw std::bad_alloc{};
+            }),
+        std::bad_alloc);
+
+    CHECK(tracker.CurrentRevision(kAreaA) == 1);
+    CHECK(tracker.StartSnapshot(kAreaA, kFingerprintB) == 2);
+}
+
 TEST_CASE("CommitSnapshotIfBuilt holds its lock across the whole builder call, "
           "so a concurrent "
           "snapshot for the same area cannot commit until it finishes -- the "
@@ -257,6 +329,55 @@ TEST_CASE("CommitSnapshotIfBuilt holds its lock across the whole builder call, "
     concurrentCaller.join();
 
     CHECK(concurrentRevision.get_future().get() == 2);
+}
+
+TEST_CASE("CommitEventIfBuilt holds its lock across the whole builder call, "
+          "so concurrent events receive distinct ordered revisions",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    tracker.StartSnapshot(kAreaA, kFingerprintA);
+    std::promise<void> builderEntered;
+    std::future<void> builderEnteredFuture = builderEntered.get_future();
+    std::promise<void> releaseBuilder;
+    std::future<void> releaseBuilderFuture = releaseBuilder.get_future();
+    std::promise<void> concurrentStarted;
+    std::future<void> concurrentStartedFuture = concurrentStarted.get_future();
+    std::optional<std::pair<std::int64_t, std::int64_t>> firstResult;
+    std::optional<std::pair<std::int64_t, std::int64_t>> concurrentResult;
+
+    std::thread committer([&] {
+        firstResult = tracker.CommitEventIfBuilt(
+            kAreaA,
+            [&](std::int64_t baseRevision,
+                std::int64_t revision)
+                -> std::optional<std::pair<std::int64_t, std::int64_t>> {
+                builderEntered.set_value();
+                releaseBuilderFuture.wait();
+                return std::make_pair(baseRevision, revision);
+            });
+    });
+
+    builderEnteredFuture.wait();
+    std::thread concurrentCaller([&] {
+        concurrentStarted.set_value();
+        concurrentResult = tracker.CommitEventIfBuilt(
+            kAreaA,
+            [](std::int64_t baseRevision,
+               std::int64_t revision)
+                -> std::optional<std::pair<std::int64_t, std::int64_t>> {
+                return std::make_pair(baseRevision, revision);
+            });
+    });
+
+    concurrentStartedFuture.wait();
+    releaseBuilder.set_value();
+    committer.join();
+    concurrentCaller.join();
+
+    REQUIRE(firstResult.has_value());
+    REQUIRE(concurrentResult.has_value());
+    CHECK(*firstResult == std::make_pair(std::int64_t{1}, std::int64_t{2}));
+    CHECK(*concurrentResult == std::make_pair(std::int64_t{2}, std::int64_t{3}));
 }
 
 TEST_CASE("NextEvent returns nullopt when no baseline has been established",

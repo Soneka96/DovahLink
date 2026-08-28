@@ -4,7 +4,7 @@
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Planned
+**Status:** Active
 
 Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
 and final cross-boundary cutover. The protocol migration may temporarily read
@@ -15,33 +15,89 @@ only the redesigned contract.
 
 The Bridge and its client-side synchronization foundation push changing state from shared
 authoritative stores without requiring polling or allowing delivery pressure to block Skyrim. The
-first production domains are deliberately small: `character_xp` uses Snapshot mode and
-`character_level` uses Event mode. The existing aggregate `character` area is retired in the
-redesigned contract; a future phase may add it as a composed character view without creating a
-second authority for progression values.
+first production domains are deliberately focused: `character_xp`, `character_health`,
+`character_magicka`, and `character_stamina` use Snapshot mode, while `character_level` uses Event
+mode. Each is a separate state area; the existing aggregate `character` area is retired in the
+redesigned contract. A future phase may add a composed character view without creating a second
+authority for these values.
+
+### Architecture model
+
+Stage 4 treats capture, authoritative state, and client publication as related but distinct layers:
+
+- A **capture unit** is one value or event acquired from Skyrim. Its `CapturePolicy` is either
+  `NativeEvent` or `Sampled`.
+- A sampled capture unit declares a `RateClass`: `Fast`, `Medium`, or `Slow`. The rate controls the
+  maximum frequency at which DovahLink checks Skyrim, not the frequency of revisions or network
+  messages. The initial profiling hypothesis is `Fast = 5 Hz` (every 200 ms), `Medium = 1 Hz`
+  (every second), and `Slow = 0.5 Hz` (every two seconds); these are not protocol constants.
+- An **authoritative state area** owns the current DovahLink value, availability, play-context
+  identity, and revision sequence. It is the ordering point for applying captured values and
+  assigning revisions.
+- A stateful publication area declares one canonical `UpdateMode`: `Snapshot` or `Event`. A
+  `Snapshot` is replaceable latest state; an `Event` is an ordered complete post-change state that
+  advances from a known revision baseline.
+- A worker-owned publication is assigned an internal `QueueClass`: `Normal` or `Heavy`, based on its
+  encoded size and the approved threshold. This class controls bounded transport storage only; it
+  does not change Snapshot/Event reliability or become a wire field. A Snapshot has at most one
+  pending entry across both data classes for its state area, so a size change moves or replaces that
+  entry rather than creating a second copy.
+- A **publication unit** is the client-facing representation produced from an authoritative state
+  area. Capture units, state areas, and publication units may be different sizes: several captured
+  values may contribute to a future composed view, while one captured event may update one focused
+  state area.
+- `CapturePolicy`, `RateClass`, and `UpdateMode` are Bridge-side policy metadata and are not new
+  wire fields by themselves. The wire exposes registered `stateArea` contracts through the existing
+  typed state messages.
+
+The normal flow is:
+
+```text
+Skyrim event or shared sampler
+        ↓
+small owned captured value
+        ↓
+state-area ordering point and change detection
+        ↓
+authoritative revision
+        ↓
+Snapshot or Event publication
+        ↓
+bounded session delivery
+```
+
+These policies are orthogonal in meaning, but not every combination is valid. In particular,
+reliable Event mode requires a runtime source that cannot miss semantically required occurrences;
+sampling is Event-compatible only when that property is proved for the specific value. Otherwise the
+value is a Snapshot domain.
 
 ### Scope and behavior
 
 - Replace the Phase 1 request/response polling loop with full-duplex asynchronous delivery. The
-  `character_xp` state area is Snapshot mode: every update is complete current XP state and
-  replaceable under pressure. The `character_level` state area is Event mode: an initial snapshot
-  establishes the current level and a later level change is an ordered `state_event` whose data is
-  the complete post-change level state. Correlated request/response messages remain part of the
-  protocol and are not removed.
-- Redesign the protocol as typed message families rather than one broadly nullable message model.
-  Each message has one canonical JSON shape and a dedicated DTO/codec boundary. The redesign covers
-  connection, pairing, state, error, invalidation, and control messages.
-- Prefer native events and sample only where no trustworthy event exists.
-- Treat rate classes as maximum frequencies and publish unsolicited replaceable state only on
-  authoritative change.
-- Separate replaceable state, ordered reliable events, and recovery/control traffic.
-- Coalesce replaceable state to its latest value under pressure.
-- Always deliver initial, recovery, and explicitly requested snapshots, even when the state is
-  unchanged; these snapshots reuse the current authoritative revision.
-- A subscriber receives complete post-change state rather than a patch. Initial, recovery, and
-  explicitly requested snapshots are always delivered, while unchanged unsolicited replaceable state
-  produces no traffic.
-- Slow-client behavior is explicit: a client that cannot consume them in time is explicitly disconnected without stalling Skyrim or healthy clients.
+  `character_xp`, `character_health`, `character_magicka`, and `character_stamina` state areas are
+  Snapshot mode: every update is complete current state and replaceable under pressure. The
+  `character_level` state area is Event mode: an initial snapshot establishes the current level and
+  a later level change is an ordered `state_event` whose data is the complete post-change level
+  state. Correlated request/response messages remain part of the protocol and are not removed.
+- Apply the shared capture, scheduling, and ordering model defined above. Recurring capture is driven
+  by an approved game-thread callback or hook; workers never defer a Skyrim read. The callback
+  synchronously copies a small, validated, DovahLink-owned value, and unchanged sampled values stop
+  before they create a revision, publication, queue entry, serialization work, or WebSocket traffic.
+- Use the completed 4.1 typed message-family contract rather than reopening its design. Each message
+  has one canonical JSON shape and a dedicated DTO/codec boundary; the remaining phase work registers
+  and publishes the typed state-area data carried by those messages.
+- Prefer native events for values that require reliable occurrence delivery, and sample only where no
+  trustworthy event exists or where the product only needs current state.
+- The Bridge must publish unsolicited replaceable state only on authoritative change.
+- Always deliver initial, recovery, and explicitly requested snapshots, even when the state is unchanged;
+  these snapshots reuse the current authoritative revision.
+- A subscriber receives complete post-change state rather than a patch; unchanged unsolicited
+  replaceable state produces no traffic.
+- Separate replaceable state, ordered reliable state events, recovery/control traffic, and ephemeral
+  notifications; each category follows its own contract.
+- Slow-client behavior is explicit: a client that cannot consume them in time is explicitly disconnected when
+  the required traffic is reliable Event traffic, without stalling Skyrim or healthy clients; Snapshot traffic
+  may be deferred or replaced according to the bounded queue rules above.
 - Keep game-thread capture small and perform network I/O and serialization elsewhere.
 - Instrument capture, queues, coalescing, disconnects, and recovery before tuning thresholds.
 - Establish trustworthy runtime capture contracts before adding each value. XP fields are not
@@ -111,21 +167,129 @@ Game callbacks capture trustworthy values and update owned stores; they do not s
 touch WebSocket state. A worker-owned publisher builds typed snapshots/events and submits them to a
 bounded outbound organization with:
 
+- a shared capture-policy registry and cadence scheduler for sampled values, plus explicit native
+  event adapters;
+- one authoritative ordering point per state area for applying captured values and assigning revisions
+  when capture callbacks arrive from different runtime sources; serialization and network writing
+  remain worker-owned after that point;
+- worker-owned construction and encoding of typed publications, with encoded-byte measurement and
+  `QueueClass` assignment before bounded queue admission;
 - latest-value replacement for replaceable Snapshot state;
 - ordered, non-coalesced delivery for reliable Event state;
 - reserved capacity for recovery/control traffic;
+- a bounded data organization in which replaceable Snapshot entries are keyed by state area while
+  reliable Event entries remain FIFO in either the Normal or Heavy data lane; Snapshot pressure may
+  replace or defer an unsolicited value, but Event pressure closes the slow client rather than
+  dropping an Event;
+- a deterministic bounded Heavy-lane proof fixture representing a larger structured publication;
+  this validates size classification, four-slot accounting, Snapshot replacement, and reliable Event
+  overflow without pulling inventory, maps, or assets into Stage 4;
 - explicit slow-consumer diagnostics and disconnect behavior;
-- instrumentation for depth, coalescing, enqueue/dequeue latency, recovery, and disconnects.
+- instrumentation for capture timing, depth, coalescing, enqueue/dequeue latency, recovery, and
+  disconnects;
+- the current security baseline of 128 outbound messages per client: 16 reserved control/recovery
+  slots, 108 Normal data slots, and 4 reserved Heavy data slots. The implementation must also
+  establish a bounded encoded-byte budget and the Normal/Heavy classification threshold before
+  production use; their numeric values are profiling and approval decisions, not accidental
+  consequences of the individual 1 MiB frame limit;
+- explicit lane ordering: a recovery snapshot establishes the new baseline before later stateful
+  events are applied, and stateful events at or below an accepted snapshot revision are discarded as
+  superseded rather than delivered after the snapshot. This supersession rule does not apply to
+  ephemeral notifications, whose delivery contract is independent of state snapshots.
+
+The bounded organization has three physical lanes and three logical delivery categories. The reserved
+control/recovery lane carries initial, recovery, and explicitly requested snapshots, acknowledgements,
+errors, and recovery/control messages. The Normal data lane has 108 message slots and the Heavy data
+lane has 4 message slots; both carry keyed replaceable Snapshot entries and ordered Event FIFOs under
+the same UpdateMode rules. A publication is classified after worker-side encoding against the
+approved size threshold. There is one pending Snapshot slot per registered Snapshot state area across
+both data lanes, and replacing or moving that slot never grows the queue. The registered-area count is
+fixed and bounded before a session can publish state, and unknown client-requested areas never
+allocate queue state. If an unsolicited Snapshot cannot enter its selected lane because message or
+byte capacity is occupied, the authoritative store retains the latest value and sets one bounded
+per-area dirty marker; the latest value is admitted when a data slot or byte budget becomes available,
+without issuing a catch-up burst. If a reliable Event cannot enter its selected lane because of
+message or byte capacity, the client is disconnected rather than losing the Event. The encoded-byte
+budget is bounded independently of the message count. Heavy structured live data remains subject to
+the frame limit and is not a path for maps, assets, or other heavy resources excluded from the live
+stream.
+
+Every initial or recovery snapshot establishes a per-state-area delivery barrier. The publisher
+captures the authoritative baseline at revision `R`, queues that snapshot in the reserved lane, holds
+later stateful Events for that area, and releases only Events newer than `R` after the snapshot has
+entered the single serialized outbound order. The client does not need a snapshot acknowledgement:
+ordered session writes and each Event's `baseRevision` provide the apply rule. If the session closes,
+the barrier and its queue are discarded; the next session starts from a fresh snapshot.
+
+Applying a captured value, determining whether it changed, assigning its authoritative revision, and
+creating its publication intent occur at the state area's ordering point. Queue admission happens
+after that point: a rejected unsolicited Snapshot remains recoverable from the store, while a rejected
+reliable Event ends the session. The authoritative store and revision are not rolled back because a
+client could not consume the publication.
+
+Availability is part of authoritative state. A contract-defined transition from available to
+unavailable, or from unavailable to available, is a state change and advances the area revision;
+repeated equivalent unavailable samples do not. A capture failure is not converted into a plausible
+value: the domain contract decides whether it is an unavailable state, a diagnostic with no state
+change, or a capability failure.
 
 The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
 queued events from the previous authenticated session.
 
-#### 4.3 Production Progression Domains and Synchronization Kernel
+Before 4.2 production implementation begins, the design must record the queue item's ownership and
+size accounting, the monotonic scheduler's missed-tick behavior, the per-state-area ordering point,
+the approved game-thread tick source and loading/shutdown behavior, the bounded registered-area and
+Snapshot-slot policy, the Normal/Heavy classification threshold, the Heavy four-slot policy, the
+control/data lane priority rules, the per-area recovery barrier, and the encoded-byte budget. The
+design must also prove that a failed cutover or unavailable required consumer leaves canonical writers
+unchanged. These are implementation gates, not new protocol fields.
 
-Implement and test `character_xp` Snapshot delivery and `character_level` Event delivery. The level
-domain begins with an authoritative snapshot and applies ordered complete-state events. A level-up
-is represented by the new level state; consumers may derive the transition without requiring a
-second event-only payload contract.
+#### 4.3 Production Character State Domains and Synchronization Kernel
+
+Implement and test the first complete character-state set:
+
+| State area | Capture | Rate | Delivery |
+|---|---|---|---|
+| `character_xp` | `Sampled` | `Medium` | `Snapshot` |
+| `character_health` | `Sampled` | `Fast` | `Snapshot` |
+| `character_magicka` | `Sampled` | `Fast` | `Snapshot` |
+| `character_stamina` | `Sampled` | `Fast` | `Snapshot` |
+| `character_level` | `NativeEvent` | — | `Event` |
+
+The level domain begins with an authoritative snapshot and applies ordered complete-state events. A
+level-up is represented by the new level state; consumers may derive the transition without requiring
+a second event-only payload contract. Each production value must first document its supported-runtime
+capture source, unavailable-value behavior, callback/thread boundary, change-detection rule, and
+expected cost. Tests must also prove the shared scheduler's aligned cadence, missed-tick behavior,
+optional staggering seam, unchanged-sample short-circuit, and the mode-specific queue behavior before
+future domains are added.
+
+Before any of these state areas is published, Stage 4.3 registers its canonical state area in the
+protocol schema and capabilities, defines the exact `data` shape and domain codec/validator, and adds
+the shared Bridge/SDK/.NET fixtures. A domain contract records its capture unit, capture policy, rate
+class when sampled, update mode, authoritative revision behavior, unavailable-value behavior,
+initial/recovery snapshot behavior, and whether it is stateful or ephemeral. The existing generic
+state envelope remains reusable, but production domain data must not stay an unvalidated arbitrary
+JSON map once the area is registered. The domain contract also identifies whether a change is
+reconstructable current state or a one-time occurrence; only the former may be recovered or
+superseded by a state snapshot.
+
+The four resource areas remain separate authoritative state areas so each can be captured and
+revised independently. The SDK may expose a read-only composed resource view from the latest accepted
+`character_health`, `character_magicka`, and `character_stamina` values for presentation convenience;
+the Bridge does not revive the retired aggregate `character` area or create a second resource
+authority. The composed view must preserve each area's synchronization status and must not claim an
+atomic cross-area revision unless a later protocol decision adds one.
+
+Future domains are not pulled into this phase, but their intended classification is now explicit:
+location, combat summaries, and similar continuously changing values are likely sampled Snapshot
+domains; quest completion and item-acquired/removed occurrences are candidates for native reliable
+Event domains or separately contracted ephemeral notifications; and a current inventory view is a
+Snapshot domain. The default inventory design is current inventory as Snapshot plus item-change
+notification, not a large complete-inventory state event. A future domain may promote an item change
+to a stateful Event only after defining a reconstructable complete post-change state and a trustworthy
+source. Durable offline replay remains outside Stage 4. Every future domain still requires its own
+runtime proof and protocol decision.
 
 In the SDK synchronization kernel, prove snapshot baselines, Event-mode ordered apply,
 duplicate/stale rejection, revision-gap detection, recovery buffering, snapshot supersession,
@@ -134,10 +298,20 @@ This kernel remains reusable and internal until Stage 5 exposes its curated publ
 
 #### 4.4 Cross-Boundary Cutover and Cleanup
 
-Run Bridge, SDK, .NET, canonical-fixture, and loopback integration scenarios together. Switch the
-canonical writers to the redesigned contract, verify the SDK rejects incompatible `bridgeVersion`
-values before normal traffic, remove old readers and migration-only fixtures, and close the stage
-only after the final version-impact audit and Bridge release cutover succeed.
+Run the cutover in this order:
+
+1. Complete the registered domain data contracts, readers, codecs, and canonical fixtures.
+2. Verify Bridge, SDK, .NET, and loopback consumers understand the redesigned contract while
+   existing writers remain unchanged.
+3. If any required consumer, validator, fixture, or runtime capture contract is not ready, leave
+   canonical writers unchanged and stop the cutover with an actionable diagnostic.
+4. Switch canonical Bridge and SDK writers only after every required consumer understands the new
+   shapes.
+5. Verify the SDK rejects an incompatible `bridgeVersion` immediately after `hello_ack`, before
+   capabilities, subscriptions, snapshots, or Events.
+6. Run the complete Bridge, SDK, .NET, fixture, recovery, reconnect, and slow-client scenarios.
+7. Remove migration-only readers and fixtures, leaving no permanent dual protocol implementation.
+8. Hand the complete phase diff to 4.5 for the version-impact audit and release cutover.
 
 #### 4.5 Version-Impact Audit Foundation
 
@@ -154,9 +328,15 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
 
 Each stateful domain declares exactly one canonical live-delivery mode, `UpdateMode`: `Snapshot` or
 `Event`. A consumer does not choose between them per subscription; the domain's protocol definition
-fixes it. `character_xp` is Snapshot mode: every delivered update is complete state and coalesced to
-latest-value. `character_level` is Event mode: it begins from an authoritative snapshot for initial
-synchronization and reconnect/gap recovery, then applies ordered complete-state events.
+fixes it. Capture policy and rate class remain separate from this choice. `character_xp` is
+`Sampled`/`Medium`/`Snapshot`, while `character_health`, `character_magicka`, and
+`character_stamina` are `Sampled`/`Fast`/`Snapshot`: every delivered update is complete state and
+coalesced to latest-value. `character_level` is `NativeEvent`/`Event`: it begins from an authoritative
+snapshot for initial synchronization and reconnect/gap recovery, then applies ordered complete-state
+events. Event mode is reliable within one authenticated session; reconnect starts from the current
+authoritative snapshot and does not replay the previous session's queued events. These delivery modes
+apply to stateful domains; ephemeral notifications define their own ordering, acknowledgement, and
+retry contract and are not made recoverable by a state snapshot.
 
 ### Stateful domains versus ephemeral notifications
 
@@ -196,6 +376,9 @@ bounded reconnect path. No test-only public protocol domain is added.
 ### Completion criteria
 
 Stage 4 is complete only when the redesigned contract is the sole supported contract, Bridge live
-delivery is bounded and observable, `character_xp` and `character_level` meet their source and
-synchronization contracts, the internal SDK kernel passes its recovery proof, all required
-cross-boundary tests pass, and the phase-end version audit has completed.
+delivery is bounded and observable, `character_xp`, `character_health`, `character_magicka`,
+`character_stamina`, and `character_level` meet their source and synchronization contracts, the
+capture-policy and scheduler invariants are proven without worker-side runtime reads, the
+mode-specific queue and per-area recovery-barrier behavior is proven, all required registered domain
+data and cross-boundary tests pass, migration-only readers and fixtures are gone, and the phase-end
+version audit has completed.
