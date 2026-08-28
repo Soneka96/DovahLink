@@ -6,8 +6,9 @@
 
 namespace dovahlink::application {
 
-CaptureDispatchWorker::CaptureDispatchWorker(IStatePublisher& publisher)
-    : publisher_(publisher) {}
+CaptureDispatchWorker::CaptureDispatchWorker(IStatePublisher& publisher,
+                                             ICaptureQueueDiagnostics& diagnostics)
+    : publisher_(publisher), diagnostics_(diagnostics) {}
 
 CaptureDispatchWorker::~CaptureDispatchWorker() {
     Stop();
@@ -34,12 +35,23 @@ void CaptureDispatchWorker::Join() {
 }
 
 bool CaptureDispatchWorker::TryEnqueue(CaptureWorkItem item) {
+    bool rejectedForCapacity = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (stopping_ || queue_.size() >= kMaxCaptureQueueItems) {
+        if (stopping_) {
             return false;
         }
-        queue_.push_back(std::move(item));
+        if (queue_.size() >= kMaxCaptureQueueItems) {
+            rejectedForCapacity = true;
+        } else {
+            queue_.push_back(std::move(item));
+        }
+    }
+    if (rejectedForCapacity) {
+        //  Reported outside mutex_ so a diagnostics call can never delay
+        //  the worker thread's own acquisition of the same lock.
+        diagnostics_.RecordCaptureRejected(item.stateArea, item.mode);
+        return false;
     }
     itemAvailable_.notify_one();
     return true;

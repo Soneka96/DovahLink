@@ -6,6 +6,7 @@
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
 #include "application/capture_dispatch_worker.hpp"
+#include "application/capture_queue_diagnostics.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/outbound_publication_sink.hpp"
 #include "application/play_context.hpp"
@@ -396,6 +397,13 @@ class MockActivePlayContextProvider : public IActivePlayContextProvider {
   public:
     MOCK_METHOD(std::shared_ptr<PlayContext>, CurrentPlayContext, (),
                 (const, override));
+};
+
+///  GoogleMock capture-queue-diagnostics contract double.
+class MockCaptureQueueDiagnostics : public ICaptureQueueDiagnostics {
+  public:
+    MOCK_METHOD(void, RecordCaptureRejected, (std::string_view, CaptureMode),
+                (noexcept, override));
 };
 
 } //  namespace dovahlink::application::test_support

@@ -17,6 +17,7 @@
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
 #include "application/capture_dispatch_worker.hpp"
+#include "application/capture_queue_diagnostics.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
 #include "application/handshake_handler.hpp"
@@ -71,6 +72,19 @@ class NoOpCallbackRegistry
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
     ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
+};
+
+///  Provides no-op capture-queue-rejection diagnostics for the
+///  Skyrim-independent harness, which cannot link the SKSE-log-based
+///  production implementation.
+class NoOpCaptureQueueDiagnostics
+    : public dovahlink::application::ICaptureQueueDiagnostics {
+  public:
+    ///  @copydoc
+    ///  dovahlink::application::ICaptureQueueDiagnostics::RecordCaptureRejected
+    void RecordCaptureRejected(std::string_view,
+                               dovahlink::application::CaptureMode) noexcept
+        override {}
 };
 
 ///  Displays a freshly generated pairing code by printing it to stdout, matching
@@ -279,8 +293,9 @@ int main() {
         activeSessionPublicationRouter;
     dovahlink::application::StatePublisher statePublisher(
         activeSessionPublicationRouter);
+    NoOpCaptureQueueDiagnostics captureQueueDiagnostics;
     dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
-        statePublisher);
+        statePublisher, captureQueueDiagnostics);
     dovahlink::application::RegisteredStateAreaPolicy registeredStateAreaPolicy;
 
     //  Routes "increase_level" captures below into whichever play context is

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "application/capture_queue_diagnostics.hpp"
 #include "application/capture_work_item.hpp"
 #include "application/state_publisher.hpp"
 
@@ -35,7 +36,11 @@ class ICaptureDispatchWorker {
     ///  `Start` was ever called.
     virtual void Join() = 0;
 
-    ///  Enqueues one item without blocking the calling thread.
+    ///  Enqueues one item without blocking the calling thread. A rejection
+    ///  because the queue is already at capacity is reported through the
+    ///  injected `ICaptureQueueDiagnostics`; a rejection because `Stop` has
+    ///  already been called is not, since it is an expected shutdown
+    ///  outcome rather than a capacity loss worth flagging.
     ///  @param item Owned capture work item.
     ///  @return `true` when enqueued; `false` when the queue is already at
     ///  `kMaxCaptureQueueItems` capacity or `Stop` has already been called.
@@ -46,9 +51,13 @@ class ICaptureDispatchWorker {
 class CaptureDispatchWorker final : public ICaptureDispatchWorker {
   public:
     ///  Binds the worker to the publisher its dequeued items are dispatched
-    ///  to.
+    ///  to and the diagnostics sink capacity rejections are reported
+    ///  through.
     ///  @param publisher Receives every dispatched item's built publication.
-    explicit CaptureDispatchWorker(IStatePublisher& publisher);
+    ///  @param diagnostics Receives a signal when `TryEnqueue` rejects an
+    ///  item for capacity.
+    CaptureDispatchWorker(IStatePublisher& publisher,
+                          ICaptureQueueDiagnostics& diagnostics);
 
     ///  Stops and joins the worker thread if it is still running.
     ~CaptureDispatchWorker() override;
@@ -82,6 +91,9 @@ class CaptureDispatchWorker final : public ICaptureDispatchWorker {
 
     ///  Receives every dispatched item's built publication.
     IStatePublisher& publisher_;
+
+    ///  Receives a signal when `TryEnqueue` rejects an item for capacity.
+    ICaptureQueueDiagnostics& diagnostics_;
 
     ///  Synchronizes `queue_` and `stopping_`.
     std::mutex mutex_;
