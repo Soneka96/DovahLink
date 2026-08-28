@@ -38,4 +38,13 @@ inline constexpr std::size_t kMaxRegisteredStateAreas = 8;
 ///  architecture.md`'s "never block the game thread."
 inline constexpr std::size_t kMaxCaptureQueueItems = 64;
 
+//  ---- Cadence tick ----
+
+///  Interval at which `CadenceTickDriver`'s background thread marshals a
+///  due-key check onto the game thread. Finer than `kFastCapturePeriod`
+///  (200 ms) so a due key is never delayed by more than one tick, per
+///  `ai/context/skse/architecture.md`'s "Production capture and lifecycle
+///  composition".
+inline constexpr std::chrono::milliseconds kCadenceTickInterval{100};
+
 } //  namespace dovahlink::application

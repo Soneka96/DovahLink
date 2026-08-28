@@ -4,6 +4,7 @@
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
+#include "application/capture_dispatch_worker.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/outbound_publication_sink.hpp"
 #include "application/play_context.hpp"
@@ -359,6 +360,15 @@ class MockStatePublisher : public IStatePublisher {
                 (const std::string&, boost::json::object,
                  std::chrono::system_clock::time_point),
                 (override));
+};
+
+///  GoogleMock capture-dispatch-worker contract double.
+class MockCaptureDispatchWorker : public ICaptureDispatchWorker {
+  public:
+    MOCK_METHOD(void, Start, (), (override));
+    MOCK_METHOD(void, Stop, (), (override));
+    MOCK_METHOD(void, Join, (), (override));
+    MOCK_METHOD(bool, TryEnqueue, (CaptureWorkItem), (override));
 };
 
 } //  namespace dovahlink::application::test_support

@@ -66,6 +66,7 @@ add_library(dovahlink_bridge_core STATIC
     application/registered_state_area_policy.cpp
     application/active_session_publication_router.cpp
     application/capture_dispatch_worker.cpp
+    application/cadence_tick_driver.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -137,6 +138,7 @@ add_library(dovahlink_bridge_game_state STATIC
     game_state/commonlib_pairing_notification_sink.cpp
     game_state/commonlib_trust_admin_papyrus_adapter.cpp
     game_state/commonlib_publication_diagnostics.cpp
+    game_state/commonlib_task_marshaller.cpp
     application/bridge_callback_registry.cpp
 )
 target_link_libraries(dovahlink_bridge_game_state PUBLIC dovahlink_bridge_core CommonLibSSE::CommonLibSSE)
@@ -216,6 +218,7 @@ add_executable(dovahlink_bridge_tests
     application/registered_state_area_policy_test.cpp
     application/active_session_publication_router_test.cpp
     application/capture_dispatch_worker_test.cpp
+    application/cadence_tick_driver_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
@@ -224,6 +227,7 @@ add_executable(dovahlink_bridge_tests
     game_state/runtime_guard_test.cpp
     game_state/commonlib_trust_admin_papyrus_adapter_test.cpp
     game_state/commonlib_publication_diagnostics_test.cpp
+    game_state/commonlib_task_marshaller_test.cpp
     harness/dovahlink_bridge_harness_test.cpp
     plugin/dovahlink_bridge_plugin_compatibility_test.cpp
     plugin/dovahlink_bridge_plugin_logging_test.cpp
@@ -292,6 +296,7 @@ target_compile_definitions(dovahlink_bridge_tests PRIVATE
     DOVAHLINK_CALLBACK_REGISTRY_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.hpp"
     DOVAHLINK_CALLBACK_REGISTRY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/bridge_callback_registry.cpp"
     DOVAHLINK_COORDINATOR_HEADER_FILE="${CMAKE_CURRENT_SOURCE_DIR}/application/coordinator.hpp"
+    DOVAHLINK_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/game_state/commonlib_task_marshaller.cpp"
 )
 if(WIN32)
     target_compile_definitions(dovahlink_bridge_tests PRIVATE _WIN32_WINNT=0x0A00)
