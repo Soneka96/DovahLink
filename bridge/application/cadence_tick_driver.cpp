@@ -14,11 +14,15 @@ CadenceTickDriver::CadenceTickDriver(ICadenceScheduler& scheduler,
                                      ITaskMarshaller& taskMarshaller,
                                      std::chrono::milliseconds tickInterval)
     : scheduler_(scheduler), worker_(worker), taskMarshaller_(taskMarshaller),
-      tickInterval_(tickInterval) {}
+      tickInterval_(tickInterval), callbackState_(std::make_shared<CallbackState>()) {
+    callbackState_->owner = this;
+}
 
 CadenceTickDriver::~CadenceTickDriver() {
     Stop();
     Join();
+    std::lock_guard<std::mutex> lock(callbackState_->mutex);
+    callbackState_->owner = nullptr;
 }
 
 void CadenceTickDriver::Start() {
@@ -37,6 +41,10 @@ void CadenceTickDriver::Stop() {
         }
         stopping_ = true;
     }
+    {
+        std::lock_guard<std::mutex> lock(callbackState_->mutex);
+        callbackState_->cancelled = true;
+    }
     stopSignal_.notify_all();
 }
 
@@ -44,6 +52,9 @@ void CadenceTickDriver::Join() {
     if (thread_.joinable()) {
         thread_.join();
     }
+    std::unique_lock<std::mutex> lock(callbackState_->mutex);
+    callbackState_->changed.wait(
+        lock, [this] { return callbackState_->callbacksInFlight == 0; });
 }
 
 void CadenceTickDriver::TickerLoop() {
@@ -51,15 +62,63 @@ void CadenceTickDriver::TickerLoop() {
     while (!stopSignal_.wait_for(lock, tickInterval_,
                                  [this] { return stopping_; })) {
         lock.unlock();
+        auto callbackState = callbackState_;
+        bool shouldQueue = false;
+        {
+            std::lock_guard<std::mutex> callbackLock(callbackState->mutex);
+            if (!callbackState->cancelled && !callbackState->tickPending) {
+                callbackState->tickPending = true;
+                shouldQueue = true;
+            }
+        }
+        if (!shouldQueue) {
+            lock.lock();
+            continue;
+        }
         try {
-            taskMarshaller_.RunOnGameThread([this] { OnGameThreadTick(); });
+            taskMarshaller_.RunOnGameThread(
+                [callbackState] { RunQueuedTick(std::move(callbackState)); });
         } catch (...) {
             //  Per ai/context/skse/cpp-style.md's "Ownership and lifetime":
             //  never allow an exception to escape a worker-thread boundary.
             //  One failed marshal attempt does not stop future ticks.
+            {
+                std::lock_guard<std::mutex> callbackLock(callbackState->mutex);
+                callbackState->tickPending = false;
+            }
+            callbackState->changed.notify_all();
         }
         lock.lock();
     }
+}
+
+void CadenceTickDriver::RunQueuedTick(
+    std::shared_ptr<CallbackState> state) noexcept {
+    CadenceTickDriver* owner = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->cancelled || state->owner == nullptr) {
+            state->tickPending = false;
+            state->changed.notify_all();
+            return;
+        }
+        ++state->callbacksInFlight;
+        owner = state->owner;
+    }
+
+    try {
+        owner->OnGameThreadTick();
+    } catch (...) {
+        //  Keep the queued callback a noexcept boundary even if the driver's
+        //  implementation changes its own containment later.
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        --state->callbacksInFlight;
+        state->tickPending = false;
+    }
+    state->changed.notify_all();
 }
 
 void CadenceTickDriver::OnGameThreadTick() {

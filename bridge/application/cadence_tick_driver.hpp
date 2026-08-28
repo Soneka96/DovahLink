@@ -7,6 +7,8 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -89,6 +91,36 @@ class CadenceTickDriver final : public ICadenceTickDriver {
     ///  hands each one to `worker_`.
     void OnGameThreadTick();
 
+    ///  Shared callback lifetime state that can outlive this driver while a
+    ///  task remains queued in the game-thread executor.
+    struct CallbackState;
+
+    ///  Runs one queued callback through the independently owned lifetime
+    ///  state, invoking the driver only while it is still alive.
+    static void RunQueuedTick(std::shared_ptr<CallbackState> state) noexcept;
+
+    ///  Shared callback lifetime state that can outlive this driver while a
+    ///  task remains queued in the game-thread executor.
+    struct CallbackState {
+        ///  Synchronizes callback admission, cancellation, and pending state.
+        std::mutex mutex;
+
+        ///  Wakes teardown after an admitted callback has returned.
+        std::condition_variable changed;
+
+        ///  Driver owner while destruction has not completed.
+        CadenceTickDriver* owner = nullptr;
+
+        ///  Prevents queued callbacks from entering the driver after Stop.
+        bool cancelled = false;
+
+        ///  Whether one game-thread tick is queued or executing.
+        bool tickPending = false;
+
+        ///  Number of callbacks currently executing driver code.
+        std::size_t callbacksInFlight = 0;
+    };
+
     ///  Reports due sampled-capture keys.
     ICadenceScheduler& scheduler_;
 
@@ -116,6 +148,9 @@ class CadenceTickDriver final : public ICadenceTickDriver {
 
     ///  Background timer thread started by `Start`.
     std::thread thread_;
+
+    ///  Lifetime state captured by queued game-thread callbacks.
+    std::shared_ptr<CallbackState> callbackState_;
 };
 
 } //  namespace dovahlink::application
