@@ -128,6 +128,14 @@ void CadenceTickDriver::OnGameThreadTick() {
     try {
         auto now = std::chrono::steady_clock::now();
         for (const auto& key : scheduler_.DueKeys(now)) {
+            //  `buildData` always returns an empty object: no caller ever
+            //  registers a key with `scheduler_`, so `DueKeys` never returns
+            //  one and this loop body never runs in production today. It is
+            //  not a template for Phase 4.3's real per-domain data builders --
+            //  there is no domain-independent abstraction here to build a
+            //  real payload from, since a sampled value's shape is inherently
+            //  domain-specific. Whichever phase registers the first sampled
+            //  domain supplies its own `buildData` for that key.
             CaptureWorkItem item{
                 .stateArea = key,
                 .mode = CaptureMode::kSnapshot,

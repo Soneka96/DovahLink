@@ -283,9 +283,10 @@ SKSEPluginInfo(
     //  ARCHITECTURE.md's runtime/identity model. `playContextLifecycle` owns
     //  lifecycle state and context publication atomically, while
     //  `activePlayContextReader` is the read-only capability passed to
-    //  connection-facing consumers. Declared
-    //  before `levelIncreaseHandler` below, which routes its captures into
-    //  whichever context is active through `ActivePlayContextLevelSink`.
+    //  connection-facing consumers. `levelIncreaseHandler` below (after the
+    //  production capture and lifecycle composition block) routes its
+    //  captures into whichever context is active through
+    //  `ActivePlayContextLevelSink`.
     static dovahlink::application::PlayContextLifecycle playContextLifecycle;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
         playContextLifecycle);
@@ -297,16 +298,6 @@ SKSEPluginInfo(
     static dovahlink::application::ActiveSessionController
         activeSessionController(sessionManager, activeSessionSocket,
                                 activePlayContextReader, bridgeInstanceId);
-
-    static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        playContextLifecycle);
-    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
-    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
-        levelAccessor, levelSink);
-    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
-        levelIncreaseHandler);
-    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
-        levelIncreaseSink);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
@@ -356,10 +347,14 @@ SKSEPluginInfo(
     //  Production capture and lifecycle composition
     //  (ai/context/skse/architecture.md's "Production capture and lifecycle
     //  composition"): constructs and injects the capture, worker-handoff,
-    //  and publication-routing chain. `capturePolicyRegistry` and
-    //  `registeredStateAreaPolicy` are stable, bridge-lifetime instances
-    //  with no consumer yet -- 4.2 registers zero state areas, so
-    //  `activeSessionPublicationRouter` has nothing attached and every
+    //  and publication-routing chain. `registeredStateAreaPolicy` now has a
+    //  real caller -- `levelSink` below gates its worker handoff on it --
+    //  though 4.2 registers zero state areas, so that gate always reports
+    //  unregistered and the handoff stays unreachable in production.
+    //  `capturePolicyRegistry` still has no consumer: nothing in 4.2 has a
+    //  capture policy to classify, since classifying a policy presupposes a
+    //  registered domain and Phase 4.3 is what supplies the first one.
+    //  `activeSessionPublicationRouter` has nothing attached, so every
     //  publication `statePublisher` builds is dropped, matching "When no
     //  session is connected, authoritative state continues to update."
     static dovahlink::application::CapturePolicyRegistry capturePolicyRegistry;
@@ -381,6 +376,27 @@ SKSEPluginInfo(
     static dovahlink::application::SessionPublicationFactory
         sessionPublicationFactory(activeSessionPublicationRouter,
                                   publicationDiagnostics);
+
+    //  `levelSink` binds the native-event level capture built in
+    //  `bridge/game_state/level_increase_handler.cpp` to the same
+    //  registered-area gate and worker handoff sampled capture uses
+    //  (`ai/context/skse/architecture.md`'s "Production capture and
+    //  lifecycle composition"). "character_level" is the roadmap-documented
+    //  state-area identity for this native event
+    //  (roadmap/04-live-state-synchronization-foundation.md); using it here
+    //  only as a lookup key for a registry nothing ever registers into does
+    //  not register the domain or define its wire contract -- both remain
+    //  Phase 4.3 scope.
+    static dovahlink::application::ActivePlayContextLevelSink levelSink(
+        playContextLifecycle, registeredStateAreaPolicy, captureDispatchWorker,
+        "character_level");
+    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
+    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
+        levelAccessor, levelSink);
+    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
+        levelIncreaseHandler);
+    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
+        levelIncreaseSink);
 
     static dovahlink::application::Coordinator coordinator(
         callbackRegistry, bridgeWorkerPool, bridgeTransport,

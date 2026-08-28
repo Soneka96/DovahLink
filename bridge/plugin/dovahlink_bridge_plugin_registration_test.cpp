@@ -92,8 +92,18 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::size_t levelSinkPos =
         source.find("ActivePlayContextLevelSink levelSink");
     REQUIRE(levelSinkPos != std::string::npos);
-    CHECK(source.find("playContextLifecycle);", levelSinkPos) !=
-          std::string::npos);
+    //  `playContextLifecycle` is levelSink's first constructor argument,
+    //  followed by the registered-area gate and capture worker it also
+    //  needs (Stage 5's "Production capture and lifecycle composition");
+    //  bounded to this statement's own closing paren so the check cannot be
+    //  satisfied by `playContextLifecycle` appearing in a later, unrelated
+    //  constructor call instead.
+    std::size_t levelSinkEnd = source.find(");", levelSinkPos);
+    REQUIRE(levelSinkEnd != std::string::npos);
+    std::size_t lifecycleInLevelSinkPos =
+        source.find("playContextLifecycle,", levelSinkPos);
+    CHECK(lifecycleInLevelSinkPos != std::string::npos);
+    CHECK(lifecycleInLevelSinkPos < levelSinkEnd);
 
     //  `HandshakeHandler` is the read-only consumer that actually receives
     //  `activePlayContextReader` today (`ConnectionSession` also holds it, but
@@ -229,6 +239,21 @@ TEST_CASE("SKSEPluginLoad constructs the production capture and lifecycle "
     REQUIRE(factoryPos != std::string::npos);
     CHECK(routerPos < factoryPos);
     CHECK(diagnosticsPos < factoryPos);
+
+    //  ActivePlayContextLevelSink's constructor also needs
+    //  registeredStateAreaPolicy and captureDispatchWorker already built
+    //  (Stage 5's "native-event callbacks use ... the same owned-value
+    //  handoff boundary" sampled capture uses), so it must be constructed
+    //  after both.
+    std::size_t registeredAreaPolicyPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::RegisteredStateAreaPolicy");
+    REQUIRE(registeredAreaPolicyPos != std::string::npos);
+    std::size_t levelSinkPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::ActivePlayContextLevelSink "
+                "levelSink(");
+    REQUIRE(levelSinkPos != std::string::npos);
+    CHECK(registeredAreaPolicyPos < levelSinkPos);
+    CHECK(captureWorkerPos < levelSinkPos);
 }
 
 //  CaptureDispatchWorker and CadenceTickDriver are coordinator-owned lifecycle
