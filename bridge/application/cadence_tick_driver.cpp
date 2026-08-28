@@ -22,12 +22,19 @@ CadenceTickDriver::~CadenceTickDriver() {
 }
 
 void CadenceTickDriver::Start() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        started_ = true;
+    }
     thread_ = std::thread([this] { TickerLoop(); });
 }
 
 void CadenceTickDriver::Stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (!started_) {
+            return;
+        }
         stopping_ = true;
     }
     stopSignal_.notify_all();

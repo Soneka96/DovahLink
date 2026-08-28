@@ -110,6 +110,10 @@ class CadenceTickDriver final : public ICadenceTickDriver {
     ///  Set by `Stop`; causes the background thread to exit.
     bool stopping_ = false;
 
+    ///  Set by `Start`; keeps a pre-start `Stop` call from disabling a later
+    ///  start.
+    bool started_ = false;
+
     ///  Background timer thread started by `Start`.
     std::thread thread_;
 };

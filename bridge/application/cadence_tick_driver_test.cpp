@@ -203,3 +203,19 @@ TEST_CASE("Stop before Start is a safe no-op",
     driver.Stop();
     driver.Join();
 }
+
+TEST_CASE("Stop before Start does not prevent a later tick",
+          "[application][cadence_tick_driver]") {
+    FakeCadenceScheduler scheduler;
+    FakeTaskMarshaller taskMarshaller;
+    StrictMock<MockCaptureDispatchWorker> worker;
+    CadenceTickDriver driver(scheduler, worker, taskMarshaller, 5ms);
+
+    driver.Stop();
+    driver.Start();
+    taskMarshaller.WaitForFirstRun();
+    driver.Stop();
+    driver.Join();
+
+    CHECK(scheduler.CallCount() >= 1);
+}
