@@ -58,6 +58,7 @@ add_library(dovahlink_bridge_core STATIC
     application/trust_mutation_coordinator.cpp
     application/trust_reset_service.cpp
     application/rename_handler.cpp
+    application/capture_policy.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -199,6 +200,7 @@ add_executable(dovahlink_bridge_tests
     application/trust_reset_service_test.cpp
     application/rename_handler_test.cpp
     application/mock_framework_pilot_test.cpp
+    application/capture_policy_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
