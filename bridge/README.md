@@ -257,14 +257,18 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
 
 The production composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) wires the full capture,
 worker-handoff, and publication-routing chain -- `CapturePolicyRegistry`, `CadenceScheduler`,
-`RevisionTracker`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
-`CaptureDispatchWorker`, and `CadenceTickDriver` -- while zero state areas are registered and no
-per-session queue is ever attached to `ActiveSessionPublicationRouter` in production. This is
-deliberate: no protocol state area exists yet (`protocol/schema/README.md`'s "Registered state areas"
-retired the previous `character` aggregate and registers nothing new), so there is nothing real to
-publish. The mechanism is still built and tested against a real production graph so a later phase
-registers a domain into working infrastructure rather than co-designing the infrastructure and the
-first domain at the same time.
+`ActivePlayContextProvider`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`,
+`StatePublisher`, `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, and
+`CadenceTickDriver` -- while zero state areas are registered and no per-session queue is ever
+attached to `ActiveSessionPublicationRouter` in production. This is deliberate: no protocol state
+area exists yet (`protocol/schema/README.md`'s "Registered state areas" retired the previous
+`character` aggregate and registers nothing new), so there is nothing real to publish. The mechanism
+is still built and tested against a real production graph so a later phase registers a domain into
+working infrastructure rather than co-designing the infrastructure and the first domain at the same
+time. There is no process-lifetime revision tracker in this graph: `StatePublisher` reaches a
+revision tracker per call, through whichever `PlayContext` a capture was pinned against
+(`activePlayContextProvider`), so a new save/new game starts with a completely fresh, empty revision
+sequence rather than inheriting the previous context's.
 
 `RegisteredStateAreaPolicy` (`bridge/application/registered_state_area_policy.hpp`) owns the fixed
 8-slot bound (`kMaxRegisteredStateAreas`, `bridge/application/constants.hpp`) documented in
@@ -283,6 +287,30 @@ coordinator shutdown, but carry no traffic in 4.2: `CapturePolicyRegistry` has n
 no native-event adapter enqueues into `CaptureDispatchWorker`. Their unit and composition tests are
 the only proof of correct behavior until a later phase registers a real domain and exercises them
 under production load.
+
+### Stage 5 limitations not solved by this design
+
+Four criteria remain genuinely open, named explicitly rather than left implicit:
+
+- **`CapturePolicyRegistry` is constructed but never injected into a consumer.** Nothing in 4.2 has a
+  capture policy to classify, since classifying one presupposes a registered domain.
+- **`SessionPublicationFactory` is constructed and injected but has no caller.** The full-duplex
+  session integration that would call `CreateForSession` after authentication is Stage 6 scope.
+- **Reliable native-Event loss under capture-queue pressure is diagnosed, not prevented or
+  recovered.** `CaptureDispatchWorker::TryEnqueue` reports a mode-aware rejection through
+  `ICaptureQueueDiagnostics` (Event-mode logged as an error, Snapshot-mode as a routine warning,
+  since the next sample tick recaptures current state anyway), but a rejected item never reaches the
+  worker's ordering point, so its play context's authoritative store is never updated for that value
+  either. This has no production consequence today (the queue-full path is unreachable with zero
+  registered state areas), but the recovery contract -- bounded retry, a dirty marker, or accepting
+  the loss -- is undecided and must be revisited once Phase 4.3 registers a real Event-mode domain.
+- **Stale-context publication is minimized, not eliminated.** `CaptureDispatchWorker::Dispatch` and
+  `StatePublisher::PublishCapture` check the active play context immediately before a built
+  publication reaches the sink, and the envelope carries the captured context's own `playContextId`,
+  but a context transition landing in that last instant can still let a stale publication reach the
+  router, correctly labeled rather than mislabeled. Full elimination requires a send-time
+  `playContextId` check against the live session's own current context -- that check belongs to
+  Stage 6's authenticated-session writer, which does not exist yet.
 
 ## Optional trust-administration console adapter
 

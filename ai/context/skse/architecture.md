@@ -88,27 +88,25 @@ duplicate equivalent Skyrim reads.
 ### Production capture and lifecycle composition
 
 The production plugin composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) constructs and
-injects one instance each of `CapturePolicyRegistry`, `CadenceScheduler`, `RevisionTracker`,
+injects one instance each of `CapturePolicyRegistry`, `CadenceScheduler`, `ActivePlayContextProvider`,
 `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
-`CaptureDispatchWorker`, `CadenceTickDriver`, and `SessionPublicationFactory`, as function-local
-statics in the same dependency-ordered style already used for pairing, trust, and session
-components. 4.2 registers zero state areas through `RegisteredStateAreaPolicy`; its fixed bound
-exists so the mechanism -- and every consumer that depends on "the registered-area count is fixed
-and bounded" -- is real and tested before a later phase fills it with production character domains.
-`RegisteredStateAreaPolicy` has a real caller in this composition: `ActivePlayContextLevelSink`'s
-native-event gate below. `CapturePolicyRegistry` does not -- nothing in 4.2 has a capture policy to
-classify, since classifying a policy presupposes a registered domain and Phase 4.3 is what supplies
-the first one. This is a deliberately narrower state than "constructed and injected" implies for
-`CapturePolicyRegistry` specifically; it is not yet passed to any consumer's constructor.
+`CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, `CadenceTickDriver`, and
+`SessionPublicationFactory`, as function-local statics in the same dependency-ordered style already
+used for pairing, trust, and session components. There is no process-lifetime revision tracker:
+revisions belong to whichever `PlayContext` a capture is pinned against, reached through
+`ActivePlayContextProvider`, so a new save/new game always starts from a fresh, empty revision
+sequence rather than inheriting the previous context's. 4.2 registers zero state areas through
+`RegisteredStateAreaPolicy`; its fixed bound exists so the mechanism -- and every consumer that
+depends on "the registered-area count is fixed and bounded" -- is real and tested before a later
+phase fills it with production character domains. `RegisteredStateAreaPolicy` has a real caller in
+this composition: `ActivePlayContextLevelSink`'s native-event gate below. `CapturePolicyRegistry`
+does not -- nothing in 4.2 has a capture policy to classify, since classifying a policy presupposes
+a registered domain and Phase 4.3 is what supplies the first one. This is a deliberately narrower
+state than "constructed and injected" implies for `CapturePolicyRegistry` specifically; it is not
+yet passed to any consumer's constructor, and this criterion is not claimed complete.
 
-`StatePublisher` depends on `IRevisionTracker&`, not the concrete `RevisionTracker`, reached through
-two ordinary (non-template) virtual methods, `CommitSnapshotEnvelopeIfBuilt`/
-`CommitEventEnvelopeIfBuilt`, that `RevisionTracker` implements as one-line forwards into its
-existing, untouched `CommitSnapshotIfBuilt`/`CommitEventIfBuilt` templates (`RevisionTracker`'s own
-doc comment in `bridge/application/revision_tracker.hpp` has the full reasoning: those two templates
-cannot themselves be virtual, since C++ forbids a template `virtual` method). `SessionPublicationFactory`
-still depends on the concrete `ActiveSessionPublicationRouter`, not an interface, for a different
-reason recorded in that class's own doc comment
+`SessionPublicationFactory` still depends on the concrete `ActiveSessionPublicationRouter`, not an
+interface, for a reason recorded in that class's own doc comment
 (`bridge/application/active_session_publication_router.hpp`): `Attach`/`Detach` are ordinary methods
 with no template constraint, but `ai/context/skse/cpp-style.md`'s "a C++ behavior-bearing
 implementation implements exactly one DovahLink-owned interface" rule blocks adding them to
@@ -122,47 +120,85 @@ constructed and injected but not yet called from any real connection path, since
 belongs to the full-duplex session integration that replaces the authenticated session writer. Until
 then, every publication `StatePublisher` builds is dropped at the router rather than queued -- the
 same behavior as any other moment when no session is connected. Authoritative revision assignment
-inside `StatePublisher`/`RevisionTracker` is unaffected by whether a session is attached, matching
-"When no session is connected, authoritative state continues to update" above.
+inside `StatePublisher` is unaffected by whether a session is attached, matching "When no session is
+connected, authoritative state continues to update" above.
 
-`CaptureDispatchWorker` owns the boundary between a game-thread capture and worker-side publication
-building: a game-thread callback copies an already-validated owned value into a bounded work item and
-enqueues it; the worker thread dequeues it and calls `IStatePublisher`. This is the single
-per-state-area ordering point for applying a captured value, determining change, and assigning the
-authoritative revision -- realized by `StatePublisher`'s existing per-state-area publication gate,
-which every `CaptureDispatchWorker` call reaches through that one contract. No second ordering
-mechanism exists outside that gate; a worker never re-derives revision or change-detection logic of
-its own.
+**The per-state-area ordering point.** `CaptureDispatchWorker::Dispatch` is the single per-state-area
+ordering point for applying a captured value, determining change, and assigning the authoritative
+revision -- for every capture, whether it arrived from a native-event or sampled source. A dequeued
+`CaptureWorkItem` carries the specific `PlayContext` it was pinned against at capture time (not
+re-read at dispatch time) and an `applyAndBuildIfChanged` closure. `Dispatch` first discards the item
+if that pinned context is no longer `ActivePlayContextProvider::CurrentPlayContext()` (including a
+transition to no active context at all); otherwise it invokes the closure against the pinned
+context, discarding again if it reports no change. A changed result reaches
+`StatePublisher::PublishCapture`, which -- under one per-state-area lock shared with every other
+publish for that area -- decides whether to honor the requested Event mode or, when the area has no
+revision baseline yet within the pinned context's own tracker, establish one as a Snapshot instead
+using the identical data (valid because an Event is itself defined as complete post-change state, the
+same shape a Snapshot carries, not a delta), stamps the pinned context's own identity onto the built
+envelope's `playContextId`, and checks a `stillCurrent` predicate -- which re-queries
+`ActivePlayContextProvider` live -- as the last condition immediately before the envelope reaches the
+sink. No second ordering mechanism exists outside this path; a worker never re-derives revision or
+change-detection logic of its own.
 
-Native-event capture uses the same domain-independent gate and worker handoff as sampled capture,
-not a separate boundary. `CommonLibLevelIncreaseSink::ProcessEvent` (game-state layer) invokes
-`LevelIncreaseHandler::HandleLevelIncrease`, which checks `IActivePlayContextLevelSink::IsCaptureActive`
-*before* reading the runtime accessor -- the guard runs ahead of the read, not only ahead of routing
-the already-read result, so no accessor read happens while loading or before an authoritative play
-context exists. Once read, the captured value reaches `ActivePlayContextLevelSink::OnLevelCaptured`
-(application layer), which always applies it to the play context's `CharacterStateStore` (a
-per-context cache predating this worker pipeline, read by no production consumer yet) and, only when
-`RegisteredStateAreaPolicy::IsRegistered` reports its state-area key registered, also builds an owned
-`CaptureWorkItem` and calls `CaptureDispatchWorker::TryEnqueue` -- the identical handoff sampled
-capture uses. 4.2 never registers that key (`"character_level"`, the identity
-`roadmap/04-live-state-synchronization-foundation.md` already documents for it), so the worker handoff
-stays unreachable in production; the mechanism is proven in tests through a private fixture area
-instead, so proving it does not require registering `character_level`'s real Phase 4.3 wire contract
-ahead of that phase.
+**Staleness is minimized, not eliminated.** The `stillCurrent` check narrows the window between "was
+this context still active" and "the publication reached the sink" to the duration of one predicate
+call, but it is not perfectly atomic with the sink handoff: a context transition landing in that
+last instant can still let a stale publication reach `ActiveSessionPublicationRouter`, correctly
+labeled with the context it actually came from. Closing that window completely would require holding
+a lock shared with `PlayContextLifecycle`'s own transition path across the sink call, which would let
+a worker-thread publish stall a game-thread save/load -- a worse outcome than the residual race. Full
+elimination is the responsibility of whichever component checks `playContextId` against its own
+current context at send time; that component is Stage 6's authenticated-session writer, not yet
+built. This is a named, accepted Stage 5 limitation, not a solved problem.
+
+**Native-event capture.** `CommonLibLevelIncreaseSink::ProcessEvent` (game-state layer) invokes
+`LevelIncreaseHandler::HandleLevelIncrease`, which calls `IActivePlayContextLevelSink::BeginCapture`
+*before* reading the runtime accessor and uses only the context it returns for the rest of the
+attempt -- one atomic snapshot serves as both the "should I capture" guard and the pinned capture
+target, so no accessor read happens while loading or before an authoritative play context exists, and
+no later step can silently observe a different context than the one the guard checked.
+`ActivePlayContextLevelSink::OnLevelCaptured` receives that pinned context and, only when
+`RegisteredStateAreaPolicy::IsRegistered` reports its state-area key registered, builds an owned
+`CaptureWorkItem` -- whose closure applies the value to the pinned context's `CharacterStateStore` and
+reports whether it changed -- and calls `CaptureDispatchWorker::TryEnqueue`, the identical handoff
+sampled capture uses. Applying to `CharacterStateStore` now happens only through this worker-owned
+closure, not directly on the game thread: an unregistered area's `CharacterStateStore` is never
+touched at all, which matches its current status as "read by no production consumer yet." 4.2 never
+registers `"character_level"` (this native event's documented state-area identity), so the worker
+handoff stays unreachable in production; the mechanism is proven in tests through a private fixture
+area instead, so proving it does not require registering `character_level`'s real Phase 4.3 wire
+contract ahead of that phase.
+
+**Capture-queue rejection.** `CaptureDispatchWorker::TryEnqueue` reports a capacity rejection through
+`ICaptureQueueDiagnostics`, called after its internal queue mutex releases so the report can never
+delay the worker's own next lock acquisition. The report is mode-aware: a rejected Snapshot-mode
+capture is logged as a routine warning, since the next sample tick recaptures current state anyway,
+but a rejected Event-mode capture is logged as an error, since it represents a state transition
+nothing will re-capture later -- and because applying a captured value now happens only inside the
+worker's ordering point, a rejected item never updates its play context's authoritative store either.
+**This diagnoses the loss; it does not prevent or recover it.** Reliable native-event delivery under
+sustained capture-queue pressure is not guaranteed by Stage 5's design, and this criterion is not
+claimed complete. A queue-full rejection is currently unreachable in production (4.2 registers zero
+state areas), so this gap has no production consequence today, but the decision must be revisited
+once Phase 4.3 registers a real Event-mode domain and its actual load is known.
 
 `CadenceTickDriver` is the approved game-thread tick source for sampled capture. It owns a dedicated
 background thread that wakes at a fixed 100 ms interval -- finer than the fastest `RateClass::kFast`
 capture period, so a due key is never delayed by more than one tick -- and calls
-`SKSE::TaskInterface::AddTask` to marshal execution onto the game thread; the marshaled task calls
-`ICadenceScheduler::DueKeys(now)` and hands each due key to `CaptureDispatchWorker`. This was chosen
-over hooking the engine's own update loop: `SKSE::TaskInterface` is SKSE's own supported mechanism for
-safely running code on the game thread and requires no new engine hook, memory patch, or Address
-Library offset, keeping with this document's general preference against engine hooking (the
-`bAchievementCompat` patch documented in `bridge/README.md` remains the narrow precedent for when a
-hook is genuinely unavoidable). Only the due-key evaluation and any resulting capture read happen on
-the game thread, through the marshaled task; the interval timing itself runs on an ordinary background
-thread. `CadenceTickDriver` depends on SKSE's task interface only through an injected `ITaskMarshaller`
-port, so it remains testable without SKSE.
+`SKSE::TaskInterface::AddTask` to marshal execution onto the game thread; the marshaled task pins the
+active play context once, before checking `ICadenceScheduler::DueKeys(now)`, skipping the whole
+due-key check when no context is active, and reuses that same pinned context -- the same
+guard-then-pin snapshot native-event capture uses -- for every due key found in that tick, handing
+each to `CaptureDispatchWorker`. This was chosen over hooking the engine's own update loop:
+`SKSE::TaskInterface` is SKSE's own supported mechanism for safely running code on the game thread and
+requires no new engine hook, memory patch, or Address Library offset, keeping with this document's
+general preference against engine hooking (the `bAchievementCompat` patch documented in
+`bridge/README.md` remains the narrow precedent for when a hook is genuinely unavoidable). Only the
+due-key evaluation and any resulting capture read happen on the game thread, through the marshaled
+task; the interval timing itself runs on an ordinary background thread. `CadenceTickDriver` depends
+on SKSE's task interface only through an injected `ITaskMarshaller` port, so it remains testable
+without SKSE.
 
 Both `CaptureDispatchWorker` and `CadenceTickDriver` start after `kDataLoaded`, alongside the existing
 coordinator start, and stop and join before `Coordinator::Shutdown` completes its callback and worker
