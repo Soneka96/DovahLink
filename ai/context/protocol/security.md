@@ -350,10 +350,22 @@ The transport rejects input before application decoding when it exceeds the appr
   begins and unknown client-requested areas never allocate queue state. A worker classifies an encoded
   publication as Normal or Heavy using the approved threshold; the class changes storage only, not
   reliability. Snapshot pressure may replace or defer an unsolicited value, while Event overflow
-  closes the slow client rather than dropping an Event. The Bridge must also enforce a separate
-  encoded-byte budget for queued data before Stage 4.2 production use; its numeric value is an
-  implementation/profiling decision and any limit change requires the documented approval and
-  rationale.
+  closes the slow client rather than dropping an Event.
+- outbound queue byte budget: 2 MiB per client (`kOutboundQueueByteBudget`), enforced independently of
+  the 128-message bound. A publication is classified Heavy rather than Normal at or above 4 KiB
+  encoded (`kHeavyPublicationThresholdBytes`). Both values are approved,
+  not yet profiled against a real character-domain payload, because no state area is registered before
+  a later phase: 4 KiB comfortably exceeds any plausible single-state-area JSON envelope while staying
+  far below the 1 MiB inbound frame limit, and 2 MiB gives the 112-slot data lane roughly four times
+  its Normal-slot capacity in bytes even if every slot were Heavy-sized, so the byte budget is very
+  unlikely to bind before the slot-count bound does in practice. A future phase, once real
+  domain payload sizes are known, may revise either value with the same documented approval and
+  rationale this bullet provides.
+- maximum registered state areas: 8 (`kMaxRegisteredStateAreas`), sized for a small number of
+  near-term production character domains with modest headroom. This is not itself a wire limit; it is
+  the bound `RegisteredStateAreaPolicy` enforces before the bridge accepts `subscribe` or
+  `snapshot_request` for any area, and before any queue, barrier, Snapshot-slot, or dirty-marker state
+  may be allocated for it. No state area is registered against this bound yet.
 
 Limit changes require explicit maintainer approval and a documented reason.
 

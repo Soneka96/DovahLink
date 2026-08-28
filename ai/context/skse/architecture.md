@@ -85,6 +85,56 @@ not retained for a later session, and the next session starts from fresh current
 the capacity later must add fan-out and independent client recovery, not create a second authority or
 duplicate equivalent Skyrim reads.
 
+### Production capture and lifecycle composition
+
+The production plugin composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) constructs and
+injects one instance each of `CapturePolicyRegistry`, `CadenceScheduler`, `RevisionTracker`,
+`RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
+`CaptureDispatchWorker`, `CadenceTickDriver`, and `SessionPublicationFactory`, as function-local
+statics in the same dependency-ordered style already used for pairing, trust, and session
+components. 4.2 registers zero state areas through `RegisteredStateAreaPolicy`; its fixed bound
+exists so the mechanism -- and every consumer that depends on "the registered-area count is fixed
+and bounded" -- is real and tested before a later phase fills it with production character domains.
+
+`ActiveSessionPublicationRouter` is `StatePublisher`'s only `IOutboundPublicationSink`. It has no
+session attached in 4.2's production graph: the per-session factory that would attach one is
+constructed and injected but not yet called from any real connection path, since that call site
+belongs to the full-duplex session integration that replaces the authenticated session writer. Until
+then, every publication `StatePublisher` builds is dropped at the router rather than queued -- the
+same behavior as any other moment when no session is connected. Authoritative revision assignment
+inside `StatePublisher`/`RevisionTracker` is unaffected by whether a session is attached, matching
+"When no session is connected, authoritative state continues to update" above.
+
+`CaptureDispatchWorker` owns the boundary between a game-thread capture and worker-side publication
+building: a game-thread callback copies an already-validated owned value into a bounded work item and
+enqueues it; the worker thread dequeues it and calls `IStatePublisher`. This is the single
+per-state-area ordering point for applying a captured value, determining change, and assigning the
+authoritative revision -- realized by `StatePublisher`'s existing per-state-area publication gate,
+which every `CaptureDispatchWorker` call reaches through that one contract. No second ordering
+mechanism exists outside that gate; a worker never re-derives revision or change-detection logic of
+its own.
+
+`CadenceTickDriver` is the approved game-thread tick source for sampled capture. It owns a dedicated
+background thread that wakes at a fixed 100 ms interval -- finer than the fastest `RateClass::kFast`
+capture period, so a due key is never delayed by more than one tick -- and calls
+`SKSE::TaskInterface::AddTask` to marshal execution onto the game thread; the marshaled task calls
+`ICadenceScheduler::DueKeys(now)` and hands each due key to `CaptureDispatchWorker`. This was chosen
+over hooking the engine's own update loop: `SKSE::TaskInterface` is SKSE's own supported mechanism for
+safely running code on the game thread and requires no new engine hook, memory patch, or Address
+Library offset, keeping with this document's general preference against engine hooking (the
+`bAchievementCompat` patch documented in `bridge/README.md` remains the narrow precedent for when a
+hook is genuinely unavoidable). Only the due-key evaluation and any resulting capture read happen on
+the game thread, through the marshaled task; the interval timing itself runs on an ordinary background
+thread. `CadenceTickDriver` depends on SKSE's task interface only through an injected `ITaskMarshaller`
+port, so it remains testable without SKSE.
+
+Both `CaptureDispatchWorker` and `CadenceTickDriver` start after `kDataLoaded`, alongside the existing
+coordinator start, and stop and join before `Coordinator::Shutdown` completes its callback and worker
+teardown, per "Ownership and shutdown" above. Neither is a required runtime capability whose absence
+should fail plugin load; per "Failure semantics," if the capture-policy registry, scheduler,
+registered-area policy, or worker handoff described here is not available, canonical writers remain
+unchanged and production composition does not advance.
+
 ### Protocol mapping
 
 Converts application values to the canonical protocol contract. It must not expose C++ runtime objects or make the Flutter client depend on native implementation details.

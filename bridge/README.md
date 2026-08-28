@@ -253,6 +253,37 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
   protocol-limit change replaces it. How Phase 4 divides that bound among its three categories
   follows profiling once the real delivery mechanism exists, not advance estimation.
 
+## Production capture and lifecycle composition without a live registered domain
+
+The production composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) wires the full capture,
+worker-handoff, and publication-routing chain -- `CapturePolicyRegistry`, `CadenceScheduler`,
+`RevisionTracker`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
+`CaptureDispatchWorker`, and `CadenceTickDriver` -- while zero state areas are registered and no
+per-session queue is ever attached to `ActiveSessionPublicationRouter` in production. This is
+deliberate: no protocol state area exists yet (`protocol/schema/README.md`'s "Registered state areas"
+retired the previous `character` aggregate and registers nothing new), so there is nothing real to
+publish. The mechanism is still built and tested against a real production graph so a later phase
+registers a domain into working infrastructure rather than co-designing the infrastructure and the
+first domain at the same time.
+
+`RegisteredStateAreaPolicy` (`bridge/application/registered_state_area_policy.hpp`) owns the fixed
+8-slot bound (`kMaxRegisteredStateAreas`, `bridge/application/constants.hpp`) documented in
+`ai/context/protocol/security.md`'s "Input limits". `ActiveSessionPublicationRouter`
+(`bridge/application/active_session_publication_router.hpp`) is constructed with nothing attached and
+stays that way for the rest of 4.2; `SessionPublicationFactory`
+(`bridge/application/session_publication_factory.hpp`), which would attach a real session's
+`BoundedOutboundQueue` to it after authentication, is constructed and injected into the composition
+root but has no call site yet -- that lands with the full-duplex session integration that replaces
+`ConnectionSession`'s current single-operation writer.
+
+`CaptureDispatchWorker` (`bridge/application/capture_dispatch_worker.hpp`) and `CadenceTickDriver`
+(`bridge/application/cadence_tick_driver.hpp`) both start after `kDataLoaded` and stop/join during
+coordinator shutdown, but carry no traffic in 4.2: `CapturePolicyRegistry` has no keys registered, so
+`CadenceTickDriver`'s per-tick `ICadenceScheduler::DueKeys` call returns an empty set every time, and
+no native-event adapter enqueues into `CaptureDispatchWorker`. Their unit and composition tests are
+the only proof of correct behavior until a later phase registers a real domain and exercises them
+under production load.
+
 ## Optional trust-administration console adapter
 
 The bridge attempts to register native Papyrus functions for listing all known devices, listing
