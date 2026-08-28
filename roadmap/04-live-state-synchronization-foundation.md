@@ -72,27 +72,20 @@ value is a Snapshot domain.
   establishes the current level and a later level change is an ordered `state_event` whose data is
   the complete post-change level state. Correlated request/response messages remain part of the
   protocol and are not removed.
-- Use one shared, bounded sampler for recurring capture. A provisional test schedule is `Fast = 1
-  second`, `Medium = 2 seconds`, and `Slow = 3 seconds`; these are not production or protocol
-  constants. The monotonic scheduler may align due values at second 0 and then capture Fast at 1,
-  Fast/Medium at 2, Fast/Slow at 3, Fast/Medium at 4, Fast at 5, and all three at second 6. If a
-  callback is late, it skips the missed sample instead of issuing a catch-up burst. If profiling
-  shows that aligned work creates a game-thread spike, due values may be staggered while retaining
-  their declared maximum frequencies.
-- Run both native-event capture and sampled capture through approved game-thread callbacks or hooks.
-  The callback synchronously copies a small, validated, DovahLink-owned value; workers never defer
-  a Skyrim read. Unchanged sampled values stop before they create a revision, publication, queue
-  entry, serialization work, or WebSocket traffic.
+- Apply the shared capture, scheduling, and ordering model defined above. Recurring capture is driven
+  by an approved game-thread callback or hook; workers never defer a Skyrim read. The callback
+  synchronously copies a small, validated, DovahLink-owned value, and unchanged sampled values stop
+  before they create a revision, publication, queue entry, serialization work, or WebSocket traffic.
 - Use the completed 4.1 typed message-family contract rather than reopening its design. Each message
   has one canonical JSON shape and a dedicated DTO/codec boundary; the remaining phase work registers
   and publishes the typed state-area data carried by those messages.
 - Prefer native events for values that require reliable occurrence delivery, and sample only where no
   trustworthy event exists or where the product only needs current state.
-- Publish unsolicited replaceable state only after an authoritative change; initial, recovery, and
-  explicitly requested snapshots are delivered even when unchanged.
-- A subscriber receives complete post-change state rather than a patch. Initial, recovery, and
-  explicitly requested snapshots are always delivered, while unchanged unsolicited replaceable state
-  produces no traffic.
+- The Bridge must publish unsolicited replaceable state only on authoritative change.
+- Always deliver initial, recovery, and explicitly requested snapshots, even when the state is unchanged;
+  these snapshots reuse the current authoritative revision.
+- A subscriber receives complete post-change state rather than a patch; unchanged unsolicited
+  replaceable state produces no traffic.
 - Separate replaceable state, ordered reliable state events, recovery/control traffic, and ephemeral
   notifications; each category follows its own contract.
 - Slow-client behavior is explicit: a client that cannot consume them in time is explicitly disconnected without stalling Skyrim or healthy clients.
@@ -192,24 +185,33 @@ The bounded organization has two physical lanes and three logical delivery categ
 control/recovery lane carries initial, recovery, and explicitly requested snapshots, acknowledgements,
 errors, and recovery/control messages. The bounded data lane carries a finite keyed set of pending
 unsolicited Snapshot values plus an ordered Event FIFO. There is one pending Snapshot slot per
-registered Snapshot state area; replacing that slot never grows the queue. If an unsolicited Snapshot
-cannot enter the data lane, the authoritative store retains the latest value and the publication is
-deferred or marked for recovery. If a reliable Event cannot enter because of message or byte capacity,
-the client is disconnected rather than losing the Event. The registry of state areas and the encoded
-byte budget are themselves bounded; unknown client-requested areas never allocate queue state.
+registered Snapshot state area, and those slots are included in the 112-message data capacity;
+replacing a slot never grows the queue. The registered-area count is fixed and bounded before a
+session can publish state, and unknown client-requested areas never allocate queue state. If an
+unsolicited Snapshot cannot enter because data capacity is occupied, the authoritative store retains
+the latest value and sets a bounded per-area dirty marker; the latest value is admitted when a data
+slot or byte budget becomes available, without issuing a catch-up burst. If a reliable Event cannot
+enter because of message or byte capacity, the client is disconnected rather than losing the Event.
+The encoded-byte budget is bounded independently of the message count.
 
 Every initial or recovery snapshot establishes a per-state-area delivery barrier. The publisher
 captures the authoritative baseline at revision `R`, queues that snapshot in the reserved lane, holds
 later stateful Events for that area, and releases only Events newer than `R` after the snapshot has
-been handed to the session writer. The client does not need a snapshot acknowledgement: ordered
-session writes and each Event's `baseRevision` provide the apply rule. If the session closes, the
-barrier and its queue are discarded; the next session starts from a fresh snapshot.
+entered the single serialized outbound order. The client does not need a snapshot acknowledgement:
+ordered session writes and each Event's `baseRevision` provide the apply rule. If the session closes,
+the barrier and its queue are discarded; the next session starts from a fresh snapshot.
 
 Applying a captured value, determining whether it changed, assigning its authoritative revision, and
 creating its publication intent occur at the state area's ordering point. Queue admission happens
 after that point: a rejected unsolicited Snapshot remains recoverable from the store, while a rejected
 reliable Event ends the session. The authoritative store and revision are not rolled back because a
 client could not consume the publication.
+
+Availability is part of authoritative state. A contract-defined transition from available to
+unavailable, or from unavailable to available, is a state change and advances the area revision;
+repeated equivalent unavailable samples do not. A capture failure is not converted into a plausible
+value: the domain contract decides whether it is an unavailable state, a diagnostic with no state
+change, or a capability failure.
 
 The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
 queued events from the previous authenticated session.
@@ -218,7 +220,8 @@ Before 4.2 production implementation begins, the design must record the queue it
 size accounting, the monotonic scheduler's missed-tick behavior, the per-state-area ordering point,
 the approved game-thread tick source and loading/shutdown behavior, the bounded registered-area and
 Snapshot-slot policy, the control/data lane priority rules, the per-area recovery barrier, and the
-encoded-byte budget. These are implementation gates, not new protocol fields.
+encoded-byte budget. The design must also prove that a failed cutover or unavailable required
+consumer leaves canonical writers unchanged. These are implementation gates, not new protocol fields.
 
 #### 4.3 Production Progression Domains and Synchronization Kernel
 
@@ -237,7 +240,9 @@ shared Bridge/SDK/.NET fixtures. A domain contract records its capture unit, cap
 class when sampled, update mode, authoritative revision behavior, unavailable-value behavior,
 initial/recovery snapshot behavior, and whether it is stateful or ephemeral. The existing generic
 state envelope remains reusable, but production domain data must not stay an unvalidated arbitrary
-JSON map once the area is registered.
+JSON map once the area is registered. The domain contract also identifies whether a change is
+reconstructable current state or a one-time occurrence; only the former may be recovered or
+superseded by a state snapshot.
 
 Future domains are not pulled into this phase, but their intended classification is now explicit:
 health, stamina, and similar continuously changing values are likely sampled Snapshot domains;
@@ -257,13 +262,15 @@ Run the cutover in this order:
 1. Complete the registered domain data contracts, readers, codecs, and canonical fixtures.
 2. Verify Bridge, SDK, .NET, and loopback consumers understand the redesigned contract while
    existing writers remain unchanged.
-3. Switch canonical Bridge and SDK writers only after every required consumer understands the new
+3. If any required consumer, validator, fixture, or runtime capture contract is not ready, leave
+   canonical writers unchanged and stop the cutover with an actionable diagnostic.
+4. Switch canonical Bridge and SDK writers only after every required consumer understands the new
    shapes.
-4. Verify the SDK rejects an incompatible `bridgeVersion` immediately after `hello_ack`, before
+5. Verify the SDK rejects an incompatible `bridgeVersion` immediately after `hello_ack`, before
    capabilities, subscriptions, snapshots, or Events.
-5. Run the complete Bridge, SDK, .NET, fixture, recovery, reconnect, and slow-client scenarios.
-6. Remove migration-only readers and fixtures, leaving no permanent dual protocol implementation.
-7. Hand the complete phase diff to 4.5 for the version-impact audit and release cutover.
+6. Run the complete Bridge, SDK, .NET, fixture, recovery, reconnect, and slow-client scenarios.
+7. Remove migration-only readers and fixtures, leaving no permanent dual protocol implementation.
+8. Hand the complete phase diff to 4.5 for the version-impact audit and release cutover.
 
 #### 4.5 Version-Impact Audit Foundation
 

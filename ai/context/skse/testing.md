@@ -86,9 +86,17 @@ Cover:
   catch-up burst, and the optional staggering seam
 - unchanged sampled values producing no revision, publication, serialization, or network traffic
 - keyed latest-value replacement for Snapshot entries and FIFO preservation for reliable Event entries
+- Snapshot dirty-marker retry after data pressure without an unbounded pending-value structure
 - reliable Event overflow disconnecting the slow client without blocking game capture
+- capture, change detection, authoritative-store update, revision assignment, and publication-intent
+  creation occurring in the documented per-state-area order
+- available/unavailable transitions advancing revisions while repeated equivalent unavailable values do
+  not
 - recovery snapshots establishing a baseline before later stateful Events, with superseded stateful
   Events discarded and ephemeral notifications kept outside snapshot recovery
+- recovery barriers preserving serialized writer order without requiring a snapshot acknowledgement
+- the bounded registered-area count, Snapshot-slot accounting, message/byte queue limits, and failed
+  cutover leaving canonical writers unchanged
 - registration and unregistration ordering
 - each SKSE runtime interface with a call-once registration contract (for example `SKSE::MessagingInterface::RegisterListener`, which SKSE allows exactly one call to per plugin and which fails both registrations silently on a second call) has exactly one call site; verify this structurally, since the failure only surfaces inside a running SKSE process
 - callbacks that enter during shutdown and callbacks already in flight at unregister time

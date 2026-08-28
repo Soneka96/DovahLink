@@ -31,6 +31,7 @@ Cover at least:
 - shared sampled-capture cadence, including aligned due times and missed-tick handling
 - unchanged sampled values producing no revision, publication, serialization, or network traffic
 - Snapshot latest-value replacement and Event FIFO preservation under outbound pressure
+- Snapshot dirty-marker retry after pressure and bounded queue-byte accounting
 - reliable Event overflow explicitly disconnecting the slow client without blocking game capture
 - duplicate and out-of-order events
 - reconnect and snapshot recovery
@@ -53,6 +54,8 @@ Cover at least:
 - recovery buffering of events that arrive while a recovery snapshot is in flight, including a later snapshot superseding already-buffered events at or below its revision
 - recovery ordering proving that stateful events after the accepted snapshot are applied in order and
   ephemeral notifications are not incorrectly treated as snapshot-recoverable state
+- failed compatibility or domain-readiness checks leaving canonical writers on the old contract rather
+  than performing a partial cutover
 - bounded recovery buffering: abandoning a buffered recovery attempt and requesting a fresh snapshot when the bound is exceeded, rather than growing unbounded
 - a recovery snapshot request that times out or fails, causing the connection to be treated as unhealthy and recovery to proceed through the applicable bounded reconnect behavior followed by fresh synchronization
 

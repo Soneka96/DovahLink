@@ -117,9 +117,9 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
   hook; a worker may process captured values but must never request a deferred Skyrim read. Late
   ticks skip missed samples rather than issuing an unbounded catch-up burst.
 - If a bounded queue is full, never block the game thread: a replaceable Snapshot may replace an
-  already-pending value for the same state area or be deferred, while a reliable Event must remain
-  ordered and causes the slow client to be disconnected rather than being coalesced or dropped;
-  record the outcome diagnostically.
+  already-pending value for the same state area or be deferred behind one bounded dirty marker per
+  registered state area, while a reliable Event must remain ordered and causes the slow client to be
+  disconnected rather than being coalesced or dropped; record the outcome diagnostically.
 - Shutdown must stop workers and close transport resources before the plugin unloads.
 
 ## Ownership and shutdown
@@ -144,9 +144,10 @@ Owns connection lifecycle, framing, encoding, reconnect behavior, and outbound q
   If reserved control/recovery capacity is full, the client is marked unavailable and the connection
   is closed.
 - The outbound organization has one authoritative ordering point per state area for applying captured
-  values and assigning revisions. A recovery snapshot establishes the new baseline before later
-  stateful events are applied; events at or below an accepted snapshot revision are superseded. This
-  does not convert an ephemeral notification into recoverable state.
+  values and assigning revisions. A recovery snapshot establishes the new baseline in the single
+  serialized outbound order before later stateful events are applied; events at or below an accepted
+  snapshot revision are superseded. This does not convert an ephemeral notification into recoverable
+  state.
 - When Snapshot loss marks a state area for recovery, the next eligible game callback synchronously
   captures a fresh owned value through the game-state adapter and places it in the reserved recovery
   lane; workers never request or perform a deferred runtime read.
