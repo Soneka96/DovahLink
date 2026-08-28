@@ -117,11 +117,9 @@ LifecycleState PlayContextLifecycle::CurrentState() const {
     return state_;
 }
 
-void PlayContextLifecycle::CaptureLevel(std::optional<std::int64_t> level) {
+std::shared_ptr<PlayContext> PlayContextLifecycle::CurrentPlayContext() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (current_) {
-        current_->characterState.OnLevelCaptured(level);
-    }
+    return current_;
 }
 
 } //  namespace dovahlink::application

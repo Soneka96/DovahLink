@@ -201,7 +201,8 @@ class MockPlayContextLifecycle : public IPlayContextLifecycle {
     MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
                 (const, override));
     MOCK_METHOD(LifecycleState, CurrentState, (), (const, override));
-    MOCK_METHOD(void, CaptureLevel, (std::optional<std::int64_t>), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, CurrentPlayContext, (),
+                (const, override));
 };
 
 ///  GoogleMock active-context level-sink contract double.
