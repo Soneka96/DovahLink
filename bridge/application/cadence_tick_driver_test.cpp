@@ -83,7 +83,7 @@ class CountingActivePlayContextProvider final
   private:
     std::shared_ptr<PlayContext> context_;
     mutable std::mutex mutex_;
-    std::size_t callCount_ = 0;
+    mutable std::size_t callCount_ = 0;
 };
 
 ///  Throws on the first call, then reports a fixed context on every later

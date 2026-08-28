@@ -19,10 +19,13 @@ class ICharacterStateStore {
     ///  available/unavailable-transition rule for free: an unavailable
     ///  capture equals a prior unavailable capture (no change), while any
     ///  other differing pair -- including a transition to or from
-    ///  unavailable -- is a change.
+    ///  unavailable -- is a change. The very first capture always reports a
+    ///  change, even when unavailable: "never captured yet" is tracked
+    ///  separately from "captured and confirmed unavailable" so the two are
+    ///  never aliased to the same default-constructed value.
     ///  @param level Captured level, or no value when unavailable.
-    ///  @return `true` when the stored value changed; `false` when it
-    ///  already matched `level`.
+    ///  @return `true` when the stored value changed, or this is the first
+    ///  capture; `false` when a prior capture already matched `level`.
     virtual bool OnLevelCaptured(std::optional<std::int64_t> level) = 0;
 
     ///  Returns the most recently captured character state.
@@ -46,6 +49,11 @@ class CharacterStateStore final : public ICharacterStateStore {
 
     ///  Most recently captured character state.
     CharacterSnapshot snapshot_;
+
+    ///  Whether `OnLevelCaptured` has been called at least once. Kept
+    ///  distinct from `snapshot_.level` so a fresh store's default-`nullopt`
+    ///  state is never mistaken for an earlier confirmed-unavailable capture.
+    bool hasCaptured_ = false;
 };
 
 } //  namespace dovahlink::application
