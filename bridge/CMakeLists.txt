@@ -67,6 +67,7 @@ add_library(dovahlink_bridge_core STATIC
     application/active_session_publication_router.cpp
     application/capture_dispatch_worker.cpp
     application/cadence_tick_driver.cpp
+    application/session_publication_factory.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -219,6 +220,7 @@ add_executable(dovahlink_bridge_tests
     application/active_session_publication_router_test.cpp
     application/capture_dispatch_worker_test.cpp
     application/cadence_tick_driver_test.cpp
+    application/session_publication_factory_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
