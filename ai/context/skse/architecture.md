@@ -71,6 +71,20 @@ Domain state machines own their state transitions and invariants. Orchestration 
 coordination across application, protocol, persistence, and transport boundaries; do not make a
 state machine imitate an orchestration service or move its invariants into a port.
 
+### Session and publication ownership
+
+The Bridge uses a bounded collection of authenticated session records, with capacity controlled by
+`bridge/security/constants.hpp`'s `kMaxConnectedClients`. The approved 4.2 value remains `1`; this
+preserves the single-client product boundary while keeping session delivery state collection-shaped
+for the later multi-client phase. Each session record owns its socket writer, capabilities,
+subscriptions, outbound queue, recovery barriers, and diagnostics.
+
+Capture policy, cadence, authoritative state, and revisions are shared at Bridge/play-context scope.
+When no session is connected, capture and authoritative-state updates continue; reliable Events are
+not retained for a later session, and the next session starts from fresh current Snapshots. Raising
+the capacity later must add fan-out and independent client recovery, not create a second authority or
+duplicate equivalent Skyrim reads.
+
 ### Protocol mapping
 
 Converts application values to the canonical protocol contract. It must not expose C++ runtime objects or make the Flutter client depend on native implementation details.

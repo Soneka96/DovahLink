@@ -8,12 +8,15 @@
 
 ### Outcome
 
-One bridge serves concurrent clients while capture remains shared and one slow client cannot
-destabilize Skyrim or healthy clients.
+One bridge raises the bounded session-registry capacity beyond the Stage 4.2 value of `1` and
+serves concurrent clients while capture remains shared and one slow client cannot destabilize
+Skyrim or healthy clients.
 
 ### Scope and behavior
 
-- Replace the one-client slot with a bounded concurrent-client registry.
+- Raise the `kMaxConnectedClients` admission policy from its Stage 4.2 capacity-one value and
+  complete the bounded concurrent-client registry rather than replacing the authority/session
+  ownership shape established by Stage 4.2.
 - Give each client independent session, capabilities, subscriptions, queues, recovery, and diagnostics.
 - Fan out shared authoritative state without repeated Skyrim reads.
 - Keep revisions shared while delivery state remains client-specific.
@@ -23,7 +26,8 @@ destabilize Skyrim or healthy clients.
 
 ### Dependencies and boundaries
 
-This phase follows the Phase 8 single-client proof and remains loopback-only. It excludes LAN,
+This phase follows the Phase 8 single-client proof and the Stage 4.2 capacity-one session-registry
+foundation, and remains loopback-only. It excludes LAN,
 synchronized layouts, accounts, collaboration, and control permissions.
 
 ### Acceptance criteria

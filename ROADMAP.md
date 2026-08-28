@@ -66,7 +66,8 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   delivered the typed per-message protocol contract (connection, pairing, state, error,
   invalidation, and control families), canonical cross-side fixtures, and the matching Bridge/SDK/
   .NET adapter updates, retiring the old aggregate `character` state area. Phase 4.2 — Bridge Live
-  Publication and Bounded Transport is next.
+  Publication and Bounded Transport is next; it will establish the shared-authority, capacity-one
+  session-registry boundary that later multi-client delivery will extend.
 
 ## Ordered stages
 
@@ -82,7 +83,7 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
 | 8 | Planned | [Stage 8 — Live Player State](roadmap/08-live-player-state.md) |
-| 9 | Planned | [Stage 9 — Multi-Client Runtime Foundation](roadmap/09-multi-client-runtime-foundation.md) |
+| 9 | Planned. Extends the capacity-one session-registry boundary established by Stage 4.2. | [Stage 9 — Multi-Client Runtime Foundation](roadmap/09-multi-client-runtime-foundation.md) |
 | 10 | Planned | [Stage 10 — Multi-Bridge and Local Discovery Foundation](roadmap/10-multi-bridge-and-local-discovery-foundation.md) |
 | 11 | Planned | [Stage 11 — Automatic Connection and Transport Selection](roadmap/11-automatic-connection-and-transport-selection.md) |
 | 12 | Planned | [Stage 12 — Mod Awareness](roadmap/12-mod-awareness.md) |
@@ -112,8 +113,10 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 - Stage 3 depends on Stage 2 and establishes local pairing, durable trust, and trust-state recovery.
 - Stage 4 depends on identity and pairing and now establishes the redesigned typed protocol contract,
   live Bridge delivery, the first production Snapshot and Event state domains, and the internal
-  synchronization kernel. Its protocol migration may use temporary boundary compatibility during
-  delivery, but the completed phase supports only the new contract.
+  synchronization kernel. Phase 4.2 also establishes the shared-authority, capacity-one
+  session-registry boundary: session delivery state is client-specific, while capture and revisions
+  are shared. Its protocol migration may use temporary boundary compatibility during delivery, but
+  the completed phase supports only the new contract.
 - Stage 5 consumes Stage 4's stable contract and synchronization kernel to complete the reusable Dart
   client boundary, public subscription/recovery API, middleware-owned Flutter integration, and the
   minimal live-state proof surface. Its scaffold and persistence work may be pulled forward when
@@ -125,8 +128,9 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 - Stage 6 remains the desktop connected-client proof; Stages 6–8 validate the connected second-screen
   product while Stage 5A supplies early physical-device feedback before broader feature work.
 - Stages 9–11 establish the generalized multi-client, local discovery, and automatic connection
-  policy that the later LAN capability builds on; Stage 5A remains a deliberately narrow LAN slice
-  for early client development.
+  policy that the later LAN capability builds on. Stage 9 raises the Stage 4.2 session capacity and
+  adds fan-out without replacing the shared-authority/session-delivery boundary; Stage 5A remains a
+  deliberately narrow LAN slice for early client development.
 - Stages 12–27 add read-only product capabilities and presentation adaptation in dependency order.
 - Stage 22 generalizes and hardens the secure LAN/discovery slice first proven by Stage 5A; Stage 23
   completes the mobile/tablet client experience on top of that work.

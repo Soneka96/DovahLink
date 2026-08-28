@@ -98,7 +98,8 @@ the corresponding `ROADMAP.md` phase to Complete.
 
 ### Added
 
-- First public release: local, authenticated connection between Skyrim and one external client.
+- First development baseline: local, authenticated connection between Skyrim and one external
+  client. This historical baseline was not a supported public release.
 - Read-only character state exposing the player's current level.
 - Explicit handling for unsupported Skyrim/SKSE runtimes and failed connections.
 - A Vortex-ready installation package.

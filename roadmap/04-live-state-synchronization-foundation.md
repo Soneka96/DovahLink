@@ -117,6 +117,16 @@ replay requires a separately approved acknowledgement and persistence contract. 
 advertises its `bridgeVersion` in `hello_ack`; the SDK owns compatibility comparison and user-facing
 incompatibility explanation. The Bridge does not reject SDK versions.
 
+The 4.2 implementation must use a multi-client-compatible ownership shape without implementing
+concurrent clients yet. Capture policy, cadence, authoritative state, and revisions are shared at
+Bridge/play-context scope. A bounded session registry owns independent per-session capabilities,
+subscriptions, outbound queue, recovery barriers, publisher binding, and diagnostics. Its capacity
+is controlled by `bridge/security/constants.hpp`'s `kMaxConnectedClients`, which remains `1` for
+Stage 4.2. When no session is connected, authoritative state continues to update; reliable Events
+are not retained across sessions, and the next session receives fresh current Snapshots. Stage 9
+raises this capacity and adds fan-out and independent-client recovery using the same ownership
+boundary rather than replacing it.
+
 ### Protocol migration and compatibility
 
 The current protocol remains the repository's current wire contract until the migration begins. The
@@ -233,8 +243,11 @@ repeated equivalent unavailable samples do not. A capture failure is not convert
 value: the domain contract decides whether it is an unavailable state, a diagnostic with no state
 change, or a capability failure.
 
-The Bridge remains single-client. A reconnect receives fresh synchronization and never receives
-queued events from the previous authenticated session.
+The Bridge remains single-client in 4.2. That limit is an admission policy, not a singleton
+delivery architecture: the bounded session registry has capacity `1`, while authoritative state
+and revisions remain independent of the session record. A reconnect receives fresh synchronization
+and never receives queued events from the previous authenticated session. Stage 9 later raises the
+capacity and adds concurrent fan-out without changing this authority/session ownership boundary.
 
 Before 4.2 production implementation begins, the design must record the queue item's ownership and
 size accounting, the monotonic scheduler's missed-tick behavior, the per-state-area ordering point,

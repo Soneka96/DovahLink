@@ -5,8 +5,9 @@ loopback client through the DovahLink protocol. See
 [`ai/context/skse/architecture.md`](../ai/context/skse/architecture.md) for its internal
 boundaries and [`ARCHITECTURE.md`](../ARCHITECTURE.md) for how it fits the rest of the project.
 
-This document records the toolchain, dependency, and reuse decisions used for the published Bridge
-release, version `0.3.2`. It is the human-readable record; the pins below are enforced by
+This document records the toolchain, dependency, and reuse decisions used for the historical Bridge
+baseline, version `0.3.2`. It is not a supported public release or compatibility target. The pins
+below are enforced by
 `vcpkg.json` and `vcpkg-configuration.json`; `CMakePresets.json` selects the vcpkg toolchain and
 target triplet used by the build.
 
