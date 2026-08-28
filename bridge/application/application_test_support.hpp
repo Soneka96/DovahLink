@@ -209,9 +209,10 @@ class MockPlayContextLifecycle : public IPlayContextLifecycle {
 ///  GoogleMock active-context level-sink contract double.
 class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
   public:
-    MOCK_METHOD(void, OnLevelCaptured, (std::optional<std::int64_t>),
+    MOCK_METHOD(std::shared_ptr<PlayContext>, BeginCapture, (), (override));
+    MOCK_METHOD(void, OnLevelCaptured,
+                (std::shared_ptr<PlayContext>, std::optional<std::int64_t>),
                 (override));
-    MOCK_METHOD(bool, IsCaptureActive, (), (const, override));
 };
 
 ///  GoogleMock active-session disconnection contract double.

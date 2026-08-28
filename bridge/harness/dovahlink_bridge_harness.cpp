@@ -7,6 +7,7 @@
 //  factory_reset, and quit commands on standard input.
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
@@ -264,6 +265,8 @@ int main() {
         });
     dovahlink::application::ActivePlayContextReader activePlayContextReader(
         playContextLifecycle);
+    dovahlink::application::ActivePlayContextProvider activePlayContextProvider(
+        playContextLifecycle);
 
     //  Minimal stand-in for dovahlink_bridge_plugin.cpp's "Production capture
     //  and lifecycle composition" (ai/context/skse/architecture.md), just
@@ -287,8 +290,8 @@ int main() {
     //  LevelIncreaseHandler uses; a capture with no active context is dropped,
     //  matching real play (main menu, before any load).
     dovahlink::application::ActivePlayContextLevelSink levelSink(
-        playContextLifecycle, registeredStateAreaPolicy, captureDispatchWorker,
-        "character_level");
+        activePlayContextProvider, registeredStateAreaPolicy,
+        captureDispatchWorker, "character_level");
 
     //  Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     //  generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
@@ -339,7 +342,9 @@ int main() {
     while (std::getline(std::cin, line)) {
         if (line == "increase_level") {
             ++level;
-            levelSink.OnLevelCaptured(level);
+            if (auto capture = levelSink.BeginCapture()) {
+                levelSink.OnLevelCaptured(capture, level);
+            }
             std::cout << "LEVEL " << level << std::endl;
         } else if (line == "new_game") {
             auto transition = ProcessLifecycleEvent(

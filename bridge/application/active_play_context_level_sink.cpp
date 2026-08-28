@@ -10,18 +10,20 @@
 namespace dovahlink::application {
 
 ActivePlayContextLevelSink::ActivePlayContextLevelSink(
-    IPlayContextLifecycle& playContextLifecycle,
+    IActivePlayContextProvider& activeContext,
     IRegisteredStateAreaPolicy& registeredAreaPolicy,
     ICaptureDispatchWorker& captureWorker, std::string stateArea)
-    : playContextLifecycle_(playContextLifecycle),
+    : activeContext_(activeContext),
       registeredAreaPolicy_(registeredAreaPolicy),
       captureWorker_(captureWorker), stateArea_(std::move(stateArea)) {}
 
-void ActivePlayContextLevelSink::OnLevelCaptured(
-    std::optional<std::int64_t> level) {
-    playContextLifecycle_.CaptureLevel(level);
+std::shared_ptr<PlayContext> ActivePlayContextLevelSink::BeginCapture() {
+    return activeContext_.CurrentPlayContext();
+}
 
-    if (!registeredAreaPolicy_.IsRegistered(stateArea_)) {
+void ActivePlayContextLevelSink::OnLevelCaptured(
+    std::shared_ptr<PlayContext> capture, std::optional<std::int64_t> level) {
+    if (!capture || !registeredAreaPolicy_.IsRegistered(stateArea_)) {
         return;
     }
 
@@ -30,23 +32,23 @@ void ActivePlayContextLevelSink::OnLevelCaptured(
     //  No caller registers stateArea_ in 4.2, so this branch is unreachable
     //  in production today; it exists so the boundary is provable in tests.
     CaptureWorkItem item{
+        .playContext = std::move(capture),
         .stateArea = stateArea_,
         .mode = CaptureMode::kEvent,
-        .buildData =
-            [level] {
-                boost::json::object data;
-                if (level.has_value()) {
-                    data["capturedValue"] = *level;
-                }
-                return data;
-            },
+        .applyAndBuildIfChanged =
+            [level](PlayContext& context) -> std::optional<boost::json::object> {
+            if (!context.characterState.OnLevelCaptured(level)) {
+                return std::nullopt;
+            }
+            boost::json::object data;
+            if (level.has_value()) {
+                data["capturedValue"] = *level;
+            }
+            return data;
+        },
         .occurredAt = std::chrono::system_clock::now(),
     };
     (void)captureWorker_.TryEnqueue(std::move(item));
-}
-
-bool ActivePlayContextLevelSink::IsCaptureActive() const {
-    return playContextLifecycle_.CurrentState() == LifecycleState::kActive;
 }
 
 } //  namespace dovahlink::application
