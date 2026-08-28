@@ -46,6 +46,13 @@ boost::beast::error_code RunOperation(boost::asio::io_context& ioContext,
     return result.get();
 }
 
+///  Owns an asynchronous send's bytes and completion callback until both are
+///  no longer needed.
+struct PendingWrite {
+    std::string message;
+    std::function<void(bool)> onComplete;
+};
+
 } //  namespace
 
 boost::asio::ip::tcp::socket WebSocketSession::Socket::RebindSocket(
@@ -198,28 +205,25 @@ void WebSocketSession::Socket::Send(std::string message,
     }
 
     //  Declared outside the try so the catch block below can still reach a
-    //  callback that was successfully moved into it before a later statement
-    //  in the same try (for example boost::asio::post) throws -- `onComplete`
-    //  itself is left moved-from (and therefore unsafe to invoke) the instant
-    //  the make_shared below runs.
-    std::shared_ptr<std::function<void(bool)>> sharedOnComplete;
+    //  callback that was transferred into the pending state before a later
+    //  statement in the same try (for example boost::asio::post) throws.
+    std::shared_ptr<PendingWrite> pending;
     try {
         auto socket = weak_from_this();
-        //  Shared for the same reason as ShutdownWithNotification's own
-        //  sharedMessage: async_write only registers the write before
-        //  returning, and the actual bytes are copied on a later io_context
-        //  turn.
-        auto sharedMessage = std::make_shared<std::string>(std::move(message));
-        sharedOnComplete =
-            std::make_shared<std::function<void(bool)>>(std::move(onComplete));
+        //  The pending state is shared for the same reason as
+        //  ShutdownWithNotification's own sharedMessage: async_write only
+        //  registers the write before returning, and the actual bytes are
+        //  copied on a later io_context turn.
+        pending = std::make_shared<PendingWrite>();
+        pending->message = std::move(message);
+        pending->onComplete = std::move(onComplete);
         boost::asio::post(
-            *ioContext_, [socket = std::move(socket), sharedMessage,
-                          sharedOnComplete] {
+            *ioContext_, [socket = std::move(socket), pending] {
                 auto activeSocket = socket.lock();
                 if (!activeSocket ||
                     activeSocket->shutdownRequested_.load(
                         std::memory_order_acquire)) {
-                    (*sharedOnComplete)(false);
+                    pending->onComplete(false);
                     return;
                 }
                 if (!activeSocket->handshakeSettled_.load(
@@ -228,7 +232,7 @@ void WebSocketSession::Socket::Send(std::string message,
                     //  stream_ -- starting a websocket-level write now would
                     //  race it unsafely, matching
                     //  ShutdownWithNotification's own check.
-                    (*sharedOnComplete)(false);
+                    pending->onComplete(false);
                     return;
                 }
                 try {
@@ -242,26 +246,26 @@ void WebSocketSession::Socket::Send(std::string message,
                         .expires_after(security::kHandshakeTimeout);
                     activeSocket->stream_.text(true);
                     activeSocket->stream_.async_write(
-                        boost::asio::buffer(*sharedMessage),
-                        [socket, sharedOnComplete](boost::beast::error_code ec,
-                                                   std::size_t) {
+                        boost::asio::buffer(pending->message),
+                        [socket, pending](boost::beast::error_code ec,
+                                          std::size_t) {
                             auto activeSocket = socket.lock();
                             bool ok = !ec && activeSocket &&
                                       !activeSocket->shutdownRequested_.load(
                                           std::memory_order_acquire);
-                            (*sharedOnComplete)(ok);
+                            pending->onComplete(ok);
                         });
                 } catch (...) {
                     //  The write itself failed to even start.
-                    (*sharedOnComplete)(false);
+                    pending->onComplete(false);
                 }
             });
     } catch (...) {
         //  Best-effort noexcept boundary, matching Shutdown(). Routes through
         //  whichever callback is still safe to call: `onComplete` itself once
-        //  `sharedOnComplete`'s construction has moved it empty.
-        if (sharedOnComplete) {
-            (*sharedOnComplete)(false);
+        //  the pending write state has not been constructed.
+        if (pending) {
+            pending->onComplete(false);
         } else {
             onComplete(false);
         }

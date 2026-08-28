@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 using dovahlink::transport::IWebSocketSession;
 using dovahlink::transport::LoopbackListener;
@@ -1628,34 +1629,26 @@ TEST_CASE("sequential Send calls each deliver independently once the "
 
     REQUIRE(accepted.wait_for(2s) == std::future_status::ready);
 
-    std::promise<bool> firstCompleted;
-    std::future<bool> firstCompletedFuture = firstCompleted.get_future();
-    server.SendOnActiveSession(
-        "first", [&firstCompleted](bool ok) { firstCompleted.set_value(ok); });
-    REQUIRE(firstCompletedFuture.wait_for(2s) == std::future_status::ready);
-    REQUIRE(firstCompletedFuture.get());
+    std::vector<std::string> messages;
+    for (int index = 0; index < 8; ++index) {
+        messages.push_back("payload-" + std::to_string(index) + "-" +
+                           std::string(64 * 1024, static_cast<char>('a' + index)));
+    }
 
-    //  The second call only starts once the first's onComplete has already
-    //  fired, matching Send's own documented single-flight caller obligation.
-    std::promise<bool> secondCompleted;
-    std::future<bool> secondCompletedFuture = secondCompleted.get_future();
-    server.SendOnActiveSession(
-        "second",
-        [&secondCompleted](bool ok) { secondCompleted.set_value(ok); });
-    REQUIRE(secondCompletedFuture.wait_for(2s) == std::future_status::ready);
-    CHECK(secondCompletedFuture.get());
+    for (const std::string& message : messages) {
+        std::promise<bool> sendCompleted;
+        std::future<bool> sendCompletedFuture = sendCompleted.get_future();
+        server.SendOnActiveSession(
+            message, [&sendCompleted](bool ok) { sendCompleted.set_value(ok); });
+        REQUIRE(sendCompletedFuture.wait_for(2s) == std::future_status::ready);
+        REQUIRE(sendCompletedFuture.get());
 
-    boost::beast::flat_buffer firstBuffer;
-    boost::system::error_code firstReadEc;
-    clientWs.read(firstBuffer, firstReadEc);
-    REQUIRE_FALSE(firstReadEc);
-    CHECK(boost::beast::buffers_to_string(firstBuffer.data()) == "first");
-
-    boost::beast::flat_buffer secondBuffer;
-    boost::system::error_code secondReadEc;
-    clientWs.read(secondBuffer, secondReadEc);
-    REQUIRE_FALSE(secondReadEc);
-    CHECK(boost::beast::buffers_to_string(secondBuffer.data()) == "second");
+        boost::beast::flat_buffer buffer;
+        boost::system::error_code readEc;
+        clientWs.read(buffer, readEc);
+        REQUIRE_FALSE(readEc);
+        CHECK(boost::beast::buffers_to_string(buffer.data()) == message);
+    }
 
     server.ShutdownActiveSession();
     server.Join();
