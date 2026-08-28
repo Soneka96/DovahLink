@@ -39,6 +39,10 @@ class SessionPublicationFactory final : public ISessionPublicationFactory {
   public:
     ///  Binds the factory to the router every created queue is attached to
     ///  and the diagnostics sink every created queue reports through.
+    ///  `router` is the concrete type rather than an interface: see
+    ///  `ActiveSessionPublicationRouter`'s own doc comment for why
+    ///  `Attach`/`Detach` cannot join its one shared `IOutboundPublicationSink`
+    ///  interface.
     ///  @param router Shared publisher's session-binding seam.
     ///  @param diagnostics Diagnostics sink; must outlive every created
     ///  queue.

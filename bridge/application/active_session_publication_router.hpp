@@ -17,10 +17,18 @@ namespace dovahlink::application {
 ///  ownership"): authoritative state and revisions inside `StatePublisher`
 ///  advance regardless, and the next attached session starts from a fresh
 ///  Snapshot rather than a replayed queue. `Attach`/`Detach` are declared
-///  only on this concrete class, not on `IOutboundPublicationSink`, so a
-///  consumer that only publishes depends on the narrower interface while the
-///  session-binding caller depends on the concrete type -- the same split
-///  `RevisionTracker` uses for its own template-only methods.
+///  only on this concrete class, not on `IOutboundPublicationSink`: unlike
+///  `RevisionTracker`'s template-only methods, nothing about `Attach`/`Detach`
+///  is a hard language constraint -- the actual reason is
+///  `ai/context/skse/cpp-style.md`'s "a C++ behavior-bearing implementation
+///  implements exactly one DovahLink-owned interface." `IOutboundPublicationSink`
+///  is this class's one interface, shared with `BoundedOutboundQueue` and the
+///  test-only `MockOutboundPublicationSink`/`BlockingPublicationSink`; adding
+///  `Attach`/`Detach` to it would wrongly obligate every one of those sinks to
+///  implement session-attachment behavior they don't have. So the
+///  session-binding caller (`SessionPublicationFactory`) depends on this
+///  concrete type instead, the same outcome as `RevisionTracker`'s case but
+///  reached for a different reason.
 class ActiveSessionPublicationRouter final : public IOutboundPublicationSink {
   public:
     ///  Binds the currently attached sink, replacing any previous binding.
