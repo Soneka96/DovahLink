@@ -10,6 +10,7 @@
 #include "application/play_context_lifecycle.hpp"
 #include "application/replay_guard.hpp"
 #include "application/session_manager.hpp"
+#include "application/state_publisher.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -345,6 +346,19 @@ class MockPublicationDiagnostics : public IPublicationDiagnostics {
     MOCK_METHOD(void, RecordRecovery,
                 (std::string_view, std::int64_t, std::size_t), (override));
     MOCK_METHOD(void, RecordDisconnect, (DisconnectReason), (override));
+};
+
+///  GoogleMock state-publisher contract double.
+class MockStatePublisher : public IStatePublisher {
+  public:
+    MOCK_METHOD(bool, PublishSnapshot,
+                (const std::string&, boost::json::object,
+                 std::chrono::system_clock::time_point),
+                (override));
+    MOCK_METHOD(bool, PublishEvent,
+                (const std::string&, boost::json::object,
+                 std::chrono::system_clock::time_point),
+                (override));
 };
 
 } //  namespace dovahlink::application::test_support

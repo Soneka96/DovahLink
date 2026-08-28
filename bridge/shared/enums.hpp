@@ -97,6 +97,14 @@ enum class RateClass {
     kSlow,
 };
 
+///  Which `IStatePublisher` method a queued `CaptureWorkItem` reaches.
+enum class CaptureMode {
+    ///  Reaches `IStatePublisher::PublishSnapshot`.
+    kSnapshot,
+    ///  Reaches `IStatePublisher::PublishEvent`.
+    kEvent,
+};
+
 //  ---- Outbound queue ----
 
 ///  Bounded outbound queue storage class assigned to a worker-owned

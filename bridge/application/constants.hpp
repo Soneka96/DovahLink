@@ -28,4 +28,14 @@ inline constexpr std::chrono::seconds kSlowCapturePeriod{2};
 ///  raising it later requires only a constant change, not a protocol change.
 inline constexpr std::size_t kMaxRegisteredStateAreas = 8;
 
+//  ---- Capture dispatch ----
+
+///  Maximum number of `CaptureWorkItem` values `CaptureDispatchWorker` holds
+///  awaiting processing. Comfortably exceeds one tick's worth of due keys
+///  across every registered sampled key plus native-event bursts, without
+///  growing unbounded when the worker falls behind; `TryEnqueue` fails
+///  closed rather than growing past it, matching `ai/context/skse/
+///  architecture.md`'s "never block the game thread."
+inline constexpr std::size_t kMaxCaptureQueueItems = 64;
+
 } //  namespace dovahlink::application
