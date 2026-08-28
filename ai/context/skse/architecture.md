@@ -95,6 +95,26 @@ statics in the same dependency-ordered style already used for pairing, trust, an
 components. 4.2 registers zero state areas through `RegisteredStateAreaPolicy`; its fixed bound
 exists so the mechanism -- and every consumer that depends on "the registered-area count is fixed
 and bounded" -- is real and tested before a later phase fills it with production character domains.
+`RegisteredStateAreaPolicy` has a real caller in this composition: `ActivePlayContextLevelSink`'s
+native-event gate below. `CapturePolicyRegistry` does not -- nothing in 4.2 has a capture policy to
+classify, since classifying a policy presupposes a registered domain and Phase 4.3 is what supplies
+the first one. This is a deliberately narrower state than "constructed and injected" implies for
+`CapturePolicyRegistry` specifically; it is not yet passed to any consumer's constructor.
+
+`StatePublisher` depends on `IRevisionTracker&`, not the concrete `RevisionTracker`, reached through
+two ordinary (non-template) virtual methods, `CommitSnapshotEnvelopeIfBuilt`/
+`CommitEventEnvelopeIfBuilt`, that `RevisionTracker` implements as one-line forwards into its
+existing, untouched `CommitSnapshotIfBuilt`/`CommitEventIfBuilt` templates (`RevisionTracker`'s own
+doc comment in `bridge/application/revision_tracker.hpp` has the full reasoning: those two templates
+cannot themselves be virtual, since C++ forbids a template `virtual` method). `SessionPublicationFactory`
+still depends on the concrete `ActiveSessionPublicationRouter`, not an interface, for a different
+reason recorded in that class's own doc comment
+(`bridge/application/active_session_publication_router.hpp`): `Attach`/`Detach` are ordinary methods
+with no template constraint, but `ai/context/skse/cpp-style.md`'s "a C++ behavior-bearing
+implementation implements exactly one DovahLink-owned interface" rule blocks adding them to
+`IOutboundPublicationSink`, which `ActiveSessionPublicationRouter` already shares with
+`BoundedOutboundQueue` and two test-only sinks -- widening that shared interface would wrongly
+obligate all of them to implement session-attachment behavior they don't have.
 
 `ActiveSessionPublicationRouter` is `StatePublisher`'s only `IOutboundPublicationSink`. It has no
 session attached in 4.2's production graph: the per-session factory that would attach one is
@@ -113,6 +133,22 @@ authoritative revision -- realized by `StatePublisher`'s existing per-state-area
 which every `CaptureDispatchWorker` call reaches through that one contract. No second ordering
 mechanism exists outside that gate; a worker never re-derives revision or change-detection logic of
 its own.
+
+Native-event capture uses the same domain-independent gate and worker handoff as sampled capture,
+not a separate boundary. `CommonLibLevelIncreaseSink::ProcessEvent` (game-state layer) invokes
+`LevelIncreaseHandler::HandleLevelIncrease`, which checks `IActivePlayContextLevelSink::IsCaptureActive`
+*before* reading the runtime accessor -- the guard runs ahead of the read, not only ahead of routing
+the already-read result, so no accessor read happens while loading or before an authoritative play
+context exists. Once read, the captured value reaches `ActivePlayContextLevelSink::OnLevelCaptured`
+(application layer), which always applies it to the play context's `CharacterStateStore` (a
+per-context cache predating this worker pipeline, read by no production consumer yet) and, only when
+`RegisteredStateAreaPolicy::IsRegistered` reports its state-area key registered, also builds an owned
+`CaptureWorkItem` and calls `CaptureDispatchWorker::TryEnqueue` -- the identical handoff sampled
+capture uses. 4.2 never registers that key (`"character_level"`, the identity
+`roadmap/04-live-state-synchronization-foundation.md` already documents for it), so the worker handoff
+stays unreachable in production; the mechanism is proven in tests through a private fixture area
+instead, so proving it does not require registering `character_level`'s real Phase 4.3 wire contract
+ahead of that phase.
 
 `CadenceTickDriver` is the approved game-thread tick source for sampled capture. It owns a dedicated
 background thread that wakes at a fixed 100 ms interval -- finer than the fastest `RateClass::kFast`
