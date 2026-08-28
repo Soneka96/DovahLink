@@ -358,12 +358,20 @@ class MockPublicationDiagnostics : public IPublicationDiagnostics {
 class MockStatePublisher : public IStatePublisher {
   public:
     MOCK_METHOD(bool, PublishSnapshot,
-                (const std::string&, boost::json::object,
-                 std::chrono::system_clock::time_point),
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 boost::json::object, std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
                 (override));
     MOCK_METHOD(bool, PublishEvent,
-                (const std::string&, boost::json::object,
-                 std::chrono::system_clock::time_point),
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 boost::json::object, std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
+                (override));
+    MOCK_METHOD(bool, PublishCapture,
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 CaptureMode, boost::json::object,
+                 std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
                 (override));
 };
 

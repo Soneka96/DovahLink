@@ -23,7 +23,6 @@
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
 #include "application/registered_state_area_policy.hpp"
-#include "application/revision_tracker.hpp"
 #include "application/session_manager.hpp"
 #include "application/state_publisher.hpp"
 #include "security/csprng.hpp"
@@ -276,11 +275,10 @@ int main() {
     //  as it is in the real plugin; activeSessionPublicationRouter reuses the
     //  same "no session attached, every publication is dropped" production
     //  behavior rather than a harness-only stub sink.
-    dovahlink::application::RevisionTracker revisionTracker;
     dovahlink::application::ActiveSessionPublicationRouter
         activeSessionPublicationRouter;
     dovahlink::application::StatePublisher statePublisher(
-        revisionTracker, activeSessionPublicationRouter);
+        activeSessionPublicationRouter);
     dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
         statePublisher);
     dovahlink::application::RegisteredStateAreaPolicy registeredStateAreaPolicy;
