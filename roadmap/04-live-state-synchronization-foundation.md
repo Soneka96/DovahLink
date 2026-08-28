@@ -4,7 +4,7 @@
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Planned
+**Status:** Active
 
 Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
 and final cross-boundary cutover. The protocol migration may temporarily read

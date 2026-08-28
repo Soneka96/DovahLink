@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,12 @@ namespace {
 ///  alignment reference (`steady_clock::time_point{}`).
 steady_clock::time_point AtSeconds(long long seconds) {
     return steady_clock::time_point{} + std::chrono::seconds(seconds);
+}
+
+///  Builds the steady-clock instant `milliseconds` after the scheduler's
+///  alignment reference.
+steady_clock::time_point AtMilliseconds(long long milliseconds) {
+    return steady_clock::time_point{} + std::chrono::milliseconds(milliseconds);
 }
 
 } //  namespace
@@ -41,13 +48,11 @@ TEST_CASE("DueKeys matches the roadmap's aligned Fast/Medium/Slow cadence "
     scheduler.RegisterSampled("slow", RateClass::kSlow, {});
 
     CHECK(scheduler.DueKeys(AtSeconds(0)).size() == 3); //  fast, medium, slow
-    CHECK(scheduler.DueKeys(AtSeconds(1)) ==
-          std::vector<std::string>{"fast"});
-    CHECK(scheduler.DueKeys(AtSeconds(2)).size() == 2); //  fast, medium
+    CHECK(scheduler.DueKeys(AtSeconds(1)).size() == 2); //  fast, medium
+    CHECK(scheduler.DueKeys(AtSeconds(2)).size() == 3); //  fast, medium, slow
     CHECK(scheduler.DueKeys(AtSeconds(3)).size() == 2); //  fast, slow
-    CHECK(scheduler.DueKeys(AtSeconds(4)).size() == 2); //  fast, medium
-    CHECK(scheduler.DueKeys(AtSeconds(5)) ==
-          std::vector<std::string>{"fast"});
+    CHECK(scheduler.DueKeys(AtSeconds(4)).size() == 3); //  fast, medium, slow
+    CHECK(scheduler.DueKeys(AtSeconds(5)).size() == 2); //  fast, medium
     CHECK(scheduler.DueKeys(AtSeconds(6)).size() == 3); //  fast, medium, slow
 }
 
@@ -77,7 +82,8 @@ TEST_CASE("DueKeys excludes a key that is not yet due",
     CHECK(scheduler.DueKeys(AtSeconds(0)) ==
           std::vector<std::string>{"slow"});
     CHECK(scheduler.DueKeys(AtSeconds(1)).empty());
-    CHECK(scheduler.DueKeys(AtSeconds(2)).empty());
+    CHECK(scheduler.DueKeys(AtSeconds(2)) ==
+          std::vector<std::string>{"slow"});
 }
 
 TEST_CASE("DueKeys skips missed instants instead of issuing a catch-up "
@@ -109,10 +115,10 @@ TEST_CASE("RegisterSampled's stagger offset shifts a key's due instants",
 
     CHECK(scheduler.DueKeys(AtSeconds(0)) ==
           std::vector<std::string>{"unstaggered"});
-    CHECK(scheduler.DueKeys(steady_clock::time_point{} + milliseconds(500)) ==
-          std::vector<std::string>{"staggered"});
-    CHECK(scheduler.DueKeys(AtSeconds(1)) ==
-          std::vector<std::string>{"unstaggered"});
+    CHECK(scheduler.DueKeys(steady_clock::time_point{} + milliseconds(500))
+              .size() ==
+          2);
+    CHECK(scheduler.DueKeys(AtSeconds(1)).size() == 2);
 }
 
 TEST_CASE("RegisterSampled replaces a previously registered cadence for the "
@@ -127,4 +133,49 @@ TEST_CASE("RegisterSampled replaces a previously registered cadence for the "
     //  registration, proving the replacement took effect.
     CHECK(scheduler.DueKeys(AtSeconds(0)) == std::vector<std::string>{"value"});
     CHECK(scheduler.DueKeys(AtSeconds(1)) == std::vector<std::string>{"value"});
+}
+
+TEST_CASE("DueKeys applies the Fast 200-millisecond cadence",
+          "[application][cadence_scheduler]") {
+    CadenceScheduler scheduler;
+    scheduler.RegisterSampled("fast", RateClass::kFast, {});
+
+    REQUIRE(scheduler.DueKeys(AtMilliseconds(0)) ==
+            std::vector<std::string>{"fast"});
+    CHECK(scheduler.DueKeys(AtMilliseconds(199)).empty());
+    CHECK(scheduler.DueKeys(AtMilliseconds(200)) ==
+          std::vector<std::string>{"fast"});
+    CHECK(scheduler.DueKeys(AtMilliseconds(399)).empty());
+    CHECK(scheduler.DueKeys(AtMilliseconds(400)) ==
+          std::vector<std::string>{"fast"});
+}
+
+TEST_CASE("DueKeys applies the Medium one-second and Slow two-second "
+          "cadences",
+          "[application][cadence_scheduler]") {
+    CadenceScheduler scheduler;
+    scheduler.RegisterSampled("medium", RateClass::kMedium, {});
+    scheduler.RegisterSampled("slow", RateClass::kSlow, {});
+
+    REQUIRE(scheduler.DueKeys(AtMilliseconds(0)).size() == 2);
+    CHECK(scheduler.DueKeys(AtMilliseconds(999)).empty());
+    CHECK(scheduler.DueKeys(AtMilliseconds(1000)) ==
+          std::vector<std::string>{"medium"});
+    CHECK(scheduler.DueKeys(AtMilliseconds(1999)).empty());
+    auto due = scheduler.DueKeys(AtMilliseconds(2000));
+    CHECK(std::set<std::string>(due.begin(), due.end()) ==
+          std::set<std::string>{"medium", "slow"});
+}
+
+TEST_CASE("RegisterSampled preserves a staggered Fast cadence every 200 "
+          "milliseconds",
+          "[application][cadence_scheduler]") {
+    CadenceScheduler scheduler;
+    scheduler.RegisterSampled("staggered", RateClass::kFast, milliseconds(500));
+
+    CHECK(scheduler.DueKeys(AtMilliseconds(500)) ==
+          std::vector<std::string>{"staggered"});
+    CHECK(scheduler.DueKeys(AtMilliseconds(699)).empty());
+    CHECK(scheduler.DueKeys(AtMilliseconds(700)) ==
+          std::vector<std::string>{"staggered"});
 }

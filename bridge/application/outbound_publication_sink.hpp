@@ -7,12 +7,10 @@
 namespace dovahlink::application {
 
 ///  Receives typed publications from `IStatePublisher` toward the bounded
-///  outbound organization. This interface has no production implementation
-///  yet -- the bounded outbound organization is a later stage's scope,
-///  mirroring how `IRevisionTracker::NextEvent` was introduced before
-///  event delivery had a caller. `IStatePublisher` depends on this contract
-///  now so its own publication-mode dispatch is complete and testable ahead
-///  of that implementation.
+///  outbound organization. It is the handoff seam between publication-mode
+///  dispatch and the bounded transport organization; `IStatePublisher` can
+///  therefore remain complete and testable while that organization is wired
+///  behind this contract.
 class IOutboundPublicationSink {
   public:
     ///  Allows destruction through the interface.
