@@ -26,6 +26,7 @@
 #include "application/registered_state_area_policy.hpp"
 #include "application/session_manager.hpp"
 #include "application/state_publisher.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
 #include "security/failed_token_throttle.hpp"
@@ -242,7 +243,8 @@ int main() {
     }
     auto listenerV6 = std::move(*listenerV6Result);
 
-    dovahlink::transport::ConnectionSlot connectionSlot;
+    dovahlink::transport::ConnectionSlot connectionSlot(
+        dovahlink::security::kMaxConnectedClients);
     auto tokenTtl =
         ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
     dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes),
@@ -267,7 +269,8 @@ int main() {
     dovahlink::security::PairingSession pairingSession;
     StdoutPairingNotificationSink pairingNotificationSink;
 
-    dovahlink::application::SessionManager sessionManager;
+    dovahlink::application::SessionManager sessionManager(
+        dovahlink::security::kMaxConnectedClients);
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
     dovahlink::application::PlayContextLifecycle playContextLifecycle(
         [playContextIdOverride]() -> std::optional<std::string> {

@@ -797,3 +797,148 @@ TEST_CASE("a stale lease cannot clear or alter any field of a replacement "
     CHECK(session->trustTier == SessionTrustTier::kRestricted);
     CHECK(session->authMethod == SessionAuthMethod::kDeveloperToken);
 }
+
+TEST_CASE("SessionManager stores independent sessions up to its configured "
+          "capacity",
+          "[application][session_manager]") {
+    SessionManager sessions(2);
+    auto firstLease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    auto secondLease = sessions.TryCreateSession(
+        kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+
+    REQUIRE(firstLease.has_value());
+    REQUIRE(secondLease.has_value());
+    CHECK_FALSE(sessions.TryCreateSession(
+                            3, "session-3", "client-3", SessionTrustTier::kFull,
+                            SessionAuthMethod::kDeveloperToken)
+                    .has_value());
+    CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionB));
+
+    CHECK(sessions.InvalidateSession(kConnectionA, kSessionOne));
+    CHECK_FALSE(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+    CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
+}
+
+TEST_CASE("SessionManager rejects duplicate connections and session IDs",
+          "[application][session_manager]") {
+    SessionManager sessions(2);
+    auto firstLease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(firstLease.has_value());
+
+    CHECK_FALSE(sessions.TryCreateSession(
+                            kConnectionA, kSessionTwo, kClientTwo,
+                            SessionTrustTier::kFull,
+                            SessionAuthMethod::kTrustedDeviceCredential)
+                    .has_value());
+    CHECK_FALSE(sessions.TryCreateSession(
+                            kConnectionB, kSessionOne, kClientTwo,
+                            SessionTrustTier::kFull,
+                            SessionAuthMethod::kTrustedDeviceCredential)
+                    .has_value());
+    CHECK(sessions.IsValidForConnection(kSessionOne, kConnectionA));
+}
+
+TEST_CASE("SessionManager with zero capacity rejects admission",
+          "[application][session_manager]") {
+    SessionManager sessions(0);
+
+    CHECK_FALSE(sessions.TryCreateSession(
+                            kConnectionA, kSessionOne, kClientOne,
+                            SessionTrustTier::kFull,
+                            SessionAuthMethod::kTrustedDeviceCredential)
+                    .has_value());
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionA).has_value());
+}
+
+TEST_CASE("SessionManager isolates promotion and invalidation between records",
+          "[application][session_manager]") {
+    SessionManager sessions(2);
+    auto firstLease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kUnpaired);
+    auto secondLease = sessions.TryCreateSession(
+        kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kRestricted,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(firstLease.has_value());
+    REQUIRE(secondLease.has_value());
+
+    sessions.UpgradeToFullTrust(kConnectionA, kSessionOne);
+    CHECK(sessions.IsFullyTrusted(kConnectionA));
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionB));
+
+    CHECK(sessions.InvalidateSession(kConnectionA, kSessionOne));
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionA).has_value());
+    CHECK(sessions.IsValidForConnection(kSessionTwo, kConnectionB));
+    CHECK_FALSE(sessions.IsFullyTrusted(kConnectionB));
+}
+
+TEST_CASE("SessionManager InvalidateAll clears every record and reopens capacity",
+          "[application][session_manager]") {
+    SessionManager sessions(2);
+    auto firstLease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    auto secondLease = sessions.TryCreateSession(
+        kConnectionB, kSessionTwo, kClientTwo, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(firstLease.has_value());
+    REQUIRE(secondLease.has_value());
+
+    sessions.InvalidateAll();
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionA).has_value());
+    CHECK_FALSE(sessions.SessionForConnection(kConnectionB).has_value());
+    firstLease.reset();
+    secondLease.reset();
+
+    auto replacementLease = sessions.TryCreateSession(
+        kConnectionA, kSessionOne, kClientOne, SessionTrustTier::kFull,
+        SessionAuthMethod::kTrustedDeviceCredential);
+    REQUIRE(replacementLease.has_value());
+}
+
+TEST_CASE("exactly the configured number of concurrent session admissions succeed",
+          "[application][session_manager]") {
+    SessionManager sessions(2);
+    constexpr int kAttempts = 16;
+    std::atomic<int> readyCount{0};
+    std::atomic<bool> go{false};
+    std::atomic<int> attemptedCount{0};
+    std::atomic<int> successCount{0};
+    std::vector<std::thread> threads;
+    threads.reserve(kAttempts);
+
+    for (int i = 0; i < kAttempts; ++i) {
+        threads.emplace_back([&, i] {
+            readyCount.fetch_add(1, std::memory_order_relaxed);
+            while (!go.load(std::memory_order_acquire)) {
+            }
+            auto lease = sessions.TryCreateSession(
+                static_cast<ConnectionId>(i), "session-" + std::to_string(i),
+                "client-" + std::to_string(i), SessionTrustTier::kFull,
+                SessionAuthMethod::kTrustedDeviceCredential);
+            if (lease.has_value()) {
+                successCount.fetch_add(1, std::memory_order_relaxed);
+            }
+            attemptedCount.fetch_add(1, std::memory_order_release);
+            while (attemptedCount.load(std::memory_order_acquire) < kAttempts) {
+            }
+        });
+    }
+
+    while (readyCount.load(std::memory_order_relaxed) < kAttempts) {
+    }
+    go.store(true, std::memory_order_release);
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    CHECK(successCount.load() == 2);
+}

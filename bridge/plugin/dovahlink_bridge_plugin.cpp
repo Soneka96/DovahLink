@@ -41,6 +41,7 @@
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/player_level_accessor.hpp"
 #include "game_state/runtime_guard.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -251,7 +252,8 @@ SKSEPluginInfo(
     //  for SKSEPluginLoad) time control reaches its declaration, so this
     //  ordering is exactly the construction order, without needing a
     //  hand-rolled aggregate to express the same dependency graph.
-    static dovahlink::transport::ConnectionSlot connectionSlot;
+    static dovahlink::transport::ConnectionSlot connectionSlot(
+        dovahlink::security::kMaxConnectedClients);
     static dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
 
@@ -278,7 +280,8 @@ SKSEPluginInfo(
     static dovahlink::game_state::CommonLibPairingNotificationSink
         pairingNotificationSink;
 
-    static dovahlink::application::SessionManager sessionManager;
+    static dovahlink::application::SessionManager sessionManager(
+        dovahlink::security::kMaxConnectedClients);
 
     //  The authoritative, play-context-owned identity and state per
     //  ARCHITECTURE.md's runtime/identity model. `playContextLifecycle` owns
