@@ -60,6 +60,14 @@ class BlockingPublicationSink final
         RecordPublication(std::move(envelope));
     }
 
+    ///  Records one publication, pausing the first handoff until released.
+    ///  `StatePublisher` never calls this; present only to satisfy
+    ///  `IOutboundPublicationSink`.
+    void PublishRecoverySnapshot(std::string, Envelope envelope,
+                                 std::int64_t) override {
+        RecordPublication(std::move(envelope));
+    }
+
     ///  Waits until the first publication handoff has entered the sink.
     void WaitForFirstPublication() { firstEntered_.get_future().wait(); }
 

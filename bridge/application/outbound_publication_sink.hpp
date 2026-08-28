@@ -5,6 +5,7 @@
 #include "transport/websocket_session.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <list>
 #include <mutex>
 #include <optional>
@@ -31,11 +32,31 @@ class IOutboundPublicationSink {
                                  protocol::Envelope envelope) = 0;
 
     ///  Submits a reliable Event-mode envelope, appended in order and never
-    ///  coalesced with another submission for the same state area.
+    ///  coalesced with another submission for the same state area. Discarded
+    ///  silently, rather than delivered, when its own revision is at or
+    ///  below a revision already established for this state area by
+    ///  `PublishRecoverySnapshot`.
     ///  @param stateArea Canonical state-area identifier.
     ///  @param envelope Built `state_event` envelope.
     virtual void PublishEvent(std::string stateArea,
                               protocol::Envelope envelope) = 0;
+
+    ///  Submits an initial or recovery Snapshot envelope through the
+    ///  reserved control/recovery lane rather than the bounded data lanes,
+    ///  and establishes this state area's recovery barrier at `revision`:
+    ///  any `PublishEvent` for this area, already queued or submitted later,
+    ///  whose own revision is at or below `revision` is discarded as
+    ///  superseded rather than delivered after this snapshot. Unlike
+    ///  `PublishSnapshot`, submissions are delivered in order rather than
+    ///  replacing a pending one -- initial/recovery snapshots are rare,
+    ///  one-off resynchronization events, not the frequent latest-value
+    ///  updates `PublishSnapshot` models.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @param envelope Built `state_snapshot` envelope.
+    ///  @param revision The authoritative baseline this snapshot establishes.
+    virtual void PublishRecoverySnapshot(std::string stateArea,
+                                         protocol::Envelope envelope,
+                                         std::int64_t revision) = 0;
 };
 
 ///  Bounded outbound organization consuming `IStatePublisher`'s typed
@@ -44,10 +65,16 @@ class IOutboundPublicationSink {
 ///  encoded-byte budget (`ai/context/protocol/security.md`'s "Input
 ///  limits"), replaces a keyed Snapshot's pending entry in place rather than
 ///  growing the queue, and disconnects the session outright when a reliable
-///  Event cannot be admitted rather than dropping it. One instance is scoped
-///  to one authenticated session's socket and its own `sessionId`; a
-///  reconnect constructs a fresh instance rather than reusing this one, so a
-///  previous session's undelivered traffic is never carried into a new one.
+///  Event or a reserved-lane message cannot be admitted rather than dropping
+///  it. A reserved control/recovery lane, unaffected by data-lane pressure or
+///  the data byte budget, carries initial and recovery Snapshots ahead of
+///  ordinary data-lane traffic; each one establishes its state area's
+///  recovery barrier, which supersedes an Event at or below that revision
+///  rather than delivering it after the snapshot. One instance is scoped to
+///  one authenticated session's socket and its own `sessionId`; a reconnect
+///  constructs a fresh instance rather than reusing this one, so a previous
+///  session's undelivered traffic and barriers are never carried into a new
+///  one.
 class BoundedOutboundQueue final : public IOutboundPublicationSink {
   public:
     ///  Binds the queue to the live session socket it drains into and the
@@ -65,13 +92,25 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     void PublishEvent(std::string stateArea,
                       protocol::Envelope envelope) override;
 
+    ///  @copydoc IOutboundPublicationSink::PublishRecoverySnapshot
+    void PublishRecoverySnapshot(std::string stateArea,
+                                 protocol::Envelope envelope,
+                                 std::int64_t revision) override;
+
   private:
-    ///  One data-lane entry awaiting delivery: a keyed Snapshot slot when
-    ///  `stateArea` has a value, or an ordered Event entry otherwise.
+    ///  One data-lane entry awaiting delivery: a keyed, replaceable Snapshot
+    ///  slot, or an ordered, non-coalesced Event entry.
     struct PendingEntry {
-        ///  Snapshot state area this entry is keyed by, or no value for an
-        ///  Event entry.
-        std::optional<std::string> stateArea;
+        ///  Whether this is a keyed Snapshot slot (`true`) or an ordered
+        ///  Event entry (`false`).
+        bool isSnapshot;
+        ///  State area this entry belongs to.
+        std::string stateArea;
+        ///  This Event's own revision, used to compare against a later
+        ///  recovery barrier for this state area. Unset for a Snapshot
+        ///  entry, and for an Event entry whose payload could not be decoded
+        ///  back into its revision.
+        std::optional<std::int64_t> revision;
         ///  Already-encoded, session-stamped wire text.
         std::string encoded;
         ///  Data lane this entry currently occupies.
@@ -106,8 +145,7 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
 
     ///  Admits a brand-new data-lane entry, already known to fit. Caller
     ///  must hold `mutex_`.
-    void ApplyAdmitNewLocked(std::string stateArea, QueueClass queueClass,
-                             std::string encoded);
+    void ApplyAdmitNewLocked(PendingEntry entry);
 
     ///  Replaces an already-admitted Snapshot slot's value in place, already
     ///  known to fit. Caller must hold `mutex_`.
@@ -127,8 +165,18 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  unbounded catch-up burst. Caller must hold `mutex_`.
     void TryPromoteOneDirtyLocked();
 
+    ///  Removes queued, not-yet-in-flight Event entries for `stateArea`
+    ///  whose own revision is at or below `revision`: superseded by the
+    ///  recovery snapshot establishing that revision as the new baseline.
+    ///  Never removes an entry already handed to `Send` -- its bytes are
+    ///  already on their way to the peer and cannot be recalled. Caller must
+    ///  hold `mutex_`.
+    void SupersedeQueuedEventsLocked(const std::string& stateArea,
+                                     std::int64_t revision);
+
     ///  Starts draining the next pending entry when nothing is currently in
-    ///  flight. Caller must hold `mutex_`.
+    ///  flight, preferring the reserved control/recovery lane over the data
+    ///  lanes. Caller must hold `mutex_`.
     void MaybeStartSendLocked();
 
     ///  Handles one `Send` completion: releases the delivered entry's
@@ -145,16 +193,26 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  Serializes all queue state.
     std::mutex mutex_;
 
-    ///  Data-lane entries in overall delivery order.
-    std::list<PendingEntry> pending_;
+    ///  Reserved-lane entries (initial/recovery snapshots) in delivery
+    ///  order, already fully encoded -- this lane carries no per-entry
+    ///  bookkeeping beyond its own slot count.
+    std::list<std::string> reservedPending_;
 
-    ///  Maps a Snapshot state area to its one pending slot in `pending_`.
+    ///  Data-lane entries in overall delivery order.
+    std::list<PendingEntry> dataPending_;
+
+    ///  Maps a Snapshot state area to its one pending slot in `dataPending_`.
     std::unordered_map<std::string, std::list<PendingEntry>::iterator>
         snapshotSlots_;
 
     ///  At most one retained Snapshot value per state area, awaiting
     ///  capacity.
     std::unordered_map<std::string, DirtyEntry> dirtyMarkers_;
+
+    ///  Each state area's recovery barrier: the revision established by its
+    ///  most recent `PublishRecoverySnapshot`, below or at which a
+    ///  `PublishEvent` for that area is superseded.
+    std::unordered_map<std::string, std::int64_t> barriers_;
 
     ///  Normal-lane slots currently occupied.
     std::size_t normalSlotsUsed_{0};
@@ -165,11 +223,19 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  Total encoded bytes currently occupying the data lanes.
     std::size_t totalBytesUsed_{0};
 
+    ///  Reserved-lane slots currently occupied.
+    std::size_t reservedSlotsUsed_{0};
+
     ///  Whether a `Send` is currently outstanding.
     bool sendInFlight_{false};
 
-    ///  Set once a reliable Event could not be admitted or a `Send` reported
-    ///  failure; further publications become no-ops.
+    ///  Whether the outstanding `Send`, if any, is draining `reservedPending_`
+    ///  rather than `dataPending_`.
+    bool sendingReserved_{false};
+
+    ///  Set once a reliable Event or reserved-lane message could not be
+    ///  admitted, or a `Send` reported failure; further publications become
+    ///  no-ops.
     bool stopped_{false};
 };
 

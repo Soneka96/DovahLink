@@ -1,6 +1,7 @@
 #include "application/outbound_publication_sink.hpp"
 
 #include "protocol/envelope.hpp"
+#include "protocol/state_event_payload.hpp"
 #include "security/constants.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -133,6 +134,41 @@ Envelope DecodeSent(const std::string& text) {
 ///  `kHeavyPublicationThresholdBytes` even before envelope overhead.
 constexpr std::size_t kHeavyFillerBytes =
     dovahlink::security::kHeavyPublicationThresholdBytes + 200;
+
+///  Builds a representative `state_event` envelope with a real, decodable
+///  revision -- unlike `BuildEventEnvelope`'s minimal filler-only payload,
+///  needed for the recovery-barrier tests to round-trip through
+///  `DecodeStateEventPayload`.
+Envelope BuildRevisionedEventEnvelope(const std::string& stateArea,
+                                      std::int64_t revision,
+                                      std::string messageId = "message-1") {
+    return Envelope{
+        .messageType = "state_event",
+        .messageId = std::move(messageId),
+        .sessionId = std::nullopt,
+        .correlationId = std::nullopt,
+        .payload = dovahlink::protocol::EncodeStateEventPayload(
+            dovahlink::protocol::StateEventPayload{
+                .stateArea = stateArea,
+                .baseRevision = revision - 1,
+                .revision = revision,
+                .occurredAt = "2026-01-01T00:00:00Z",
+                .data = {},
+            }),
+    };
+}
+
+///  Builds a representative recovery-snapshot envelope with a distinct
+///  `messageId` for delivery-order assertions.
+Envelope BuildRecoveryEnvelope(std::string messageId) {
+    return Envelope{
+        .messageType = "state_snapshot",
+        .messageId = std::move(messageId),
+        .sessionId = std::nullopt,
+        .correlationId = std::nullopt,
+        .payload = {},
+    };
+}
 
 } //  namespace
 
@@ -614,4 +650,249 @@ TEST_CASE("a dirty Snapshot promoted for an area that still has its own "
     }
     REQUIRE(areaFound);
     CHECK(areaDelivered.messageId == "area-v2-heavy");
+}
+
+TEST_CASE("PublishRecoverySnapshot is delivered through the reserved lane "
+          "ahead of already-queued data-lane traffic",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    REQUIRE(socket.SentMessages().size() == 1);
+
+    //  Admitted into the data lane, queued behind the in-flight blocker.
+    queue.PublishSnapshot("area-2", BuildSnapshotEnvelope());
+
+    queue.PublishRecoverySnapshot(
+        "recovery-area", BuildRecoveryEnvelope("recovery-1"), 5);
+
+    //  Completing the in-flight blocker must send the reserved recovery
+    //  snapshot next, even though area-2 was admitted into the data lane
+    //  first -- the reserved lane has priority.
+    socket.CompletePendingSend(true);
+
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 2);
+    CHECK(DecodeSent(sent.at(1)).messageId == "recovery-1");
+}
+
+TEST_CASE("PublishRecoverySnapshot stamps the queue's own sessionId, "
+          "overriding any value already on the envelope",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-99");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 1);
+    Envelope decoded = DecodeSent(sent.front());
+    REQUIRE(decoded.sessionId.has_value());
+    CHECK(*decoded.sessionId == "session-99");
+}
+
+TEST_CASE("PublishRecoverySnapshot supersedes already-queued Events for its "
+          "state area at or below its revision, leaving newer ones intact",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    REQUIRE(socket.SentMessages().size() == 1);
+
+    //  All three queued behind the in-flight blocker, not yet sent.
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 3, "event-3"));
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 4, "event-4"));
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 5, "event-5"));
+
+    //  Barrier at revision 4: "at or below" supersedes both event-3 and
+    //  event-4, but not event-5.
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  4);
+
+    socket.CompletePendingSend(true); //  blocker
+    socket.CompletePendingSend(true); //  recovery snapshot (reserved, priority)
+
+    auto sent = socket.SentMessages();
+    bool event3Delivered = false;
+    bool event4Delivered = false;
+    bool event5Delivered = false;
+    for (const auto& message : sent) {
+        auto id = DecodeSent(message).messageId;
+        if (id == "event-3")
+            event3Delivered = true;
+        if (id == "event-4")
+            event4Delivered = true;
+        if (id == "event-5")
+            event5Delivered = true;
+    }
+    CHECK_FALSE(event3Delivered);
+    CHECK_FALSE(event4Delivered);
+    CHECK(event5Delivered);
+    REQUIRE(sent.size() == 3); //  blocker, recovery, event-5 only
+}
+
+TEST_CASE("an Event submitted after a recovery barrier is established, with "
+          "revision at or below it, is discarded rather than queued",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  10);
+    REQUIRE(socket.SentMessages().size() == 1); //  the recovery snapshot itself
+
+    queue.PublishEvent(
+        "area", BuildRevisionedEventEnvelope("area", 10, "stale-event"));
+    queue.PublishEvent(
+        "area", BuildRevisionedEventEnvelope("area", 11, "fresh-event"));
+
+    //  Only the fresh Event (revision 11 > barrier 10) is ever admitted;
+    //  nothing new to send yet since the recovery snapshot is still in
+    //  flight.
+    CHECK(socket.SentMessages().size() == 1);
+
+    socket.CompletePendingSend(true); //  recovery snapshot
+
+    auto sent = socket.SentMessages();
+    bool staleDelivered = false;
+    bool freshDelivered = false;
+    for (const auto& message : sent) {
+        auto id = DecodeSent(message).messageId;
+        if (id == "stale-event")
+            staleDelivered = true;
+        if (id == "fresh-event")
+            freshDelivered = true;
+    }
+    CHECK_FALSE(staleDelivered);
+    CHECK(freshDelivered);
+}
+
+TEST_CASE("the reserved control/recovery lane disconnects the session once "
+          "its capacity is exhausted",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    for (std::size_t i = 0;
+         i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
+        queue.PublishRecoverySnapshot(
+            "area-" + std::to_string(i),
+            BuildRecoveryEnvelope("recovery-" + std::to_string(i)),
+            static_cast<std::int64_t>(i) + 1);
+    }
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    queue.PublishRecoverySnapshot("overflow-area",
+                                  BuildRecoveryEnvelope("recovery-overflow"),
+                                  999);
+
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("an Event already handed to Send is still delivered even though a "
+          "recovery barrier established afterward would otherwise supersede "
+          "it",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 3, "event-3"));
+    REQUIRE(socket.SentMessages().size() == 1); //  already in flight
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  4);
+
+    //  event-3 cannot be recalled -- it was already handed to Send before
+    //  the barrier existed.
+    CHECK(DecodeSent(socket.SentMessages().front()).messageId == "event-3");
+}
+
+TEST_CASE("an Event whose payload cannot be decoded into a revision is "
+          "still delivered under an active recovery barrier",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  10);
+    REQUIRE(socket.SentMessages().size() == 1);
+
+    //  BuildEventEnvelope's minimal payload has no stateArea/baseRevision/
+    //  revision/occurredAt fields, so DecodeStateEventPayload fails and this
+    //  Event's revision is unknown -- never treated as superseded.
+    queue.PublishEvent("area", BuildEventEnvelope());
+
+    socket.CompletePendingSend(true); //  recovery snapshot
+
+    CHECK(socket.SentMessages().size() == 2);
+}
+
+TEST_CASE("a failed Send while draining the reserved lane stops the queue "
+          "and disconnects the session",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+    REQUIRE(socket.SentMessages().size() == 1);
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    socket.CompletePendingSend(false);
+
+    CHECK(socket.ShutdownCalled());
+}
+
+TEST_CASE("the reserved lane admits a recovery snapshot regardless of the "
+          "data-lane byte budget",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    boost::json::object hugePayload;
+    hugePayload["filler"] = std::string(
+        dovahlink::security::kOutboundQueueByteBudget + 1024, 'x');
+    queue.PublishRecoverySnapshot(
+        "area",
+        Envelope{.messageType = "state_snapshot",
+                 .messageId = "recovery-huge",
+                 .sessionId = std::nullopt,
+                 .correlationId = std::nullopt,
+                 .payload = std::move(hugePayload)},
+        1);
+
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 1);
+    CHECK(DecodeSent(sent.front()).messageId == "recovery-huge");
+}
+
+TEST_CASE("recovery snapshot admission into the reserved lane is unaffected "
+          "by the data lanes being full",
+          "[application][outbound_publication_sink]") {
+    FakeOutboundSocket socket;
+    BoundedOutboundQueue queue(socket, "session-1");
+
+    for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
+        queue.PublishSnapshot("area-" + std::to_string(i),
+                              BuildSnapshotEnvelope());
+    }
+    CHECK_FALSE(socket.ShutdownCalled());
+
+    queue.PublishRecoverySnapshot("recovery-area",
+                                  BuildRecoveryEnvelope("recovery-1"), 1);
+
+    CHECK_FALSE(socket.ShutdownCalled());
+    //  Completing the in-flight data entry must send the reserved recovery
+    //  snapshot next, ahead of any remaining data-lane backlog.
+    socket.CompletePendingSend(true);
+    auto sent = socket.SentMessages();
+    REQUIRE(sent.size() == 2);
+    CHECK(DecodeSent(sent.at(1)).messageId == "recovery-1");
 }

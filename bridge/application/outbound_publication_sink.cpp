@@ -1,5 +1,6 @@
 #include "application/outbound_publication_sink.hpp"
 
+#include "protocol/state_event_payload.hpp"
 #include "security/constants.hpp"
 
 #include <utility>
@@ -46,17 +47,15 @@ bool BoundedOutboundQueue::CanReplaceLocked(QueueClass oldClass,
     return newLaneUsed < newLaneCapacity;
 }
 
-void BoundedOutboundQueue::ApplyAdmitNewLocked(std::string stateArea,
-                                               QueueClass queueClass,
-                                               std::string encoded) {
-    IncrementLaneLocked(queueClass);
-    totalBytesUsed_ += encoded.size();
-    pending_.push_back(PendingEntry{
-        .stateArea = stateArea,
-        .encoded = std::move(encoded),
-        .queueClass = queueClass,
-    });
-    snapshotSlots_[std::move(stateArea)] = std::prev(pending_.end());
+void BoundedOutboundQueue::ApplyAdmitNewLocked(PendingEntry entry) {
+    IncrementLaneLocked(entry.queueClass);
+    totalBytesUsed_ += entry.encoded.size();
+    bool isSnapshot = entry.isSnapshot;
+    std::string stateArea = entry.stateArea;
+    dataPending_.push_back(std::move(entry));
+    if (isSnapshot) {
+        snapshotSlots_[std::move(stateArea)] = std::prev(dataPending_.end());
+    }
 }
 
 void BoundedOutboundQueue::ApplyReplaceLocked(
@@ -108,35 +107,74 @@ void BoundedOutboundQueue::TryPromoteOneDirtyLocked() {
         if (slotIt != snapshotSlots_.end()) {
             ApplyReplaceLocked(slotIt->second, queueClass, std::move(encoded));
         } else {
-            ApplyAdmitNewLocked(std::move(area), queueClass,
-                                std::move(encoded));
+            ApplyAdmitNewLocked(PendingEntry{
+                .isSnapshot = true,
+                .stateArea = std::move(area),
+                .revision = std::nullopt,
+                .encoded = std::move(encoded),
+                .queueClass = queueClass,
+            });
         }
         return;
     }
 }
 
+void BoundedOutboundQueue::SupersedeQueuedEventsLocked(
+    const std::string& stateArea, std::int64_t revision) {
+    auto it = dataPending_.begin();
+    if (sendInFlight_ && !sendingReserved_ && it != dataPending_.end()) {
+        //  The front entry is already in flight; its bytes cannot be
+        //  recalled, matching ISocket::Send's own "no take-backs" contract.
+        ++it;
+    }
+    while (it != dataPending_.end()) {
+        if (!it->isSnapshot && it->stateArea == stateArea &&
+            it->revision.has_value() && *it->revision <= revision) {
+            totalBytesUsed_ -= it->encoded.size();
+            DecrementLaneLocked(it->queueClass);
+            it = dataPending_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void BoundedOutboundQueue::MaybeStartSendLocked() {
-    if (sendInFlight_ || pending_.empty()) {
+    if (sendInFlight_) {
         return;
     }
-    sendInFlight_ = true;
-    std::string next = pending_.front().encoded;
-    socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
+    if (!reservedPending_.empty()) {
+        sendInFlight_ = true;
+        sendingReserved_ = true;
+        std::string next = reservedPending_.front();
+        socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
+        return;
+    }
+    if (!dataPending_.empty()) {
+        sendInFlight_ = true;
+        sendingReserved_ = false;
+        std::string next = dataPending_.front().encoded;
+        socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
+    }
 }
 
 void BoundedOutboundQueue::OnSendComplete(bool ok) {
     std::lock_guard<std::mutex> lock(mutex_);
     sendInFlight_ = false;
-    if (pending_.empty()) {
-        return;
+    if (sendingReserved_) {
+        if (!reservedPending_.empty()) {
+            reservedPending_.pop_front();
+            --reservedSlotsUsed_;
+        }
+    } else if (!dataPending_.empty()) {
+        PendingEntry finished = std::move(dataPending_.front());
+        dataPending_.pop_front();
+        if (finished.isSnapshot) {
+            snapshotSlots_.erase(finished.stateArea);
+        }
+        DecrementLaneLocked(finished.queueClass);
+        totalBytesUsed_ -= finished.encoded.size();
     }
-    PendingEntry finished = std::move(pending_.front());
-    pending_.pop_front();
-    if (finished.stateArea.has_value()) {
-        snapshotSlots_.erase(*finished.stateArea);
-    }
-    DecrementLaneLocked(finished.queueClass);
-    totalBytesUsed_ -= finished.encoded.size();
 
     if (!ok) {
         //  Send's own contract leaves closing the connection to its caller
@@ -164,22 +202,29 @@ void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
 
     auto slotIt = snapshotSlots_.find(stateArea);
     bool hasSlot = slotIt != snapshotSlots_.end();
-    //  The front entry's `.encoded` has already been handed to socket_.Send()
-    //  by the time it is in flight (MaybeStartSendLocked copies it out before
-    //  calling Send) -- mutating it in place here would silently diverge the
-    //  wire bytes from what OnSendComplete's byte accounting assumes was
-    //  sent, and the caller's newer value would never actually reach the
-    //  peer. Route that case through the dirty marker instead so it is
-    //  applied only once this entry's completion has been accounted for.
-    bool slotInFlight =
-        hasSlot && sendInFlight_ && slotIt->second == pending_.begin();
+    //  The front data-lane entry's `.encoded` has already been handed to
+    //  socket_.Send() by the time it is in flight (MaybeStartSendLocked
+    //  copies it out before calling Send) -- mutating it in place here would
+    //  silently diverge the wire bytes from what OnSendComplete's byte
+    //  accounting assumes was sent, and the caller's newer value would never
+    //  actually reach the peer. Route that case through the dirty marker
+    //  instead so it is applied only once this entry's completion has been
+    //  accounted for.
+    bool slotInFlight = hasSlot && sendInFlight_ && !sendingReserved_ &&
+                        slotIt->second == dataPending_.begin();
 
     if (hasSlot && !slotInFlight &&
         CanReplaceLocked(slotIt->second->queueClass,
                          slotIt->second->encoded.size(), queueClass, bytes)) {
         ApplyReplaceLocked(slotIt->second, queueClass, std::move(encoded));
     } else if (!hasSlot && CanAdmitNewLocked(queueClass, bytes)) {
-        ApplyAdmitNewLocked(std::move(stateArea), queueClass, std::move(encoded));
+        ApplyAdmitNewLocked(PendingEntry{
+            .isSnapshot = true,
+            .stateArea = std::move(stateArea),
+            .revision = std::nullopt,
+            .encoded = std::move(encoded),
+            .queueClass = queueClass,
+        });
     } else {
         dirtyMarkers_[std::move(stateArea)] =
             DirtyEntry{.encoded = std::move(encoded), .queueClass = queueClass};
@@ -190,11 +235,29 @@ void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
 
 void BoundedOutboundQueue::PublishEvent(std::string stateArea,
                                         protocol::Envelope envelope) {
-    (void)stateArea;
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopped_) {
         return;
     }
+
+    //  Decoded from the envelope this queue is itself handed, rather than
+    //  taken as a separate parameter: IOutboundPublicationSink::PublishEvent
+    //  is Stage 2's frozen contract and does not carry a revision field of
+    //  its own.
+    auto decodedPayload = protocol::DecodeStateEventPayload(envelope.payload);
+    std::optional<std::int64_t> revision;
+    if (decodedPayload.has_value()) {
+        revision = decodedPayload->revision;
+    }
+
+    auto barrierIt = barriers_.find(stateArea);
+    if (barrierIt != barriers_.end() && revision.has_value() &&
+        *revision <= barrierIt->second) {
+        //  Superseded by an already-accepted recovery snapshot for this
+        //  state area -- discarded rather than delivered after it.
+        return;
+    }
+
     envelope.sessionId = sessionId_;
     std::string encoded = protocol::EncodeEnvelope(envelope);
     QueueClass queueClass = Classify(encoded);
@@ -209,13 +272,41 @@ void BoundedOutboundQueue::PublishEvent(std::string stateArea,
         return;
     }
 
-    IncrementLaneLocked(queueClass);
-    totalBytesUsed_ += bytes;
-    pending_.push_back(PendingEntry{
-        .stateArea = std::nullopt,
+    ApplyAdmitNewLocked(PendingEntry{
+        .isSnapshot = false,
+        .stateArea = std::move(stateArea),
+        .revision = revision,
         .encoded = std::move(encoded),
         .queueClass = queueClass,
     });
+
+    MaybeStartSendLocked();
+}
+
+void BoundedOutboundQueue::PublishRecoverySnapshot(std::string stateArea,
+                                                   protocol::Envelope envelope,
+                                                   std::int64_t revision) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopped_) {
+        return;
+    }
+
+    SupersedeQueuedEventsLocked(stateArea, revision);
+    barriers_[stateArea] = revision;
+
+    if (reservedSlotsUsed_ >= security::kReservedControlRecoverySlots) {
+        //  ai/context/protocol/security.md's "Input limits": "If reserved
+        //  control/recovery capacity is full, the client is marked
+        //  unavailable and the connection is closed."
+        stopped_ = true;
+        socket_.Shutdown();
+        return;
+    }
+
+    envelope.sessionId = sessionId_;
+    std::string encoded = protocol::EncodeEnvelope(envelope);
+    ++reservedSlotsUsed_;
+    reservedPending_.push_back(std::move(encoded));
 
     MaybeStartSendLocked();
 }
