@@ -12,7 +12,7 @@
 
 namespace dovahlink::application {
 
-StatePublisher::StatePublisher(RevisionTracker& revisionTracker,
+StatePublisher::StatePublisher(IRevisionTracker& revisionTracker,
                                IOutboundPublicationSink& sink)
     : revisionTracker_(revisionTracker), sink_(sink) {}
 
@@ -36,7 +36,7 @@ bool StatePublisher::PublishSnapshot(
     std::lock_guard<std::mutex> publicationLock(*publicationMutex);
 
     std::optional<protocol::Envelope> envelope =
-        revisionTracker_.CommitSnapshotIfBuilt(
+        revisionTracker_.CommitSnapshotEnvelopeIfBuilt(
             stateArea, fingerprint,
             [&, data = std::move(data)](
                 std::int64_t revision) mutable -> std::optional<protocol::Envelope> {
@@ -65,7 +65,7 @@ bool StatePublisher::PublishEvent(
     auto publicationMutex = PublicationMutexFor(stateArea);
     std::lock_guard<std::mutex> publicationLock(*publicationMutex);
 
-    auto envelope = revisionTracker_.CommitEventIfBuilt(
+    auto envelope = revisionTracker_.CommitEventEnvelopeIfBuilt(
         stateArea,
         [&, data = std::move(data)](
             std::int64_t baseRevision,

@@ -1,6 +1,9 @@
 #pragma once
 
+#include "protocol/envelope.hpp"
+
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -23,10 +26,12 @@ namespace dovahlink::application {
 ///
 ///  `CommitSnapshotIfBuilt` and `CommitEventIfBuilt` are declared only on the
 ///  concrete `RevisionTracker` below, not on this interface: they are template
-///  methods, and C++ cannot express a template as `virtual`. This is the one
-///  narrowing on this interface driven by a hard language constraint rather
-///  than by a consumer's actual needs; a future consumer of either specific
-///  method must depend on the concrete type.
+///  methods, and C++ cannot express a template as `virtual`. `CommitSnapshotEnvelopeIfBuilt`
+///  and `CommitEventEnvelopeIfBuilt` below give an interface-level consumer the
+///  same atomic-commit guarantee without depending on the concrete type, by
+///  fixing the builder's return type to `protocol::Envelope` -- the one
+///  concrete shape every current and anticipated caller actually builds --
+///  instead of leaving it generic.
 class IRevisionTracker {
   public:
     ///  Releases the interface without performing work.
@@ -78,6 +83,41 @@ class IRevisionTracker {
     ///  @return Current revision, or no value when untracked.
     [[nodiscard]] virtual std::optional<std::int64_t>
     CurrentRevision(const std::string& stateArea) const = 0;
+
+    ///  Interface-level equivalent of `RevisionTracker::CommitSnapshotIfBuilt`,
+    ///  with the builder's return type fixed to `protocol::Envelope` so this
+    ///  method can be virtual. See that method's own documentation for the
+    ///  atomicity and locking contract, which this preserves exactly.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @param fingerprint Caller-computed representation of the captured
+    ///  state, or no value to always advance.
+    ///  @param buildSnapshot Builds this call's envelope from the revision it
+    ///  assigns. No value leaves the tracker's revision for this area
+    ///  unchanged.
+    ///  @return Whatever `buildSnapshot` returned.
+    [[nodiscard]] virtual std::optional<protocol::Envelope>
+    CommitSnapshotEnvelopeIfBuilt(
+        const std::string& stateArea,
+        const std::optional<std::string>& fingerprint,
+        std::function<std::optional<protocol::Envelope>(std::int64_t)>
+            buildSnapshot) = 0;
+
+    ///  Interface-level equivalent of `RevisionTracker::CommitEventIfBuilt`,
+    ///  with the builder's return type fixed to `protocol::Envelope` so this
+    ///  method can be virtual. See that method's own documentation for the
+    ///  atomicity and locking contract, which this preserves exactly.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @param buildEvent Builds this call's envelope from its base and
+    ///  assigned revisions. No value leaves the tracker's revision for this
+    ///  area unchanged.
+    ///  @return Whatever `buildEvent` returned, or no value when no baseline
+    ///  exists.
+    [[nodiscard]] virtual std::optional<protocol::Envelope>
+    CommitEventEnvelopeIfBuilt(
+        const std::string& stateArea,
+        std::function<std::optional<protocol::Envelope>(std::int64_t,
+                                                        std::int64_t)>
+            buildEvent) = 0;
 };
 
 ///  @copydoc IRevisionTracker
@@ -166,6 +206,22 @@ class RevisionTracker final : public IRevisionTracker {
     ///  @copydoc IRevisionTracker::CurrentRevision
     [[nodiscard]] std::optional<std::int64_t>
     CurrentRevision(const std::string& stateArea) const override;
+
+    ///  @copydoc IRevisionTracker::CommitSnapshotEnvelopeIfBuilt
+    [[nodiscard]] std::optional<protocol::Envelope>
+    CommitSnapshotEnvelopeIfBuilt(
+        const std::string& stateArea,
+        const std::optional<std::string>& fingerprint,
+        std::function<std::optional<protocol::Envelope>(std::int64_t)>
+            buildSnapshot) override;
+
+    ///  @copydoc IRevisionTracker::CommitEventEnvelopeIfBuilt
+    [[nodiscard]] std::optional<protocol::Envelope>
+    CommitEventEnvelopeIfBuilt(
+        const std::string& stateArea,
+        std::function<std::optional<protocol::Envelope>(std::int64_t,
+                                                        std::int64_t)>
+            buildEvent) override;
 
   private:
     ///  Computes the next revision from the already-locked `currentRevision_`,

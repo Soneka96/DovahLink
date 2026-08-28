@@ -53,16 +53,12 @@ class IStatePublisher {
 class StatePublisher final : public IStatePublisher {
   public:
     ///  Binds the publisher to its revision authority and outbound sink.
-    ///  `RevisionTracker` is the concrete type rather than
-    ///  `IRevisionTracker` because `CommitSnapshotIfBuilt` and
-    ///  `CommitEventIfBuilt` -- required here to assign revisions and build
-    ///  envelopes atomically under one lock -- are declared only on the
-    ///  concrete class (see its own doc comment for why the interface cannot
-    ///  express them).
     ///  @param revisionTracker Authoritative per-state-area revision
-    ///  ordering.
+    ///  ordering, reached through `CommitSnapshotEnvelopeIfBuilt`/
+    ///  `CommitEventEnvelopeIfBuilt` to assign revisions and build envelopes
+    ///  atomically under one lock.
     ///  @param sink Receives built publications.
-    StatePublisher(RevisionTracker& revisionTracker,
+    StatePublisher(IRevisionTracker& revisionTracker,
                    IOutboundPublicationSink& sink);
 
     ///  @copydoc IStatePublisher::PublishSnapshot
@@ -82,7 +78,7 @@ class StatePublisher final : public IStatePublisher {
     PublicationMutexFor(const std::string& stateArea);
 
     ///  Authoritative per-state-area revision ordering.
-    RevisionTracker& revisionTracker_;
+    IRevisionTracker& revisionTracker_;
 
     ///  Receives built publications.
     IOutboundPublicationSink& sink_;
