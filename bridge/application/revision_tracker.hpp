@@ -21,12 +21,12 @@ namespace dovahlink::application {
 ///  be shared across the play-context lifetime rather than owned by one serial
 ///  connection, so it may be read and advanced from more than one thread.
 ///
-///  `CommitSnapshotIfBuilt` is declared only on the concrete `RevisionTracker`
-///  below, not on this interface: it is a template method, and C++ cannot
-///  express a template as `virtual`. This is the one narrowing on this
-///  interface driven by a hard language constraint rather than by a
-///  consumer's actual needs; a future consumer of that specific method must
-///  depend on the concrete type.
+///  `CommitSnapshotIfBuilt` and `CommitEventIfBuilt` are declared only on the
+///  concrete `RevisionTracker` below, not on this interface: they are template
+///  methods, and C++ cannot express a template as `virtual`. This is the one
+///  narrowing on this interface driven by a hard language constraint rather
+///  than by a consumer's actual needs; a future consumer of either specific
+///  method must depend on the concrete type.
 class IRevisionTracker {
   public:
     ///  Releases the interface without performing work.
@@ -123,6 +123,38 @@ class RevisionTracker final : public IRevisionTracker {
         auto result = buildSnapshot(next);
         if (result.has_value()) {
             currentRevision_[stateArea] = {next, fingerprint};
+        }
+        return result;
+    }
+
+    ///  Computes the next event revision pair and commits the new revision,
+    ///  atomically, only if `buildEvent` succeeds -- both under the same lock,
+    ///  so a failed event build cannot consume a revision or allow another
+    ///  event for the same state area to commit between calculation and build.
+    ///  A state area without a snapshot baseline returns an empty result without
+    ///  invoking `buildEvent`.
+    ///  @param stateArea Canonical state-area identifier.
+    ///  @param buildEvent Builds this call's result from its base and assigned
+    ///  revisions. A result with no value leaves the tracker's revision for this
+    ///  area unchanged.
+    ///  @return Whatever `buildEvent` returned, or an empty result when no
+    ///  baseline exists.
+    template <typename BuildFn>
+    auto CommitEventIfBuilt(const std::string& stateArea,
+                            BuildFn&& buildEvent) {
+        using Result = decltype(buildEvent(std::int64_t{}, std::int64_t{}));
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = currentRevision_.find(stateArea);
+        if (it == currentRevision_.end()) {
+            return Result{};
+        }
+
+        std::int64_t baseRevision = it->second.first;
+        std::int64_t revision = baseRevision + 1;
+        auto result = buildEvent(baseRevision, revision);
+        if (result.has_value()) {
+            it->second.first = revision;
         }
         return result;
     }
