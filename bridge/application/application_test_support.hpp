@@ -1,6 +1,7 @@
 #pragma once
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
@@ -379,6 +380,13 @@ class MockRegisteredStateAreaPolicy : public IRegisteredStateAreaPolicy {
   public:
     MOCK_METHOD(bool, TryRegister, (std::string), (override));
     MOCK_METHOD(bool, IsRegistered, (const std::string&), (const, override));
+};
+
+///  GoogleMock active-play-context pinned-provider contract double.
+class MockActivePlayContextProvider : public IActivePlayContextProvider {
+  public:
+    MOCK_METHOD(std::shared_ptr<PlayContext>, CurrentPlayContext, (),
+                (const, override));
 };
 
 } //  namespace dovahlink::application::test_support
