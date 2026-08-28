@@ -88,22 +88,21 @@ duplicate equivalent Skyrim reads.
 ### Production capture and lifecycle composition
 
 The production plugin composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) constructs and
-injects one instance each of `CapturePolicyRegistry`, `CadenceScheduler`, `ActivePlayContextProvider`,
+injects one instance each of `CadenceScheduler`, `ActivePlayContextProvider`,
 `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
 `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, `CadenceTickDriver`, and
 `SessionPublicationFactory`, as function-local statics in the same dependency-ordered style already
-used for pairing, trust, and session components. There is no process-lifetime revision tracker:
-revisions belong to whichever `PlayContext` a capture is pinned against, reached through
-`ActivePlayContextProvider`, so a new save/new game always starts from a fresh, empty revision
-sequence rather than inheriting the previous context's. 4.2 registers zero state areas through
-`RegisteredStateAreaPolicy`; its fixed bound exists so the mechanism -- and every consumer that
-depends on "the registered-area count is fixed and bounded" -- is real and tested before a later
-phase fills it with production character domains. `RegisteredStateAreaPolicy` has a real caller in
-this composition: `ActivePlayContextLevelSink`'s native-event gate below. `CapturePolicyRegistry`
-does not -- nothing in 4.2 has a capture policy to classify, since classifying a policy presupposes
-a registered domain and Phase 4.3 is what supplies the first one. This is a deliberately narrower
-state than "constructed and injected" implies for `CapturePolicyRegistry` specifically; it is not
-yet passed to any consumer's constructor, and this criterion is not claimed complete.
+used for pairing, trust, and session components. It also constructs `CapturePolicyRegistry`, but does
+not inject it into any consumer -- nothing in 4.2 has a capture policy to classify, since classifying
+a policy presupposes a registered domain and Phase 4.3 is what supplies the first one; this criterion
+is not claimed complete. There is no process-lifetime revision tracker: revisions belong to whichever
+`PlayContext` a capture is pinned against, reached through `ActivePlayContextProvider`, so a new
+save/new game always starts from a fresh, empty revision sequence rather than inheriting the previous
+context's. 4.2 registers zero state areas through `RegisteredStateAreaPolicy`; its fixed bound exists
+so the mechanism -- and every consumer that depends on "the registered-area count is fixed and
+bounded" -- is real and tested before a later phase fills it with production character domains.
+`RegisteredStateAreaPolicy` has a real caller in this composition: `ActivePlayContextLevelSink`'s
+native-event gate below.
 
 `SessionPublicationFactory` still depends on the concrete `ActiveSessionPublicationRouter`, not an
 interface, for a reason recorded in that class's own doc comment
@@ -185,12 +184,17 @@ once Phase 4.3 registers a real Event-mode domain and its actual load is known.
 
 `CadenceTickDriver` is the approved game-thread tick source for sampled capture. It owns a dedicated
 background thread that wakes at a fixed 100 ms interval -- finer than the fastest `RateClass::kFast`
-capture period, so a due key is never delayed by more than one tick -- and calls
-`SKSE::TaskInterface::AddTask` to marshal execution onto the game thread; the marshaled task pins the
-active play context once, before checking `ICadenceScheduler::DueKeys(now)`, skipping the whole
-due-key check when no context is active, and reuses that same pinned context -- the same
-guard-then-pin snapshot native-event capture uses -- for every due key found in that tick, handing
-each to `CaptureDispatchWorker`. This was chosen over hooking the engine's own update loop:
+capture period -- and, when no previously marshaled tick is still pending, calls
+`SKSE::TaskInterface::AddTask` to marshal a due-key check onto the game thread. The 100 ms figure
+bounds only how often the driver attempts that submission, not when the check actually executes:
+`AddTask` queues the task on SKSE's own task queue, drained at SKSE's own pace, and the driver holds
+off submitting a new tick at all while the previous one remains pending, so a slow-draining queue (a
+stalled or hitching game) pushes the next due-key check later than one interval rather than queuing a
+second one behind it. Once it runs, the marshaled task pins the active play context once, before
+checking `ICadenceScheduler::DueKeys(now)`, skipping the whole due-key check when no context is
+active, and reuses that same pinned context -- the same guard-then-pin snapshot native-event capture
+uses -- for every due key found in that tick, handing each to `CaptureDispatchWorker`. This was
+chosen over hooking the engine's own update loop:
 `SKSE::TaskInterface` is SKSE's own supported mechanism for safely running code on the game thread and
 requires no new engine hook, memory patch, or Address Library offset, keeping with this document's
 general preference against engine hooking (the `bAchievementCompat` patch documented in

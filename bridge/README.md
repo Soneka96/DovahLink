@@ -256,11 +256,13 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
 ## Production capture and lifecycle composition without a live registered domain
 
 The production composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) wires the full capture,
-worker-handoff, and publication-routing chain -- `CapturePolicyRegistry`, `CadenceScheduler`,
+worker-handoff, and publication-routing chain -- `CadenceScheduler`,
 `ActivePlayContextProvider`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`,
 `StatePublisher`, `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, and
 `CadenceTickDriver` -- while zero state areas are registered and no per-session queue is ever
-attached to `ActiveSessionPublicationRouter` in production. This is deliberate: no protocol state
+attached to `ActiveSessionPublicationRouter` in production. It also constructs `CapturePolicyRegistry`,
+but nothing in this graph consumes it (see "Stage 5 limitations not solved by this design" below).
+This is deliberate: no protocol state
 area exists yet (`protocol/schema/README.md`'s "Registered state areas" retired the previous
 `character` aggregate and registers nothing new), so there is nothing real to publish. The mechanism
 is still built and tested against a real production graph so a later phase registers a domain into
