@@ -338,6 +338,8 @@ class MockPublicationDiagnostics : public IPublicationDiagnostics {
                 (std::size_t, std::size_t, std::size_t, std::size_t),
                 (override));
     MOCK_METHOD(void, RecordCoalesced, (std::string_view), (override));
+    MOCK_METHOD(void, RecordEnqueueLatency,
+                (std::chrono::steady_clock::duration), (override));
     MOCK_METHOD(void, RecordDequeueLatency,
                 (std::chrono::steady_clock::duration), (override));
     MOCK_METHOD(void, RecordRecovery,

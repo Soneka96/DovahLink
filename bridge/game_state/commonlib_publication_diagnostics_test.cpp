@@ -35,13 +35,16 @@ TEST_CASE("CommonLibPublicationDiagnostics logs every reported signal and "
         source, "void CommonLibPublicationDiagnostics::RecordCoalesced("));
     CHECK(dovahlink::test_support::ContainsSourceText(
         source,
+        "void CommonLibPublicationDiagnostics::RecordEnqueueLatency("));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source,
         "void CommonLibPublicationDiagnostics::RecordDequeueLatency("));
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "void CommonLibPublicationDiagnostics::RecordRecovery("));
     CHECK(dovahlink::test_support::ContainsSourceText(
         source, "void CommonLibPublicationDiagnostics::RecordDisconnect("));
 
-    //  Five Record* methods, each forwarding to SKSE::log::info exactly once,
+    //  Six Record* methods, each forwarding to SKSE::log::info exactly once,
     //  tagged with the same "[publication]" prefix.
     std::size_t loggedCount = 0;
     std::size_t taggedCount = 0;
@@ -56,8 +59,8 @@ TEST_CASE("CommonLibPublicationDiagnostics logs every reported signal and "
         }
         position += 1;
     }
-    CHECK(loggedCount == 5);
-    CHECK(taggedCount == 5);
+    CHECK(loggedCount == 6);
+    CHECK(taggedCount == 6);
 
     CHECK(source.find("case application::DisconnectReason::kReservedLaneFull:") !=
           std::string::npos);

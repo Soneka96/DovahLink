@@ -35,6 +35,13 @@ void CommonLibPublicationDiagnostics::RecordCoalesced(
     SKSE::log::info("[publication] coalesced state_area={}", stateArea);
 }
 
+void CommonLibPublicationDiagnostics::RecordEnqueueLatency(
+    std::chrono::steady_clock::duration latency) {
+    SKSE::log::info(
+        "[publication] enqueue_latency_us={}",
+        std::chrono::duration_cast<std::chrono::microseconds>(latency).count());
+}
+
 void CommonLibPublicationDiagnostics::RecordDequeueLatency(
     std::chrono::steady_clock::duration latency) {
     SKSE::log::info(

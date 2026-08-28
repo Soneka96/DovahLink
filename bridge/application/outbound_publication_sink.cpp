@@ -277,6 +277,7 @@ void BoundedOutboundQueue::OnSendComplete(bool ok) noexcept {
 
 void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
                                            protocol::Envelope envelope) {
+    const auto submittedAt = std::chrono::steady_clock::now();
     std::optional<std::string> next;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -327,6 +328,8 @@ void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
 
         next = MaybeStartSendLocked();
     }
+    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
+                                      submittedAt);
     if (next.has_value()) {
         DispatchSend(std::move(*next));
     }
@@ -334,8 +337,10 @@ void BoundedOutboundQueue::PublishSnapshot(std::string stateArea,
 
 void BoundedOutboundQueue::PublishEvent(std::string stateArea,
                                         protocol::Envelope envelope) {
+    const auto submittedAt = std::chrono::steady_clock::now();
     std::optional<std::string> next;
     bool disconnect = false;
+    bool enqueueDecided = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (stopped_) {
@@ -351,28 +356,33 @@ void BoundedOutboundQueue::PublishEvent(std::string stateArea,
         auto barrierIt = barriers_.find(stateArea);
         if (barrierIt != barriers_.end() && revision.has_value() &&
             *revision <= barrierIt->second) {
-            return;
-        }
-
-        envelope.sessionId = sessionId_;
-        std::string encoded = protocol::EncodeEnvelope(envelope);
-        QueueClass queueClass = Classify(encoded);
-        std::size_t bytes = encoded.size();
-
-        if (!CanAdmitNewLocked(queueClass, bytes)) {
-            stopped_ = true;
-            diagnostics_.RecordDisconnect(DisconnectReason::kEventOverflow);
-            disconnect = true;
+            enqueueDecided = true;
         } else {
-            ApplyAdmitNewLocked(PendingEntry{
-                .isSnapshot = false,
-                .stateArea = std::move(stateArea),
-                .revision = revision,
-                .encoded = std::move(encoded),
-                .queueClass = queueClass,
-            });
-            next = MaybeStartSendLocked();
+            envelope.sessionId = sessionId_;
+            std::string encoded = protocol::EncodeEnvelope(envelope);
+            QueueClass queueClass = Classify(encoded);
+            std::size_t bytes = encoded.size();
+
+            if (!CanAdmitNewLocked(queueClass, bytes)) {
+                stopped_ = true;
+                diagnostics_.RecordDisconnect(DisconnectReason::kEventOverflow);
+                disconnect = true;
+            } else {
+                ApplyAdmitNewLocked(PendingEntry{
+                    .isSnapshot = false,
+                    .stateArea = std::move(stateArea),
+                    .revision = revision,
+                    .encoded = std::move(encoded),
+                    .queueClass = queueClass,
+                });
+                next = MaybeStartSendLocked();
+            }
+            enqueueDecided = true;
         }
+    }
+    if (enqueueDecided) {
+        diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
+                                          submittedAt);
     }
     if (disconnect) {
         socket_.Shutdown();
@@ -384,6 +394,7 @@ void BoundedOutboundQueue::PublishEvent(std::string stateArea,
 void BoundedOutboundQueue::PublishRecoverySnapshot(
     std::string stateArea, protocol::Envelope envelope,
     std::int64_t revision) {
+    const auto submittedAt = std::chrono::steady_clock::now();
     std::optional<std::string> next;
     bool disconnect = false;
     {
@@ -404,6 +415,8 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(
             next = MaybeStartSendLocked();
         }
     }
+    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
+                                      submittedAt);
     if (disconnect) {
         socket_.Shutdown();
     } else if (next.has_value()) {
@@ -412,6 +425,7 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(
 }
 
 void BoundedOutboundQueue::PublishControl(protocol::Envelope envelope) {
+    const auto submittedAt = std::chrono::steady_clock::now();
     std::optional<std::string> next;
     bool disconnect = false;
     {
@@ -427,6 +441,8 @@ void BoundedOutboundQueue::PublishControl(protocol::Envelope envelope) {
             next = MaybeStartSendLocked();
         }
     }
+    diagnostics_.RecordEnqueueLatency(std::chrono::steady_clock::now() -
+                                      submittedAt);
     if (disconnect) {
         socket_.Shutdown();
     } else if (next.has_value()) {

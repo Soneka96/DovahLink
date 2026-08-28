@@ -43,6 +43,15 @@ class IPublicationDiagnostics {
     ///  @param stateArea State area whose pending slot was replaced.
     virtual void RecordCoalesced(std::string_view stateArea) = 0;
 
+    ///  Reports the time an accepted publication spent from submission until
+    ///  its enqueue decision completed. The decision may admit a new entry,
+    ///  replace a pending Snapshot, retain a bounded dirty marker, discard an
+    ///  obsolete Event, or stop the session for an overflow.
+    ///  @param latency Elapsed time between publication submission and the
+    ///  completed enqueue decision.
+    virtual void RecordEnqueueLatency(
+        std::chrono::steady_clock::duration latency) = 0;
+
     ///  Reports the time one data- or reserved-lane entry spent admitted in
     ///  the queue before its delivery completed.
     ///  @param latency Elapsed time between admission and delivery

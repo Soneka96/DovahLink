@@ -26,6 +26,10 @@ class CommonLibPublicationDiagnostics final
     ///  @copydoc application::IPublicationDiagnostics::RecordCoalesced
     void RecordCoalesced(std::string_view stateArea) override;
 
+    ///  @copydoc application::IPublicationDiagnostics::RecordEnqueueLatency
+    void RecordEnqueueLatency(
+        std::chrono::steady_clock::duration latency) override;
+
     ///  @copydoc application::IPublicationDiagnostics::RecordDequeueLatency
     void RecordDequeueLatency(
         std::chrono::steady_clock::duration latency) override;

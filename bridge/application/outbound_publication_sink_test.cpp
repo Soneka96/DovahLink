@@ -37,6 +37,15 @@ using testing::StrictMock;
 
 namespace {
 
+///  Allows a test focused on another diagnostic signal to ignore the
+///  enqueue-latency observation emitted for every accepted submission.
+void AllowEnqueueLatency(MockPublicationDiagnostics& diagnostics) {
+    EXPECT_CALL(diagnostics,
+                RecordEnqueueLatency(testing::Ge(
+                    std::chrono::steady_clock::duration::zero())))
+        .Times(testing::AnyNumber());
+}
+
 ///  Reads the outbound queue source for structural lifetime and storage
 ///  assertions that do not expose private state to production.
 std::string ReadOutboundPublicationSource() {
@@ -376,6 +385,12 @@ TEST_CASE("a Send completion arriving after queue destruction is ignored",
 TEST_CASE("queue destruction waits for a completion already using queue state",
           "[application][outbound_publication_sink][lifetime]") {
     using namespace std::chrono_literals;
+
+    const std::string source = ReadOutboundPublicationSource();
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "completionState_->changed.wait("));
+    CHECK(dovahlink::test_support::ContainsSourceText(
+        source, "completionState_->callbacksInFlight == 0"));
 
     std::binary_semaphore completionEntered{0};
     std::binary_semaphore releaseCompletion{0};
@@ -1408,6 +1423,7 @@ TEST_CASE("BoundedOutboundQueue reports queue depth after admission and "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     {
         testing::InSequence sequence;
         EXPECT_CALL(diagnostics,
@@ -1425,6 +1441,7 @@ TEST_CASE("PublishSnapshot reports coalescing when it replaces a pending, "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1443,6 +1460,7 @@ TEST_CASE("PublishSnapshot reports a non-negative dequeue latency once its "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1460,6 +1478,7 @@ TEST_CASE("PublishRecoverySnapshot reports the number of already-queued "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1485,6 +1504,7 @@ TEST_CASE("PublishRecoverySnapshot reports a non-negative dequeue latency "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1503,6 +1523,7 @@ TEST_CASE("the reserved-lane-full disconnect reports kReservedLaneFull",
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1530,6 +1551,7 @@ TEST_CASE("an Event overflow disconnect reports kEventOverflow",
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1548,6 +1570,7 @@ TEST_CASE("a failed Send disconnect reports kSendFailed, after still "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1569,6 +1592,7 @@ TEST_CASE("PublishEvent reports a non-negative dequeue latency once its "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1586,6 +1610,7 @@ TEST_CASE("AdmitReservedOrDisconnectLocked reports reserved-lane queue "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics, RecordQueueDepth(0, 0, 1, std::size_t{0}));
     EXPECT_CALL(diagnostics,
                 RecordRecovery(testing::_, testing::_, testing::_));
@@ -1600,6 +1625,7 @@ TEST_CASE("a dirty Snapshot promoted into an existing slot reports "
           "[application][outbound_publication_sink][diagnostics]") {
     FakeOutboundSocket socket;
     StrictMock<MockPublicationDiagnostics> diagnostics;
+    AllowEnqueueLatency(diagnostics);
     EXPECT_CALL(diagnostics,
                 RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
         .Times(testing::AnyNumber());
@@ -1645,4 +1671,83 @@ TEST_CASE("a dirty Snapshot promoted into an existing slot reports "
     //  original slot -- the coalescing report this test proves.
     socket.CompletePendingSend(true); //  blocker
     socket.CompletePendingSend(true); //  heavy-0
+}
+
+TEST_CASE("BoundedOutboundQueue reports enqueue latency for admission, "
+          "replacement, and bounded deferral",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    std::vector<std::chrono::steady_clock::duration> latencies;
+    EXPECT_CALL(diagnostics,
+                RecordEnqueueLatency(testing::Ge(
+                    std::chrono::steady_clock::duration::zero())))
+        .Times(8)
+        .WillRepeatedly(testing::Invoke(
+            [&latencies](std::chrono::steady_clock::duration latency) {
+                latencies.push_back(latency);
+            }));
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordCoalesced(testing::_))
+        .Times(testing::AnyNumber());
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    for (std::size_t i = 0; i < dovahlink::security::kHeavyDataSlots; ++i) {
+        queue.PublishSnapshot("heavy-" + std::to_string(i),
+                              BuildSnapshotEnvelope(kHeavyFillerBytes));
+    }
+
+    //  The existing Normal slot cannot change class while all Heavy slots
+    //  are occupied, so this submission completes as a bounded dirty-marker
+    //  decision rather than waiting or disconnecting.
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope(kHeavyFillerBytes));
+
+    REQUIRE(latencies.size() == 8);
+    for (const auto latency : latencies) {
+        CHECK(latency >= std::chrono::steady_clock::duration::zero());
+    }
+}
+
+TEST_CASE("BoundedOutboundQueue reports enqueue latency for Event and "
+          "reserved-lane overflow decisions",
+          "[application][outbound_publication_sink][diagnostics]") {
+    SECTION("Event overflow") {
+        FakeOutboundSocket socket;
+        NiceMock<MockPublicationDiagnostics> diagnostics;
+        EXPECT_CALL(diagnostics,
+                    RecordEnqueueLatency(testing::Ge(
+                        std::chrono::steady_clock::duration::zero())))
+            .Times(dovahlink::security::kNormalDataSlots + 1);
+        EXPECT_CALL(diagnostics,
+                    RecordDisconnect(DisconnectReason::kEventOverflow));
+        BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+        for (std::size_t i = 0;
+             i < dovahlink::security::kNormalDataSlots + 1; ++i) {
+            queue.PublishEvent("area", BuildEventEnvelope());
+        }
+    }
+
+    SECTION("reserved-lane overflow") {
+        FakeOutboundSocket socket;
+        NiceMock<MockPublicationDiagnostics> diagnostics;
+        EXPECT_CALL(diagnostics,
+                    RecordEnqueueLatency(testing::Ge(
+                        std::chrono::steady_clock::duration::zero())))
+            .Times(dovahlink::security::kReservedControlRecoverySlots + 1);
+        EXPECT_CALL(diagnostics,
+                    RecordDisconnect(DisconnectReason::kReservedLaneFull));
+        BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+        for (std::size_t i = 0;
+             i < dovahlink::security::kReservedControlRecoverySlots + 1; ++i) {
+            queue.PublishControl(BuildControlEnvelope("control-" +
+                                                      std::to_string(i)));
+        }
+    }
 }
