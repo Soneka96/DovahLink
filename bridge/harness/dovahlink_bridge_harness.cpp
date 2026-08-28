@@ -295,7 +295,7 @@ int main() {
         activeSessionPublicationRouter);
     NoOpCaptureQueueDiagnostics captureQueueDiagnostics;
     dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
-        statePublisher, captureQueueDiagnostics);
+        statePublisher, activePlayContextProvider, captureQueueDiagnostics);
     dovahlink::application::RegisteredStateAreaPolicy registeredStateAreaPolicy;
 
     //  Routes "increase_level" captures below into whichever play context is

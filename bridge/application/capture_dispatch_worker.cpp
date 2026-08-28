@@ -7,8 +7,10 @@
 namespace dovahlink::application {
 
 CaptureDispatchWorker::CaptureDispatchWorker(IStatePublisher& publisher,
+                                             IActivePlayContextProvider& activeContext,
                                              ICaptureQueueDiagnostics& diagnostics)
-    : publisher_(publisher), diagnostics_(diagnostics) {}
+    : publisher_(publisher), activeContext_(activeContext),
+      diagnostics_(diagnostics) {}
 
 CaptureDispatchWorker::~CaptureDispatchWorker() {
     Stop();
@@ -82,16 +84,25 @@ void CaptureDispatchWorker::WorkerLoop() {
 }
 
 void CaptureDispatchWorker::Dispatch(CaptureWorkItem item) {
-    switch (item.mode) {
-    case CaptureMode::kSnapshot:
-        publisher_.PublishSnapshot(item.stateArea, item.buildData(),
-                                   item.occurredAt);
-        return;
-    case CaptureMode::kEvent:
-        publisher_.PublishEvent(item.stateArea, item.buildData(),
-                                item.occurredAt);
+    if (activeContext_.CurrentPlayContext() != item.playContext) {
+        //  Already stale before any work started: the pinned context has
+        //  been replaced since this item was captured. Discarded, not
+        //  treated as an error.
         return;
     }
+
+    auto data = item.applyAndBuildIfChanged(*item.playContext);
+    if (!data.has_value()) {
+        return;
+    }
+
+    auto expectedContext = item.playContext;
+    auto stillCurrent = [this, expectedContext] {
+        return activeContext_.CurrentPlayContext() == expectedContext;
+    };
+    publisher_.PublishCapture(item.stateArea, item.playContext->id,
+                              item.playContext->revisions, item.mode,
+                              std::move(*data), item.occurredAt, stillCurrent);
 }
 
 } //  namespace dovahlink::application
