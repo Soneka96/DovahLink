@@ -231,24 +231,21 @@ TEST_CASE("SKSEPluginLoad constructs the production capture and lifecycle "
     CHECK(diagnosticsPos < factoryPos);
 }
 
-//  CaptureDispatchWorker and CadenceTickDriver each own their own background
-//  thread only once Start() is called; this proves the composition root
-//  actually starts both, alongside the coordinator, rather than leaving
-//  them constructed but inert.
-TEST_CASE("SKSEPluginLoad starts the capture worker and cadence tick driver "
-          "alongside the coordinator after kDataLoaded",
+//  CaptureDispatchWorker and CadenceTickDriver are coordinator-owned lifecycle
+//  dependencies; this proves the composition root injects them rather than
+//  starting them independently from the coordinator.
+TEST_CASE("SKSEPluginLoad gives the coordinator capture lifecycle ownership",
           "[plugin][composition]") {
     std::string source = ReadPluginSource();
 
     std::size_t dataLoadedPos = source.find("kDataLoaded) {");
     REQUIRE(dataLoadedPos != std::string::npos);
-    std::size_t coordinatorStartPos =
-        source.find("coordinator.Start();", dataLoadedPos);
-    REQUIRE(coordinatorStartPos != std::string::npos);
-    std::size_t workerStartPos =
-        source.find("captureDispatchWorker.Start();", coordinatorStartPos);
-    REQUIRE(workerStartPos != std::string::npos);
-    std::size_t tickStartPos =
-        source.find("cadenceTickDriver.Start();", workerStartPos);
-    REQUIRE(tickStartPos != std::string::npos);
+    CHECK(source.find(
+              "Coordinator coordinator(\n        callbackRegistry, "
+              "bridgeWorkerPool, bridgeTransport,\n        captureDispatchWorker, "
+              "cadenceTickDriver);") != std::string::npos);
+    CHECK(source.find("captureDispatchWorker.Start();", dataLoadedPos) ==
+          std::string::npos);
+    CHECK(source.find("cadenceTickDriver.Start();", dataLoadedPos) ==
+          std::string::npos);
 }

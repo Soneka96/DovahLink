@@ -383,7 +383,8 @@ SKSEPluginInfo(
                                   publicationDiagnostics);
 
     static dovahlink::application::Coordinator coordinator(
-        callbackRegistry, bridgeWorkerPool, bridgeTransport);
+        callbackRegistry, bridgeWorkerPool, bridgeTransport,
+        captureDispatchWorker, cadenceTickDriver);
 
     //  RE::PlayerCharacter is not valid before data loads, so the initial
     //  capture, event registration, worker pool, and transport startup are
@@ -414,8 +415,6 @@ SKSEPluginInfo(
             (void)coordinator.RunCallbackContained([] {
                 levelIncreaseHandler.HandleLevelIncrease();
                 coordinator.Start();
-                captureDispatchWorker.Start();
-                cadenceTickDriver.Start();
                 SKSE::log::info(
                     "DovahLink Bridge listening on loopback port {} (IPv4 and IPv6).",
                     kBridgePort);

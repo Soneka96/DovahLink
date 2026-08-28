@@ -2,6 +2,8 @@
 
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/cadence_tick_driver.hpp"
+#include "application/capture_dispatch_worker.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -17,11 +19,14 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::application::CaptureWorkItem;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
 using dovahlink::application::IBridgeCallbackRegistry;
 using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
+using dovahlink::application::ICadenceTickDriver;
+using dovahlink::application::ICaptureDispatchWorker;
 
 namespace {
 
@@ -31,6 +36,14 @@ enum class ShutdownFailureStage {
     kNone,
     ///  Callback unregistration throws.
     kUnregisterCallbacks,
+    ///  Cadence-driver stopping throws.
+    kStopCadence,
+    ///  Cadence-driver joining throws.
+    kJoinCadence,
+    ///  Capture-worker stopping throws.
+    kStopCapture,
+    ///  Capture-worker joining throws.
+    kJoinCapture,
     ///  Worker stopping throws.
     kStopWorkers,
     ///  Worker joining throws.
@@ -201,6 +214,78 @@ class NoopTransportLifecycle : public IBridgeTransport {
     std::binary_semaphore* releaseClose_ = nullptr;
 };
 
+///  Provides a capture worker with configurable startup behavior.
+class NoopCaptureDispatchWorker : public ICaptureDispatchWorker {
+  public:
+    ///  @copydoc ICaptureDispatchWorker::Start
+    void Start() override {
+        ++startCalls_;
+        if (throwOnStart_) {
+            throw std::runtime_error("configured capture startup failure");
+        }
+    }
+    ///  @copydoc ICaptureDispatchWorker::Stop
+    void Stop() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("capture.Stop");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kStopCapture);
+    }
+    ///  @copydoc ICaptureDispatchWorker::Join
+    void Join() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("capture.Join");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kJoinCapture);
+    }
+    ///  @copydoc ICaptureDispatchWorker::TryEnqueue
+    bool TryEnqueue(CaptureWorkItem) override { return false; }
+
+    ///  Number of capture-worker startup attempts.
+    int startCalls_ = 0;
+    ///  Whether capture-worker startup should throw.
+    bool throwOnStart_ = false;
+    ///  Optional log receiving shutdown stage names.
+    std::vector<std::string>* shutdownLog_ = nullptr;
+    ///  Lifecycle stage configured to throw.
+    ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
+};
+
+///  Provides a cadence driver with configurable startup behavior.
+class NoopCadenceTickDriver : public ICadenceTickDriver {
+  public:
+    ///  @copydoc ICadenceTickDriver::Start
+    void Start() override {
+        ++startCalls_;
+        if (throwOnStart_) {
+            throw std::runtime_error("configured cadence startup failure");
+        }
+    }
+    ///  @copydoc ICadenceTickDriver::Stop
+    void Stop() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("cadence.Stop");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kStopCadence);
+    }
+    ///  @copydoc ICadenceTickDriver::Join
+    void Join() override {
+        if (shutdownLog_ != nullptr) {
+            shutdownLog_->push_back("cadence.Join");
+        }
+        ThrowAtStage(failureStage_, ShutdownFailureStage::kJoinCadence);
+    }
+
+    ///  Number of cadence-driver startup attempts.
+    int startCalls_ = 0;
+    ///  Whether cadence-driver startup should throw.
+    bool throwOnStart_ = false;
+    ///  Optional log receiving shutdown stage names.
+    std::vector<std::string>* shutdownLog_ = nullptr;
+    ///  Lifecycle stage configured to throw.
+    ShutdownFailureStage failureStage_ = ShutdownFailureStage::kNone;
+};
+
 ///  Bundles configurable coordinator dependencies for each failure-path test.
 struct Fixture {
     ///  Provides callback lifecycle behavior.
@@ -209,8 +294,13 @@ struct Fixture {
     NoopWorkerPool workers;
     ///  Provides transport lifecycle behavior.
     NoopTransportLifecycle transport;
+    ///  Provides capture-worker lifecycle behavior.
+    NoopCaptureDispatchWorker captureWorker;
+    ///  Provides cadence-driver lifecycle behavior.
+    NoopCadenceTickDriver cadenceDriver;
     ///  Coordinator under test.
-    Coordinator coordinator{callbacks, workers, transport};
+    Coordinator coordinator{callbacks, workers, transport, captureWorker,
+                            cadenceDriver};
 };
 
 } //  namespace
@@ -229,6 +319,8 @@ TEST_CASE("a callback startup failure latches startup and prevents a retry",
     CHECK(f.callbacks.startCalls_ == 1);
     CHECK(f.workers.startCalls_ == 0);
     CHECK(f.transport.startCalls_ == 0);
+    CHECK(f.captureWorker.startCalls_ == 0);
+    CHECK(f.cadenceDriver.startCalls_ == 0);
 }
 
 TEST_CASE("a worker startup failure latches startup and prevents a retry",
@@ -245,6 +337,8 @@ TEST_CASE("a worker startup failure latches startup and prevents a retry",
     CHECK(f.callbacks.startCalls_ == 1);
     CHECK(f.workers.startCalls_ == 1);
     CHECK(f.transport.startCalls_ == 0);
+    CHECK(f.captureWorker.startCalls_ == 0);
+    CHECK(f.cadenceDriver.startCalls_ == 0);
 }
 
 TEST_CASE("a transport startup failure latches startup and prevents a retry",
@@ -261,6 +355,40 @@ TEST_CASE("a transport startup failure latches startup and prevents a retry",
     CHECK(f.callbacks.startCalls_ == 1);
     CHECK(f.workers.startCalls_ == 1);
     CHECK(f.transport.startCalls_ == 1);
+    CHECK(f.captureWorker.startCalls_ == 0);
+    CHECK(f.cadenceDriver.startCalls_ == 0);
+}
+
+TEST_CASE("a capture-worker startup failure latches startup and prevents a retry",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.captureWorker.throwOnStart_ = true;
+
+    CHECK_THROWS(f.coordinator.Start());
+    f.captureWorker.throwOnStart_ = false;
+    CHECK_NOTHROW(f.coordinator.Start());
+
+    CHECK(f.callbacks.startCalls_ == 1);
+    CHECK(f.workers.startCalls_ == 1);
+    CHECK(f.transport.startCalls_ == 1);
+    CHECK(f.captureWorker.startCalls_ == 1);
+    CHECK(f.cadenceDriver.startCalls_ == 0);
+}
+
+TEST_CASE("a cadence startup failure latches startup and prevents a retry",
+          "[application][coordinator][failure]") {
+    Fixture f;
+    f.cadenceDriver.throwOnStart_ = true;
+
+    CHECK_THROWS(f.coordinator.Start());
+    f.cadenceDriver.throwOnStart_ = false;
+    CHECK_NOTHROW(f.coordinator.Start());
+
+    CHECK(f.callbacks.startCalls_ == 1);
+    CHECK(f.workers.startCalls_ == 1);
+    CHECK(f.transport.startCalls_ == 1);
+    CHECK(f.captureWorker.startCalls_ == 1);
+    CHECK(f.cadenceDriver.startCalls_ == 1);
 }
 
 TEST_CASE("a fresh coordinator is available",
@@ -472,13 +600,21 @@ TEST_CASE("Shutdown contains every lifecycle failure and attempts every later "
           "[application][coordinator][failure]") {
     constexpr std::array kFailureStages{
         ShutdownFailureStage::kUnregisterCallbacks,
+        ShutdownFailureStage::kStopCadence,
+        ShutdownFailureStage::kJoinCadence,
+        ShutdownFailureStage::kStopCapture,
+        ShutdownFailureStage::kJoinCapture,
         ShutdownFailureStage::kStopWorkers,
         ShutdownFailureStage::kJoinWorkers,
         ShutdownFailureStage::kCancelTransportCompletions,
         ShutdownFailureStage::kCloseTransport,
     };
     const std::vector<std::string> expectedLog{
+        "cadence.Stop",
+        "cadence.Join",
         "callbacks.UnregisterAll",
+        "capture.Stop",
+        "capture.Join",
         "workers.Stop",
         "workers.Join",
         "transport.CancelCompletions",
@@ -491,6 +627,10 @@ TEST_CASE("Shutdown contains every lifecycle failure and attempts every later "
         std::vector<std::string> shutdownLog;
         f.callbacks.shutdownLog_ = &shutdownLog;
         f.callbacks.failureStage_ = failureStage;
+        f.cadenceDriver.shutdownLog_ = &shutdownLog;
+        f.cadenceDriver.failureStage_ = failureStage;
+        f.captureWorker.shutdownLog_ = &shutdownLog;
+        f.captureWorker.failureStage_ = failureStage;
         f.workers.shutdownLog_ = &shutdownLog;
         f.workers.failureStage_ = failureStage;
         f.transport.shutdownLog_ = &shutdownLog;

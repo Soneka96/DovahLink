@@ -13,15 +13,18 @@ namespace dovahlink::application {
 
 class IBridgeWorkerPool;
 class IBridgeTransport;
+class ICaptureDispatchWorker;
+class ICadenceTickDriver;
 
-///  Owns callback, worker, and transport lifecycle and provides idempotent
-///  shutdown.
+///  Owns callback, capture, worker, and transport lifecycle and provides
+///  idempotent shutdown.
 class ICoordinator {
   public:
     ///  Releases the interface without performing work.
     virtual ~ICoordinator() = default;
 
-    ///  Registers callbacks and starts workers and transport in order.
+    ///  Registers callbacks and starts workers, transport, and the optional
+    ///  capture lifecycle in order.
     ///  Repeated calls and calls after shutdown has begun return without action.
     ///  Lifecycle dependencies must not call coordinator lifecycle methods
     ///  re-entrantly.
@@ -68,6 +71,18 @@ class Coordinator final : public ICoordinator {
     ///  @param transport Transport lifecycle boundary.
     Coordinator(IBridgeCallbackRegistry& callbacks, IBridgeWorkerPool& workers,
                 IBridgeTransport& transport);
+
+    ///  Creates a coordinator with the production capture lifecycle
+    ///  dependencies.
+    ///  @param callbacks Callback registration boundary.
+    ///  @param workers Worker lifecycle boundary.
+    ///  @param transport Transport lifecycle boundary.
+    ///  @param captureWorker Capture-to-publication worker lifecycle.
+    ///  @param cadenceDriver Sampled-capture cadence lifecycle.
+    Coordinator(IBridgeCallbackRegistry& callbacks, IBridgeWorkerPool& workers,
+                IBridgeTransport& transport,
+                ICaptureDispatchWorker& captureWorker,
+                ICadenceTickDriver& cadenceDriver);
 
     ///  Shuts down every lifecycle dependency before the coordinator is destroyed.
     ~Coordinator() noexcept override;
@@ -158,6 +173,14 @@ class Coordinator final : public ICoordinator {
 
     ///  Transport lifecycle boundary.
     IBridgeTransport& transport_;
+
+    ///  Capture worker lifecycle boundary, present in the production
+    ///  composition and absent from the lightweight harness constructor.
+    ICaptureDispatchWorker* captureWorker_ = nullptr;
+
+    ///  Cadence driver lifecycle boundary, present in the production
+    ///  composition and absent from the lightweight harness constructor.
+    ICadenceTickDriver* cadenceDriver_ = nullptr;
 
     ///  Lifetime token shared with transport completions.
     std::shared_ptr<LifetimeToken> transportToken_ =
