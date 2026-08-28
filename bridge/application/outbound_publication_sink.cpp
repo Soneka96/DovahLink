@@ -8,8 +8,10 @@
 namespace dovahlink::application {
 
 BoundedOutboundQueue::BoundedOutboundQueue(transport::ISocket& socket,
+                                           IPublicationDiagnostics& diagnostics,
                                            std::string sessionId)
-    : socket_(socket), sessionId_(std::move(sessionId)) {}
+    : socket_(socket), diagnostics_(diagnostics),
+      sessionId_(std::move(sessionId)) {}
 
 QueueClass BoundedOutboundQueue::Classify(const std::string& encoded) {
     return encoded.size() >= security::kHeavyPublicationThresholdBytes
@@ -50,12 +52,15 @@ bool BoundedOutboundQueue::CanReplaceLocked(QueueClass oldClass,
 void BoundedOutboundQueue::ApplyAdmitNewLocked(PendingEntry entry) {
     IncrementLaneLocked(entry.queueClass);
     totalBytesUsed_ += entry.encoded.size();
+    entry.enqueuedAt = std::chrono::steady_clock::now();
     bool isSnapshot = entry.isSnapshot;
     std::string stateArea = entry.stateArea;
     dataPending_.push_back(std::move(entry));
     if (isSnapshot) {
         snapshotSlots_[std::move(stateArea)] = std::prev(dataPending_.end());
     }
+    diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
+                                  reservedSlotsUsed_, totalBytesUsed_);
 }
 
 void BoundedOutboundQueue::ApplyReplaceLocked(
@@ -69,6 +74,10 @@ void BoundedOutboundQueue::ApplyReplaceLocked(
     totalBytesUsed_ = totalBytesUsed_ - slot->encoded.size() + encoded.size();
     slot->encoded = std::move(encoded);
     slot->queueClass = newClass;
+    slot->enqueuedAt = std::chrono::steady_clock::now();
+    diagnostics_.RecordCoalesced(slot->stateArea);
+    diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
+                                  reservedSlotsUsed_, totalBytesUsed_);
 }
 
 void BoundedOutboundQueue::IncrementLaneLocked(QueueClass queueClass) {
@@ -119,8 +128,9 @@ void BoundedOutboundQueue::TryPromoteOneDirtyLocked() {
     }
 }
 
-void BoundedOutboundQueue::SupersedeQueuedEventsLocked(
+std::size_t BoundedOutboundQueue::SupersedeQueuedEventsLocked(
     const std::string& stateArea, std::int64_t revision) {
+    std::size_t supersededCount = 0;
     auto it = dataPending_.begin();
     if (sendInFlight_ && !sendingReserved_ && it != dataPending_.end()) {
         //  The front entry is already in flight; its bytes cannot be
@@ -133,10 +143,12 @@ void BoundedOutboundQueue::SupersedeQueuedEventsLocked(
             totalBytesUsed_ -= it->encoded.size();
             DecrementLaneLocked(it->queueClass);
             it = dataPending_.erase(it);
+            ++supersededCount;
         } else {
             ++it;
         }
     }
+    return supersededCount;
 }
 
 void BoundedOutboundQueue::MaybeStartSendLocked() {
@@ -146,7 +158,7 @@ void BoundedOutboundQueue::MaybeStartSendLocked() {
     if (!reservedPending_.empty()) {
         sendInFlight_ = true;
         sendingReserved_ = true;
-        std::string next = reservedPending_.front();
+        std::string next = reservedPending_.front().encoded;
         socket_.Send(std::move(next), [this](bool ok) { OnSendComplete(ok); });
         return;
     }
@@ -163,8 +175,13 @@ void BoundedOutboundQueue::OnSendComplete(bool ok) {
     sendInFlight_ = false;
     if (sendingReserved_) {
         if (!reservedPending_.empty()) {
+            ReservedEntry finished = std::move(reservedPending_.front());
             reservedPending_.pop_front();
             --reservedSlotsUsed_;
+            diagnostics_.RecordDequeueLatency(std::chrono::steady_clock::now() -
+                                              finished.enqueuedAt);
+            diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
+                                          reservedSlotsUsed_, totalBytesUsed_);
         }
     } else if (!dataPending_.empty()) {
         PendingEntry finished = std::move(dataPending_.front());
@@ -174,6 +191,10 @@ void BoundedOutboundQueue::OnSendComplete(bool ok) {
         }
         DecrementLaneLocked(finished.queueClass);
         totalBytesUsed_ -= finished.encoded.size();
+        diagnostics_.RecordDequeueLatency(std::chrono::steady_clock::now() -
+                                          finished.enqueuedAt);
+        diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
+                                      reservedSlotsUsed_, totalBytesUsed_);
     }
 
     if (!ok) {
@@ -181,6 +202,7 @@ void BoundedOutboundQueue::OnSendComplete(bool ok) {
         //  on failure; a broken socket cannot keep delivering the rest of
         //  this queue, so the queue stops draining and ends the session.
         stopped_ = true;
+        diagnostics_.RecordDisconnect(DisconnectReason::kSendFailed);
         socket_.Shutdown();
         return;
     }
@@ -268,6 +290,7 @@ void BoundedOutboundQueue::PublishEvent(std::string stateArea,
         //  that cannot keep up is disconnected instead
         //  (ai/context/skse/architecture.md's "Failure semantics").
         stopped_ = true;
+        diagnostics_.RecordDisconnect(DisconnectReason::kEventOverflow);
         socket_.Shutdown();
         return;
     }
@@ -291,8 +314,9 @@ void BoundedOutboundQueue::PublishRecoverySnapshot(std::string stateArea,
         return;
     }
 
-    SupersedeQueuedEventsLocked(stateArea, revision);
+    std::size_t supersededCount = SupersedeQueuedEventsLocked(stateArea, revision);
     barriers_[stateArea] = revision;
+    diagnostics_.RecordRecovery(stateArea, revision, supersededCount);
 
     envelope.sessionId = sessionId_;
     AdmitReservedOrDisconnectLocked(protocol::EncodeEnvelope(envelope));
@@ -314,12 +338,17 @@ void BoundedOutboundQueue::AdmitReservedOrDisconnectLocked(std::string encoded) 
         //  control/recovery capacity is full, the client is marked
         //  unavailable and the connection is closed."
         stopped_ = true;
+        diagnostics_.RecordDisconnect(DisconnectReason::kReservedLaneFull);
         socket_.Shutdown();
         return;
     }
 
     ++reservedSlotsUsed_;
-    reservedPending_.push_back(std::move(encoded));
+    reservedPending_.push_back(
+        ReservedEntry{.encoded = std::move(encoded),
+                      .enqueuedAt = std::chrono::steady_clock::now()});
+    diagnostics_.RecordQueueDepth(normalSlotsUsed_, heavySlotsUsed_,
+                                  reservedSlotsUsed_, totalBytesUsed_);
     MaybeStartSendLocked();
 }
 

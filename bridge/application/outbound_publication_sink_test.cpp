@@ -1,23 +1,32 @@
 #include "application/outbound_publication_sink.hpp"
 
+#include "application/application_test_support.hpp"
 #include "protocol/envelope.hpp"
 #include "protocol/state_event_payload.hpp"
 #include "security/constants.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <gmock/gmock.h>
 
 #include <boost/json/object.hpp>
 #include <boost/json/parse.hpp>
 
+#include <chrono>
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 using dovahlink::application::BoundedOutboundQueue;
+using dovahlink::application::DisconnectReason;
+using dovahlink::application::test_support::MockPublicationDiagnostics;
 using dovahlink::protocol::Envelope;
+using testing::NiceMock;
+using testing::StrictMock;
 
 namespace {
 
@@ -188,7 +197,8 @@ TEST_CASE("PublishSnapshot stamps the queue's own sessionId, overriding any "
           "value already on the envelope",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-42");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-42");
 
     queue.PublishSnapshot("area", BuildSnapshotEnvelope());
 
@@ -203,7 +213,8 @@ TEST_CASE("PublishSnapshot for a new state area is delivered immediately "
           "when nothing is in flight",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("area", BuildSnapshotEnvelope());
 
@@ -214,7 +225,8 @@ TEST_CASE("PublishSnapshot replaces a pending, not-yet-in-flight entry for "
           "the same state area rather than growing the queue",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     //  area-a occupies the one in-flight slot; area-b is admitted but sits
     //  behind it, not yet handed to Send.
@@ -252,7 +264,8 @@ TEST_CASE("PublishSnapshot for an already in-flight state area is deferred "
           "and delivered with its latest value once that send completes",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     boost::json::object v1;
     v1["value"] = "v1";
@@ -301,7 +314,8 @@ TEST_CASE("PublishEvent entries for the same state area are delivered in "
           "order and never coalesced",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     boost::json::object first;
     first["value"] = "first";
@@ -332,7 +346,8 @@ TEST_CASE("a reliable Event that overflows the Normal data lane disconnects "
           "the session without blocking the caller",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
         queue.PublishEvent("area", BuildEventEnvelope());
@@ -349,7 +364,8 @@ TEST_CASE("a state area publication is classified Heavy and rejected once "
           "stays unaffected",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kHeavyDataSlots; ++i) {
         boost::json::object payload;
@@ -409,7 +425,8 @@ TEST_CASE("a reliable Event classified Heavy that overflows the four-slot "
           "Heavy lane disconnects the session",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kHeavyDataSlots; ++i) {
         queue.PublishSnapshot("heavy-area-" + std::to_string(i),
@@ -426,7 +443,8 @@ TEST_CASE("the queue-wide byte budget rejects a Snapshot too large to fit "
           "even with message-count capacity free",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     std::string oversizedFiller(
         dovahlink::security::kOutboundQueueByteBudget + 1024, 'x');
@@ -447,7 +465,8 @@ TEST_CASE("publications submitted after an Event overflow disconnect are "
           "silently dropped without a second Shutdown or further delivery",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
         queue.PublishEvent("area", BuildEventEnvelope());
@@ -465,7 +484,8 @@ TEST_CASE("publications submitted after an Event overflow disconnect are "
 TEST_CASE("a failed Send stops the queue and disconnects the session",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("area", BuildSnapshotEnvelope());
     REQUIRE(socket.SentMessages().size() == 1);
@@ -484,7 +504,8 @@ TEST_CASE("PublishEvent stamps the queue's own sessionId, overriding any "
           "value already on the envelope",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-7");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-7");
 
     queue.PublishEvent("area", BuildEventEnvelope());
 
@@ -499,7 +520,8 @@ TEST_CASE("the queue-wide byte budget disconnects a reliable Event too "
           "large to fit even with message-count capacity free",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishEvent("area", BuildEventEnvelope(
                                    dovahlink::security::kOutboundQueueByteBudget +
@@ -513,7 +535,8 @@ TEST_CASE("Snapshot and Event publications share the same Normal-lane "
           "capacity, so Snapshots filling it still disconnect a later Event",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
         queue.PublishSnapshot("area-" + std::to_string(i),
@@ -530,7 +553,8 @@ TEST_CASE("replacing a not-yet-in-flight Snapshot's value moves it between "
           "the Normal and Heavy lanes when its classification changes",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     //  "blocker" occupies the one in-flight slot so "area"'s own entry is
     //  never in flight for this test.
@@ -603,7 +627,8 @@ TEST_CASE("a dirty Snapshot promoted for an area that still has its own "
           "duplicating it",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
     REQUIRE(socket.SentMessages().size() == 1);
@@ -668,7 +693,8 @@ TEST_CASE("PublishRecoverySnapshot is delivered through the reserved lane "
           "ahead of already-queued data-lane traffic",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
     REQUIRE(socket.SentMessages().size() == 1);
@@ -693,7 +719,8 @@ TEST_CASE("PublishRecoverySnapshot stamps the queue's own sessionId, "
           "overriding any value already on the envelope",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-99");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-99");
 
     queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
                                   1);
@@ -709,7 +736,8 @@ TEST_CASE("PublishRecoverySnapshot supersedes already-queued Events for its "
           "state area at or below its revision, leaving newer ones intact",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
     REQUIRE(socket.SentMessages().size() == 1);
@@ -753,7 +781,8 @@ TEST_CASE("an Event submitted after a recovery barrier is established, with "
           "revision at or below it, is discarded rather than queued",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
                                   10);
@@ -789,7 +818,8 @@ TEST_CASE("the reserved control/recovery lane disconnects the session once "
           "its capacity is exhausted",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0;
          i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
@@ -812,7 +842,8 @@ TEST_CASE("an Event already handed to Send is still delivered even though a "
           "it",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishEvent("area",
                        BuildRevisionedEventEnvelope("area", 3, "event-3"));
@@ -830,7 +861,8 @@ TEST_CASE("an Event whose payload cannot be decoded into a revision is "
           "still delivered under an active recovery barrier",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
                                   10);
@@ -850,7 +882,8 @@ TEST_CASE("a failed Send while draining the reserved lane stops the queue "
           "and disconnects the session",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
                                   1);
@@ -866,7 +899,8 @@ TEST_CASE("the reserved lane admits a recovery snapshot regardless of the "
           "data-lane byte budget",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     boost::json::object hugePayload;
     hugePayload["filler"] = std::string(
@@ -889,7 +923,8 @@ TEST_CASE("recovery snapshot admission into the reserved lane is unaffected "
           "by the data lanes being full",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
         queue.PublishSnapshot("area-" + std::to_string(i),
@@ -913,7 +948,8 @@ TEST_CASE("PublishControl stamps the queue's own sessionId, overriding any "
           "value already on the envelope",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-55");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-55");
 
     queue.PublishControl(Envelope{.messageType = "error",
                                   .messageId = "control-1",
@@ -932,7 +968,8 @@ TEST_CASE("PublishControl is delivered through the reserved lane ahead of "
           "already-queued data-lane traffic",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
     REQUIRE(socket.SentMessages().size() == 1);
@@ -951,7 +988,8 @@ TEST_CASE("PublishControl and PublishRecoverySnapshot share the same "
           "reserved-lane capacity",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     //  One recovery snapshot plus fifteen control messages exactly fill the
     //  16-slot reserved lane.
@@ -972,7 +1010,8 @@ TEST_CASE("PublishControl overflow of the reserved lane disconnects the "
           "session",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0;
          i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
@@ -989,7 +1028,8 @@ TEST_CASE("publications submitted after a PublishControl overflow "
           "disconnect are silently dropped without further delivery",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     for (std::size_t i = 0;
          i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
@@ -1010,7 +1050,8 @@ TEST_CASE("multiple PublishControl messages are delivered through the "
           "reserved lane in FIFO order",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishControl(BuildControlEnvelope("first"));
     queue.PublishControl(BuildControlEnvelope("second"));
@@ -1032,7 +1073,8 @@ TEST_CASE("PublishControl and PublishRecoverySnapshot interleave in the "
           "reserved lane in submission order",
           "[application][outbound_publication_sink]") {
     FakeOutboundSocket socket;
-    BoundedOutboundQueue queue(socket, "session-1");
+    NiceMock<MockPublicationDiagnostics> diagnostics;
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
 
     queue.PublishControl(BuildControlEnvelope("control-1"));
     queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
@@ -1049,4 +1091,248 @@ TEST_CASE("PublishControl and PublishRecoverySnapshot interleave in the "
     CHECK(DecodeSent(sent.at(0)).messageId == "control-1");
     CHECK(DecodeSent(sent.at(1)).messageId == "recovery-1");
     CHECK(DecodeSent(sent.at(2)).messageId == "control-2");
+}
+
+TEST_CASE("BoundedOutboundQueue reports queue depth after admission and "
+          "after delivery completion",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    {
+        testing::InSequence sequence;
+        EXPECT_CALL(diagnostics,
+                    RecordQueueDepth(1, 0, 0, testing::Gt(std::size_t{0})));
+        EXPECT_CALL(diagnostics, RecordQueueDepth(0, 0, 0, std::size_t{0}));
+    }
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    socket.CompletePendingSend(true);
+}
+
+TEST_CASE("PublishSnapshot reports coalescing when it replaces a pending, "
+          "not-yet-in-flight entry for the same state area",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordCoalesced(std::string_view("area-b")));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    //  "area-a" occupies the one in-flight slot; "area-b" is admitted new,
+    //  then replaced in place while still not in flight.
+    queue.PublishSnapshot("area-a", BuildSnapshotEnvelope());
+    queue.PublishSnapshot("area-b", BuildSnapshotEnvelope());
+    queue.PublishSnapshot("area-b", BuildSnapshotEnvelope());
+}
+
+TEST_CASE("PublishSnapshot reports a non-negative dequeue latency once its "
+          "delivery completes",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics,
+                RecordDequeueLatency(
+                    testing::Ge(std::chrono::steady_clock::duration::zero())));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    socket.CompletePendingSend(true);
+}
+
+TEST_CASE("PublishRecoverySnapshot reports the number of already-queued "
+          "Events it supersedes",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordRecovery("area", 4, std::size_t{2}));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 3, "event-3"));
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 4, "event-4"));
+    queue.PublishEvent("area",
+                       BuildRevisionedEventEnvelope("area", 5, "event-5"));
+
+    //  Barrier at revision 4 supersedes event-3 and event-4 (2 entries), but
+    //  not event-5.
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  4);
+}
+
+TEST_CASE("PublishRecoverySnapshot reports a non-negative dequeue latency "
+          "once its reserved-lane delivery completes",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordRecovery("area", 1, std::size_t{0}));
+    EXPECT_CALL(diagnostics,
+                RecordDequeueLatency(
+                    testing::Ge(std::chrono::steady_clock::duration::zero())));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+    socket.CompletePendingSend(true);
+}
+
+TEST_CASE("the reserved-lane-full disconnect reports kReservedLaneFull",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics,
+                RecordRecovery(testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics,
+                RecordDisconnect(DisconnectReason::kReservedLaneFull));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    for (std::size_t i = 0;
+         i < dovahlink::security::kReservedControlRecoverySlots; ++i) {
+        queue.PublishRecoverySnapshot(
+            "area-" + std::to_string(i),
+            BuildRecoveryEnvelope("recovery-" + std::to_string(i)),
+            static_cast<std::int64_t>(i) + 1);
+    }
+
+    queue.PublishRecoverySnapshot("overflow-area",
+                                  BuildRecoveryEnvelope("recovery-overflow"),
+                                  999);
+}
+
+TEST_CASE("an Event overflow disconnect reports kEventOverflow",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordDisconnect(DisconnectReason::kEventOverflow));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    for (std::size_t i = 0; i < dovahlink::security::kNormalDataSlots; ++i) {
+        queue.PublishEvent("area", BuildEventEnvelope());
+    }
+
+    queue.PublishEvent("area", BuildEventEnvelope());
+}
+
+TEST_CASE("a failed Send disconnect reports kSendFailed, after still "
+          "reporting the finished entry's dequeue latency and queue depth",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    //  OnSendComplete accounts for the finished entry before checking `ok`,
+    //  so the failed delivery still reports its latency like a successful
+    //  one would.
+    EXPECT_CALL(diagnostics,
+                RecordDequeueLatency(
+                    testing::Ge(std::chrono::steady_clock::duration::zero())));
+    EXPECT_CALL(diagnostics, RecordDisconnect(DisconnectReason::kSendFailed));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("area", BuildSnapshotEnvelope());
+    socket.CompletePendingSend(false);
+}
+
+TEST_CASE("PublishEvent reports a non-negative dequeue latency once its "
+          "delivery completes",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics,
+                RecordDequeueLatency(
+                    testing::Ge(std::chrono::steady_clock::duration::zero())));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishEvent("area", BuildEventEnvelope());
+    socket.CompletePendingSend(true);
+}
+
+TEST_CASE("AdmitReservedOrDisconnectLocked reports reserved-lane queue "
+          "depth once a reserved-lane entry is admitted",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics, RecordQueueDepth(0, 0, 1, std::size_t{0}));
+    EXPECT_CALL(diagnostics,
+                RecordRecovery(testing::_, testing::_, testing::_));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishRecoverySnapshot("area", BuildRecoveryEnvelope("recovery-1"),
+                                  1);
+}
+
+TEST_CASE("a dirty Snapshot promoted into an existing slot reports "
+          "coalescing, the same as an immediate in-place replacement",
+          "[application][outbound_publication_sink][diagnostics]") {
+    FakeOutboundSocket socket;
+    StrictMock<MockPublicationDiagnostics> diagnostics;
+    EXPECT_CALL(diagnostics,
+                RecordQueueDepth(testing::_, testing::_, testing::_, testing::_))
+        .Times(testing::AnyNumber());
+    EXPECT_CALL(diagnostics, RecordCoalesced(std::string_view("area")));
+    BoundedOutboundQueue queue(socket, diagnostics, "session-1");
+
+    queue.PublishSnapshot("blocker", BuildSnapshotEnvelope());
+    REQUIRE(socket.SentMessages().size() == 1);
+
+    for (std::size_t i = 0; i < dovahlink::security::kHeavyDataSlots; ++i) {
+        boost::json::object payload;
+        payload["filler"] = std::string(kHeavyFillerBytes, 'x');
+        queue.PublishSnapshot(
+            "heavy-" + std::to_string(i),
+            Envelope{.messageType = "state_snapshot",
+                     .messageId = "heavy-" + std::to_string(i),
+                     .sessionId = std::nullopt,
+                     .correlationId = std::nullopt,
+                     .payload = std::move(payload)});
+    }
+
+    boost::json::object v1;
+    v1["value"] = "v1";
+    queue.PublishSnapshot("area", Envelope{.messageType = "state_snapshot",
+                                           .messageId = "area-v1",
+                                           .sessionId = std::nullopt,
+                                           .correlationId = std::nullopt,
+                                           .payload = std::move(v1)});
+
+    //  "area"'s own slot is admitted (Normal) but not in flight; replacing
+    //  it with a Heavy value fails immediately because the Heavy lane is
+    //  already full, deferring it as dirty instead.
+    boost::json::object v2;
+    v2["filler"] = std::string(kHeavyFillerBytes, 'x');
+    queue.PublishSnapshot("area", Envelope{.messageType = "state_snapshot",
+                                           .messageId = "area-v2-heavy",
+                                           .sessionId = std::nullopt,
+                                           .correlationId = std::nullopt,
+                                           .payload = std::move(v2)});
+
+    //  Draining blocker then one Heavy entry frees exactly one Heavy slot,
+    //  promoting the dirty "area" replacement into its still-pending
+    //  original slot -- the coalescing report this test proves.
+    socket.CompletePendingSend(true); //  blocker
+    socket.CompletePendingSend(true); //  heavy-0
 }

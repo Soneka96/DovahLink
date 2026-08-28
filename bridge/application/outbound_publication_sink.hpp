@@ -1,9 +1,11 @@
 #pragma once
 
+#include "application/publication_diagnostics.hpp"
 #include "protocol/envelope.hpp"
 #include "shared/enums.hpp"
 #include "transport/websocket_session.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <list>
@@ -86,12 +88,16 @@ class IOutboundPublicationSink {
 ///  one.
 class BoundedOutboundQueue final : public IOutboundPublicationSink {
   public:
-    ///  Binds the queue to the live session socket it drains into and the
-    ///  session identity stamped onto every delivered envelope.
+    ///  Binds the queue to the live session socket it drains into, the
+    ///  diagnostics sink observing its behavior, and the session identity
+    ///  stamped onto every delivered envelope.
     ///  @param socket Live session socket; must outlive this queue.
+    ///  @param diagnostics Diagnostics sink; must outlive this queue.
     ///  @param sessionId Identity of the authenticated session this queue
     ///  serves.
-    BoundedOutboundQueue(transport::ISocket& socket, std::string sessionId);
+    BoundedOutboundQueue(transport::ISocket& socket,
+                         IPublicationDiagnostics& diagnostics,
+                         std::string sessionId);
 
     ///  @copydoc IOutboundPublicationSink::PublishSnapshot
     void PublishSnapshot(std::string stateArea,
@@ -127,6 +133,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
         std::string encoded;
         ///  Data lane this entry currently occupies.
         QueueClass queueClass;
+        ///  Instant this entry was last admitted or replaced, used to report
+        ///  `IPublicationDiagnostics::RecordDequeueLatency` on delivery.
+        std::chrono::steady_clock::time_point enqueuedAt;
     };
 
     ///  A Snapshot value that could not be admitted or replaced when
@@ -136,6 +145,15 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
         std::string encoded;
         ///  Data lane this value would occupy once admitted.
         QueueClass queueClass;
+    };
+
+    ///  A reserved-lane entry awaiting delivery.
+    struct ReservedEntry {
+        ///  Already-encoded, session-stamped wire text.
+        std::string encoded;
+        ///  Instant this entry was admitted, used to report
+        ///  `IPublicationDiagnostics::RecordDequeueLatency` on delivery.
+        std::chrono::steady_clock::time_point enqueuedAt;
     };
 
     ///  Classifies an already-encoded publication by size.
@@ -191,8 +209,10 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  Never removes an entry already handed to `Send` -- its bytes are
     ///  already on their way to the peer and cannot be recalled. Caller must
     ///  hold `mutex_`.
-    void SupersedeQueuedEventsLocked(const std::string& stateArea,
-                                     std::int64_t revision);
+    ///  @return Number of entries removed.
+    [[nodiscard]] std::size_t
+    SupersedeQueuedEventsLocked(const std::string& stateArea,
+                                std::int64_t revision);
 
     ///  Starts draining the next pending entry when nothing is currently in
     ///  flight, preferring the reserved control/recovery lane over the data
@@ -207,6 +227,9 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     ///  Live session socket this queue drains into.
     transport::ISocket& socket_;
 
+    ///  Diagnostics sink observing this queue's behavior.
+    IPublicationDiagnostics& diagnostics_;
+
     ///  Identity stamped onto every delivered envelope.
     std::string sessionId_;
 
@@ -214,9 +237,8 @@ class BoundedOutboundQueue final : public IOutboundPublicationSink {
     std::mutex mutex_;
 
     ///  Reserved-lane entries (initial/recovery snapshots) in delivery
-    ///  order, already fully encoded -- this lane carries no per-entry
-    ///  bookkeeping beyond its own slot count.
-    std::list<std::string> reservedPending_;
+    ///  order, already fully encoded.
+    std::list<ReservedEntry> reservedPending_;
 
     ///  Data-lane entries in overall delivery order.
     std::list<PendingEntry> dataPending_;

@@ -331,4 +331,18 @@ class MockOutboundPublicationSink : public IOutboundPublicationSink {
     MOCK_METHOD(void, PublishControl, (protocol::Envelope), (override));
 };
 
+///  GoogleMock publication-diagnostics contract double.
+class MockPublicationDiagnostics : public IPublicationDiagnostics {
+  public:
+    MOCK_METHOD(void, RecordQueueDepth,
+                (std::size_t, std::size_t, std::size_t, std::size_t),
+                (override));
+    MOCK_METHOD(void, RecordCoalesced, (std::string_view), (override));
+    MOCK_METHOD(void, RecordDequeueLatency,
+                (std::chrono::steady_clock::duration), (override));
+    MOCK_METHOD(void, RecordRecovery,
+                (std::string_view, std::int64_t, std::size_t), (override));
+    MOCK_METHOD(void, RecordDisconnect, (DisconnectReason), (override));
+};
+
 } //  namespace dovahlink::application::test_support

@@ -110,6 +110,18 @@ enum class QueueClass {
     kHeavy,
 };
 
+///  Identifies why `BoundedOutboundQueue` disconnected its session.
+enum class DisconnectReason {
+    ///  The reserved control/recovery lane's 16-slot capacity was already
+    ///  full when a recovery Snapshot or control message was submitted.
+    kReservedLaneFull,
+    ///  A reliable Event could not be admitted into its data lane because
+    ///  message or byte capacity was already occupied.
+    kEventOverflow,
+    ///  A `Send` to the session socket reported failure.
+    kSendFailed,
+};
+
 } //  namespace dovahlink::application
 
 namespace dovahlink::security {
