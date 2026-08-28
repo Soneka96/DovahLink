@@ -823,6 +823,8 @@ TEST_CASE("the queue-wide byte budget rejects a Snapshot too large to fit "
 
     //  Rejected purely on bytes -- no message-count pressure exists here.
     CHECK(socket.SentMessages().empty());
+    //  Snapshots are lossy: an oversized one is dropped, never a disconnect.
+    CHECK_FALSE(socket.ShutdownCalled());
 }
 
 TEST_CASE("publications submitted after an Event overflow disconnect are "
