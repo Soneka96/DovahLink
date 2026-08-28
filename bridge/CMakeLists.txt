@@ -61,6 +61,7 @@ add_library(dovahlink_bridge_core STATIC
     application/capture_policy.cpp
     application/capture_policy_registry.cpp
     application/cadence_scheduler.cpp
+    application/state_publisher.cpp
     game_state/level_adapter.cpp
     game_state/level_increase_handler.cpp
     protocol/bounded_json.cpp
@@ -205,6 +206,7 @@ add_executable(dovahlink_bridge_tests
     application/capture_policy_test.cpp
     application/capture_policy_registry_test.cpp
     application/cadence_scheduler_test.cpp
+    application/state_publisher_test.cpp
     game_state/level_adapter_test.cpp
     game_state/level_increase_handler_test.cpp
     game_state/commonlib_level_increase_sink_test.cpp
