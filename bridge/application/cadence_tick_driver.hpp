@@ -3,6 +3,7 @@
 #include "application/active_play_context_provider.hpp"
 #include "application/cadence_scheduler.hpp"
 #include "application/capture_dispatch_worker.hpp"
+#include "application/capture_policy_registry.hpp"
 #include "application/constants.hpp"
 #include "application/task_marshaller.hpp"
 
@@ -43,18 +44,21 @@ class ICadenceTickDriver {
 ///  checking `ICadenceScheduler::DueKeys`, and reuses that same pinned
 ///  context for every due key in that tick -- the same atomic guard-then-pin
 ///  shape native-event capture uses -- skipping the whole due-key check when
-///  no context is active. For each due key, this hands off a
+///  no context is active. For each due key with a registered sampled policy,
+///  this hands off a
 ///  `CaptureWorkItem` to `ICaptureDispatchWorker` with a closure that
-///  reports no change: no state area is registered before a later phase, so
-///  `DueKeys` never reports a real key in production and this path is
-///  exercised only by tests. Building the real per-key apply-and-compare
+///  reports no change: no sampled key is registered with the scheduler before a
+///  later phase, so `DueKeys` never reports a real key in production and this
+///  path is exercised only by tests. Building the real per-key apply-and-compare
 ///  closure belongs to whichever phase registers a sampled domain and gives
 ///  this class a real key to build data for.
 class CadenceTickDriver final : public ICadenceTickDriver {
   public:
-    ///  Binds the driver to its scheduler, dispatch worker, pinned-context
-    ///  provider, and game-thread marshaller.
+    ///  Binds the driver to its scheduler, capture-policy registry, dispatch
+    ///  worker, pinned-context provider, and game-thread marshaller.
     ///  @param scheduler Reports due sampled-capture keys.
+    ///  @param capturePolicies Confirms that each due key is registered as a
+    ///  sampled capture before a work item is created.
     ///  @param worker Receives a work item for each due key.
     ///  @param taskMarshaller Marshals the due-key check onto the game
     ///  thread.
@@ -63,6 +67,7 @@ class CadenceTickDriver final : public ICadenceTickDriver {
     ///  @param tickInterval Background timer interval; defaults to the
     ///  approved production value.
     CadenceTickDriver(ICadenceScheduler& scheduler,
+                      ICapturePolicyRegistry& capturePolicies,
                       ICaptureDispatchWorker& worker,
                       ITaskMarshaller& taskMarshaller,
                       IActivePlayContextProvider& activeContext,
@@ -129,6 +134,9 @@ class CadenceTickDriver final : public ICadenceTickDriver {
 
     ///  Reports due sampled-capture keys.
     ICadenceScheduler& scheduler_;
+
+    ///  Validates the capture mode declared for each due key.
+    ICapturePolicyRegistry& capturePolicies_;
 
     ///  Receives a work item for each due key.
     ICaptureDispatchWorker& worker_;

@@ -10,11 +10,13 @@
 namespace dovahlink::application {
 
 CadenceTickDriver::CadenceTickDriver(ICadenceScheduler& scheduler,
+                                     ICapturePolicyRegistry& capturePolicies,
                                      ICaptureDispatchWorker& worker,
                                      ITaskMarshaller& taskMarshaller,
                                      IActivePlayContextProvider& activeContext,
                                      std::chrono::milliseconds tickInterval)
-    : scheduler_(scheduler), worker_(worker), taskMarshaller_(taskMarshaller),
+    : scheduler_(scheduler), capturePolicies_(capturePolicies), worker_(worker),
+      taskMarshaller_(taskMarshaller),
       activeContext_(activeContext), tickInterval_(tickInterval),
       callbackState_(std::make_shared<CallbackState>()) {
     callbackState_->owner = this;
@@ -137,6 +139,12 @@ void CadenceTickDriver::OnGameThreadTick() {
         }
         auto now = std::chrono::steady_clock::now();
         for (const auto& key : scheduler_.DueKeys(now)) {
+            auto policy = capturePolicies_.PolicyFor(key);
+            if (!policy.has_value() ||
+                policy->Kind() != CapturePolicyKind::kSampled ||
+                !policy->SampledSchedule().has_value()) {
+                continue;
+            }
             //  The closure always reports no change: no caller ever
             //  registers a key with `scheduler_`, so `DueKeys` never returns
             //  one and this loop body never runs in production today. It is

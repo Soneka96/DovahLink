@@ -2,6 +2,7 @@
 
 #include "application/application_test_support.hpp"
 #include "application/cadence_scheduler.hpp"
+#include "application/capture_policy_registry.hpp"
 #include "application/capture_work_item.hpp"
 #include "application/play_context.hpp"
 #include "application/task_marshaller.hpp"
@@ -17,14 +18,19 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 using dovahlink::application::CadenceTickDriver;
+using dovahlink::application::CapturePolicy;
 using dovahlink::application::CaptureWorkItem;
 using dovahlink::application::IActivePlayContextProvider;
 using dovahlink::application::ICadenceScheduler;
+using dovahlink::application::ICapturePolicyRegistry;
 using dovahlink::application::ITaskMarshaller;
 using dovahlink::application::PlayContext;
 using dovahlink::application::RateClass;
@@ -140,6 +146,30 @@ class FakeCadenceScheduler final : public ICadenceScheduler {
     mutable std::mutex mutex_;
     std::vector<std::string> dueKeys_;
     std::size_t callCount_ = 0;
+};
+
+///  Configures capture policies before a cadence driver starts and returns
+///  them to the driver's game-thread tick.
+class FakeCapturePolicyRegistry final : public ICapturePolicyRegistry {
+  public:
+    ///  Records a policy for a sampled key.
+    void Register(std::string key, CapturePolicy policy) override {
+        policies_.insert_or_assign(std::move(key), policy);
+    }
+
+    ///  Returns the configured policy, or no value for an unregistered key.
+    [[nodiscard]] std::optional<CapturePolicy>
+    PolicyFor(const std::string& key) const override {
+        auto it = policies_.find(key);
+        if (it == policies_.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+
+  private:
+    ///  Policies configured before the driver starts.
+    std::unordered_map<std::string, CapturePolicy> policies_;
 };
 
 ///  Controllable, thread-safe fake that runs a marshaled task synchronously
@@ -264,9 +294,11 @@ TEST_CASE("A tick with no due keys enqueues nothing",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Start();
     taskMarshaller.WaitForFirstRun();
@@ -281,6 +313,9 @@ TEST_CASE("A due key is marshaled onto the game thread and enqueued to the "
           "[application][cadence_tick_driver]") {
     FakeCadenceScheduler scheduler;
     scheduler.SetDueKeys({"character_level"});
+    FakeCapturePolicyRegistry capturePolicies;
+    capturePolicies.Register("character_level",
+                             CapturePolicy::Sampled(RateClass::kFast));
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
     auto context = BuildPlayContext();
@@ -297,7 +332,8 @@ TEST_CASE("A due key is marshaled onto the game thread and enqueued to the "
             }
             return true;
         }));
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Start();
     enqueued.get_future().wait();
@@ -309,6 +345,9 @@ TEST_CASE("Each due key across a tick with multiple due keys is enqueued",
           "[application][cadence_tick_driver]") {
     FakeCadenceScheduler scheduler;
     scheduler.SetDueKeys({"area_a", "area_b"});
+    FakeCapturePolicyRegistry capturePolicies;
+    capturePolicies.Register("area_a", CapturePolicy::Sampled(RateClass::kFast));
+    capturePolicies.Register("area_b", CapturePolicy::Sampled(RateClass::kFast));
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
     auto context = BuildPlayContext();
@@ -329,7 +368,8 @@ TEST_CASE("Each due key across a tick with multiple due keys is enqueued",
             }
             return true;
         }));
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Start();
     bothEnqueued.get_future().wait();
@@ -350,10 +390,12 @@ TEST_CASE("OnGameThreadTick skips the due-key check entirely when no "
           "[application][cadence_tick_driver]") {
     FakeCadenceScheduler scheduler;
     scheduler.SetDueKeys({"character_level"});
+    FakeCapturePolicyRegistry capturePolicies;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
     NullActivePlayContextProvider activeContext;
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Start();
     taskMarshaller.WaitForFirstRun();
@@ -372,12 +414,16 @@ TEST_CASE("OnGameThreadTick pins the active context once per tick, not once "
           "[application][cadence_tick_driver]") {
     FakeCadenceScheduler scheduler;
     scheduler.SetDueKeys({"area_a", "area_b"});
+    FakeCapturePolicyRegistry capturePolicies;
+    capturePolicies.Register("area_a", CapturePolicy::Sampled(RateClass::kFast));
+    capturePolicies.Register("area_b", CapturePolicy::Sampled(RateClass::kFast));
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
     EXPECT_CALL(worker, TryEnqueue(_)).WillRepeatedly(testing::Return(true));
     auto context = BuildPlayContext();
     CountingActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Start();
     taskMarshaller.WaitForFirstRun();
@@ -396,9 +442,11 @@ TEST_CASE("A failed active-context read does not stop future cadence ticks",
     auto context = BuildPlayContext();
     ThrowOnceActivePlayContextProvider activeContext(context);
     FakeCadenceScheduler scheduler;
+    FakeCapturePolicyRegistry capturePolicies;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
 
     driver.Start();
     activeContext.WaitForSecondCall();
@@ -413,9 +461,11 @@ TEST_CASE("Join before Start is a safe no-op",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Join();
 }
@@ -425,9 +475,11 @@ TEST_CASE("A second Stop call is a safe no-op",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
     driver.Start();
     taskMarshaller.WaitForFirstRun();
     driver.Stop();
@@ -442,9 +494,11 @@ TEST_CASE("A second Join call after Stop is a safe no-op",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
     driver.Start();
     taskMarshaller.WaitForFirstRun();
     driver.Stop();
@@ -458,9 +512,11 @@ TEST_CASE("Stop before Start is a safe no-op",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Stop();
     driver.Join();
@@ -471,9 +527,11 @@ TEST_CASE("Stop before Start does not prevent a later tick",
     FakeCadenceScheduler scheduler;
     FakeTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 5ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 5ms);
 
     driver.Stop();
     driver.Start();
@@ -489,9 +547,11 @@ TEST_CASE("CadenceTickDriver keeps at most one game-thread tick queued",
     FakeCadenceScheduler scheduler;
     QueuedTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
 
     driver.Start();
     REQUIRE(taskMarshaller.WaitForTaskCount(1));
@@ -509,9 +569,11 @@ TEST_CASE("A completed game-thread tick allows the next tick to be queued",
     FakeCadenceScheduler scheduler;
     QueuedTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
 
     driver.Start();
     REQUIRE(taskMarshaller.WaitForTaskCount(1));
@@ -530,9 +592,11 @@ TEST_CASE("Join waits for an executing game-thread tick",
     BlockingCadenceScheduler scheduler;
     QueuedTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
 
     driver.Start();
     REQUIRE(taskMarshaller.WaitForTaskCount(1));
@@ -561,11 +625,13 @@ TEST_CASE("A queued game-thread tick is safe after driver destruction",
     FakeCadenceScheduler scheduler;
     QueuedTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
 
     {
-        CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+        CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                                 activeContext, 1ms);
         driver.Start();
         REQUIRE(taskMarshaller.WaitForTaskCount(1));
     }
@@ -579,9 +645,11 @@ TEST_CASE("A failed marshal attempt does not stop future cadence ticks",
     FakeCadenceScheduler scheduler;
     ThrowOnceTaskMarshaller taskMarshaller;
     StrictMock<MockCaptureDispatchWorker> worker;
+    FakeCapturePolicyRegistry capturePolicies;
     auto context = BuildPlayContext();
     FixedActivePlayContextProvider activeContext(context);
-    CadenceTickDriver driver(scheduler, worker, taskMarshaller, activeContext, 1ms);
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
 
     driver.Start();
     taskMarshaller.WaitForSecondRun();
@@ -589,4 +657,30 @@ TEST_CASE("A failed marshal attempt does not stop future cadence ticks",
     driver.Join();
 
     CHECK(scheduler.CallCount() >= 1);
+}
+
+TEST_CASE("CadenceTickDriver only enqueues keys with sampled policies",
+          "[application][cadence_tick_driver]") {
+    FakeCadenceScheduler scheduler;
+    scheduler.SetDueKeys({"sampled", "native", "unregistered"});
+    FakeCapturePolicyRegistry capturePolicies;
+    capturePolicies.Register("sampled", CapturePolicy::Sampled(RateClass::kFast));
+    capturePolicies.Register("native", CapturePolicy::NativeEvent());
+    QueuedTaskMarshaller taskMarshaller;
+    StrictMock<MockCaptureDispatchWorker> worker;
+    auto context = BuildPlayContext();
+    FixedActivePlayContextProvider activeContext(context);
+    EXPECT_CALL(worker, TryEnqueue(_))
+        .WillOnce(Invoke([](CaptureWorkItem item) {
+            CHECK(item.stateArea == "sampled");
+            return true;
+        }));
+    CadenceTickDriver driver(scheduler, capturePolicies, worker, taskMarshaller,
+                             activeContext, 1ms);
+
+    driver.Start();
+    REQUIRE(taskMarshaller.WaitForTaskCount(1));
+    taskMarshaller.RunNextTask();
+    driver.Stop();
+    driver.Join();
 }

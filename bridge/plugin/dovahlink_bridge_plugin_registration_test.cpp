@@ -230,8 +230,9 @@ TEST_CASE("SKSEPluginLoad constructs the production capture and lifecycle "
     REQUIRE(cadenceSchedulerPos != std::string::npos);
     std::size_t tickDriverPos = dovahlink::test_support::FindSourceText(
         source, "static dovahlink::application::CadenceTickDriver "
-                "cadenceTickDriver(cadenceScheduler, captureDispatchWorker, "
-                "taskMarshaller, activePlayContextProvider);");
+                "cadenceTickDriver(cadenceScheduler, capturePolicyRegistry, "
+                "captureDispatchWorker, taskMarshaller, "
+                "activePlayContextProvider);");
     REQUIRE(tickDriverPos != std::string::npos);
     CHECK(cadenceSchedulerPos < tickDriverPos);
     CHECK(captureWorkerPos < tickDriverPos);

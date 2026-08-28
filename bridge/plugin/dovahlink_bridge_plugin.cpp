@@ -355,11 +355,10 @@ SKSEPluginInfo(
     //  `registeredStateAreaPolicy` has a real caller -- `levelSink` below
     //  gates its worker handoff on it -- though 4.2 registers zero state
     //  areas, so that gate always reports unregistered and the handoff
-    //  stays unreachable in production. `capturePolicyRegistry` still has
-    //  no consumer: nothing in 4.2 has a capture policy to classify, since
-    //  classifying a policy presupposes a registered domain and Phase 4.3
-    //  is what supplies the first one -- this remains a deliberately
-    //  deferred Stage 5 criterion, not an oversight.
+    //  stays unreachable in production. `capturePolicyRegistry` is consumed
+    //  by `cadenceTickDriver` as the due-key policy gate, but no sampled key
+    //  is registered in 4.2 because the first real capture policy and value
+    //  reader belong to Phase 4.3.
     //  `activeSessionPublicationRouter` has nothing attached, so every
     //  publication `statePublisher` builds is dropped, matching "authoritative
     //  state continues to update when no session is connected." Revisions
@@ -381,8 +380,8 @@ SKSEPluginInfo(
         statePublisher, activePlayContextProvider, captureQueueDiagnostics);
     static dovahlink::game_state::CommonLibTaskMarshaller taskMarshaller;
     static dovahlink::application::CadenceTickDriver cadenceTickDriver(
-        cadenceScheduler, captureDispatchWorker, taskMarshaller,
-        activePlayContextProvider);
+        cadenceScheduler, capturePolicyRegistry, captureDispatchWorker,
+        taskMarshaller, activePlayContextProvider);
     static dovahlink::game_state::CommonLibPublicationDiagnostics
         publicationDiagnostics;
     static dovahlink::application::SessionPublicationFactory

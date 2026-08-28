@@ -88,14 +88,14 @@ duplicate equivalent Skyrim reads.
 ### Production capture and lifecycle composition
 
 The production plugin composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) constructs and
-injects one instance each of `CadenceScheduler`, `ActivePlayContextProvider`,
-`RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`, `StatePublisher`,
-`CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, `CadenceTickDriver`, and
-`SessionPublicationFactory`, as function-local statics in the same dependency-ordered style already
-used for pairing, trust, and session components. It also constructs `CapturePolicyRegistry`, but does
-not inject it into any consumer -- nothing in 4.2 has a capture policy to classify, since classifying
-a policy presupposes a registered domain and Phase 4.3 is what supplies the first one; this criterion
-is not claimed complete. There is no process-lifetime revision tracker: revisions belong to whichever
+injects one instance each of `CadenceScheduler`, `CapturePolicyRegistry`,
+`ActivePlayContextProvider`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`,
+`StatePublisher`, `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`,
+`CadenceTickDriver`, and `SessionPublicationFactory`, as function-local statics in the same
+dependency-ordered style already used for pairing, trust, and session components. `CadenceTickDriver`
+uses the policy registry as a gate: a due key must have a complete sampled policy before it can
+produce a capture work item. 4.2 registers no sampled domain, because the first real capture policy
+and its value reader belong to Phase 4.3. There is no process-lifetime revision tracker: revisions belong to whichever
 `PlayContext` a capture is pinned against, reached through `ActivePlayContextProvider`, so a new
 save/new game always starts from a fresh, empty revision sequence rather than inheriting the previous
 context's. 4.2 registers zero state areas through `RegisteredStateAreaPolicy`; its fixed bound exists

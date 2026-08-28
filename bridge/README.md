@@ -256,12 +256,13 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
 ## Production capture and lifecycle composition without a live registered domain
 
 The production composition root (`bridge/plugin/dovahlink_bridge_plugin.cpp`) wires the full capture,
-worker-handoff, and publication-routing chain -- `CadenceScheduler`,
+worker-handoff, and publication-routing chain -- `CadenceScheduler`, `CapturePolicyRegistry`,
 `ActivePlayContextProvider`, `RegisteredStateAreaPolicy`, `ActiveSessionPublicationRouter`,
 `StatePublisher`, `CommonLibCaptureQueueDiagnostics`, `CaptureDispatchWorker`, and
 `CadenceTickDriver` -- while zero state areas are registered and no per-session queue is ever
-attached to `ActiveSessionPublicationRouter` in production. It also constructs `CapturePolicyRegistry`,
-but nothing in this graph consumes it (see "Stage 5 limitations not solved by this design" below).
+attached to `ActiveSessionPublicationRouter` in production. `CadenceTickDriver` consumes the policy
+registry to reject due keys that are absent or not complete sampled policies; no sampled key is
+registered in 4.2 because the first real value reader belongs to Phase 4.3.
 This is deliberate: no protocol state
 area exists yet (`protocol/schema/README.md`'s "Registered state areas" retired the previous
 `character` aggregate and registers nothing new), so there is nothing real to publish. The mechanism
@@ -284,18 +285,16 @@ root but has no call site yet -- that lands with the full-duplex session integra
 
 `CaptureDispatchWorker` (`bridge/application/capture_dispatch_worker.hpp`) and `CadenceTickDriver`
 (`bridge/application/cadence_tick_driver.hpp`) both start after `kDataLoaded` and stop/join during
-coordinator shutdown, but carry no traffic in 4.2: `CapturePolicyRegistry` has no keys registered, so
-`CadenceTickDriver`'s per-tick `ICadenceScheduler::DueKeys` call returns an empty set every time, and
-no native-event adapter enqueues into `CaptureDispatchWorker`. Their unit and composition tests are
-the only proof of correct behavior until a later phase registers a real domain and exercises them
+coordinator shutdown, but carry no traffic in 4.2: no sampled key is registered with the scheduler,
+so `CadenceTickDriver`'s per-tick `ICadenceScheduler::DueKeys` call returns an empty set every time,
+and no native-event adapter enqueues into `CaptureDispatchWorker`. Their unit and composition tests
+are the only proof of correct behavior until a later phase registers a real domain and exercises them
 under production load.
 
 ### Stage 5 limitations not solved by this design
 
-Four criteria remain genuinely open, named explicitly rather than left implicit:
+Three criteria remain genuinely open, named explicitly rather than left implicit:
 
-- **`CapturePolicyRegistry` is constructed but never injected into a consumer.** Nothing in 4.2 has a
-  capture policy to classify, since classifying one presupposes a registered domain.
 - **`SessionPublicationFactory` is constructed and injected but has no caller.** The full-duplex
   session integration that would call `CreateForSession` after authentication is Stage 6 scope.
 - **Reliable native-Event loss under capture-queue pressure is diagnosed, not prevented or
