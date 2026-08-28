@@ -18,6 +18,8 @@ using dovahlink::application::PlayContext;
 using dovahlink::application::PlayContextLifecycle;
 using dovahlink::application::test_support::BuildPlayContext;
 using dovahlink::application::test_support::MockActivePlayContextLevelSink;
+using dovahlink::application::test_support::MockCaptureDispatchWorker;
+using dovahlink::application::test_support::MockRegisteredStateAreaPolicy;
 using dovahlink::game_state::ILevelIncreaseHandler;
 using dovahlink::game_state::IPlayerLevelAccessor;
 using dovahlink::game_state::LevelIncreaseHandler;
@@ -128,7 +130,12 @@ TEST_CASE("HandleLevelIncrease composes with the active play-context writer",
         [] { return std::optional<std::string>("context-1"); },
         [context](std::string) { return context; });
     lifecycle.HandleEvent(dovahlink::application::LifecycleEvent::kNewGame);
-    ActivePlayContextLevelSink levelSink(lifecycle);
+    StrictMock<MockRegisteredStateAreaPolicy> registeredAreaPolicy;
+    StrictMock<MockCaptureDispatchWorker> captureWorker;
+    EXPECT_CALL(registeredAreaPolicy, IsRegistered(testing::_))
+        .WillOnce(testing::Return(false));
+    ActivePlayContextLevelSink levelSink(lifecycle, registeredAreaPolicy,
+                                         captureWorker, "test_state_area");
     StrictMock<MockPlayerLevelAccessor> accessor;
     EXPECT_CALL(accessor, ReadLevel())
         .WillOnce(testing::Return(std::optional<std::int64_t>{15}));

@@ -9,6 +9,7 @@
 #include "application/outbound_publication_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "application/registered_state_area_policy.hpp"
 #include "application/replay_guard.hpp"
 #include "application/session_manager.hpp"
 #include "application/state_publisher.hpp"
@@ -370,6 +371,13 @@ class MockCaptureDispatchWorker : public ICaptureDispatchWorker {
     MOCK_METHOD(void, Stop, (), (override));
     MOCK_METHOD(void, Join, (), (override));
     MOCK_METHOD(bool, TryEnqueue, (CaptureWorkItem), (override));
+};
+
+///  GoogleMock registered-state-area-policy contract double.
+class MockRegisteredStateAreaPolicy : public IRegisteredStateAreaPolicy {
+  public:
+    MOCK_METHOD(bool, TryRegister, (std::string), (override));
+    MOCK_METHOD(bool, IsRegistered, (const std::string&), (const, override));
 };
 
 } //  namespace dovahlink::application::test_support
