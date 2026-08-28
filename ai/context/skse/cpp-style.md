@@ -67,6 +67,14 @@
   collaborator (`application::IActiveSessionSocket`/`IActiveSessionController`) actually consumes
   are on that narrow interface, constructed only via `WebSocketSession::CreateSocket`; the carve-out
   covers only the file-placement question for `Socket`'s remaining, `WebSocketSession`-only surface.
+- Absolute rule: every header or source file in `bridge/game_state/` that directly includes an
+  `RE/...` or `SKSE/...` runtime header must include those runtime headers before any
+  DovahLink-owned application, game-state, transport, or protocol header and before any third-party
+  header. The pinned CommonLibSSE-NG `SKSE/Impl/WinAPI.h` redeclares Windows names and is not safe
+  after Boost or Windows SDK headers have imported their macros. Keep runtime-free interfaces in
+  separate headers so this order does not leak CommonLib into neutral application code. Structural
+  include-order tests must cover every runtime adapter whose header or source can import those
+  dependencies.
 - Every enum in `bridge/` is a single Bridge-wide exception to the file-organization rule, per
   `ai/context/common.md`'s "not a repository-wide dumping ground" -- `bridge/` is one compilation
   unit/project (one CMake target), not several, so the module subdirectories

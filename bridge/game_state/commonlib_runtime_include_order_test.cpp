@@ -25,6 +25,8 @@ TEST_CASE("CommonLib runtime adapters include runtime headers first",
           "[game_state][commonlib][includes]") {
     const std::string lifecycleHeader =
         ReadSource(DOVAHLINK_LIFECYCLE_SINK_HEADER_FILE);
+    const std::string levelHeader =
+        ReadSource(DOVAHLINK_LEVEL_INCREASE_SINK_HEADER_FILE);
     const std::string trustAdminSource =
         ReadSource(DOVAHLINK_TRUST_ADMIN_PAPYRUS_SOURCE_FILE);
 
@@ -32,6 +34,10 @@ TEST_CASE("CommonLib runtime adapters include runtime headers first",
         lifecycleHeader.find("#include \"SKSE/SKSE.h\"");
     const std::size_t lifecycleApplicationInclude =
         lifecycleHeader.find("#include \"application/coordinator.hpp\"");
+    const std::size_t levelReInclude =
+        levelHeader.find("#include \"RE/Skyrim.h\"");
+    const std::size_t levelApplicationInclude =
+        levelHeader.find("#include \"application/contained_work.hpp\"");
     const std::size_t trustSkseInclude =
         trustAdminSource.find("#include \"SKSE/SKSE.h\"");
     const std::size_t trustReInclude =
@@ -41,10 +47,13 @@ TEST_CASE("CommonLib runtime adapters include runtime headers first",
 
     REQUIRE(lifecycleSkseInclude != std::string::npos);
     REQUIRE(lifecycleApplicationInclude != std::string::npos);
+    REQUIRE(levelReInclude != std::string::npos);
+    REQUIRE(levelApplicationInclude != std::string::npos);
     REQUIRE(trustSkseInclude != std::string::npos);
     REQUIRE(trustReInclude != std::string::npos);
     REQUIRE(trustAdapterInclude != std::string::npos);
     CHECK(lifecycleSkseInclude < lifecycleApplicationInclude);
+    CHECK(levelReInclude < levelApplicationInclude);
     CHECK(trustSkseInclude < trustAdapterInclude);
     CHECK(trustReInclude < trustAdapterInclude);
 }
