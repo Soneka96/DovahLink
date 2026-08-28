@@ -6,19 +6,22 @@
 #include <boost/json/object.hpp>
 
 #include <chrono>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace dovahlink::application {
 
 ///  Builds typed publications from captured state and submits them toward
-///  the bounded outbound organization. One authoritative ordering point
-///  (`RevisionTracker`) assigns each state area's revision, so publication
-///  stays deterministically ordered even when captures arrive from
-///  different runtime sources. Built envelopes carry no `sessionId`: this
-///  publisher has no connection context, so the eventual live-session
-///  writer stamps in the active session's identity at send time, the same
-///  way `ConnectionSession::Run` stamps `bridgeInstanceId`/`playContextId`
-///  onto `capabilities` after building it.
+///  the bounded outbound organization. One per-state-area publication gate
+///  serializes revision assignment, envelope construction, and sink handoff
+///  so publication stays deterministically ordered even when captures arrive
+///  from different runtime sources. Built envelopes carry no `sessionId`: this
+///  publisher has no connection context, so the eventual live-session writer
+///  stamps in the active session's identity at send time, the same way
+///  `ConnectionSession::Run` stamps `bridgeInstanceId`/`playContextId` onto
+///  `capabilities` after building it.
 class IStatePublisher {
   public:
     ///  Allows destruction through the interface.
@@ -51,10 +54,11 @@ class StatePublisher final : public IStatePublisher {
   public:
     ///  Binds the publisher to its revision authority and outbound sink.
     ///  `RevisionTracker` is the concrete type rather than
-    ///  `IRevisionTracker` because `CommitSnapshotIfBuilt` -- required here
-    ///  to assign a Snapshot's revision and build its envelope atomically
-    ///  under one lock -- is declared only on the concrete class (see its
-    ///  own doc comment for why the interface cannot express it).
+    ///  `IRevisionTracker` because `CommitSnapshotIfBuilt` and
+    ///  `CommitEventIfBuilt` -- required here to assign revisions and build
+    ///  envelopes atomically under one lock -- are declared only on the
+    ///  concrete class (see its own doc comment for why the interface cannot
+    ///  express them).
     ///  @param revisionTracker Authoritative per-state-area revision
     ///  ordering.
     ///  @param sink Receives built publications.
@@ -72,11 +76,23 @@ class StatePublisher final : public IStatePublisher {
         override;
 
   private:
+    ///  Returns the stable publication mutex for one state area, creating it
+    ///  while protecting the mutex map when this is the area's first use.
+    [[nodiscard]] std::shared_ptr<std::mutex>
+    PublicationMutexFor(const std::string& stateArea);
+
     ///  Authoritative per-state-area revision ordering.
     RevisionTracker& revisionTracker_;
 
     ///  Receives built publications.
     IOutboundPublicationSink& sink_;
+
+    ///  Synchronizes access to `publicationMutexes_`.
+    std::mutex publicationMutexesMutex_;
+
+    ///  Stable per-state-area gates that serialize publication through the sink.
+    std::unordered_map<std::string, std::shared_ptr<std::mutex>>
+        publicationMutexes_;
 };
 
 } //  namespace dovahlink::application

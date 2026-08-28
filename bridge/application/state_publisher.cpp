@@ -16,11 +16,24 @@ StatePublisher::StatePublisher(RevisionTracker& revisionTracker,
                                IOutboundPublicationSink& sink)
     : revisionTracker_(revisionTracker), sink_(sink) {}
 
+std::shared_ptr<std::mutex>
+StatePublisher::PublicationMutexFor(const std::string& stateArea) {
+    std::lock_guard<std::mutex> lock(publicationMutexesMutex_);
+    auto it = publicationMutexes_.find(stateArea);
+    if (it != publicationMutexes_.end()) {
+        return it->second;
+    }
+    return publicationMutexes_.emplace(stateArea, std::make_shared<std::mutex>())
+        .first->second;
+}
+
 bool StatePublisher::PublishSnapshot(
     const std::string& stateArea, boost::json::object data,
     std::chrono::system_clock::time_point occurredAt) {
     std::string fingerprint = boost::json::serialize(data);
     std::string formattedOccurredAt = FormatTimestamp(occurredAt);
+    auto publicationMutex = PublicationMutexFor(stateArea);
+    std::lock_guard<std::mutex> publicationLock(*publicationMutex);
 
     std::optional<protocol::Envelope> envelope =
         revisionTracker_.CommitSnapshotIfBuilt(
@@ -49,22 +62,25 @@ bool StatePublisher::PublishSnapshot(
 bool StatePublisher::PublishEvent(
     const std::string& stateArea, boost::json::object data,
     std::chrono::system_clock::time_point occurredAt) {
-    auto revisions = revisionTracker_.NextEvent(stateArea);
-    if (!revisions.has_value()) {
-        return false;
-    }
-    auto [baseRevision, revision] = *revisions;
+    auto publicationMutex = PublicationMutexFor(stateArea);
+    std::lock_guard<std::mutex> publicationLock(*publicationMutex);
 
-    auto envelope = protocol::BuildEnvelope(
-        std::string(protocol::message_type::kStateEvent),
-        /*sessionId=*/std::nullopt, /*correlationId=*/std::nullopt,
-        protocol::EncodeStateEventPayload(protocol::StateEventPayload{
-            .stateArea = stateArea,
-            .baseRevision = baseRevision,
-            .revision = revision,
-            .occurredAt = FormatTimestamp(occurredAt),
-            .data = std::move(data),
-        }));
+    auto envelope = revisionTracker_.CommitEventIfBuilt(
+        stateArea,
+        [&, data = std::move(data)](
+            std::int64_t baseRevision,
+            std::int64_t revision) mutable -> std::optional<protocol::Envelope> {
+            return protocol::BuildEnvelope(
+                std::string(protocol::message_type::kStateEvent),
+                /*sessionId=*/std::nullopt, /*correlationId=*/std::nullopt,
+                protocol::EncodeStateEventPayload(protocol::StateEventPayload{
+                    .stateArea = stateArea,
+                    .baseRevision = baseRevision,
+                    .revision = revision,
+                    .occurredAt = FormatTimestamp(occurredAt),
+                    .data = std::move(data),
+                }));
+        });
     if (!envelope.has_value()) {
         return false;
     }

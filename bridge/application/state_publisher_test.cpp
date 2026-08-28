@@ -10,9 +10,14 @@
 
 #include <boost/json/object.hpp>
 
+#include <atomic>
 #include <chrono>
+#include <future>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 using dovahlink::application::RevisionTracker;
 using dovahlink::application::StatePublisher;
@@ -35,6 +40,86 @@ boost::json::object DataWithLevel(std::int64_t level) {
     data["level"] = level;
     return data;
 }
+
+///  Provides a thread-safe sink that pauses its first handoff until the test
+///  releases it, allowing concurrent publication attempts to be observed.
+class BlockingPublicationSink final
+    : public dovahlink::application::IOutboundPublicationSink {
+  public:
+    ///  Creates a sink with a release gate for its first publication handoff.
+    BlockingPublicationSink()
+        : releaseFirstFuture_(releaseFirst_.get_future().share()) {}
+
+    ///  Records one publication, pausing the first handoff until released.
+    void PublishSnapshot(std::string, Envelope envelope) override {
+        RecordPublication(std::move(envelope));
+    }
+
+    ///  Records one publication, pausing the first handoff until released.
+    void PublishEvent(std::string, Envelope envelope) override {
+        RecordPublication(std::move(envelope));
+    }
+
+    ///  Waits until the first publication handoff has entered the sink.
+    void WaitForFirstPublication() { firstEntered_.get_future().wait(); }
+
+    ///  Releases the first publication handoff.
+    void ReleaseFirstPublication() { releaseFirst_.set_value(); }
+
+    ///  Returns whether two publication handoffs overlapped.
+    [[nodiscard]] bool HandoffsOverlapped() const {
+        return overlapped_.load();
+    }
+
+    ///  Returns a thread-safe copy of recorded publications.
+    [[nodiscard]] std::vector<Envelope> Publications() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return publications_;
+    }
+
+  private:
+    ///  Records one publication and pauses the first handoff.
+    void RecordPublication(Envelope envelope) {
+        bool expected = false;
+        if (!active_.compare_exchange_strong(expected, true)) {
+            overlapped_.store(true);
+        }
+
+        if (!firstCall_.exchange(true)) {
+            firstEntered_.set_value();
+            releaseFirstFuture_.wait();
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            publications_.push_back(std::move(envelope));
+        }
+        active_.store(false);
+    }
+    ///  Signals entry into the first publication handoff.
+    std::promise<void> firstEntered_;
+
+    ///  Releases the first publication handoff.
+    std::promise<void> releaseFirst_;
+
+    ///  Waits for release of the first publication handoff.
+    std::shared_future<void> releaseFirstFuture_;
+
+    ///  Ensures only the first publication handoff waits on the release gate.
+    std::atomic<bool> firstCall_ = false;
+
+    ///  Tracks whether a second handoff overlaps the first.
+    std::atomic<bool> active_ = false;
+
+    ///  Records overlapping handoffs.
+    std::atomic<bool> overlapped_ = false;
+
+    ///  Synchronizes access to recorded publications.
+    mutable std::mutex mutex_;
+
+    ///  Publications received by the sink.
+    std::vector<Envelope> publications_;
+};
 
 } //  namespace
 
@@ -214,4 +299,101 @@ TEST_CASE("Distinct state areas track independent revisions",
     auto xpPayload = DecodeStateSnapshotPayload(xpEnvelope.payload);
     REQUIRE(xpPayload.has_value());
     CHECK(xpPayload->revision == 1);
+}
+
+TEST_CASE("Concurrent snapshots for one state area reach the sink in revision "
+          "order",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    BlockingPublicationSink sink;
+    StatePublisher publisher(revisionTracker, sink);
+    std::promise<void> secondStarted;
+    std::future<void> secondStartedFuture = secondStarted.get_future();
+    std::promise<void> secondFinished;
+    std::future<void> secondFinishedFuture = secondFinished.get_future();
+    bool firstPublished = false;
+    bool secondPublished = false;
+
+    std::thread firstPublisher([&] {
+        firstPublished = publisher.PublishSnapshot(
+            "character_level", DataWithLevel(5), kOccurredAt);
+    });
+
+    sink.WaitForFirstPublication();
+    std::thread secondPublisher([&] {
+        secondStarted.set_value();
+        secondPublished = publisher.PublishSnapshot(
+            "character_level", DataWithLevel(6), kOccurredAt);
+        secondFinished.set_value();
+    });
+
+    secondStartedFuture.wait();
+    CHECK(secondFinishedFuture.wait_for(100ms) == std::future_status::timeout);
+    sink.ReleaseFirstPublication();
+    firstPublisher.join();
+    secondPublisher.join();
+
+    CHECK(firstPublished);
+    CHECK(secondPublished);
+    CHECK_FALSE(sink.HandoffsOverlapped());
+
+    auto publications = sink.Publications();
+    REQUIRE(publications.size() == 2);
+    auto firstPayload = DecodeStateSnapshotPayload(publications[0].payload);
+    auto secondPayload = DecodeStateSnapshotPayload(publications[1].payload);
+    REQUIRE(firstPayload.has_value());
+    REQUIRE(secondPayload.has_value());
+    CHECK(firstPayload->revision == 1);
+    CHECK(firstPayload->data.at("level").as_int64() == 5);
+    CHECK(secondPayload->revision == 2);
+    CHECK(secondPayload->data.at("level").as_int64() == 6);
+}
+
+TEST_CASE("Concurrent events for one state area reach the sink in revision "
+          "order",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    revisionTracker.StartSnapshot("character_level", "{\"level\":5}");
+    BlockingPublicationSink sink;
+    StatePublisher publisher(revisionTracker, sink);
+    std::promise<void> secondStarted;
+    std::future<void> secondStartedFuture = secondStarted.get_future();
+    std::promise<void> secondFinished;
+    std::future<void> secondFinishedFuture = secondFinished.get_future();
+    bool firstPublished = false;
+    bool secondPublished = false;
+
+    std::thread firstPublisher([&] {
+        firstPublished = publisher.PublishEvent(
+            "character_level", DataWithLevel(6), kOccurredAt);
+    });
+
+    sink.WaitForFirstPublication();
+    std::thread secondPublisher([&] {
+        secondStarted.set_value();
+        secondPublished = publisher.PublishEvent(
+            "character_level", DataWithLevel(7), kOccurredAt);
+        secondFinished.set_value();
+    });
+
+    secondStartedFuture.wait();
+    CHECK(secondFinishedFuture.wait_for(100ms) == std::future_status::timeout);
+    sink.ReleaseFirstPublication();
+    firstPublisher.join();
+    secondPublisher.join();
+
+    CHECK(firstPublished);
+    CHECK(secondPublished);
+    CHECK_FALSE(sink.HandoffsOverlapped());
+
+    auto publications = sink.Publications();
+    REQUIRE(publications.size() == 2);
+    auto firstPayload = DecodeStateEventPayload(publications[0].payload);
+    auto secondPayload = DecodeStateEventPayload(publications[1].payload);
+    REQUIRE(firstPayload.has_value());
+    REQUIRE(secondPayload.has_value());
+    CHECK(firstPayload->baseRevision == 1);
+    CHECK(firstPayload->revision == 2);
+    CHECK(secondPayload->baseRevision == 2);
+    CHECK(secondPayload->revision == 3);
 }
