@@ -46,6 +46,25 @@ boost::beast::error_code RunOperation(boost::asio::io_context& ioContext,
     return result.get();
 }
 
+///  Owns an asynchronous send's bytes and completion callback until both are
+///  no longer needed.
+struct PendingWrite {
+    std::string message;
+    std::function<void(bool)> onComplete;
+    std::shared_ptr<boost::asio::steady_timer> timeout;
+};
+
+///  Invokes a transport completion without allowing a non-conforming callback
+///  to escape the noexcept transport boundary.
+void CompletePendingWrite(const std::shared_ptr<PendingWrite>& pending,
+                          bool ok) noexcept {
+    try {
+        pending->onComplete(ok);
+    } catch (...) {
+        //  Completion consumers must not be able to terminate the I/O thread.
+    }
+}
+
 } //  namespace
 
 boost::asio::ip::tcp::socket WebSocketSession::Socket::RebindSocket(
@@ -187,6 +206,111 @@ void WebSocketSession::Socket::ShutdownWithNotification(
                           });
     } catch (...) {
         //  Best-effort noexcept boundary, matching Shutdown().
+    }
+}
+
+void WebSocketSession::Socket::Send(std::string message,
+                                    std::function<void(bool)> onComplete) noexcept {
+    if (shutdownRequested_.load(std::memory_order_acquire)) {
+        try {
+            onComplete(false);
+        } catch (...) {
+            //  Completion is a noexcept boundary even for an already-closed
+            //  socket.
+        }
+        return;
+    }
+
+    //  Declared outside the try so the catch block below can still reach a
+    //  callback that was transferred into the pending state before a later
+    //  statement in the same try (for example boost::asio::post) throws.
+    std::shared_ptr<PendingWrite> pending;
+    try {
+        auto socket = weak_from_this();
+        //  The pending state is shared for the same reason as
+        //  ShutdownWithNotification's own sharedMessage: async_write only
+        //  registers the write before returning, and the actual bytes are
+        //  copied on a later io_context turn.
+        pending = std::make_shared<PendingWrite>();
+        pending->message = std::move(message);
+        pending->onComplete = std::move(onComplete);
+        boost::asio::post(
+            *ioContext_, [socket = std::move(socket), pending] {
+                auto activeSocket = socket.lock();
+                if (!activeSocket ||
+                    activeSocket->shutdownRequested_.load(
+                        std::memory_order_acquire)) {
+                    CompletePendingWrite(pending, false);
+                    return;
+                }
+                if (!activeSocket->handshakeSettled_.load(
+                        std::memory_order_acquire)) {
+                    //  Accept()'s own handshake operation may still be using
+                    //  stream_ -- starting a websocket-level write now would
+                    //  race it unsafely, matching
+                    //  ShutdownWithNotification's own check.
+                    CompletePendingWrite(pending, false);
+                    return;
+                }
+                try {
+                    //  The lowest-layer expiry is shared by Beast's read and
+                    //  write operations. Use a separate timer so a successful
+                    //  push cannot replace a blocked read's deadline. If the
+                    //  write itself stalls, cancel the socket and let the
+                    //  caller's completion policy decide whether to close it.
+                    pending->timeout = std::make_shared<boost::asio::steady_timer>(
+                        *activeSocket->ioContext_);
+                    pending->timeout->expires_after(security::kHandshakeTimeout);
+                    pending->timeout->async_wait(
+                        [socket, pending](boost::system::error_code ec) {
+                            if (ec) {
+                                return;
+                            }
+                            auto activeSocket = socket.lock();
+                            if (!activeSocket) {
+                                return;
+                            }
+                            try {
+                                activeSocket->stream_.next_layer().cancel();
+                            } catch (...) {
+                                //  The write completion reports the failure.
+                            }
+                        });
+                    activeSocket->stream_.text(true);
+                    activeSocket->stream_.async_write(
+                        boost::asio::buffer(pending->message),
+                        [socket, pending](boost::beast::error_code ec,
+                                          std::size_t) {
+                            if (pending->timeout) {
+                                pending->timeout->cancel();
+                            }
+                            auto activeSocket = socket.lock();
+                            bool ok = !ec && activeSocket &&
+                                      !activeSocket->shutdownRequested_.load(
+                                          std::memory_order_acquire);
+                            CompletePendingWrite(pending, ok);
+                        });
+                } catch (...) {
+                    //  The write itself failed to even start.
+                    if (pending->timeout) {
+                        pending->timeout->cancel();
+                    }
+                    CompletePendingWrite(pending, false);
+                }
+            });
+    } catch (...) {
+        //  Best-effort noexcept boundary, matching Shutdown(). Routes through
+        //  whichever callback is still safe to call: `onComplete` itself once
+        //  the pending write state has not been constructed.
+        if (pending) {
+            CompletePendingWrite(pending, false);
+        } else {
+            try {
+                onComplete(false);
+            } catch (...) {
+                //  Completion is a noexcept boundary even when posting fails.
+            }
+        }
     }
 }
 

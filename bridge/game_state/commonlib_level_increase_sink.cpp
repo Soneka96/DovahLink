@@ -1,5 +1,8 @@
 #include "game_state/commonlib_level_increase_sink.hpp"
 
+#include "SKSE/SKSE.h"
+
+#include <chrono>
 #include <utility>
 
 namespace dovahlink::game_state {
@@ -20,7 +23,17 @@ RE::BSEventNotifyControl CommonLibLevelIncreaseSink::ProcessEvent(
     const RE::LevelIncrease::Event*,
     RE::BSTEventSource<RE::LevelIncrease::Event>*) {
     if (callbackRunner_) {
-        (void)callbackRunner_([this] { handler_.HandleLevelIncrease(); });
+        (void)callbackRunner_([this] {
+            auto captureStart = std::chrono::steady_clock::now();
+            handler_.HandleLevelIncrease();
+            auto captureDuration =
+                std::chrono::steady_clock::now() - captureStart;
+            SKSE::log::info(
+                "[capture key=level] duration_us={}",
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    captureDuration)
+                    .count());
+        });
     }
     return RE::BSEventNotifyControl::kContinue;
 }

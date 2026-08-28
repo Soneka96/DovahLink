@@ -97,6 +97,31 @@ enum class RateClass {
     kSlow,
 };
 
+//  ---- Outbound queue ----
+
+///  Bounded outbound queue storage class assigned to a worker-owned
+///  publication after encoding, based on its size against the approved
+///  threshold. Controls data-lane slot accounting only; it does not change
+///  Snapshot/Event reliability and is never a wire field.
+enum class QueueClass {
+    ///  Occupies one of the data lane's ordinarily sized slots.
+    kNormal,
+    ///  Occupies one of the data lane's reserved larger-publication slots.
+    kHeavy,
+};
+
+///  Identifies why `BoundedOutboundQueue` disconnected its session.
+enum class DisconnectReason {
+    ///  The reserved control/recovery lane's 16-slot capacity was already
+    ///  full when a recovery Snapshot or control message was submitted.
+    kReservedLaneFull,
+    ///  A reliable Event could not be admitted into its data lane because
+    ///  message or byte capacity was already occupied.
+    kEventOverflow,
+    ///  A `Send` to the session socket reported failure.
+    kSendFailed,
+};
+
 } //  namespace dovahlink::application
 
 namespace dovahlink::security {

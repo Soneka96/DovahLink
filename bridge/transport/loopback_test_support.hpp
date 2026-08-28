@@ -114,6 +114,20 @@ class LoopbackWebSocketServer {
         }
     }
 
+    ///  Requests a best-effort `Send` on the accepted WebSocket session, when
+    ///  present, mirroring `NotifyAndShutdownActiveSession`'s structure but
+    ///  for the repeatable, non-shutting-down `Send` capability. Reports
+    ///  failure through `onComplete` when no session is active.
+    void SendOnActiveSession(std::string message,
+                             std::function<void(bool)> onComplete) noexcept {
+        std::lock_guard lock(socketMutex_);
+        if (activeSocket_) {
+            activeSocket_->Send(std::move(message), std::move(onComplete));
+        } else {
+            onComplete(false);
+        }
+    }
+
     ///  Forces a pending accept to fail so infrastructure error reporting can be
     ///  exercised.
     void CancelPendingAccept() noexcept {

@@ -103,6 +103,23 @@ and a bridge restart still creates a new `bridgeInstanceId`. `ai/context/protoco
 `roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, storage, and revocation design; this section only fixes where
 persistent trust sits relative to the four identifiers above.
 
+### Session registry and delivery ownership
+
+The Bridge uses a bounded session registry rather than a singleton delivery architecture. The
+current admission policy is `kMaxConnectedClients = 1`, owned by `bridge/security/constants.hpp`,
+so the Bridge remains single-client until the multi-client phase. The registry shape is still
+collection-based: each authenticated session record owns its `sessionId`, client-specific
+capabilities and subscriptions, outbound queue, recovery barriers, serialized writer, and
+diagnostics.
+
+Capture policy, cadence scheduling, authoritative state stores, and state-area revisions belong to
+Bridge/play-context scope and are shared across session records. A client is never given a second
+Skyrim read merely because it connects, and a session disconnect cannot invalidate authoritative
+state. When no session is connected, current authoritative state continues to update; reliable
+Events are scoped to the authenticated session and are not replayed across sessions, while the next
+session receives fresh current Snapshots. Stage 9 raises the admission capacity and adds fan-out and
+independent slow-client recovery using this same ownership boundary.
+
 ## Authoritative state and revisions
 
 Skyrim is the authoritative producer of live playthrough state. For each state area, the bridge owns

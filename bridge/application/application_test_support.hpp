@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -314,6 +315,8 @@ class MockSocket : public transport::ISocket {
   public:
     MOCK_METHOD(void, Shutdown, (), (noexcept, override));
     MOCK_METHOD(void, ShutdownWithNotification, (std::string), (noexcept, override));
+    MOCK_METHOD(void, Send, (std::string, std::function<void(bool)>),
+                (noexcept, override));
 };
 
 ///  GoogleMock outbound-publication-sink contract double.
@@ -323,6 +326,25 @@ class MockOutboundPublicationSink : public IOutboundPublicationSink {
                 (override));
     MOCK_METHOD(void, PublishEvent, (std::string, protocol::Envelope),
                 (override));
+    MOCK_METHOD(void, PublishRecoverySnapshot,
+                (std::string, protocol::Envelope, std::int64_t), (override));
+    MOCK_METHOD(void, PublishControl, (protocol::Envelope), (override));
+};
+
+///  GoogleMock publication-diagnostics contract double.
+class MockPublicationDiagnostics : public IPublicationDiagnostics {
+  public:
+    MOCK_METHOD(void, RecordQueueDepth,
+                (std::size_t, std::size_t, std::size_t, std::size_t),
+                (override));
+    MOCK_METHOD(void, RecordCoalesced, (std::string_view), (override));
+    MOCK_METHOD(void, RecordEnqueueLatency,
+                (std::chrono::steady_clock::duration), (override));
+    MOCK_METHOD(void, RecordDequeueLatency,
+                (std::chrono::steady_clock::duration), (override));
+    MOCK_METHOD(void, RecordRecovery,
+                (std::string_view, std::int64_t, std::size_t), (override));
+    MOCK_METHOD(void, RecordDisconnect, (DisconnectReason), (override));
 };
 
 } //  namespace dovahlink::application::test_support

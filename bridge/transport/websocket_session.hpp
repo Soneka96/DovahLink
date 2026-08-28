@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -82,6 +83,27 @@ class ISocket {
     ///  operation would race the same stream unsafely.
     ///  @param message Pre-encoded UTF-8 text to send before shutting down.
     virtual void ShutdownWithNotification(std::string message) noexcept = 0;
+
+    ///  Best-effort sends `message` as one text frame, cross-thread-safe like
+    ///  `ShutdownWithNotification` but, unlike it and `Shutdown()`, repeatable
+    ///  over the session's whole life rather than single-fire: intended for a
+    ///  collaborator that pushes more than one unsolicited message across the
+    ///  connection's life (for example a bounded outbound queue). The caller
+    ///  must keep at most one `Send` in flight at a time -- Beast permits only
+    ///  one outstanding write per stream -- by waiting for `onComplete` before
+    ///  calling again; this method does not queue or serialize overlapping
+    ///  calls itself. `onComplete` is invoked exactly once, with `true` once
+    ///  the write completes successfully, or `false` if the socket has
+    ///  already been shut down, the handshake has not yet settled, or the
+    ///  write itself fails or times out. Unlike `Shutdown()` and
+    ///  `ShutdownWithNotification()`, a failed or timed-out `Send` does not
+    ///  close the connection by itself; a caller that requires the
+    ///  connection to end on `onComplete(false)` must call `Shutdown()`
+    ///  explicitly.
+    ///  @param message Pre-encoded UTF-8 text to send.
+    ///  @param onComplete Invoked exactly once with the outcome.
+    virtual void Send(std::string message,
+                      std::function<void(bool)> onComplete) noexcept = 0;
 };
 
 ///  Owns one accepted TCP connection and applies the Phase 1 WebSocket rules:
@@ -104,6 +126,10 @@ class WebSocketSession final : public IWebSocketSession {
 
         ///  @copydoc ISocket::ShutdownWithNotification
         void ShutdownWithNotification(std::string message) noexcept override;
+
+        ///  @copydoc ISocket::Send
+        void Send(std::string message,
+                  std::function<void(bool)> onComplete) noexcept override;
 
       private:
         friend class WebSocketSession;
