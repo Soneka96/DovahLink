@@ -35,6 +35,17 @@ TEST_CASE("outbound queue lanes match the documented Phase 1 values",
           kReservedControlRecoverySlots + kReservedEventSlots);
 }
 
+TEST_CASE("outbound queue data-lane split matches the documented Phase 4.2 "
+          "values",
+          "[security][constants]") {
+    CHECK(kNormalDataSlots == 108);
+    CHECK(kHeavyDataSlots == 4);
+    CHECK(kReservedEventSlots == kNormalDataSlots + kHeavyDataSlots);
+    CHECK(kOutboundQueueByteBudget == 2 * 1024 * 1024);
+    CHECK(kHeavyPublicationThresholdBytes == 4 * 1024);
+    CHECK(kHeavyPublicationThresholdBytes < kOutboundQueueByteBudget);
+}
+
 TEST_CASE("throttling limits match the documented Phase 1 values",
           "[security][constants]") {
     CHECK(kMaxFailedTokenAttempts == 5);

@@ -45,6 +45,16 @@ inline constexpr std::size_t kReservedEventSlots = 112;
 ///  Total outbound queue capacity across both lanes.
 inline constexpr std::size_t kMaxOutboundQueueMessages =
     kReservedControlRecoverySlots + kReservedEventSlots;
+///  Data-lane slots for an ordinarily sized publication.
+inline constexpr std::size_t kNormalDataSlots = 108;
+///  Data-lane slots reserved for a larger structured publication.
+inline constexpr std::size_t kHeavyDataSlots = 4;
+///  Total encoded-byte budget for one client's outbound queue, independent of
+///  its message-count bound.
+inline constexpr std::size_t kOutboundQueueByteBudget = 2 * 1024 * 1024;
+///  Encoded-size threshold at or above which a publication is classified
+///  Heavy rather than Normal.
+inline constexpr std::size_t kHeavyPublicationThresholdBytes = 4 * 1024;
 
 //  ---- Failed-attempt and violation throttling ----
 

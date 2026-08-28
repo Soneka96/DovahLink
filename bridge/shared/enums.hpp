@@ -97,6 +97,19 @@ enum class RateClass {
     kSlow,
 };
 
+//  ---- Outbound queue ----
+
+///  Bounded outbound queue storage class assigned to a worker-owned
+///  publication after encoding, based on its size against the approved
+///  threshold. Controls data-lane slot accounting only; it does not change
+///  Snapshot/Event reliability and is never a wire field.
+enum class QueueClass {
+    ///  Occupies one of the data lane's ordinarily sized slots.
+    kNormal,
+    ///  Occupies one of the data lane's reserved larger-publication slots.
+    kHeavy,
+};
+
 } //  namespace dovahlink::application
 
 namespace dovahlink::security {
