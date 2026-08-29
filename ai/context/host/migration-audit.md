@@ -12,16 +12,25 @@ why), or **Deferred** (still not decided, same as before). No decision in this a
 rejected with no successor -- the migration relocates and, in a few cases, renames concepts; it does
 not drop any of 4.1/4.2's security or reliability guarantees.
 
+## Durable migration status
+
+`host/PLAN.md` is the canonical, durable plan for this parallel migration. The
+current branch has completed the host-side foundation and its security,
+lifecycle, session, persistence, and documentation remediation through the
+current remediation sequence's Step 7. Live WebSocket hosting, private IPC,
+real capture, conformance, and final `bridge/` removal remain later work.
+
+The existing `bridge/` tree remains the frozen behavioral reference until the
+replacement passes the live conformance and runtime cutover gates. Nothing in
+this audit authorizes deleting or silently replacing that reference.
+
 ## Identity model
 
 - **`bridgeInstanceId`** -- **Changed.** The single native process it identified splits into two
-  processes. The adapter is now the process whose restart creates a new native instance identity
-  (`ai/context/adapter/architecture.md`'s "Restart behavior"); the host is a second, independent
-  process lifetime that had no separate identity in `bridge/`, where host and adapter behavior lived
-  in one process. Whether the public protocol continues to expose one instance identifier, exposes
-  both host and adapter instance identities, or renames the adapter-side one, is a public-protocol
-  change outside Stage 1's scope (`ai/context/host/architecture.md`'s "Public contract ownership")
-  and is deferred to whichever later stage next revises `protocol/`.
+  processes. The adapter owns the replacement internal `adapterInstanceId`, whose value changes on
+  adapter restart. The host is a separate process lifetime with no public host identity; its OS
+  process identifier is diagnostic only. Whether the public protocol exposes an instance identifier
+  remains deferred to the later protocol revision stage.
 - **`playContextId`** -- **Retained, split ownership.** The adapter detects and notifies play-context
   transitions (save/load), per its "Play-context transition notifications" ownership; the host owns
   `playContextId`'s authoritative identity and invalidates stale state and revisions on receipt of
@@ -30,7 +39,9 @@ not drop any of 4.1/4.2's security or reliability guarantees.
   signal that has client-visible consequences.
 - **`clientId`** -- **Retained.** Owner: host. Pairing and persistent trust are entirely host-owned;
   the adapter has no role in client identity.
-- **`sessionId`** -- **Retained.** Owner: host. WebSocket session lifecycle is entirely host-owned.
+- **`sessionId`** -- **Retained.** Owner: host. WebSocket session lifecycle is entirely host-owned;
+  each session is also bound to a host-owned per-socket `ConnectionId` and cannot be queried or
+  invalidated through another connection.
 
 ## Persistent trust and pairing
 
@@ -82,10 +93,11 @@ not drop any of 4.1/4.2's security or reliability guarantees.
 ## Compatibility model
 
 - **Version-range compatibility** (no independent protocol-generation number; SDK declares a
-  supported release-version range) -- **Retained, renamed.** Owner: host. The versioned release
-  identity clients check against becomes the host's release version instead of the Bridge's. This is
-  a naming change only, recorded here so `ai/context/protocol/compatibility.md` picks it up when that
-  document is next revised -- Stage 1 does not edit `protocol/` itself, per its own "Not in scope."
+  supported release-version range) -- **Retained, renamed.** Owner: host. Before cutover, clients
+  check the frozen Bridge/mod release version; after cutover, the target host/client boundary uses
+  the host release version. This is a naming change only, recorded here so
+  `ai/context/protocol/compatibility.md` picks it up when that document is next revised -- Stage 1
+  does not edit `protocol/` itself, per its own "Not in scope."
 - **Compatibility bootstrap handshake, unknown-data forward-compatibility rules, capabilities
   negotiation** -- **Retained.** Owner: host.
 

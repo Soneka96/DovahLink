@@ -2,7 +2,7 @@
 
 ## Repository boundaries
 
-The future implementation is divided into explicit areas:
+The implementation is divided into explicit areas:
 
 ```text
 app/          Flutter client
@@ -15,7 +15,7 @@ integration/  cross-area tests and scenarios
 ai/context/   AI development conventions
 ```
 
-These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; client and bridge adapters consume them but do not redefine them. The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when the Dart Client SDK Foundation phase begins; see `sdk/README.md` for its current planned status.
+These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; clients, the host, and the adapter consume them but do not redefine them. The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when the Dart Client SDK Foundation phase begins; see `sdk/README.md` for its current planned status.
 
 ## Host and native adapter migration
 
@@ -40,6 +40,13 @@ Ownership split for the replacement:
 there except a maintainer-approved compatibility or safety fix needed to keep the reference usable.
 It is not refactored as part of the migration and is removed only after the replacement passes the
 full conformance and runtime validation matrix, per "Bridge migration and cutover" below.
+
+The package installs the standalone C# host and native adapter together. Startup
+brings up the host's private IPC listener before Skyrim loads the adapter; the
+adapter then connects to the host. The two are independent OS processes: host
+failure must not crash or block the adapter, and adapter absence is a valid host
+state. OS process identifiers are diagnostic only and are not DovahLink
+identities. The durable migration plan is [host/PLAN.md](host/PLAN.md).
 
 ## Bridge migration and cutover
 
@@ -66,35 +73,30 @@ criteria implement:
 ## Target shape
 
 ```text
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐
-│ Skyrim      │────▶│ Skyrim       │────▶│ DovahLink     │
-│ game state  │     │ bridge       │     │ protocol      │
-└─────────────┘     └──────────────┘     └───────┬───────┘
-                                                  │
-                                          ┌───────▼───────┐
-                                          │ Dart Client   │
-                                          │ SDK           │
-                                          └───────┬───────┘
-                                                  │
-                                    ┌─────────────┴─────────────┐
-                                    │                           │
-                              ┌─────▼─────┐               ┌─────▼─────┐
-                              │ Desktop   │               │ Mobile    │
-                              │ client    │               │ client    │
-                              └───────────┘               └───────────┘
+┌─────────────┐     ┌──────────────┐   private IPC   ┌──────────────┐   public protocol   ┌──────────────┐
+│ Skyrim      │────▶│ thin native  │────────────────▶│ DovahLink    │────────────────────▶│ Dart Client  │
+│ game state  │     │ adapter      │                 │ host process │                     │ / other     │
+└─────────────┘     └──────────────┘                 └──────────────┘                     └──────┬───────┘
+                                                                                                  │
+                                                                                      ┌───────────┴───────────┐
+                                                                                      │                       │
+                                                                                ┌─────▼─────┐           ┌─────▼─────┐
+                                                                                │ Desktop   │           │ Mobile    │
+                                                                                │ client    │           │ client    │
+                                                                                └───────────┘           └───────────┘
 ```
 
 ## Boundaries
 
-### Skyrim bridge
+### Skyrim adapter
 
-Reads the supported game state and exposes a small, versioned stream of events. It should not own presentation or device-specific behavior.
+Reads the supported game state and hands bounded, typed captures to the host over private IPC. It should not own presentation, client sessions, pairing policy, or device-specific behavior.
 
-SkyrimWebSocket is the starting reference and bridge foundation, not a separate architecture for DovahLink to reproduce from scratch. The first bridge feature should identify the parts that can be reused, then adapt them behind DovahLink's game-state, application, protocol-mapping, and transport boundaries. Reuse does not make SkyrimWebSocket's internal types or wire format canonical: the DovahLink protocol remains the cross-side contract, and code that does not fit the runtime, security, lifecycle, or ownership rules should be replaced or left out deliberately.
+SkyrimWebSocket and `bridge/` are historical references, not architectures for DovahLink to reproduce from scratch. The adapter owns only the Skyrim boundary; the host owns application behavior and public transport. Reuse does not make reference internals or wire formats canonical: the DovahLink protocol and private IPC contracts remain separate and authoritative at their respective boundaries.
 
 ### Protocol
 
-Defines the canonical connection, pairing, capability, state, and error contract between the bridge and clients. It is the seam between the two sides of one product, not a third implementation layer.
+Defines the canonical connection, pairing, capability, state, and error contract between the host and clients. It is the public seam between product processes, not a third implementation layer. The adapter's private IPC contract is separate.
 
 SKSE owns native response and application types. Flutter owns client models. Both map to and from the protocol contract; neither side's internal types become the contract.
 
@@ -108,12 +110,12 @@ Render companion views and manage local layout preferences. A client should rema
 
 ## Initial technical decisions
 
-- The bridge-to-client contract should be defined before multiple clients are built.
+- The host-to-client contract should be defined before multiple clients are built.
 - The protocol contract is the source of truth for cross-side messages; Flutter and SKSE adapters must not silently invent incompatible fields.
 - The official Flutter application is one client of the canonical protocol. It receives no
   undocumented protocol behavior or privileged access that another conforming client could not use.
 - Protocol messages remain presentation-independent. Screens, dashboard modules, orientation,
-  widget layout, and other client UI concepts do not belong in the bridge contract.
+  widget layout, and other client UI concepts do not belong in the public host/client contract.
 - The wire contract is defined by `protocol/schema/README.md`; transport framing remains outside
   the architecture contract.
 - Transport exposure, pairing, authentication, and input limits are defined by
@@ -121,47 +123,62 @@ Render companion views and manage local layout preferences. A client should rema
 
 ## Runtime and identity model
 
-One live Skyrim process owns one DovahLink bridge instance. A bridge may eventually serve multiple
-concurrent clients, and one machine may host multiple bridge instances when multiple supported
+One live Skyrim process owns one DovahLink adapter instance connected to one host process. A host may
+eventually serve multiple concurrent clients, and one machine may host multiple adapter/host pairs when multiple supported
 Skyrim processes exist. Transport location is not identity: an address, port, hostname, or transport
 path locates an endpoint but must not become the durable identity of a bridge, play context, client,
 or connection.
 
-The target architecture distinguishes four lifetimes:
+For historical compatibility, the old bridge behavior is recorded here.
+A bridge restart creates a new identity in the old bridge implementation; in
+the replacement this means an adapter restart creates a new `adapterInstanceId`.
+The target architecture distinguishes five
+identifiers across four lifetimes:
+the transport `ConnectionId` and authenticated `sessionId` share the per-socket
+lifetime.
 
-- `bridgeInstanceId` identifies one running bridge/plugin lifetime. A bridge restart creates a new
-  identity.
+- `adapterInstanceId` identifies one running adapter/plugin lifetime. An adapter restart creates a
+  new identity. The host's OS process lifetime is separate and has no public identity. The historical
+  `bridgeInstanceId` name is retained only in frozen-reference compatibility records.
 - `playContextId` identifies the currently loaded authoritative play context. It changes whenever
   state from the previous loaded game must no longer be accepted as current.
 - `clientId` identifies one paired client or device independently of any connection it opens.
+- `ConnectionId` identifies one host-owned transport connection.
 - `sessionId` identifies one authenticated socket session. It is valid only for that socket and is
-  invalidated when the connection ends.
+  invalidated when the connection ends in the historical contract as well as in the replacement.
 
-Each identifier must be created, validated, and invalidated at its own lifecycle boundary. A client
-reconnect creates a new `sessionId` without silently changing its `clientId`; loading another save
-creates a new `playContextId` without pretending that the bridge process restarted.
+Each identifier must be created, validated, and invalidated at its own lifecycle boundary.
+A client reconnect creates a new `sessionId` without silently changing its `clientId`; it also creates a new
+`ConnectionId`; loading another save
+creates a new `playContextId` without pretending that the adapter or host process restarted.
 
 Persistent device trust is a separate concept layered on top of these four lifetimes, not a fifth
 lifetime that replaces or reinterprets them. A paired client's local trust — the credential a client
 presents to reconnect without repeating pairing — belongs to the Windows user profile running the
-client and the Bridge, and survives Bridge, Skyrim, and Windows restarts. It does not change
-`bridgeInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
+client and the host, and survives host, adapter, Skyrim, and Windows restarts. It does not change
+`adapterInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
 per-socket identity: a trusted client still authenticates into a fresh `sessionId` on every reconnect,
-and a bridge restart still creates a new `bridgeInstanceId`. `ai/context/protocol/security.md` and
+and a bridge restart still creates a new `bridgeInstanceId` in the frozen Bridge reference; in the replacement an adapter restart
+creates a new `adapterInstanceId`. `ai/context/protocol/security.md` and
 `roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, storage, and revocation design; this section only fixes where
 persistent trust sits relative to the four identifiers above.
 
+The frozen reference's historical trust wording remains explicit: persistent
+trust belongs to the Windows user profile running the client and the Bridge,
+and survives Bridge, Skyrim, and Windows restarts. The target owner is the
+host process and its per-user persistence adapter.
+
 ### Session registry and delivery ownership
 
-The Bridge uses a bounded session registry rather than a singleton delivery architecture. The
-current admission policy is `kMaxConnectedClients = 1`, owned by `bridge/security/constants.hpp`,
-so the Bridge remains single-client until the multi-client phase. The registry shape is still
+The host uses a bounded session registry rather than a singleton delivery architecture. The
+current admission policy is one active client session, owned by the host's session registry,
+so the host remains single-client until the multi-client phase. The registry shape is
 collection-based: each authenticated session record owns its `sessionId`, client-specific
 capabilities and subscriptions, outbound queue, recovery barriers, serialized writer, and
 diagnostics.
 
 Capture policy, cadence scheduling, authoritative state stores, and state-area revisions belong to
-Bridge/play-context scope and are shared across session records. A client is never given a second
+host/play-context scope and are shared across session records. A client is never given a second
 Skyrim read merely because it connects, and a session disconnect cannot invalidate authoritative
 state. When no session is connected, current authoritative state continues to update; reliable
 Events are scoped to the authenticated session and are not replayed across sessions, while the next
@@ -170,7 +187,7 @@ independent slow-client recovery using this same ownership boundary.
 
 ## Authoritative state and revisions
 
-Skyrim is the authoritative producer of live playthrough state. For each state area, the bridge owns
+Skyrim is the authoritative producer of live playthrough state. For each state area, the host owns
 one authoritative state store for the active play context. Skyrim state is captured once and shared
 with subscribed clients; adding a client must not repeat equivalent Skyrim reads for that client.
 
@@ -180,17 +197,18 @@ another snapshot does not advance the revision when the state is unchanged, and 
 not create a new authoritative revision merely because the socket session changed.
 
 Clients use `playContextId` and the state-area revision together to reject stale state. `sessionId`
-still prevents a client from accepting messages from an old or foreign socket. When the play context
-changes, the bridge invalidates the previous context's state and establishes fresh authoritative
+and `ConnectionId` prevent a client from accepting messages from an old or foreign socket. When the play context
+changes, the host invalidates the previous context's state and establishes fresh authoritative
 state before publication resumes.
 
 `protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
 `roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
 the bridge and its clients. This ownership must not be implemented by silently reinterpreting
 messages from the previously published experimental release, which is archived rather than a
-supported compatibility target. The current contract has no independent runtime protocol-generation
-number of its own; compatibility with it is identified by the DovahLink Bridge/mod release version,
-per `ai/context/protocol/compatibility.md`.
+supported compatibility target. The current pre-cutover contract has no independent runtime
+protocol-generation number; compatibility with the frozen reference is identified by the DovahLink
+Bridge/mod release version. The target host contract will use the host release version when its
+public compatibility boundary is activated, per `ai/context/protocol/compatibility.md`.
 
 ## Live delivery and performance model
 
@@ -212,7 +230,7 @@ per `ai/context/protocol/compatibility.md`.
 
 - Treat the game as an unreliable producer: values may be unavailable or delayed.
 - Make connection state visible to the player.
-- Reject an incompatible Bridge/client combination clearly.
+- Reject an incompatible host/client or adapter/host combination clearly.
 - Avoid allowing a stale value to look current.
 - Keep the first client read-only.
 
@@ -222,7 +240,7 @@ per `ai/context/protocol/compatibility.md`.
 
 A future map should separate expensive, slow-changing resources from small playthrough updates:
 
-- Base maps, tiles, marker artwork, and other heavy resources are versioned and cached by the client rather than repeatedly streamed by the bridge.
+- Base maps, tiles, marker artwork, and other heavy resources are versioned and cached by the client rather than repeatedly streamed by the host.
 - Additional worldspaces, DLC maps, and mod-provided map resources are loaded only when needed.
 - Player position, active markers, discovery state, and Skyrim's native cleared state are lightweight snapshots or events layered over those resources.
 - A location is shown as cleared only when Skyrim provides that state; DovahLink must not invent a universal completion percentage for locations that are not clearable.
@@ -235,7 +253,7 @@ This split belongs to a dedicated map feature and does not expand the connection
 
 A future item-knowledge feature may combine a searchable, versioned knowledge source with read-only save and load-order state. Optional Legacy of the Dragonborn (LOTD) support may add acquisition guidance, source quests or locations, supported-mod context, and collected or displayed state when those values can be determined reliably.
 
-The knowledge source belongs outside the live bridge stream; the bridge should expose only relevant game state. This is separate from the map, bridge validation, and first companion workflow, even if a later client links an item result to a map location.
+The knowledge source belongs outside the live host stream; the host should expose only relevant game state. This is separate from the map, adapter validation, and first companion workflow, even if a later client links an item result to a map location.
 
 ### UI theming and adaptation
 
