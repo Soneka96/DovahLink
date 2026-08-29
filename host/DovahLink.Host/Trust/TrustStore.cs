@@ -1,4 +1,5 @@
 using DovahLink.Host.Identity;
+using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Trust;
 
@@ -77,22 +78,31 @@ public sealed class TrustStore : ITrustStore
     /// <summary>The successful mutation count used to fence pending pairing operations.</summary>
     private long mutationGeneration;
 
+    /// <summary>The time source used to record when a device becomes blocked.</summary>
+    private readonly IClock clock;
+
     /// <summary>Creates a trust store pre-populated with already-loaded records.</summary>
     /// <param name="persistence">The persistence adapter to write through to.</param>
+    /// <param name="clock">The time source used for trust-state timestamps.</param>
     /// <param name="initialRecords">The records loaded from persistence to start from.</param>
-    private TrustStore(ITrustStorePersistence persistence, IReadOnlyList<TrustRecord> initialRecords)
+    private TrustStore(ITrustStorePersistence persistence, IClock clock, IReadOnlyList<TrustRecord> initialRecords)
     {
         this.persistence = persistence;
+        this.clock = clock;
         recordsByClientId = initialRecords.ToDictionary(record => record.ClientId);
     }
 
     /// <summary>Creates a trust store, loading its initial contents from <paramref name="persistence"/>.</summary>
     /// <param name="persistence">The persistence adapter to load from and write through to.</param>
+    /// <param name="clock">The time source used for trust-state timestamps.</param>
     /// <param name="cancellationToken">The token used to cancel the initial load.</param>
-    public static async Task<TrustStore> CreateAsync(ITrustStorePersistence persistence, CancellationToken cancellationToken = default)
+    public static async Task<TrustStore> CreateAsync(
+        ITrustStorePersistence persistence,
+        IClock clock,
+        CancellationToken cancellationToken = default)
     {
         IReadOnlyList<TrustRecord> initialRecords = await persistence.LoadAsync(cancellationToken);
-        return new TrustStore(persistence, initialRecords);
+        return new TrustStore(persistence, clock, initialRecords);
     }
 
     /// <inheritdoc/>
@@ -302,7 +312,7 @@ public sealed class TrustStore : ITrustStore
             {
                 State = KnownDeviceState.Blocked,
                 CredentialVerifier = string.Empty,
-                BlockedAtUtc = DateTimeOffset.UtcNow,
+                BlockedAtUtc = clock.UtcNow,
             },
             TrustMutationOutcome.AlreadyInState,
             cancellationToken);

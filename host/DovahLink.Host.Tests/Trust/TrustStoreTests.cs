@@ -12,7 +12,7 @@ public class TrustStoreTests
     public async Task ClearAsync_RemovesEveryRecordAndPersistsEmptySet()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord first = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         TrustRecord second = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
         await store.UpsertAsync(first);
@@ -29,7 +29,7 @@ public class TrustStoreTests
     public async Task ClearAsync_PersistenceFails_RestoresPreviousRecords()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord first = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         TrustRecord second = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Revoked, "beefdead", DateTimeOffset.UtcNow);
         await store.UpsertAsync(first);
@@ -51,7 +51,7 @@ public class TrustStoreTests
     public async Task ClearAsync_ConcurrentUpsert_PersistsTheFinalSerializedState()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
         await Task.WhenAll(store.ClearAsync(), store.UpsertAsync(record));
@@ -66,7 +66,7 @@ public class TrustStoreTests
     public async Task TryUpsertIfGenerationAsync_MatchingGeneration_PersistsRecord()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
         bool committed = await store.TryUpsertIfGenerationAsync(record, store.MutationGeneration);
@@ -80,7 +80,7 @@ public class TrustStoreTests
     public async Task TryUpsertIfGenerationAsync_StaleGeneration_DoesNotMutateStore()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         long initialGeneration = store.MutationGeneration;
         TrustRecord existing = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         TrustRecord attempted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
@@ -98,7 +98,7 @@ public class TrustStoreTests
     public async Task TryUpsertIfGenerationAsync_PersistenceFails_RestoresRecordAndGeneration()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         long generation = store.MutationGeneration;
         persistence.ThrowOnSave = new IOException("disk full");
@@ -114,7 +114,7 @@ public class TrustStoreTests
     public async Task TryUpsertIfGenerationAsync_ExistingRecordSaveFails_RestoresPriorRecord()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         ClientId clientId = ClientId.NewId();
         TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
         TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
@@ -132,7 +132,7 @@ public class TrustStoreTests
     [Fact]
     public async Task TryGetByShortId_ReturnsMatchingRecordOnly()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
 
@@ -144,7 +144,7 @@ public class TrustStoreTests
     [Fact]
     public async Task RevokeAsync_TrustedRecord_ClearsVerifierAndPreservesMetadata()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
         TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
         await store.UpsertAsync(original);
@@ -164,21 +164,75 @@ public class TrustStoreTests
     [Fact]
     public async Task BlockAsync_UnpairedRecord_BlocksThenReportsAlreadyInState()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
-        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
         await store.UpsertAsync(original);
 
         Assert.Equal(TrustMutationOutcome.Changed, await store.BlockAsync(original.ClientId));
+        TrustRecord blocked = store.TryGet(original.ClientId)!;
+        Assert.Equal(clock.UtcNow, blocked.BlockedAtUtc);
+        Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
+
+        clock.Advance(TimeSpan.FromMinutes(1));
         Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
         Assert.Equal(KnownDeviceState.Blocked, store.TryGet(original.ClientId)!.State);
-        Assert.NotNull(store.TryGet(original.ClientId)!.BlockedAtUtc);
+        Assert.Equal(new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero), store.TryGet(original.ClientId)!.BlockedAtUtc);
+    }
+
+    /// <summary>Verifies that trusted and revoked records receive the injected block timestamp.</summary>
+    [Theory]
+    [InlineData(KnownDeviceState.Trusted, "hash")]
+    [InlineData(KnownDeviceState.Revoked, "")]
+    public async Task BlockAsync_TrustedOrRevokedRecord_UsesInjectedTimestamp(KnownDeviceState state, string verifier)
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord original = new(ClientId.NewId(), "12345", null, state, verifier, clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(original);
+
+        Assert.Equal(TrustMutationOutcome.Changed, await store.BlockAsync(original.ClientId));
+
+        TrustRecord blocked = store.TryGet(original.ClientId)!;
+        Assert.Equal(KnownDeviceState.Blocked, blocked.State);
+        Assert.Equal(clock.UtcNow, blocked.BlockedAtUtc);
+        Assert.Equal(blocked, Assert.Single(persistence.SavedRecords));
+    }
+
+    /// <summary>Verifies that blocking an unknown client does not mutate persistence.</summary>
+    [Fact]
+    public async Task BlockAsync_UnknownClient_ReturnsNotFound()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence);
+
+        Assert.Equal(TrustMutationOutcome.NotFound, await store.BlockAsync(ClientId.NewId()));
+        Assert.Empty(persistence.SavedRecords);
+    }
+
+    /// <summary>Verifies that a failed block persistence write restores the original record.</summary>
+    [Fact]
+    public async Task BlockAsync_PersistenceFails_RestoresOriginalRecord()
+    {
+        var clock = new FakeClock { UtcNow = new DateTimeOffset(2026, 8, 29, 0, 0, 0, TimeSpan.Zero) };
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await CreateStoreAsync(persistence, clock);
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, clock.UtcNow.AddDays(-1));
+        await store.UpsertAsync(original);
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.BlockAsync(original.ClientId));
+
+        Assert.Equal(original, store.TryGet(original.ClientId));
     }
 
     /// <summary>Verifies that unblocking clears block metadata and forgetting removes the record.</summary>
     [Fact]
     public async Task UnblockThenForgetAsync_RemovesKnownDevice()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         await store.UpsertAsync(blocked);
 
@@ -193,7 +247,7 @@ public class TrustStoreTests
     [Fact]
     public async Task ResetTrustAsync_RevokesTrustedOnly()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
         TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         TrustRecord revoked = new(ClientId.NewId(), "12346", "Revoked", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         TrustRecord blocked = new(ClientId.NewId(), "12347", "Blocked", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
@@ -215,7 +269,7 @@ public class TrustStoreTests
     public async Task ResetTrustAsync_PersistenceFails_RestoresTrustedRecord()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
         long generation = store.MutationGeneration;
@@ -232,7 +286,7 @@ public class TrustStoreTests
     public async Task ForgetAsync_PersistenceFails_RestoresRecord()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord record = new(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
         await store.UpsertAsync(record);
         long generation = store.MutationGeneration;
@@ -249,7 +303,7 @@ public class TrustStoreTests
     public async Task ClearAsync_Success_AdvancesMutationGeneration()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         long initialGeneration = store.MutationGeneration;
 
         await store.ClearAsync();
@@ -261,7 +315,7 @@ public class TrustStoreTests
     [Fact]
     public async Task CreateAsync_EmptyPersistence_StartsEmpty()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
 
         Assert.Empty(store.List());
     }
@@ -274,7 +328,7 @@ public class TrustStoreTests
         var record = new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         await persistence.SaveAsync([record]);
 
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
 
         Assert.Equal(record, store.TryGet(record.ClientId));
     }
@@ -283,7 +337,7 @@ public class TrustStoreTests
     [Fact]
     public async Task TryGet_UnknownClient_ReturnsNull()
     {
-        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustStore store = await CreateStoreAsync(new FakeTrustStorePersistence());
 
         Assert.Null(store.TryGet(ClientId.NewId()));
     }
@@ -293,7 +347,7 @@ public class TrustStoreTests
     public async Task UpsertAsync_NewClient_StoresAndWritesThrough()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         var record = new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
         await store.UpsertAsync(record);
@@ -308,7 +362,7 @@ public class TrustStoreTests
     public async Task UpsertAsync_ExistingClient_ReplacesRecord()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         ClientId clientId = ClientId.NewId();
         var original = new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         var revoked = original with { State = KnownDeviceState.Revoked };
@@ -328,11 +382,11 @@ public class TrustStoreTests
     public async Task CreateAsync_AfterPriorStoreUpserted_SeesItsRecords()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore firstStoreInstance = await TrustStore.CreateAsync(persistence);
+        TrustStore firstStoreInstance = await CreateStoreAsync(persistence);
         var record = new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         await firstStoreInstance.UpsertAsync(record);
 
-        TrustStore restartedStore = await TrustStore.CreateAsync(persistence);
+        TrustStore restartedStore = await CreateStoreAsync(persistence);
 
         Assert.Equal(record, restartedStore.TryGet(record.ClientId));
     }
@@ -343,7 +397,7 @@ public class TrustStoreTests
     {
         var persistence = new FakeTrustStorePersistence { ThrowOnLoad = new InvalidDataException("corrupt") };
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => TrustStore.CreateAsync(persistence));
+        await Assert.ThrowsAsync<InvalidDataException>(() => CreateStoreAsync(persistence));
     }
 
     /// <summary>Verifies that a failed persistence write rolls back the in-memory mutation rather than reporting an unsaved value as current.</summary>
@@ -351,7 +405,7 @@ public class TrustStoreTests
     public async Task UpsertAsync_PersistenceSaveFails_RollsBackInMemoryValue()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         ClientId clientId = ClientId.NewId();
         var original = new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         await store.UpsertAsync(original);
@@ -368,7 +422,7 @@ public class TrustStoreTests
     public async Task UpsertAsync_PersistenceSaveFailsForNewClient_RemovesPhantomEntry()
     {
         var persistence = new FakeTrustStorePersistence { ThrowOnSave = new IOException("disk full") };
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         var record = new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
 
         await Assert.ThrowsAsync<IOException>(() => store.UpsertAsync(record));
@@ -381,7 +435,7 @@ public class TrustStoreTests
     public async Task List_MultipleDistinctClients_ReturnsAll()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         var first = new TrustRecord(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
         var second = new TrustRecord(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
 
@@ -398,7 +452,7 @@ public class TrustStoreTests
     public async Task UpsertAsync_ConcurrentDistinctClients_AllSurvive()
     {
         var persistence = new FakeTrustStorePersistence();
-        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustStore store = await CreateStoreAsync(persistence);
         TrustRecord[] records = Enumerable.Range(0, 20)
             .Select(i => new TrustRecord(ClientId.NewId(), $"C{i}", $"Device {i}", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow))
             .ToArray();
@@ -413,4 +467,10 @@ public class TrustStoreTests
             Assert.Equal(record, store.TryGet(record.ClientId));
         }
     }
+
+    /// <summary>Creates a trust store with a controllable clock for tests.</summary>
+    private static Task<TrustStore> CreateStoreAsync(
+        FakeTrustStorePersistence persistence,
+        FakeClock? clock = null) =>
+        TrustStore.CreateAsync(persistence, clock ?? new FakeClock());
 }
