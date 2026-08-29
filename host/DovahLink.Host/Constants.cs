@@ -86,4 +86,38 @@ public static class Constants
 
     /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
     public const int MaxActiveSessions = 1;
+
+    // ---- Adapter IPC ----
+
+    /// <summary>
+    /// The private host-to-adapter IPC protocol version this build supports. A frame declaring any
+    /// other version fails closed rather than being interpreted.
+    /// </summary>
+    public const byte SupportedIpcProtocolVersion = 1;
+
+    /// <summary>The fixed byte length of an IPC frame header (protocol version, kind, and correlation id).</summary>
+    public const int IpcFrameHeaderBytes = 10;
+
+    /// <summary>
+    /// The maximum total byte length (header plus payload) of one private IPC frame. Approved as a
+    /// provisional value for this concept's small control-only messages; a later concept that needs
+    /// to carry a larger payload over this channel may revise it with the same documented approval
+    /// <c>ai/context/protocol/security.md</c>'s own limits require.
+    /// </summary>
+    public const int MaxIpcFrameBytes = 65536;
+
+    /// <summary>The maximum byte length of an <see cref="Adapter.Ipc.IpcHelloMessage"/> peer-ownership proof token.</summary>
+    public const int MaxIpcPeerProofTokenBytes = 64;
+
+    /// <summary>
+    /// The bounded capacity later concepts must enforce for a private IPC send/receive queue. Not
+    /// itself enforced by this contract's codec.
+    /// </summary>
+    public const int MaxIpcQueuedMessages = 256;
+
+    /// <summary>
+    /// The maximum inbound private IPC message rate later concepts must enforce, per connected peer.
+    /// Not itself enforced by this contract's codec.
+    /// </summary>
+    public const int MaxIpcMessagesPerSecond = 200;
 }

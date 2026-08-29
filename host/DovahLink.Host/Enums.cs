@@ -166,3 +166,78 @@ public enum AdapterAvailability
     /// <summary>An adapter is currently connected.</summary>
     Available,
 }
+
+// ---- Adapter IPC ----
+
+/// <summary>The kind of message carried by one private host-to-adapter IPC frame.</summary>
+public enum IpcMessageKind : byte
+{
+    /// <summary>Sent by the connecting adapter to negotiate the channel. See <see cref="Adapter.Ipc.IpcHelloMessage"/>.</summary>
+    Hello = 1,
+
+    /// <summary>Sent by the host to conclude negotiation. See <see cref="Adapter.Ipc.IpcHelloAckMessage"/>.</summary>
+    HelloAck = 2,
+
+    /// <summary>Sent by the host to request a fresh baseline. See <see cref="Adapter.Ipc.IpcResynchronizeRequestMessage"/>.</summary>
+    ResynchronizeRequest = 3,
+
+    /// <summary>Sent by the adapter in response to a resynchronization request. See <see cref="Adapter.Ipc.IpcResynchronizeResultMessage"/>.</summary>
+    ResynchronizeResult = 4,
+
+    /// <summary>Sent by either side to announce a deterministic close. See <see cref="Adapter.Ipc.IpcCloseMessage"/>.</summary>
+    Close = 5,
+
+    /// <summary>Sent by either side to reject a decodable-but-invalid message. See <see cref="Adapter.Ipc.IpcRejectMessage"/>.</summary>
+    Reject = 6,
+
+    /// <summary>Sent by either side to cancel a previously sent request. See <see cref="Adapter.Ipc.IpcCancelMessage"/>.</summary>
+    Cancel = 7,
+}
+
+/// <summary>Why a private IPC channel is being closed.</summary>
+public enum IpcCloseReason : byte
+{
+    /// <summary>An ordinary, non-error close.</summary>
+    Normal = 0,
+
+    /// <summary>The sending process is shutting down.</summary>
+    Shutdown = 1,
+
+    /// <summary>The sender is closing because of an unrecoverable error.</summary>
+    Error = 2,
+}
+
+/// <summary>Why the private IPC codec fail-closed rejected a frame it could still safely decode.</summary>
+public enum IpcRejectReason : byte
+{
+    /// <summary>The frame's declared length is impossible or exceeds the configured limit.</summary>
+    MalformedFrameLength = 0,
+
+    /// <summary>The frame's protocol version is not the version this side supports.</summary>
+    UnsupportedProtocolVersion = 1,
+
+    /// <summary>The frame's message kind is not a recognized value.</summary>
+    UnknownMessageKind = 2,
+
+    /// <summary>A peer-ownership proof in the payload is structurally invalid.</summary>
+    InvalidIdentity = 3,
+
+    /// <summary>The payload bytes do not match the fixed or declared layout for the frame's kind.</summary>
+    MalformedPayload = 4,
+}
+
+/// <summary>Why the host rejected an <see cref="Adapter.Ipc.IpcHelloMessage"/> negotiation.</summary>
+public enum IpcHelloRejectReason : byte
+{
+    /// <summary>Negotiation was not rejected; used only when the hello was accepted.</summary>
+    None = 0,
+
+    /// <summary>The requested protocol version is not supported.</summary>
+    UnsupportedProtocolVersion = 1,
+
+    /// <summary>The peer-ownership proof did not match the expected value.</summary>
+    InvalidProof = 2,
+
+    /// <summary>The hello payload was structurally invalid.</summary>
+    Malformed = 3,
+}
