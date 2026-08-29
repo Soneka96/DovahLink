@@ -31,4 +31,25 @@ public static class Constants
 
     /// <summary>The number of hex characters in a newly paired device's short id.</summary>
     public const int PairingShortIdLength = 4;
+
+    // ---- Authentication ----
+
+    /// <summary>The number of hex characters in a generated one-time local connection token.</summary>
+    public const int LocalConnectionTokenLength = 32;
+
+    /// <summary>
+    /// How long a one-time local connection token remains consumable after it is issued, per
+    /// <c>ai/context/protocol/security.md</c>'s "Phase 1 exposure".
+    /// </summary>
+    public static readonly TimeSpan LocalConnectionTokenLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The maximum number of failed token attempts allowed within
+    /// <see cref="LocalConnectionTokenFailureWindow"/>, per
+    /// <c>ai/context/protocol/security.md</c>'s "Phase 1 exposure".
+    /// </summary>
+    public const int LocalConnectionTokenMaxFailuresPerWindow = 5;
+
+    /// <summary>The rolling window over which failed token attempts are counted.</summary>
+    public static readonly TimeSpan LocalConnectionTokenFailureWindow = TimeSpan.FromSeconds(60);
 }
