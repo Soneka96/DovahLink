@@ -353,8 +353,8 @@ The transport rejects input before application decoding when it exceeds the appr
   closes the slow client rather than dropping an Event.
 - outbound queue byte budget: 2 MiB per client (`kOutboundQueueByteBudget`), enforced independently of
   the 128-message bound. A publication is classified Heavy rather than Normal at or above 4 KiB
-  encoded (`kHeavyPublicationThresholdBytes`). Both values are approved,
-  not yet profiled against a real character-domain payload, because no state area is registered before
+  encoded (`kHeavyPublicationThresholdBytes`). Both values are approved provisional infrastructure
+  values, not yet profiled against a real character-domain payload, because no state area is registered before
   a later phase: 4 KiB comfortably exceeds any plausible single-state-area JSON envelope while staying
   far below the 1 MiB inbound frame limit, and 2 MiB gives the 112-slot data lane roughly four times
   its Normal-slot capacity in bytes even if every slot were Heavy-sized, so the byte budget is very

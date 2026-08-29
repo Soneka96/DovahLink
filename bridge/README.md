@@ -250,8 +250,9 @@ already agreed for that phase, recorded here so Phase 4 does not have to redisco
   suitable event exists. A rate class (Fast/Medium/Slow) names a maximum publish frequency, not a
   mandatory one.
 - The approved 128-message outbound security bound remains the ceiling unless a separately approved
-  protocol-limit change replaces it. How Phase 4 divides that bound among its three categories
-  follows profiling once the real delivery mechanism exists, not advance estimation.
+  protocol-limit change replaces it. The current 2 MiB encoded-byte budget and 4 KiB Normal/Heavy
+  threshold are provisional infrastructure values; profiling against real character-domain payloads
+  remains a later Phase 4.3 task, not an advance estimate presented as measured behavior.
 
 ## Production capture and lifecycle composition without a live registered domain
 
@@ -293,8 +294,11 @@ under production load.
 
 ### Stage 5 limitations not solved by this design
 
-Three criteria remain genuinely open, named explicitly rather than left implicit:
+Four criteria remain genuinely open, named explicitly rather than left implicit:
 
+- **The approved 2 MiB encoded-byte budget and 4 KiB Normal/Heavy threshold are
+  provisional values, not yet profiled against a real character-domain payload.**
+  That profiling remains deferred until Phase 4.3 supplies a real domain.
 - **`SessionPublicationFactory` is constructed and injected but has no caller.** The full-duplex
   session integration that would call `CreateForSession` after authentication is Stage 6 scope.
 - **Reliable native-Event loss under capture-queue pressure is diagnosed, not prevented or

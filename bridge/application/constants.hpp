@@ -40,11 +40,11 @@ inline constexpr std::size_t kMaxCaptureQueueItems = 64;
 
 //  ---- Cadence tick ----
 
-///  Interval at which `CadenceTickDriver`'s background thread marshals a
-///  due-key check onto the game thread. Finer than `kFastCapturePeriod`
-///  (200 ms) so a due key is never delayed by more than one tick, per
-///  `ai/context/skse/architecture.md`'s "Production capture and lifecycle
-///  composition".
+///  Interval at which `CadenceTickDriver`'s background thread attempts to
+///  marshal a due-key check onto the game thread. Finer than
+///  `kFastCapturePeriod` (200 ms), but the SKSE task queue controls when the
+///  marshaled check actually runs; a delayed check skips missed instants rather
+///  than producing a catch-up burst.
 inline constexpr std::chrono::milliseconds kCadenceTickInterval{100};
 
 } //  namespace dovahlink::application
