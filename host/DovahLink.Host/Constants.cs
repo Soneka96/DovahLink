@@ -17,4 +17,18 @@ public static class Constants
 
     /// <summary>How long a factory-reset challenge remains confirmable after it is issued.</summary>
     public static readonly TimeSpan FactoryResetChallengeLifetime = TimeSpan.FromMinutes(5);
+
+    // ---- Pairing ----
+
+    /// <summary>The number of digits in a generated pairing challenge code.</summary>
+    public const int PairingChallengeCodeDigits = 6;
+
+    /// <summary>How long a pairing challenge remains confirmable after it is issued.</summary>
+    public static readonly TimeSpan PairingChallengeLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>The number of hex characters in a newly issued pairing credential.</summary>
+    public const int PairingCredentialLength = 32;
+
+    /// <summary>The number of hex characters in a newly paired device's short id.</summary>
+    public const int PairingShortIdLength = 4;
 }
