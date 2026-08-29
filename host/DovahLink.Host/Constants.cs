@@ -6,11 +6,19 @@ namespace DovahLink.Host;
 public static class Constants
 {
     /// <summary>The default per-Windows-user file the trust store is persisted to.</summary>
-    public static readonly string TrustStoreFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "DovahLink",
-        "host",
-        "trust-store.dat");
+    public static string TrustStoreFilePath
+    {
+        get
+        {
+            string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+            {
+                throw new InvalidOperationException("The current Windows user has no local application-data directory.");
+            }
+
+            return Path.Combine(localApplicationData, "DovahLink", "host", "trust-store.dat");
+        }
+    }
 
     /// <summary>The number of decimal digits in a generated factory-reset confirmation code.</summary>
     public const int FactoryResetChallengeCodeDigits = 6;
