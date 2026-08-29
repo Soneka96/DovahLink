@@ -74,9 +74,53 @@ itself. Host-loss and adapter-loss behavior *while both processes keep running* 
 of them restarting) is recorded in "Host-to-adapter IPC contract" below, since that behavior is a
 property of the channel between them, not of either process's own lifecycle.
 
+## Host-to-adapter IPC contract
+
+The adapter is the connecting side; the host is the private IPC channel's owning/listening side,
+matching the plan's framing of "a private... connection to the C# host." This section records
+Stage 1's decisions for that channel -- framing, versioning, size limits, authentication/ACL,
+backpressure, host loss, adapter loss, and current-state resynchronization. It is separate from the
+public SDK-to-host contract per "Public contract ownership" above: the public envelope is never
+reused as the internal IPC message model, and this section does not touch `protocol/`.
+
+- **Framing and versioning:** the channel carries host-and-adapter-owned messages only. It carries
+  an explicit version negotiated at connection start, so a host and adapter built from different
+  revisions of this contract fail closed with an actionable diagnostic rather than silently
+  misinterpreting each other's messages.
+- **Size limits:** the channel is bounded the same way the public transport already is (see
+  `ai/context/protocol/security.md`'s "Input limits") -- explicit per-message size and rate limits,
+  not an unbounded local pipe, because an unbounded channel would let a stalled host or adapter
+  build unbounded memory on the other side.
+- **Authentication/ACL:** the channel is local-machine-only, matching "Phase 1 exposure"'s loopback
+  posture for the public transport. It does not need pairing or a persistent credential -- there is
+  exactly one adapter and one host per running Skyrim process -- but it must reject a connection
+  from any process other than the expected local adapter/host pair, the same fail-closed posture
+  `ai/context/protocol/security.md` requires everywhere else.
+- **Backpressure:** the adapter's game-thread capture must never block on IPC availability or
+  channel fullness (see `ai/context/adapter/architecture.md`'s "Restart behavior"). A full channel
+  drops or replaces capture the same way the existing bounded outbound queue already does for
+  replaceable Snapshot state (`ai/context/protocol/security.md`'s queue policy), never by blocking
+  the game thread.
+- **Host loss:** the adapter continues Skyrim capture and its own bounded local handoff when the
+  host is unavailable or the channel is down; it must not crash, block, or silently discard capture
+  state it could otherwise still hand off once the channel recovers, within its own bounded
+  capacity.
+- **Adapter loss:** the host observes channel loss, marks adapter-sourced state unavailable rather
+  than presenting stale values as current (matching `ARCHITECTURE.md`'s "Reliability expectations"),
+  and requires a resynchronization handshake before publishing adapter-sourced state as current
+  again.
+- **Current-state resynchronization:** after either side reconnects, the adapter answers a host
+  resynchronization request through an approved game-thread path and the host treats the result as
+  a fresh authoritative baseline, not an incremental update layered on stale state -- the same
+  Snapshot-establishes-a-new-baseline rule the public transport already uses
+  (`ai/context/protocol/security.md`'s "Input limits" queue policy).
+
+Concrete wire shapes, message types, and the exact version/limit numbers are Stage 3 implementation
+work; this section fixes the decisions those numbers must satisfy.
+
 ## Not in scope for Stage 1
 
 No concrete host service, class, dependency-injection shape, or wire message is defined here.
 Stage 2 ("Standalone C# Host Core") designs the host's internal service boundaries against this
-ownership and lifecycle record; Stage 3 builds the private IPC channel the (forthcoming) IPC
-contract section constrains.
+ownership and lifecycle record; Stage 3 builds the private IPC channel this document's contract
+section constrains.
