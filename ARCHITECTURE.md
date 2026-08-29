@@ -6,7 +6,9 @@ The future implementation is divided into explicit areas:
 
 ```text
 app/          Flutter client
-bridge/       native SKSE bridge
+bridge/       native SKSE bridge (frozen reference; see "Host and native adapter migration" below)
+host/         standalone C# host process: client-facing and bridge-application behavior
+adapter/      thin native SKSE adapter: the Skyrim boundary only
 protocol/     canonical cross-side schemas and shared fixtures
 sdk/          reusable supported client SDK implementations
 integration/  cross-area tests and scenarios
@@ -14,6 +16,30 @@ ai/context/   AI development conventions
 ```
 
 These are ownership boundaries, not folders to pre-create. Add an area when its first real file is needed. Protocol schemas and shared fixtures belong only in `protocol/`; client and bridge adapters consume them but do not redefine them. The intended first SDK implementation is `sdk/dart/dovahlink_client/`, added when the Dart Client SDK Foundation phase begins; see `sdk/README.md` for its current planned status.
+
+## Host and native adapter migration
+
+`host/` and `adapter/` are replacing `bridge/`'s client-facing and native responsibilities,
+per `host/PLAN.md`. The C# host is explicitly **out-of-process**: it runs as its own OS process
+communicating with the native adapter over a private IPC channel; embedding the CLR inside Skyrim
+is not part of the design.
+
+Ownership split for the replacement:
+
+- `host/` owns WebSocket hosting and client session lifecycle; protocol mapping for the Dart SDK
+  and other conforming clients; pairing, persistent trust, authentication, authorization, and
+  revocation; subscriptions, authoritative published state, revisions, recovery, and per-session
+  bounded queues; diagnostics, host availability, reconnect behavior, and host-side shutdown. See
+  `ai/context/host/architecture.md`.
+- `adapter/` owns only the Skyrim boundary: SKSE loading, runtime compatibility, and native
+  lifecycle callbacks; synchronous game-thread reads and bounded capture handoff; play-context
+  transition notifications and Skyrim-facing pairing/admin notifications; and a private, bounded,
+  versioned IPC connection to the host. See `ai/context/adapter/architecture.md`.
+
+`bridge/` is frozen reference behavior during this migration: no new production feature is added
+there except a maintainer-approved compatibility or safety fix needed to keep the reference usable.
+It is not refactored as part of the migration and is removed only after the replacement passes the
+full conformance and runtime validation matrix, per "Bridge migration and cutover" below.
 
 ## Target shape
 
