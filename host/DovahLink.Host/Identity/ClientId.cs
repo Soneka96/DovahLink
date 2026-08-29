@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DovahLink.Host.Identity;
 
 /// <summary>
@@ -11,6 +13,12 @@ public readonly record struct ClientId
 
     /// <summary>Creates an identifier wrapping an existing value.</summary>
     /// <param name="value">The underlying identifier value.</param>
+    /// <remarks>
+    /// Marked as the deserialization constructor because a struct's implicit parameterless
+    /// constructor would otherwise take priority and leave <see cref="Value"/> at its default,
+    /// since <see cref="Value"/> has no public setter for the serializer to assign afterward.
+    /// </remarks>
+    [JsonConstructor]
     public ClientId(Guid value)
     {
         Value = value;
