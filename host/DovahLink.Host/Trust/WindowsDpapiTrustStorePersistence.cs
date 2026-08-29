@@ -25,6 +25,7 @@ public interface ITrustStorePersistence
 /// </summary>
 public sealed class WindowsDpapiTrustStorePersistence : ITrustStorePersistence
 {
+    /// <summary>The file the trust store is read from and written to.</summary>
     private readonly string filePath;
 
     /// <summary>Creates a persistence adapter backed by the repository's default trust-store file path.</summary>
