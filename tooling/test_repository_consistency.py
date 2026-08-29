@@ -895,6 +895,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"--test-dir", "build/windows-x64-release", "--output-on-failure"',
             '"restore", "integration/DovahLinkValidation.sln"',
             '"test", "integration/DovahLinkValidation.sln", "--configuration", "Release", "--no-restore"',
+            '"build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",',
+            '"--no-restore", "--no-incremental"\n)',
+            '"test", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",',
+            '"--no-restore", "--no-build"',
+            '"-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"',
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
@@ -929,6 +934,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             script.index('Write-Host "=== host-ci ==="'),
             script.index(
                 '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"'
+            ),
+            script.index(
+                '"build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",'
+            ),
+            script.index("Test-Path -LiteralPath $hostExecutablePath -PathType Leaf"),
+            script.index(
+                '"test", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",'
+            ),
+            script.index(
+                '"-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"'
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'
