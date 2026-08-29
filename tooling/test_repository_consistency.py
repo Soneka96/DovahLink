@@ -355,6 +355,57 @@ class RepositoryConsistencyTests(unittest.TestCase):
             step_positions.append(workflow.index(f"      - name: {step_name}"))
         self.assertEqual(step_positions, sorted(step_positions))
 
+    def test_host_ci_covers_build_tests_and_xml_documentation(self) -> None:
+        """Require the host executable, tests, and XML documentation checks on Windows CI."""
+        workflow = self._read(".github/workflows/host-ci.yml")
+        expected_paths = {
+            '- "host/**"',
+            '- "ARCHITECTURE.md"',
+            '- "ai/context/host/**"',
+            '- "ai/context/common.md"',
+            '- "ai/context/dotnet/**"',
+            '- ".github/workflows/host-ci.yml"',
+        }
+
+        push_block = self._yaml_block(workflow, "  push:")
+        self.assertIn("    branches: [main]", push_block)
+        paths_block = self._yaml_block(push_block, "    paths:")
+        self.assertEqual(
+            {line.strip() for line in paths_block.splitlines()[1:] if line.strip()},
+            expected_paths,
+        )
+        self.assertNotIn("paths:", self._yaml_block(workflow, "  pull_request:"))
+        self.assertEqual(
+            self._yaml_block(workflow, "permissions:"),
+            "permissions:\n  contents: read",
+        )
+        self.assertIn(
+            "uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6",
+            workflow,
+        )
+        self.assertIn(
+            "uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5",
+            workflow,
+        )
+        self.assertIn("    runs-on: windows-2022", workflow)
+        self.assertIn("    timeout-minutes: 10", workflow)
+        self.assertIn("        shell: pwsh", workflow)
+        self.assertIn("  workflow_dispatch:", workflow)
+        self.assertIn(
+            "  group: host-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+            workflow,
+        )
+        for fragment in (
+            "dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj",
+            "dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-incremental",
+            "host/DovahLink.Host/bin/Release/net9.0-windows/DovahLink.Host.exe",
+            "dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-build",
+            "-p:GenerateDocumentationFile=true",
+            "-p:TreatWarningsAsErrors=true",
+        ):
+            self.assertIn(fragment, workflow)
+        self.assertNotIn("continue-on-error:", workflow)
+
     def test_integration_ci_uses_pinned_harness_and_dotnet_scenarios(self) -> None:
         """Require the independent .NET scenarios to run against the pinned bridge harness."""
         workflow = self._read(".github/workflows/integration-ci.yml")
@@ -824,6 +875,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "if (-not $vcpkgAlreadyBootstrapped) {",
             "$LASTEXITCODE -ne 0",
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"',
+            'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(',
+            '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"',
+            '$hostExecutablePath = Join-Path $repoRoot "host\\DovahLink.Host\\bin\\Release\\net9.0-windows\\DovahLink.Host.exe"',
+            "Test-Path -LiteralPath $hostExecutablePath -PathType Leaf",
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")',
             '$appBuildCache = Join-Path $appDirectory ".dart_tool',
             "if (Test-Path -LiteralPath $appBuildCache) {",
@@ -870,6 +925,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         command_positions = [
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python"'
+            ),
+            script.index('Write-Host "=== host-ci ==="'),
+            script.index(
+                '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"'
             ),
             script.index(
                 'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")'

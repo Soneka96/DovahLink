@@ -1,0 +1,56 @@
+name: Host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "host/**"
+      - "ARCHITECTURE.md"
+      - "ai/context/host/**"
+      - "ai/context/common.md"
+      - "ai/context/dotnet/**"
+      - ".github/workflows/host-ci.yml"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: host-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Host Build & Test
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore host dependencies
+        run: dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj
+
+      - name: Build host executable
+        run: |
+          dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-incremental
+          $exe = "host/DovahLink.Host/bin/Release/net9.0-windows/DovahLink.Host.exe"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw "Expected headless host executable was not built: $exe"
+          }
+
+      - name: Test host
+        run: dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-build
+
+      - name: Check host XML documentation
+        run: dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-incremental -p:GenerateDocumentationFile=true -p:TreatWarningsAsErrors=true
