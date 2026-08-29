@@ -50,3 +50,15 @@ public enum PairingState
     /// <summary>The active challenge's code was presented after it had already expired.</summary>
     Expired,
 }
+
+// ---- Adapter ----
+
+/// <summary>Whether the native adapter is currently connected to the host over the private IPC channel.</summary>
+public enum AdapterAvailability
+{
+    /// <summary>No adapter is currently connected; adapter-sourced state must be treated as unavailable, not stale.</summary>
+    Unavailable,
+
+    /// <summary>An adapter is currently connected.</summary>
+    Available,
+}
