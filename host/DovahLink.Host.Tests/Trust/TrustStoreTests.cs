@@ -109,6 +109,25 @@ public class TrustStoreTests
         Assert.Equal(generation, store.MutationGeneration);
     }
 
+    /// <summary>Verifies that a failed conditional replacement restores the prior record and generation.</summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_ExistingRecordSaveFails_RestoresPriorRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        ClientId clientId = ClientId.NewId();
+        TrustRecord original = new(clientId, "12345", "Living Room PC", KnownDeviceState.Revoked, "oldhash", DateTimeOffset.UtcNow);
+        TrustRecord replacement = original with { State = KnownDeviceState.Trusted, CredentialVerifier = "newhash" };
+        await store.UpsertAsync(original);
+        long generation = store.MutationGeneration;
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(replacement, generation));
+
+        Assert.Equal(original, store.TryGet(clientId));
+        Assert.Equal(generation, store.MutationGeneration);
+    }
+
     /// <summary>Verifies that a successful clear advances the mutation generation.</summary>
     [Fact]
     public async Task ClearAsync_Success_AdvancesMutationGeneration()

@@ -100,6 +100,9 @@ public enum PairingCommitOutcome
     /// <summary>The credential became trusted.</summary>
     Trusted,
 
+    /// <summary>A previously completed pairing was safely retried.</summary>
+    AlreadyTrusted,
+
     /// <summary>No matching pending credential exists.</summary>
     PendingNotFound,
 

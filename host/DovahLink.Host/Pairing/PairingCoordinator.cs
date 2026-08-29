@@ -292,7 +292,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                     FixedTimeEquals(existing.CredentialVerifier, HashCredential(credential)))
                 {
                     return new PairingCommitResult(
-                        PairingCommitOutcome.Trusted,
+                        PairingCommitOutcome.AlreadyTrusted,
                         clientId,
                         credential,
                         existing.ShortId,

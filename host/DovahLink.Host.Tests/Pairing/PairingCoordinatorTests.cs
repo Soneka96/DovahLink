@@ -55,6 +55,8 @@ public class PairingCoordinatorTests
         PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
 
         Assert.Equal(PairingConfirmOutcome.CredentialIssued, issued.Outcome);
+        Assert.Equal(32, issued.Credential!.Length);
+        Assert.All(issued.Credential, character => Assert.True(Uri.IsHexDigit(character)));
         Assert.Empty(trustStore.List());
         PairingCommitResult committed = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
 
@@ -101,6 +103,23 @@ public class PairingCoordinatorTests
 
         Assert.Equal(PairingConfirmOutcome.Invalid, rejected.Outcome);
         Assert.Equal(PairingConfirmOutcome.CredentialIssued, accepted.Outcome);
+    }
+
+    /// <summary>Verifies that concurrent correct submissions issue only one pending credential.</summary>
+    [Fact]
+    public async Task ConfirmCode_ConcurrentCorrectSubmissions_OnlyOneSucceeds()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        string code = start.Challenge!.Code;
+
+        PairingConfirmationResult[] results = await Task.WhenAll(
+            Task.Run(() => coordinator.ConfirmCode(clientId, code, "Living Room PC")),
+            Task.Run(() => coordinator.ConfirmCode(clientId, code, "Living Room PC")));
+
+        Assert.Single(results, result => result.Outcome == PairingConfirmOutcome.CredentialIssued);
+        Assert.Single(results, result => result.Outcome == PairingConfirmOutcome.Invalid);
     }
 
     /// <summary>Verifies that the fifth wrong evaluated code cancels the active challenge.</summary>
@@ -372,8 +391,28 @@ public class PairingCoordinatorTests
         PairingCommitResult second = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
 
         Assert.Equal(PairingCommitOutcome.Trusted, first.Outcome);
-        Assert.Equal(PairingCommitOutcome.Trusted, second.Outcome);
+        Assert.Equal(PairingCommitOutcome.AlreadyTrusted, second.Outcome);
         Assert.Single(trustStore.List());
+    }
+
+    /// <summary>Verifies that exhausting short-id candidates fails closed without consuming pending pairing.</summary>
+    [Fact]
+    public async Task CommitPending_ShortIdCollisions_ReachBoundedGeneratorFailure()
+    {
+        var trustStore = new FakeTrustStore();
+        trustStore.Seed(new TrustRecord(ClientId.NewId(), "12345", "Existing", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var coordinator = new PairingCoordinator(
+            trustStore,
+            new FakeClock(),
+            shortIdGenerator: () => "12345");
+        ClientId clientId = ClientId.NewId();
+        PairingStartResult start = coordinator.BeginPairing(clientId);
+        PairingConfirmationResult issued = coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living Room PC");
+
+        PairingCommitResult result = await coordinator.CommitPendingAsync(clientId, issued.Credential!);
+
+        Assert.Equal(PairingCommitOutcome.GeneratorFailed, result.Outcome);
+        Assert.Equal(PairingStartOutcome.Resumed, coordinator.BeginPairing(clientId).Outcome);
     }
 
     /// <summary>Verifies that cancellation before finalization leaves the pending credential retryable.</summary>
@@ -568,6 +607,15 @@ public class PairingCoordinatorTests
         PairingStartResult start = coordinator.BeginPairing(clientId);
 
         Assert.Throws<ArgumentException>(() => coordinator.ConfirmCode(clientId, start.Challenge!.Code, "Living\nRoom"));
+    }
+
+    /// <summary>Verifies that a missing pairing code is rejected explicitly.</summary>
+    [Fact]
+    public void ConfirmCode_NullCode_ThrowsArgumentNullException()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+
+        Assert.Throws<ArgumentNullException>(() => coordinator.ConfirmCode(ClientId.NewId(), null!, null));
     }
 
     /// <summary>Verifies that global cancellation removes both active and pending pairing state.</summary>
