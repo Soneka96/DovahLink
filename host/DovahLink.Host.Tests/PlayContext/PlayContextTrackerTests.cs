@@ -147,7 +147,13 @@ public class PlayContextTrackerTests
 
         Task firstTransition = Task.Run(() => tracker.NotifyTransition(firstContext));
         Assert.True(firstCallbackEntered.Wait(TimeSpan.FromSeconds(5)));
-        Task secondTransition = Task.Run(() => tracker.NotifyTransition(secondContext));
+        using var secondTransitionStarted = new ManualResetEventSlim();
+        Task secondTransition = Task.Run(() =>
+        {
+            secondTransitionStarted.Set();
+            tracker.NotifyTransition(secondContext);
+        });
+        Assert.True(secondTransitionStarted.Wait(TimeSpan.FromSeconds(5)));
 
         Task completed = await Task.WhenAny(secondTransition, Task.Delay(100));
         Assert.NotSame(secondTransition, completed);

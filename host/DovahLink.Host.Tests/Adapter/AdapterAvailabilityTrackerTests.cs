@@ -319,7 +319,13 @@ public class AdapterAvailabilityTrackerTests
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
         Task firstConnection = Task.Run(() => tracker.NotifyConnected(firstInstanceId));
         Assert.True(firstCallbackEntered.Wait(TimeSpan.FromSeconds(5)));
-        Task secondConnection = Task.Run(() => tracker.NotifyConnected(secondInstanceId));
+        using var secondConnectionStarted = new ManualResetEventSlim();
+        Task secondConnection = Task.Run(() =>
+        {
+            secondConnectionStarted.Set();
+            tracker.NotifyConnected(secondInstanceId);
+        });
+        Assert.True(secondConnectionStarted.Wait(TimeSpan.FromSeconds(5)));
 
         Task completed = await Task.WhenAny(secondConnection, Task.Delay(100));
         Assert.NotSame(secondConnection, completed);
