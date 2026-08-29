@@ -147,6 +147,27 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList
     "-m", "unittest", "discover", "-s", "tooling", "-p", "test_*.py"
 )
 
+Write-Host "=== host-ci ==="
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"
+)
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",
+    "--no-restore", "--no-incremental"
+)
+$hostExecutablePath = Join-Path $repoRoot "host\DovahLink.Host\bin\Release\net9.0-windows\DovahLink.Host.exe"
+if (-not (Test-Path -LiteralPath $hostExecutablePath -PathType Leaf)) {
+    throw "Expected headless host executable was not built: $hostExecutablePath"
+}
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "test", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",
+    "--no-restore", "--no-build"
+)
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
+    "build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",
+    "--no-restore", "--no-incremental", "-p:GenerateDocumentationFile=true", "-p:TreatWarningsAsErrors=true"
+)
+
 Write-Host "=== app-ci ==="
 $sdkDirectory = Join-Path $repoRoot "sdk\dart\dovahlink_client"
 Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("pub", "get")

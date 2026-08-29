@@ -68,6 +68,7 @@ public sealed class BridgeConnection : IAsyncDisposable
     /// Sends arbitrary text as a complete UTF-8 WebSocket message.
     /// </summary>
     /// <param name="text">The text to send.</param>
+    /// <param name="cancellationToken">The token used to cancel the send operation.</param>
     public async Task SendRawTextAsync(string text, CancellationToken cancellationToken = default)
     {
         byte[] bytes = Encoding.UTF8.GetBytes(text);

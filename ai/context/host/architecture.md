@@ -13,6 +13,46 @@ CommonLib, or the existing C++ `bridge/` implementation. Embedding the CLR insid
 part of the design. The host communicates with the native adapter only through the private IPC
 channel defined in "Host-to-adapter IPC contract" below.
 
+## Startup, packaging, and process identity
+
+The Vortex-installable mod package contains the standalone host executable and
+the native adapter as separate components. When Skyrim loads the adapter, the
+adapter starts the packaged host as a hidden external Windows process if it is
+not already running, then the adapter connects to the host's private IPC
+listener. The adapter may launch the external process, but it never embeds the
+CLR or loads host assemblies, Skyrim runtime objects, or CommonLib code into the
+other process. Adapter startup and IPC reconnect must not block game-thread work;
+the adapter retries through its bounded handoff/connection path if host startup
+takes time or the host is temporarily unavailable. A failed host start leaves
+the adapter safe to run without a connected host, while a failed adapter
+connection leaves the host in its valid adapter-unavailable state.
+
+The host process belongs to one adapter/Skyrim lifetime. The adapter must not
+blindly reuse a stale or duplicate host process: it starts the packaged host or
+adopts an already-running process only when that process proves it belongs to
+the current lifetime through the private channel. The exact ownership proof is
+private-IPC implementation work. The adapter supervises the host with an
+OS-backed parent-lifetime mechanism. On an orderly Skyrim shutdown, the adapter
+requests the host's deterministic graceful teardown first; the OS-backed
+mechanism is the fallback for crashes and forced termination. The host remains
+responsible for closing client sessions, private IPC, and its own application
+resources before exiting.
+
+The host and adapter have independent OS process lifetimes. A host restart
+ends all client sockets and their sessions, reloads persistent trust, and
+starts with no authoritative live state until adapter resynchronization. An
+adapter restart creates a fresh adapter instance identity and requires a new
+private-IPC handshake and state baseline. Shutdown follows one deterministic
+host teardown path for client sessions and private IPC; the adapter must remain
+safe if the host disappears first.
+
+The OS process identifier is operational diagnostic data only. It is not a
+durable or public DovahLink identity. The host owns the per-client transport
+`ConnectionId` and authenticated `sessionId`; the adapter connection has a
+host-observed `adapterInstanceId`; and the adapter reports play-context
+transitions through the private channel. None of those identities is derived
+from a port, path, hostname, or OS process id.
+
 ## Ownership
 
 The host is the sole new owner of:
@@ -56,21 +96,20 @@ requests cleanly rather than hanging).
   invalidated the moment its socket closes (per `ARCHITECTURE.md`'s per-socket `sessionId`
   lifetime), so a host restart ends every client session the same way any host shutdown does.
   Persistent trust survives a host restart: it is stored per-Windows-user-profile independently of
-  any single process's lifetime, extending `ARCHITECTURE.md`'s existing "Persistent device trust...
-  survives Bridge, Skyrim, and Windows restarts" statement to the host process that now owns it. The
+  any single process's lifetime, extending the existing persistent-trust policy across host, adapter,
+  Skyrim, and Windows restarts. The
   host's in-memory authoritative published state and revisions do not survive a host restart -- they
   are not persisted, so a restarted host holds no authoritative state until it resynchronizes with
   the adapter and starts a fresh revision sequence for every affected state area.
-- **Adapter restart** (an SKSE plugin reload or a Skyrim process restart) creates a new adapter
-  instance identity, the same relationship `ARCHITECTURE.md`'s existing `bridgeInstanceId` already
-  describes for the native process. The host observes the IPC connection drop and reconnect and
+- **Adapter restart** (an SKSE plugin reload or a Skyrim process restart) creates a new
+  `adapterInstanceId`. The host observes the IPC connection drop and reconnect and
   treats any state associated with the previous adapter connection as stale until it is
   resynchronized; it never continues publishing the old connection's state as current across an
   adapter restart.
 
-Host restart and adapter restart must have defined, *testable* state-recovery behavior once Stage 2
-builds the host core -- this section fixes the policy those tests must prove, not the test design
-itself. Host-loss and adapter-loss behavior *while both processes keep running* (as opposed to one
+Stage 2 established defined, *testable* host-restart and adapter-restart state-recovery policy;
+this section records the behavior its tests must prove, not the test design itself. Host-loss and
+adapter-loss behavior *while both processes keep running* (as opposed to one
 of them restarting) is recorded in "Host-to-adapter IPC contract" below, since that behavior is a
 property of the channel between them, not of either process's own lifecycle.
 
