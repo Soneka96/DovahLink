@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <future>
 #include <mutex>
 #include <string>
@@ -19,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+using dovahlink::application::CaptureMode;
 using dovahlink::application::RevisionTracker;
 using dovahlink::application::StatePublisher;
 using dovahlink::application::test_support::MockOutboundPublicationSink;
@@ -33,6 +35,14 @@ using namespace std::chrono;
 namespace {
 
 const system_clock::time_point kOccurredAt = sys_days{2026y / January / 1};
+const std::string kPlayContextId = "context-1";
+
+///  Freshness predicate that always reports the capture is still current.
+bool AlwaysCurrent() { return true; }
+
+///  Freshness predicate that always reports the capture is no longer
+///  current.
+bool NeverCurrent() { return false; }
 
 ///  Builds a representative single-field data payload.
 boost::json::object DataWithLevel(std::int64_t level) {
@@ -142,7 +152,7 @@ TEST_CASE("PublishSnapshot assigns revision 1 for a new state area",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     Envelope captured;
     EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
         .WillOnce(Invoke([&](std::string, Envelope envelope) {
@@ -150,11 +160,14 @@ TEST_CASE("PublishSnapshot assigns revision 1 for a new state area",
         }));
 
     bool published =
-        publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt);
+        publisher.PublishSnapshot("character_level", kPlayContextId,
+                                  revisionTracker, DataWithLevel(5), kOccurredAt,
+                                  AlwaysCurrent);
 
     CHECK(published);
     CHECK(captured.messageType == "state_snapshot");
     CHECK_FALSE(captured.sessionId.has_value());
+    CHECK(captured.playContextId == kPlayContextId);
     auto payload = DecodeStateSnapshotPayload(captured.payload);
     REQUIRE(payload.has_value());
     CHECK(payload->stateArea == "character_level");
@@ -167,15 +180,16 @@ TEST_CASE("PublishSnapshot publishes an empty data object as-is",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     Envelope captured;
     EXPECT_CALL(sink, PublishSnapshot(std::string("empty_area"), _))
         .WillOnce(Invoke([&](std::string, Envelope envelope) {
             captured = std::move(envelope);
         }));
 
-    bool published =
-        publisher.PublishSnapshot("empty_area", boost::json::object{}, kOccurredAt);
+    bool published = publisher.PublishSnapshot(
+        "empty_area", kPlayContextId, revisionTracker, boost::json::object{},
+        kOccurredAt, AlwaysCurrent);
 
     CHECK(published);
     auto payload = DecodeStateSnapshotPayload(captured.payload);
@@ -188,7 +202,7 @@ TEST_CASE("PublishSnapshot keeps the same revision for unchanged data but "
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     Envelope captured;
     EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
         .Times(2)
@@ -196,10 +210,13 @@ TEST_CASE("PublishSnapshot keeps the same revision for unchanged data but "
             captured = std::move(envelope);
         }));
 
-    REQUIRE(
-        publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt));
+    REQUIRE(publisher.PublishSnapshot("character_level", kPlayContextId,
+                                      revisionTracker, DataWithLevel(5),
+                                      kOccurredAt, AlwaysCurrent));
     bool published =
-        publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt);
+        publisher.PublishSnapshot("character_level", kPlayContextId,
+                                  revisionTracker, DataWithLevel(5), kOccurredAt,
+                                  AlwaysCurrent);
 
     CHECK(published);
     auto payload = DecodeStateSnapshotPayload(captured.payload);
@@ -211,7 +228,7 @@ TEST_CASE("PublishSnapshot advances the revision when data changes",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     Envelope captured;
     EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
         .Times(2)
@@ -219,10 +236,13 @@ TEST_CASE("PublishSnapshot advances the revision when data changes",
             captured = std::move(envelope);
         }));
 
-    REQUIRE(
-        publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt));
+    REQUIRE(publisher.PublishSnapshot("character_level", kPlayContextId,
+                                      revisionTracker, DataWithLevel(5),
+                                      kOccurredAt, AlwaysCurrent));
     bool published =
-        publisher.PublishSnapshot("character_level", DataWithLevel(6), kOccurredAt);
+        publisher.PublishSnapshot("character_level", kPlayContextId,
+                                  revisionTracker, DataWithLevel(6), kOccurredAt,
+                                  AlwaysCurrent);
 
     CHECK(published);
     auto payload = DecodeStateSnapshotPayload(captured.payload);
@@ -231,14 +251,35 @@ TEST_CASE("PublishSnapshot advances the revision when data changes",
     CHECK(payload->data.at("level").as_int64() == 6);
 }
 
+TEST_CASE("PublishSnapshot discards an already-built envelope when "
+          "stillCurrent reports false",
+          "[application][state_publisher]") {
+    //  StrictMock<MockOutboundPublicationSink> with no expectation fails the
+    //  test if the sink is reached at all -- proving the freshness gate
+    //  suppresses the handoff, not merely returns false alongside it.
+    RevisionTracker revisionTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+
+    bool published =
+        publisher.PublishSnapshot("character_level", kPlayContextId,
+                                  revisionTracker, DataWithLevel(5), kOccurredAt,
+                                  NeverCurrent);
+
+    CHECK_FALSE(published);
+    CHECK(revisionTracker.CurrentRevision("character_level") == 1);
+}
+
 TEST_CASE("PublishEvent declines when no snapshot baseline exists yet",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
 
     bool published =
-        publisher.PublishEvent("character_level", DataWithLevel(6), kOccurredAt);
+        publisher.PublishEvent("character_level", kPlayContextId,
+                               revisionTracker, DataWithLevel(6), kOccurredAt,
+                               AlwaysCurrent);
 
     CHECK_FALSE(published);
 }
@@ -247,10 +288,11 @@ TEST_CASE("PublishEvent publishes ordered events after a snapshot baseline",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _));
-    REQUIRE(
-        publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt));
+    REQUIRE(publisher.PublishSnapshot("character_level", kPlayContextId,
+                                      revisionTracker, DataWithLevel(5),
+                                      kOccurredAt, AlwaysCurrent));
     Envelope firstEvent;
     Envelope secondEvent;
     EXPECT_CALL(sink, PublishEvent(std::string("character_level"), _))
@@ -262,13 +304,18 @@ TEST_CASE("PublishEvent publishes ordered events after a snapshot baseline",
         }));
 
     bool publishedFirst =
-        publisher.PublishEvent("character_level", DataWithLevel(6), kOccurredAt);
+        publisher.PublishEvent("character_level", kPlayContextId,
+                               revisionTracker, DataWithLevel(6), kOccurredAt,
+                               AlwaysCurrent);
     bool publishedSecond =
-        publisher.PublishEvent("character_level", DataWithLevel(7), kOccurredAt);
+        publisher.PublishEvent("character_level", kPlayContextId,
+                               revisionTracker, DataWithLevel(7), kOccurredAt,
+                               AlwaysCurrent);
 
     CHECK(publishedFirst);
     CHECK(publishedSecond);
     CHECK(firstEvent.messageType == "state_event");
+    CHECK(firstEvent.playContextId == kPlayContextId);
     auto firstPayload = DecodeStateEventPayload(firstEvent.payload);
     REQUIRE(firstPayload.has_value());
     CHECK(firstPayload->baseRevision == 1);
@@ -280,11 +327,28 @@ TEST_CASE("PublishEvent publishes ordered events after a snapshot baseline",
     CHECK(secondPayload->revision == 3);
 }
 
+TEST_CASE("PublishEvent discards an already-built envelope when stillCurrent "
+          "reports false",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    revisionTracker.StartSnapshot("character_level", "{\"level\":5}");
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+
+    bool published =
+        publisher.PublishEvent("character_level", kPlayContextId,
+                               revisionTracker, DataWithLevel(6), kOccurredAt,
+                               NeverCurrent);
+
+    CHECK_FALSE(published);
+    CHECK(revisionTracker.CurrentRevision("character_level") == 2);
+}
+
 TEST_CASE("Distinct state areas track independent revisions",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     StrictMock<MockOutboundPublicationSink> sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     Envelope firstLevelEnvelope;
     Envelope secondLevelEnvelope;
     Envelope xpEnvelope;
@@ -300,9 +364,14 @@ TEST_CASE("Distinct state areas track independent revisions",
             xpEnvelope = std::move(envelope);
         }));
 
-    publisher.PublishSnapshot("character_level", DataWithLevel(5), kOccurredAt);
-    publisher.PublishSnapshot("character_xp", DataWithLevel(100), kOccurredAt);
-    publisher.PublishSnapshot("character_level", DataWithLevel(6), kOccurredAt);
+    publisher.PublishSnapshot("character_level", kPlayContextId,
+                              revisionTracker, DataWithLevel(5), kOccurredAt,
+                              AlwaysCurrent);
+    publisher.PublishSnapshot("character_xp", kPlayContextId, revisionTracker,
+                              DataWithLevel(100), kOccurredAt, AlwaysCurrent);
+    publisher.PublishSnapshot("character_level", kPlayContextId,
+                              revisionTracker, DataWithLevel(6), kOccurredAt,
+                              AlwaysCurrent);
 
     auto firstLevelPayload = DecodeStateSnapshotPayload(firstLevelEnvelope.payload);
     REQUIRE(firstLevelPayload.has_value());
@@ -316,12 +385,50 @@ TEST_CASE("Distinct state areas track independent revisions",
     CHECK(xpPayload->revision == 1);
 }
 
+TEST_CASE("The same state area tracks independent revisions across "
+          "different revision trackers",
+          "[application][state_publisher]") {
+    //  Two RevisionTracker instances stand in for two different play
+    //  contexts' own revision authorities: publishing "character_level"
+    //  through one must never advance or be constrained by the other's
+    //  sequence for the same state-area string.
+    RevisionTracker contextATracker;
+    RevisionTracker contextBTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+    Envelope contextAEnvelope;
+    Envelope contextBEnvelope;
+    EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
+        .WillOnce(Invoke([&](std::string, Envelope envelope) {
+            contextAEnvelope = std::move(envelope);
+        }))
+        .WillOnce(Invoke([&](std::string, Envelope envelope) {
+            contextBEnvelope = std::move(envelope);
+        }));
+
+    publisher.PublishSnapshot("character_level", "context-a", contextATracker,
+                              DataWithLevel(5), kOccurredAt, AlwaysCurrent);
+    publisher.PublishSnapshot("character_level", "context-b", contextBTracker,
+                              DataWithLevel(9), kOccurredAt, AlwaysCurrent);
+
+    auto contextAPayload = DecodeStateSnapshotPayload(contextAEnvelope.payload);
+    REQUIRE(contextAPayload.has_value());
+    CHECK(contextAPayload->revision == 1);
+    CHECK(contextAPayload->data.at("level").as_int64() == 5);
+    auto contextBPayload = DecodeStateSnapshotPayload(contextBEnvelope.payload);
+    REQUIRE(contextBPayload.has_value());
+    CHECK(contextBPayload->revision == 1);
+    CHECK(contextBPayload->data.at("level").as_int64() == 9);
+    CHECK(contextAEnvelope.playContextId == "context-a");
+    CHECK(contextBEnvelope.playContextId == "context-b");
+}
+
 TEST_CASE("Concurrent snapshots for one state area reach the sink in revision "
           "order",
           "[application][state_publisher]") {
     RevisionTracker revisionTracker;
     BlockingPublicationSink sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     std::promise<void> secondStarted;
     std::future<void> secondStartedFuture = secondStarted.get_future();
     std::promise<void> secondFinished;
@@ -331,14 +438,16 @@ TEST_CASE("Concurrent snapshots for one state area reach the sink in revision "
 
     std::thread firstPublisher([&] {
         firstPublished = publisher.PublishSnapshot(
-            "character_level", DataWithLevel(5), kOccurredAt);
+            "character_level", kPlayContextId, revisionTracker,
+            DataWithLevel(5), kOccurredAt, AlwaysCurrent);
     });
 
     sink.WaitForFirstPublication();
     std::thread secondPublisher([&] {
         secondStarted.set_value();
         secondPublished = publisher.PublishSnapshot(
-            "character_level", DataWithLevel(6), kOccurredAt);
+            "character_level", kPlayContextId, revisionTracker,
+            DataWithLevel(6), kOccurredAt, AlwaysCurrent);
         secondFinished.set_value();
     });
 
@@ -370,7 +479,7 @@ TEST_CASE("Concurrent events for one state area reach the sink in revision "
     RevisionTracker revisionTracker;
     revisionTracker.StartSnapshot("character_level", "{\"level\":5}");
     BlockingPublicationSink sink;
-    StatePublisher publisher(revisionTracker, sink);
+    StatePublisher publisher(sink);
     std::promise<void> secondStarted;
     std::future<void> secondStartedFuture = secondStarted.get_future();
     std::promise<void> secondFinished;
@@ -380,14 +489,16 @@ TEST_CASE("Concurrent events for one state area reach the sink in revision "
 
     std::thread firstPublisher([&] {
         firstPublished = publisher.PublishEvent(
-            "character_level", DataWithLevel(6), kOccurredAt);
+            "character_level", kPlayContextId, revisionTracker,
+            DataWithLevel(6), kOccurredAt, AlwaysCurrent);
     });
 
     sink.WaitForFirstPublication();
     std::thread secondPublisher([&] {
         secondStarted.set_value();
         secondPublished = publisher.PublishEvent(
-            "character_level", DataWithLevel(7), kOccurredAt);
+            "character_level", kPlayContextId, revisionTracker,
+            DataWithLevel(7), kOccurredAt, AlwaysCurrent);
         secondFinished.set_value();
     });
 
@@ -411,4 +522,116 @@ TEST_CASE("Concurrent events for one state area reach the sink in revision "
     CHECK(firstPayload->revision == 2);
     CHECK(secondPayload->baseRevision == 2);
     CHECK(secondPayload->revision == 3);
+}
+
+TEST_CASE("PublishCapture establishes a Snapshot baseline for a requested "
+          "Event with no prior baseline",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+    Envelope captured;
+    EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
+        .WillOnce(Invoke([&](std::string, Envelope envelope) {
+            captured = std::move(envelope);
+        }));
+
+    bool published = publisher.PublishCapture(
+        "character_level", kPlayContextId, revisionTracker, CaptureMode::kEvent,
+        DataWithLevel(5), kOccurredAt, AlwaysCurrent);
+
+    CHECK(published);
+    CHECK(captured.messageType == "state_snapshot");
+    CHECK(captured.playContextId == kPlayContextId);
+    auto payload = DecodeStateSnapshotPayload(captured.payload);
+    REQUIRE(payload.has_value());
+    CHECK(payload->revision == 1);
+    CHECK(payload->data.at("level").as_int64() == 5);
+}
+
+TEST_CASE("PublishCapture advances an existing baseline as an ordered Event",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+    EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _));
+    REQUIRE(publisher.PublishCapture("character_level", kPlayContextId,
+                                     revisionTracker, CaptureMode::kEvent,
+                                     DataWithLevel(5), kOccurredAt,
+                                     AlwaysCurrent));
+    Envelope captured;
+    EXPECT_CALL(sink, PublishEvent(std::string("character_level"), _))
+        .WillOnce(Invoke([&](std::string, Envelope envelope) {
+            captured = std::move(envelope);
+        }));
+
+    bool published = publisher.PublishCapture(
+        "character_level", kPlayContextId, revisionTracker, CaptureMode::kEvent,
+        DataWithLevel(6), kOccurredAt, AlwaysCurrent);
+
+    CHECK(published);
+    CHECK(captured.messageType == "state_event");
+    CHECK(captured.playContextId == kPlayContextId);
+    auto payload = DecodeStateEventPayload(captured.payload);
+    REQUIRE(payload.has_value());
+    CHECK(payload->baseRevision == 1);
+    CHECK(payload->revision == 2);
+}
+
+TEST_CASE("PublishCapture tracks independent revisions across different "
+          "revision trackers for the same state area",
+          "[application][state_publisher]") {
+    RevisionTracker contextATracker;
+    RevisionTracker contextBTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+    EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
+        .Times(2);
+
+    bool publishedA = publisher.PublishCapture(
+        "character_level", "context-a", contextATracker, CaptureMode::kEvent,
+        DataWithLevel(5), kOccurredAt, AlwaysCurrent);
+    bool publishedB = publisher.PublishCapture(
+        "character_level", "context-b", contextBTracker, CaptureMode::kEvent,
+        DataWithLevel(9), kOccurredAt, AlwaysCurrent);
+
+    CHECK(publishedA);
+    CHECK(publishedB);
+    CHECK(contextATracker.CurrentRevision("character_level") == 1);
+    CHECK(contextBTracker.CurrentRevision("character_level") == 1);
+}
+
+TEST_CASE("PublishCapture honors an explicit Snapshot request even after a "
+          "baseline already exists",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+    EXPECT_CALL(sink, PublishSnapshot(std::string("character_level"), _))
+        .Times(2);
+    REQUIRE(publisher.PublishCapture("character_level", kPlayContextId,
+                                     revisionTracker, CaptureMode::kEvent,
+                                     DataWithLevel(5), kOccurredAt,
+                                     AlwaysCurrent));
+
+    bool published = publisher.PublishCapture(
+        "character_level", kPlayContextId, revisionTracker,
+        CaptureMode::kSnapshot, DataWithLevel(6), kOccurredAt, AlwaysCurrent);
+
+    CHECK(published);
+}
+
+TEST_CASE("PublishCapture discards an already-built envelope when "
+          "stillCurrent reports false",
+          "[application][state_publisher]") {
+    RevisionTracker revisionTracker;
+    StrictMock<MockOutboundPublicationSink> sink;
+    StatePublisher publisher(sink);
+
+    bool published = publisher.PublishCapture(
+        "character_level", kPlayContextId, revisionTracker, CaptureMode::kEvent,
+        DataWithLevel(5), kOccurredAt, NeverCurrent);
+
+    CHECK_FALSE(published);
+    CHECK(revisionTracker.CurrentRevision("character_level") == 1);
 }

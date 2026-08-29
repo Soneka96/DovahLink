@@ -2,6 +2,8 @@
 
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/cadence_tick_driver.hpp"
+#include "application/capture_dispatch_worker.hpp"
 
 #include <utility>
 
@@ -10,6 +12,13 @@ namespace dovahlink::application {
 Coordinator::Coordinator(IBridgeCallbackRegistry& callbacks,
                          IBridgeWorkerPool& workers, IBridgeTransport& transport)
     : callbacks_(callbacks), workers_(workers), transport_(transport) {}
+
+Coordinator::Coordinator(IBridgeCallbackRegistry& callbacks,
+                         IBridgeWorkerPool& workers, IBridgeTransport& transport,
+                         ICaptureDispatchWorker& captureWorker,
+                         ICadenceTickDriver& cadenceDriver)
+    : callbacks_(callbacks), workers_(workers), transport_(transport),
+      captureWorker_(&captureWorker), cadenceDriver_(&cadenceDriver) {}
 
 Coordinator::~Coordinator() noexcept { Shutdown(); }
 
@@ -31,6 +40,12 @@ void Coordinator::Start() {
         return RunContained(std::move(work));
     });
     transport_.Start();
+    if (captureWorker_ != nullptr) {
+        captureWorker_->Start();
+    }
+    if (cadenceDriver_ != nullptr) {
+        cadenceDriver_->Start();
+    }
 }
 
 void Coordinator::Shutdown() noexcept {
@@ -53,28 +68,54 @@ void Coordinator::Shutdown() noexcept {
     //  1. Mark stopping so a new CallbackGuard returns without touching state.
     stopping_.store(true, std::memory_order_release);
 
-    //  2. Unregister callbacks.
+    //  2. Stop cadence before unregistering callbacks so no new game-thread
+    //     capture work can be submitted while the rest of the graph tears down.
+    (void)RunContained([this] {
+        if (cadenceDriver_ != nullptr) {
+            cadenceDriver_->Stop();
+        }
+    });
+    (void)RunContained([this] {
+        if (cadenceDriver_ != nullptr) {
+            cadenceDriver_->Join();
+        }
+    });
+
+    //  3. Unregister callbacks.
     (void)RunContained([this] { callbacks_.UnregisterAll(); });
 
-    //  3. Wait for callbacks already in flight to leave.
+    //  4. Wait for callbacks already in flight to leave.
     {
         std::unique_lock<std::mutex> lock(mutex_);
         inFlightCv_.wait(lock, [this] { return inFlightCallbacks_ == 0; });
     }
 
-    //  4. Stop and join workers. Draining/cancelling queued work is the
+    //  5. Stop and join capture work. The cadence driver has already stopped,
+    //     so no new capture item can arrive after this worker is joined.
+    (void)RunContained([this] {
+        if (captureWorker_ != nullptr) {
+            captureWorker_->Stop();
+        }
+    });
+    (void)RunContained([this] {
+        if (captureWorker_ != nullptr) {
+            captureWorker_->Join();
+        }
+    });
+
+    //  6. Stop and join workers. Draining/cancelling queued work is the
     //     worker pool implementation's responsibility (see IBridgeWorkerPool::Stop).
     (void)RunContained([this] { workers_.Stop(); });
     (void)RunContained([this] { workers_.Join(); });
 
-    //  5. Cancel transport completions.
+    //  7. Cancel transport completions.
     (void)RunContained([this] { transport_.CancelCompletions(); });
 
-    //  6. Invalidate the transport lifetime token: an in-flight completion
+    //  8. Invalidate the transport lifetime token: an in-flight completion
     //     that captured it now sees IsValid() == false.
     transportToken_->Invalidate();
 
-    //  7. Close transport resources.
+    //  9. Close transport resources.
     (void)RunContained([this] { transport_.Close(); });
 }
 

@@ -1,6 +1,6 @@
-#include "game_state/commonlib_pairing_notification_sink.hpp"
-
 #include "RE/Skyrim.h"
+
+#include "game_state/commonlib_pairing_notification_sink.hpp"
 
 #include <string>
 

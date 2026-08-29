@@ -1,9 +1,9 @@
 #pragma once
 
+#include "RE/Skyrim.h"
+
 #include "application/contained_work.hpp"
 #include "game_state/level_increase_handler.hpp"
-
-#include "RE/Skyrim.h"
 
 namespace dovahlink::game_state {
 

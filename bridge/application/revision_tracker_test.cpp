@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <boost/json/object.hpp>
+
 #include <cstdint>
 #include <future>
 #include <new>
@@ -9,7 +11,9 @@
 #include <string>
 #include <thread>
 
+using dovahlink::application::IRevisionTracker;
 using dovahlink::application::RevisionTracker;
+using dovahlink::protocol::Envelope;
 
 namespace {
 const std::string kAreaA = "area_a";
@@ -384,6 +388,120 @@ TEST_CASE("NextEvent returns nullopt when no baseline has been established",
           "[application][revision_tracker]") {
     RevisionTracker tracker;
     CHECK_FALSE(tracker.NextEvent(kAreaA).has_value());
+}
+
+TEST_CASE("CommitSnapshotEnvelopeIfBuilt commits the assigned revision "
+          "through the interface, matching CommitSnapshotIfBuilt",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+
+    std::int64_t observedRevision = 0;
+    auto result = trackerContract.CommitSnapshotEnvelopeIfBuilt(
+        kAreaA, kFingerprintA,
+        [&](std::int64_t revision) -> std::optional<Envelope> {
+            observedRevision = revision;
+            return Envelope{.messageType = "state_snapshot",
+                            .messageId = "id-1",
+                            .payload = boost::json::object{}};
+        });
+
+    REQUIRE(result.has_value());
+    CHECK(result->messageId == "id-1");
+    CHECK(observedRevision == 1);
+    CHECK(trackerContract.CurrentRevision(kAreaA) == 1);
+}
+
+TEST_CASE("CommitSnapshotEnvelopeIfBuilt leaves the revision unchanged when "
+          "the builder returns no value",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+    trackerContract.StartSnapshot(kAreaA, kFingerprintA);
+
+    auto result = trackerContract.CommitSnapshotEnvelopeIfBuilt(
+        kAreaA, kFingerprintB,
+        [](std::int64_t) -> std::optional<Envelope> { return std::nullopt; });
+
+    CHECK_FALSE(result.has_value());
+    CHECK(trackerContract.CurrentRevision(kAreaA) == 1);
+}
+
+TEST_CASE("CommitSnapshotEnvelopeIfBuilt reuses the existing revision when "
+          "the fingerprint is unchanged, matching CommitSnapshotIfBuilt",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+    trackerContract.StartSnapshot(kAreaA, kFingerprintA);
+
+    std::int64_t observedRevision = 0;
+    auto result = trackerContract.CommitSnapshotEnvelopeIfBuilt(
+        kAreaA, kFingerprintA,
+        [&](std::int64_t revision) -> std::optional<Envelope> {
+            observedRevision = revision;
+            return Envelope{.messageType = "state_snapshot",
+                            .messageId = "id-3",
+                            .payload = boost::json::object{}};
+        });
+
+    REQUIRE(result.has_value());
+    CHECK(observedRevision == 1);
+    CHECK(trackerContract.CurrentRevision(kAreaA) == 1);
+}
+
+TEST_CASE("CommitEventEnvelopeIfBuilt leaves the revision unchanged when the "
+          "builder returns no value with an existing baseline",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+    trackerContract.StartSnapshot(kAreaA, kFingerprintA);
+
+    auto result = trackerContract.CommitEventEnvelopeIfBuilt(
+        kAreaA, [](std::int64_t, std::int64_t) -> std::optional<Envelope> {
+            return std::nullopt;
+        });
+
+    CHECK_FALSE(result.has_value());
+    CHECK(trackerContract.CurrentRevision(kAreaA) == 1);
+}
+
+TEST_CASE("CommitEventEnvelopeIfBuilt commits the assigned event revision "
+          "through the interface, matching CommitEventIfBuilt",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+    trackerContract.StartSnapshot(kAreaA, kFingerprintA);
+
+    auto result = trackerContract.CommitEventEnvelopeIfBuilt(
+        kAreaA,
+        [](std::int64_t, std::int64_t) -> std::optional<Envelope> {
+            return Envelope{.messageType = "state_event",
+                            .messageId = "id-2",
+                            .payload = boost::json::object{}};
+        });
+
+    REQUIRE(result.has_value());
+    CHECK(result->messageId == "id-2");
+    CHECK(trackerContract.CurrentRevision(kAreaA) == 2);
+}
+
+TEST_CASE("CommitEventEnvelopeIfBuilt does not invoke the builder without a "
+          "snapshot baseline",
+          "[application][revision_tracker]") {
+    RevisionTracker tracker;
+    IRevisionTracker& trackerContract = tracker;
+    bool builderCalled = false;
+
+    auto result = trackerContract.CommitEventEnvelopeIfBuilt(
+        kAreaA, [&](std::int64_t, std::int64_t) -> std::optional<Envelope> {
+            builderCalled = true;
+            return Envelope{.messageType = "state_event",
+                            .messageId = "unreached",
+                            .payload = boost::json::object{}};
+        });
+
+    CHECK_FALSE(result.has_value());
+    CHECK_FALSE(builderCalled);
 }
 
 TEST_CASE("NextEvent after the first snapshot matches the established fixture "

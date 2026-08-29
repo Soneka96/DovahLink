@@ -162,13 +162,29 @@ TEST_CASE("SKSEPluginLoad rejects unsupported Windows runtimes before "
     std::size_t guardPos = source.find(
         "if (!dovahlink::game_state::IsCurrentWindowsVersionSupported())");
     std::size_t statePos = source.find(
-        "static dovahlink::transport::ConnectionSlot connectionSlot;");
+        "static dovahlink::transport::ConnectionSlot connectionSlot(\n"
+        "        dovahlink::security::kMaxConnectedClients);");
     REQUIRE(guardPos != std::string::npos);
     REQUIRE(statePos != std::string::npos);
 
     CHECK(guardPos < statePos);
     CHECK(dovahlink::test_support::ContainsSourceText(
         source.substr(guardPos), "requires Windows 10 or later."));
+}
+
+TEST_CASE("SKSEPluginLoad passes the approved client capacity to admission "
+          "registries",
+          "[plugin][compatibility]") {
+    const std::string source = ReadPluginSource();
+
+    CHECK(source.find(
+              "static dovahlink::application::SessionManager sessionManager(\n"
+              "        dovahlink::security::kMaxConnectedClients);") !=
+          std::string::npos);
+    CHECK(source.find(
+              "static dovahlink::transport::ConnectionSlot connectionSlot(\n"
+              "        dovahlink::security::kMaxConnectedClients);") !=
+          std::string::npos);
 }
 
 //  The two tests above each check "call is inside its own guard's braces"

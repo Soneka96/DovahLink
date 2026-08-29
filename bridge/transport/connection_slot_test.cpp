@@ -138,3 +138,68 @@ TEST_CASE("exactly one concurrent TryAcquire attempt succeeds",
     CHECK(successCount.load() == 1);
     CHECK_FALSE(slot.IsOccupied());
 }
+
+TEST_CASE("a bounded slot admits its configured number of simultaneous leases",
+          "[transport][connection_slot]") {
+    ConnectionSlot slot(2);
+    auto firstLease = slot.TryAcquire();
+    auto secondLease = slot.TryAcquire();
+
+    REQUIRE(firstLease.has_value());
+    REQUIRE(secondLease.has_value());
+    CHECK(slot.IsOccupied());
+    CHECK_FALSE(slot.TryAcquire().has_value());
+
+    firstLease.reset();
+    CHECK(slot.IsOccupied());
+    auto replacementLease = slot.TryAcquire();
+    REQUIRE(replacementLease.has_value());
+    replacementLease.reset();
+    secondLease.reset();
+    CHECK_FALSE(slot.IsOccupied());
+}
+
+TEST_CASE("a zero-capacity slot rejects every admission",
+          "[transport][connection_slot]") {
+    ConnectionSlot slot(0);
+
+    CHECK_FALSE(slot.TryAcquire().has_value());
+    CHECK_FALSE(slot.IsOccupied());
+}
+
+TEST_CASE("exactly the configured number of concurrent slot admissions succeed",
+          "[transport][connection_slot]") {
+    ConnectionSlot slot(2);
+    constexpr int kAttempts = 16;
+    std::atomic<int> readyCount{0};
+    std::atomic<bool> go{false};
+    std::atomic<int> attemptedCount{0};
+    std::atomic<int> successCount{0};
+    std::vector<std::thread> threads;
+    threads.reserve(kAttempts);
+
+    for (int i = 0; i < kAttempts; ++i) {
+        threads.emplace_back([&] {
+            readyCount.fetch_add(1, std::memory_order_relaxed);
+            while (!go.load(std::memory_order_acquire)) {
+            }
+            auto lease = slot.TryAcquire();
+            if (lease.has_value()) {
+                successCount.fetch_add(1, std::memory_order_relaxed);
+            }
+            attemptedCount.fetch_add(1, std::memory_order_release);
+            while (attemptedCount.load(std::memory_order_acquire) < kAttempts) {
+            }
+        });
+    }
+
+    while (readyCount.load(std::memory_order_relaxed) < kAttempts) {
+    }
+    go.store(true, std::memory_order_release);
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+
+    CHECK(successCount.load() == 2);
+    CHECK_FALSE(slot.IsOccupied());
+}

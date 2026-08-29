@@ -2,6 +2,8 @@
 
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/cadence_tick_driver.hpp"
+#include "application/capture_dispatch_worker.hpp"
 #include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,11 +17,14 @@
 #include <thread>
 #include <vector>
 
+using dovahlink::application::CaptureWorkItem;
 using dovahlink::application::ContainedWorkRunner;
 using dovahlink::application::Coordinator;
 using dovahlink::application::IBridgeCallbackRegistry;
 using dovahlink::application::IBridgeTransport;
 using dovahlink::application::IBridgeWorkerPool;
+using dovahlink::application::ICadenceTickDriver;
+using dovahlink::application::ICaptureDispatchWorker;
 using dovahlink::application::LifetimeToken;
 
 namespace {
@@ -116,6 +121,44 @@ class RecordingTransportLifecycle : public IBridgeTransport {
     std::vector<std::string>& log_;
 };
 
+///  Records capture-worker lifecycle calls in the shared test log.
+class RecordingCaptureDispatchWorker : public ICaptureDispatchWorker {
+  public:
+    ///  Binds the recorder to the caller-owned lifecycle log.
+    explicit RecordingCaptureDispatchWorker(std::vector<std::string>& log)
+        : log_(log) {}
+    ///  @copydoc ICaptureDispatchWorker::Start
+    void Start() override { log_.push_back("capture.Start"); }
+    ///  @copydoc ICaptureDispatchWorker::Stop
+    void Stop() override { log_.push_back("capture.Stop"); }
+    ///  @copydoc ICaptureDispatchWorker::Join
+    void Join() override { log_.push_back("capture.Join"); }
+    ///  @copydoc ICaptureDispatchWorker::TryEnqueue
+    bool TryEnqueue(CaptureWorkItem) override { return false; }
+
+  private:
+    ///  Log receiving lifecycle call names.
+    std::vector<std::string>& log_;
+};
+
+///  Records cadence-driver lifecycle calls in the shared test log.
+class RecordingCadenceTickDriver : public ICadenceTickDriver {
+  public:
+    ///  Binds the recorder to the caller-owned lifecycle log.
+    explicit RecordingCadenceTickDriver(std::vector<std::string>& log)
+        : log_(log) {}
+    ///  @copydoc ICadenceTickDriver::Start
+    void Start() override { log_.push_back("cadence.Start"); }
+    ///  @copydoc ICadenceTickDriver::Stop
+    void Stop() override { log_.push_back("cadence.Stop"); }
+    ///  @copydoc ICadenceTickDriver::Join
+    void Join() override { log_.push_back("cadence.Join"); }
+
+  private:
+    ///  Log receiving lifecycle call names.
+    std::vector<std::string>& log_;
+};
+
 ///  Bundles recording coordinator dependencies for lifecycle-order tests.
 struct Fixture {
     ///  Captures the order of lifecycle calls.
@@ -128,6 +171,25 @@ struct Fixture {
     RecordingTransportLifecycle transport{log};
     ///  Coordinator under test.
     Coordinator coordinator{callbacks, workers, transport};
+};
+
+///  Bundles recording production capture lifecycle dependencies.
+struct CaptureLifecycleFixture {
+    ///  Captures the order of lifecycle calls.
+    std::vector<std::string> log;
+    ///  Records callback lifecycle calls.
+    RecordingCallbackRegistry callbacks{log};
+    ///  Records worker-pool lifecycle calls.
+    RecordingWorkerPool workers{log};
+    ///  Records transport lifecycle calls.
+    RecordingTransportLifecycle transport{log};
+    ///  Records capture-worker lifecycle calls.
+    RecordingCaptureDispatchWorker captureWorker{log};
+    ///  Records cadence-driver lifecycle calls.
+    RecordingCadenceTickDriver cadenceDriver{log};
+    ///  Coordinator under test.
+    Coordinator coordinator{callbacks, workers, transport, captureWorker,
+                            cadenceDriver};
 };
 
 } //  namespace
@@ -154,6 +216,33 @@ TEST_CASE(
 
     CHECK(f.log == std::vector<std::string>{"callbacks.RegisterAll",
                                             "workers.Start", "transport.Start"});
+}
+
+TEST_CASE("Start starts capture worker and cadence after existing services",
+          "[application][coordinator]") {
+    CaptureLifecycleFixture f;
+
+    f.coordinator.Start();
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.RegisterAll", "workers.Start",
+                       "transport.Start", "capture.Start", "cadence.Start"});
+}
+
+TEST_CASE("Shutdown stops cadence and capture before existing teardown",
+          "[application][coordinator]") {
+    CaptureLifecycleFixture f;
+
+    f.coordinator.Start();
+    f.coordinator.Shutdown();
+
+    CHECK(f.log == std::vector<std::string>{
+                       "callbacks.RegisterAll", "workers.Start",
+                       "transport.Start", "capture.Start", "cadence.Start",
+                       "cadence.Stop", "cadence.Join",
+                       "callbacks.UnregisterAll", "capture.Stop",
+                       "capture.Join", "workers.Stop", "workers.Join",
+                       "transport.CancelCompletions", "transport.Close"});
 }
 
 TEST_CASE("a second Start call is a no-op", "[application][coordinator]") {

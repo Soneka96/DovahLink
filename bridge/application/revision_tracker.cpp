@@ -55,4 +55,18 @@ RevisionTracker::CurrentRevision(const std::string& stateArea) const {
     return it->second.first;
 }
 
+std::optional<protocol::Envelope> RevisionTracker::CommitSnapshotEnvelopeIfBuilt(
+    const std::string& stateArea, const std::optional<std::string>& fingerprint,
+    std::function<std::optional<protocol::Envelope>(std::int64_t)>
+        buildSnapshot) {
+    return CommitSnapshotIfBuilt(stateArea, fingerprint, std::move(buildSnapshot));
+}
+
+std::optional<protocol::Envelope> RevisionTracker::CommitEventEnvelopeIfBuilt(
+    const std::string& stateArea,
+    std::function<std::optional<protocol::Envelope>(std::int64_t, std::int64_t)>
+        buildEvent) {
+    return CommitEventIfBuilt(stateArea, std::move(buildEvent));
+}
+
 } //  namespace dovahlink::application

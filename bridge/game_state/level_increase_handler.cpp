@@ -7,7 +7,11 @@ LevelIncreaseHandler::LevelIncreaseHandler(const IPlayerLevelAccessor& accessor,
     : accessor_(accessor), sink_(sink) {}
 
 void LevelIncreaseHandler::HandleLevelIncrease() {
-    sink_.OnLevelCaptured(CaptureLevel(accessor_));
+    auto capture = sink_.BeginCapture();
+    if (!capture) {
+        return;
+    }
+    sink_.OnLevelCaptured(capture, CaptureLevel(accessor_));
 }
 
 } //  namespace dovahlink::game_state

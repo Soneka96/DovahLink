@@ -45,3 +45,62 @@ TEST_CASE(
     storeContract.OnLevelCaptured(std::nullopt);
     CHECK_FALSE(storeContract.CurrentCharacterSnapshot().level.has_value());
 }
+
+TEST_CASE("OnLevelCaptured reports true when the first capture is available",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    CHECK(storeContract.OnLevelCaptured(12));
+}
+
+TEST_CASE("OnLevelCaptured reports true when the first capture is unavailable",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    CHECK(storeContract.OnLevelCaptured(std::nullopt));
+}
+
+TEST_CASE("OnLevelCaptured reports false when a repeated value matches the "
+          "stored one",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    CHECK(storeContract.OnLevelCaptured(12));
+    CHECK_FALSE(storeContract.OnLevelCaptured(12));
+}
+
+TEST_CASE("OnLevelCaptured reports false when a repeated unavailable capture "
+          "follows an earlier unavailable capture",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    CHECK(storeContract.OnLevelCaptured(std::nullopt));
+    CHECK_FALSE(storeContract.OnLevelCaptured(std::nullopt));
+}
+
+TEST_CASE("OnLevelCaptured reports true for an available-to-unavailable "
+          "transition",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    storeContract.OnLevelCaptured(12);
+    CHECK(storeContract.OnLevelCaptured(std::nullopt));
+}
+
+TEST_CASE("OnLevelCaptured reports true for an unavailable-to-available "
+          "transition",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    storeContract.OnLevelCaptured(std::nullopt);
+    CHECK(storeContract.OnLevelCaptured(12));
+}
+
+TEST_CASE("OnLevelCaptured reports true when a different value follows an "
+          "earlier one",
+          "[application][character_state_store]") {
+    CharacterStateStore store;
+    ICharacterStateStore& storeContract = store;
+    storeContract.OnLevelCaptured(10);
+    CHECK(storeContract.OnLevelCaptured(11));
+}

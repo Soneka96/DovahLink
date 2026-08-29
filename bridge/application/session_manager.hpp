@@ -1,18 +1,21 @@
 #pragma once
 
 #include "application/active_session.hpp"
+#include "security/constants.hpp"
 #include "shared/enums.hpp"
 #include "shared/scoped_release.hpp"
 
+#include <cstddef>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace dovahlink::application {
 
-///  Owns one authenticated session bound to one connection: admission,
-///  validation, trust-tier promotion, and invalidation. The narrow capability
-///  slice each consumer actually calls -- `HandshakeHandler` admits sessions,
+///  Owns authenticated sessions bound to connections: admission, validation,
+///  trust-tier promotion, and invalidation. The narrow capability slice each
+///  consumer actually calls -- `HandshakeHandler` admits sessions,
 ///  `MessageDispatcher` validates them, `ActiveSessionController` and
 ///  administrative trust mutations query and invalidate them,
 ///  `TrustMutationCoordinator` promotes them -- together cover this
@@ -43,7 +46,7 @@ class ISessionManager {
     ///      authentication") can exempt developer sessions from clientId-scoped
     ///      effects.
     ///  @return A release that invalidates this session when destroyed or
-    ///  triggered, or no value when no session existed.
+    ///  triggered, or no value when admission was rejected.
     [[nodiscard]] virtual std::optional<shared::ScopedRelease>
     TryCreateSession(ConnectionId connection, const std::string& sessionId,
                      std::string clientId, SessionTrustTier trustTier,
@@ -87,7 +90,7 @@ class ISessionManager {
     virtual void UpgradeToFullTrust(ConnectionId connection,
                                     const std::string& sessionId) = 0;
 
-    ///  Invalidates the active session regardless of its connection.
+    ///  Invalidates every active session regardless of its connection.
     virtual void InvalidateAll() = 0;
 
     ///  Invalidates the active session only when both identity values match.
@@ -115,7 +118,7 @@ class ISessionManager {
     ///  Revoke/Block/Reset Trust disconnection) uses instead of separately calling
     ///  `ClientIdForConnection` and `AuthMethodForConnection` in sequence: each
     ///  narrow accessor is its own lock acquisition, so nothing outside this
-    ///  class's own mutex would hold `activeSession_` stable across them, and a
+    ///  class's own mutex would hold `activeSessions_` stable across them, and a
     ///  caller that needs more than one field together must not reconstruct one
     ///  from multiple independent reads. `IsValidForConnection`,
     ///  `ClientIdForConnection`, `IsFullyTrusted`, and `AuthMethodForConnection`
@@ -128,12 +131,16 @@ class ISessionManager {
     SessionForConnection(ConnectionId connection) const = 0;
 };
 
-///  Binds one authenticated session to one connection.
-///  The manager is thread-safe and enforces the one-client limit.
+///  Binds authenticated sessions to their owning connections.
+///  The manager is thread-safe and enforces the configured connected-client
+///  capacity while keeping session state collection-shaped.
 class SessionManager : public ISessionManager {
   public:
-    ///  Creates an empty session registry.
-    SessionManager() = default;
+    ///  Creates an empty session registry with a bounded admission capacity.
+    ///  @param maxConnectedClients Maximum number of simultaneous sessions;
+    ///  production uses `security::kMaxConnectedClients`.
+    explicit SessionManager(
+        std::size_t maxConnectedClients = security::kMaxConnectedClients);
 
     ///  @copydoc ISessionManager::TryCreateSession
     [[nodiscard]] std::optional<shared::ScopedRelease>
@@ -175,11 +182,13 @@ class SessionManager : public ISessionManager {
     ///  Synchronizes session ownership state.
     mutable std::mutex mutex_;
 
-    ///  The active session's complete state, or no value when no session is
-    ///  active. Every related field lives in this one optional so a session either
-    ///  exists as one coherent record or does not exist -- never a state where one
-    ///  field is populated while a related one is absent.
-    std::optional<ActiveSession> activeSession_;
+    ///  Complete session state keyed by owning connection. Every related field
+    ///  lives in one coherent record, and the collection is bounded by
+    ///  `maxConnectedClients_` at admission.
+    std::unordered_map<ConnectionId, ActiveSession> activeSessions_;
+
+    ///  Maximum number of simultaneous sessions admitted by this registry.
+    const std::size_t maxConnectedClients_;
 };
 
 } //  namespace dovahlink::application

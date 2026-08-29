@@ -7,19 +7,26 @@
 //  factory_reset, and quit commands on standard input.
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
+#include "application/active_session_publication_router.hpp"
 #include "application/active_session_socket.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/capture_dispatch_worker.hpp"
+#include "application/capture_queue_diagnostics.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "application/registered_state_area_policy.hpp"
 #include "application/session_manager.hpp"
+#include "application/state_publisher.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
 #include "security/failed_token_throttle.hpp"
@@ -66,6 +73,19 @@ class NoOpCallbackRegistry
     void RegisterAll(dovahlink::application::ContainedWorkRunner) override {}
     ///  @copydoc dovahlink::application::IBridgeCallbackRegistry::UnregisterAll
     void UnregisterAll() override {}
+};
+
+///  Provides no-op capture-queue-rejection diagnostics for the
+///  Skyrim-independent harness, which cannot link the SKSE-log-based
+///  production implementation.
+class NoOpCaptureQueueDiagnostics
+    : public dovahlink::application::ICaptureQueueDiagnostics {
+  public:
+    ///  @copydoc
+    ///  dovahlink::application::ICaptureQueueDiagnostics::RecordCaptureRejected
+    void RecordCaptureRejected(std::string_view,
+                               dovahlink::application::CaptureMode) noexcept
+        override {}
 };
 
 ///  Displays a freshly generated pairing code by printing it to stdout, matching
@@ -223,7 +243,8 @@ int main() {
     }
     auto listenerV6 = std::move(*listenerV6Result);
 
-    dovahlink::transport::ConnectionSlot connectionSlot;
+    dovahlink::transport::ConnectionSlot connectionSlot(
+        dovahlink::security::kMaxConnectedClients);
     auto tokenTtl =
         ReadTokenTtlOverride(environmentReader).value_or(std::chrono::minutes(5));
     dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes),
@@ -248,7 +269,8 @@ int main() {
     dovahlink::security::PairingSession pairingSession;
     StdoutPairingNotificationSink pairingNotificationSink;
 
-    dovahlink::application::SessionManager sessionManager;
+    dovahlink::application::SessionManager sessionManager(
+        dovahlink::security::kMaxConnectedClients);
     auto playContextIdOverride = ReadPlayContextIdOverride(environmentReader);
     dovahlink::application::PlayContextLifecycle playContextLifecycle(
         [playContextIdOverride]() -> std::optional<std::string> {
@@ -259,12 +281,33 @@ int main() {
         });
     dovahlink::application::ActivePlayContextReader activePlayContextReader(
         playContextLifecycle);
+    dovahlink::application::ActivePlayContextProvider activePlayContextProvider(
+        playContextLifecycle);
+
+    //  Minimal stand-in for dovahlink_bridge_plugin.cpp's "Production capture
+    //  and lifecycle composition" (ai/context/skse/architecture.md), just
+    //  deep enough to satisfy ActivePlayContextLevelSink's constructor below.
+    //  This harness registers no state area and never starts
+    //  captureDispatchWorker, so the worker handoff stays as unreachable here
+    //  as it is in the real plugin; activeSessionPublicationRouter reuses the
+    //  same "no session attached, every publication is dropped" production
+    //  behavior rather than a harness-only stub sink.
+    dovahlink::application::ActiveSessionPublicationRouter
+        activeSessionPublicationRouter;
+    dovahlink::application::StatePublisher statePublisher(
+        activeSessionPublicationRouter);
+    NoOpCaptureQueueDiagnostics captureQueueDiagnostics;
+    dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
+        statePublisher, activePlayContextProvider, captureQueueDiagnostics);
+    dovahlink::application::RegisteredStateAreaPolicy registeredStateAreaPolicy;
+
     //  Routes "increase_level" captures below into whichever play context is
     //  active, the same seam dovahlink_bridge_plugin.cpp's real
     //  LevelIncreaseHandler uses; a capture with no active context is dropped,
     //  matching real play (main menu, before any load).
     dovahlink::application::ActivePlayContextLevelSink levelSink(
-        playContextLifecycle);
+        activePlayContextProvider, registeredStateAreaPolicy,
+        captureDispatchWorker, "character_level");
 
     //  Skyrim-independent stand-in for the real plugin's bridgeInstanceId
     //  generation (dovahlink_bridge_plugin.cpp): a fresh identity per harness
@@ -315,7 +358,9 @@ int main() {
     while (std::getline(std::cin, line)) {
         if (line == "increase_level") {
             ++level;
-            levelSink.OnLevelCaptured(level);
+            if (auto capture = levelSink.BeginCapture()) {
+                levelSink.OnLevelCaptured(capture, level);
+            }
             std::cout << "LEVEL " << level << std::endl;
         } else if (line == "new_game") {
             auto transition = ProcessLifecycleEvent(

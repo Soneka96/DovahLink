@@ -1,15 +1,20 @@
 #pragma once
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
 #include "application/active_session_controller.hpp"
 #include "application/active_session_disconnector.hpp"
+#include "application/capture_dispatch_worker.hpp"
+#include "application/capture_queue_diagnostics.hpp"
 #include "application/connection_timeout_tracker.hpp"
 #include "application/outbound_publication_sink.hpp"
 #include "application/play_context.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "application/registered_state_area_policy.hpp"
 #include "application/replay_guard.hpp"
 #include "application/session_manager.hpp"
+#include "application/state_publisher.hpp"
 #include "application/trust_mutation_coordinator.hpp"
 #include "protocol/envelope.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -198,13 +203,16 @@ class MockPlayContextLifecycle : public IPlayContextLifecycle {
     MOCK_METHOD(std::optional<std::string>, CurrentPlayContextId, (),
                 (const, override));
     MOCK_METHOD(LifecycleState, CurrentState, (), (const, override));
-    MOCK_METHOD(void, CaptureLevel, (std::optional<std::int64_t>), (override));
+    MOCK_METHOD(std::shared_ptr<PlayContext>, CurrentPlayContext, (),
+                (const, override));
 };
 
 ///  GoogleMock active-context level-sink contract double.
 class MockActivePlayContextLevelSink : public IActivePlayContextLevelSink {
   public:
-    MOCK_METHOD(void, OnLevelCaptured, (std::optional<std::int64_t>),
+    MOCK_METHOD(std::shared_ptr<PlayContext>, BeginCapture, (), (override));
+    MOCK_METHOD(void, OnLevelCaptured,
+                (std::shared_ptr<PlayContext>, std::optional<std::int64_t>),
                 (override));
 };
 
@@ -345,6 +353,57 @@ class MockPublicationDiagnostics : public IPublicationDiagnostics {
     MOCK_METHOD(void, RecordRecovery,
                 (std::string_view, std::int64_t, std::size_t), (override));
     MOCK_METHOD(void, RecordDisconnect, (DisconnectReason), (override));
+};
+
+///  GoogleMock state-publisher contract double.
+class MockStatePublisher : public IStatePublisher {
+  public:
+    MOCK_METHOD(bool, PublishSnapshot,
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 boost::json::object, std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
+                (override));
+    MOCK_METHOD(bool, PublishEvent,
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 boost::json::object, std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
+                (override));
+    MOCK_METHOD(bool, PublishCapture,
+                (const std::string&, const std::string&, IRevisionTracker&,
+                 CaptureMode, boost::json::object,
+                 std::chrono::system_clock::time_point,
+                 const std::function<bool()>&),
+                (override));
+};
+
+///  GoogleMock capture-dispatch-worker contract double.
+class MockCaptureDispatchWorker : public ICaptureDispatchWorker {
+  public:
+    MOCK_METHOD(void, Start, (), (override));
+    MOCK_METHOD(void, Stop, (), (override));
+    MOCK_METHOD(void, Join, (), (override));
+    MOCK_METHOD(bool, TryEnqueue, (CaptureWorkItem), (override));
+};
+
+///  GoogleMock registered-state-area-policy contract double.
+class MockRegisteredStateAreaPolicy : public IRegisteredStateAreaPolicy {
+  public:
+    MOCK_METHOD(bool, TryRegister, (std::string), (override));
+    MOCK_METHOD(bool, IsRegistered, (const std::string&), (const, override));
+};
+
+///  GoogleMock active-play-context pinned-provider contract double.
+class MockActivePlayContextProvider : public IActivePlayContextProvider {
+  public:
+    MOCK_METHOD(std::shared_ptr<PlayContext>, CurrentPlayContext, (),
+                (const, override));
+};
+
+///  GoogleMock capture-queue-diagnostics contract double.
+class MockCaptureQueueDiagnostics : public ICaptureQueueDiagnostics {
+  public:
+    MOCK_METHOD(void, RecordCaptureRejected, (std::string_view, CaptureMode),
+                (noexcept, override));
 };
 
 } //  namespace dovahlink::application::test_support

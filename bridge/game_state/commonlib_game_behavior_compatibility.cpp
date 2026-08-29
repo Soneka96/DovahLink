@@ -1,7 +1,7 @@
-#include "game_state/commonlib_game_behavior_compatibility.hpp"
-
 #include "RE/Skyrim.h"
 #include "SKSE/SKSE.h"
+
+#include "game_state/commonlib_game_behavior_compatibility.hpp"
 
 #include <xbyak/xbyak.h>
 

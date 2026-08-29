@@ -1,33 +1,42 @@
 #include "application/session_manager.hpp"
 
+#include "security/constants.hpp"
+
 #include <utility>
 
 namespace dovahlink::application {
+
+SessionManager::SessionManager(std::size_t maxConnectedClients)
+    : maxConnectedClients_(maxConnectedClients) {}
 
 std::optional<shared::ScopedRelease> SessionManager::TryCreateSession(
     ConnectionId connection, const std::string& sessionId, std::string clientId,
     SessionTrustTier trustTier, SessionAuthMethod authMethod) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeSession_.has_value()) {
+    if (activeSessions_.size() >= maxConnectedClients_) {
+        return std::nullopt;
+    }
+    for (const auto& [_, activeSession] : activeSessions_) {
+        if (activeSession.sessionId == sessionId) {
+            return std::nullopt;
+        }
+    }
+
+    auto inserted = activeSessions_.emplace(connection, ActiveSession{
+                                                            .connectionId = connection,
+                                                            .sessionId = sessionId,
+                                                            .clientId = std::move(clientId),
+                                                            .trustTier = trustTier,
+                                                            .authMethod = authMethod,
+                                                        });
+    if (!inserted.second) {
         return std::nullopt;
     }
 
-    //  Build the release action before publishing registry state. If creating
-    //  the active record throws, the release object's cleanup sees no session
-    //  and admission leaves the registry unchanged.
-    std::string releaseSessionId = sessionId;
-    shared::ScopedRelease release(
-        [this, connection, sessionId = std::move(releaseSessionId)] {
+    return shared::ScopedRelease(
+        [this, connection, sessionId = std::move(sessionId)] {
             static_cast<void>(InvalidateSession(connection, sessionId));
         });
-    activeSession_ = ActiveSession{
-        .connectionId = connection,
-        .sessionId = sessionId,
-        .clientId = std::move(clientId),
-        .trustTier = trustTier,
-        .authMethod = authMethod,
-    };
-    return release;
 }
 
 bool SessionManager::IsValidForConnection(const std::string& sessionId,
@@ -53,20 +62,18 @@ bool SessionManager::IsFullyTrusted(ConnectionId connection) const {
 void SessionManager::UpgradeToFullTrust(ConnectionId connection,
                                         const std::string& sessionId) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeSession_.has_value() &&
-        activeSession_->connectionId == connection &&
-        activeSession_->sessionId == sessionId) {
-        activeSession_->trustTier = SessionTrustTier::kFull;
+    auto it = activeSessions_.find(connection);
+    if (it != activeSessions_.end() && it->second.sessionId == sessionId) {
+        it->second.trustTier = SessionTrustTier::kFull;
     }
 }
 
 bool SessionManager::InvalidateSession(ConnectionId connection,
                                        const std::string& sessionId) noexcept {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (activeSession_.has_value() &&
-        activeSession_->connectionId == connection &&
-        activeSession_->sessionId == sessionId) {
-        activeSession_.reset();
+    auto it = activeSessions_.find(connection);
+    if (it != activeSessions_.end() && it->second.sessionId == sessionId) {
+        activeSessions_.erase(it);
         return true;
     }
     return false;
@@ -74,7 +81,7 @@ bool SessionManager::InvalidateSession(ConnectionId connection,
 
 void SessionManager::InvalidateAll() {
     std::lock_guard<std::mutex> lock(mutex_);
-    activeSession_.reset();
+    activeSessions_.clear();
 }
 
 std::optional<SessionAuthMethod>
@@ -89,11 +96,11 @@ SessionManager::AuthMethodForConnection(ConnectionId connection) const {
 std::optional<ActiveSession>
 SessionManager::SessionForConnection(ConnectionId connection) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!activeSession_.has_value() ||
-        activeSession_->connectionId != connection) {
+    auto it = activeSessions_.find(connection);
+    if (it == activeSessions_.end()) {
         return std::nullopt;
     }
-    return activeSession_;
+    return it->second;
 }
 
 } //  namespace dovahlink::application

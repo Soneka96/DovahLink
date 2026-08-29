@@ -92,8 +92,17 @@ TEST_CASE("SKSEPluginLoad gives read-only consumers the context reader adapter",
     std::size_t levelSinkPos =
         source.find("ActivePlayContextLevelSink levelSink");
     REQUIRE(levelSinkPos != std::string::npos);
-    CHECK(source.find("playContextLifecycle);", levelSinkPos) !=
-          std::string::npos);
+    //  `activePlayContextProvider` is levelSink's first constructor
+    //  argument, followed by the registered-area gate and capture worker it
+    //  also needs; bounded to this statement's own closing paren so the
+    //  check cannot be satisfied by `activePlayContextProvider` appearing
+    //  in a later, unrelated constructor call instead.
+    std::size_t levelSinkEnd = source.find(");", levelSinkPos);
+    REQUIRE(levelSinkEnd != std::string::npos);
+    std::size_t providerInLevelSinkPos =
+        source.find("activePlayContextProvider,", levelSinkPos);
+    CHECK(providerInLevelSinkPos != std::string::npos);
+    CHECK(providerInLevelSinkPos < levelSinkEnd);
 
     //  `HandshakeHandler` is the read-only consumer that actually receives
     //  `activePlayContextReader` today (`ConnectionSession` also holds it, but
@@ -166,5 +175,121 @@ TEST_CASE("SKSEPluginLoad passes trust administration through service contracts"
           std::string::npos);
     CHECK(source.find(
               "trustDeviceAdminServiceContract, trustResetServiceContract") !=
+          std::string::npos);
+}
+
+//  Stage 5's production capture and lifecycle composition
+//  (ai/context/skse/architecture.md's "Production capture and lifecycle
+//  composition") has no unit-testable behavior of its own at the plugin
+//  boundary -- each component's own tests prove its behavior. This
+//  structural check proves only that the composition root wires every
+//  component in dependency order, since a constructor reference argument
+//  requires its referent to already be constructed.
+TEST_CASE("SKSEPluginLoad constructs the production capture and lifecycle "
+          "composition chain in dependency order",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    //  StatePublisher no longer depends on a process-lifetime revision
+    //  tracker: revisions belong to whichever PlayContext a capture is
+    //  pinned against, reached through activePlayContextProvider.
+    std::size_t providerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::ActivePlayContextProvider "
+                "activePlayContextProvider(playContextLifecycle);");
+    REQUIRE(providerPos != std::string::npos);
+    std::size_t routerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::ActiveSessionPublicationRouter "
+                "activeSessionPublicationRouter;");
+    REQUIRE(routerPos != std::string::npos);
+    std::size_t statePublisherPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::StatePublisher statePublisher("
+                "activeSessionPublicationRouter);");
+    REQUIRE(statePublisherPos != std::string::npos);
+    CHECK(routerPos < statePublisherPos);
+
+    std::size_t captureQueueDiagnosticsPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::game_state::CommonLibCaptureQueueDiagnostics "
+                "captureQueueDiagnostics;");
+    REQUIRE(captureQueueDiagnosticsPos != std::string::npos);
+    std::size_t captureWorkerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CaptureDispatchWorker "
+                "captureDispatchWorker(statePublisher, "
+                "activePlayContextProvider, captureQueueDiagnostics);");
+    REQUIRE(captureWorkerPos != std::string::npos);
+    CHECK(statePublisherPos < captureWorkerPos);
+    CHECK(providerPos < captureWorkerPos);
+    CHECK(captureQueueDiagnosticsPos < captureWorkerPos);
+
+    std::size_t taskMarshallerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::game_state::CommonLibTaskMarshaller "
+                "taskMarshaller;");
+    REQUIRE(taskMarshallerPos != std::string::npos);
+    std::size_t cadenceSchedulerPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CadenceScheduler "
+                "cadenceScheduler;");
+    REQUIRE(cadenceSchedulerPos != std::string::npos);
+    std::size_t capturePolicyRegistryPos =
+        dovahlink::test_support::FindSourceText(
+            source, "static dovahlink::application::CapturePolicyRegistry "
+                    "capturePolicyRegistry;");
+    REQUIRE(capturePolicyRegistryPos != std::string::npos);
+    std::size_t tickDriverPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::CadenceTickDriver "
+                "cadenceTickDriver(cadenceScheduler, capturePolicyRegistry, "
+                "captureDispatchWorker, taskMarshaller, "
+                "activePlayContextProvider);");
+    REQUIRE(tickDriverPos != std::string::npos);
+    CHECK(cadenceSchedulerPos < tickDriverPos);
+    CHECK(capturePolicyRegistryPos < tickDriverPos);
+    CHECK(captureWorkerPos < tickDriverPos);
+    CHECK(taskMarshallerPos < tickDriverPos);
+    CHECK(providerPos < tickDriverPos);
+
+    std::size_t diagnosticsPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::game_state::CommonLibPublicationDiagnostics "
+                "publicationDiagnostics;");
+    REQUIRE(diagnosticsPos != std::string::npos);
+    std::size_t factoryPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::SessionPublicationFactory "
+                "sessionPublicationFactory(activeSessionPublicationRouter, "
+                "publicationDiagnostics);");
+    REQUIRE(factoryPos != std::string::npos);
+    CHECK(routerPos < factoryPos);
+    CHECK(diagnosticsPos < factoryPos);
+
+    //  ActivePlayContextLevelSink's constructor needs
+    //  activePlayContextProvider, registeredStateAreaPolicy, and
+    //  captureDispatchWorker already built, so it must be constructed after
+    //  all three.
+    std::size_t registeredAreaPolicyPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::RegisteredStateAreaPolicy");
+    REQUIRE(registeredAreaPolicyPos != std::string::npos);
+    std::size_t levelSinkPos = dovahlink::test_support::FindSourceText(
+        source, "static dovahlink::application::ActivePlayContextLevelSink "
+                "levelSink(activePlayContextProvider, "
+                "registeredStateAreaPolicy, captureDispatchWorker, "
+                "\"character_level\");");
+    REQUIRE(levelSinkPos != std::string::npos);
+    CHECK(registeredAreaPolicyPos < levelSinkPos);
+    CHECK(captureWorkerPos < levelSinkPos);
+    CHECK(providerPos < levelSinkPos);
+}
+
+//  CaptureDispatchWorker and CadenceTickDriver are coordinator-owned lifecycle
+//  dependencies; this proves the composition root injects them rather than
+//  starting them independently from the coordinator.
+TEST_CASE("SKSEPluginLoad gives the coordinator capture lifecycle ownership",
+          "[plugin][composition]") {
+    std::string source = ReadPluginSource();
+
+    std::size_t dataLoadedPos = source.find("kDataLoaded) {");
+    REQUIRE(dataLoadedPos != std::string::npos);
+    CHECK(source.find(
+              "Coordinator coordinator(\n        callbackRegistry, "
+              "bridgeWorkerPool, bridgeTransport,\n        captureDispatchWorker, "
+              "cadenceTickDriver);") != std::string::npos);
+    CHECK(source.find("captureDispatchWorker.Start();", dataLoadedPos) ==
+          std::string::npos);
+    CHECK(source.find("cadenceTickDriver.Start();", dataLoadedPos) ==
           std::string::npos);
 }

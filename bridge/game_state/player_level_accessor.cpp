@@ -1,6 +1,6 @@
-#include "game_state/player_level_accessor.hpp"
-
 #include "RE/Skyrim.h"
+
+#include "game_state/player_level_accessor.hpp"
 
 namespace dovahlink::game_state {
 

@@ -1,6 +1,6 @@
-#include "game_state/commonlib_level_increase_sink.hpp"
-
 #include "SKSE/SKSE.h"
+
+#include "game_state/commonlib_level_increase_sink.hpp"
 
 #include <chrono>
 #include <utility>

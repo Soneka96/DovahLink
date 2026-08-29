@@ -34,11 +34,22 @@ BoundedOutboundQueue::BoundedOutboundQueue(
 }
 
 BoundedOutboundQueue::~BoundedOutboundQueue() noexcept {
+    if (detachCallback_) {
+        //  The factory installs a no-throw callback, and it runs before this
+        //  object becomes invalid so the router cannot retain this sink.
+        detachCallback_();
+    }
+
     std::unique_lock<std::mutex> lock(completionState_->mutex);
     completionState_->destroying = true;
     completionState_->owner = nullptr;
     completionState_->changed.wait(
         lock, [this] { return completionState_->callbacksInFlight == 0; });
+}
+
+void BoundedOutboundQueue::SetDetachCallback(
+    std::function<void()> callback) {
+    detachCallback_ = std::move(callback);
 }
 
 QueueClass BoundedOutboundQueue::Classify(const std::string& encoded) {

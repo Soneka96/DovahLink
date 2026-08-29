@@ -5,11 +5,17 @@
 #include "SKSE/SKSE.h"
 
 #include "application/active_play_context_level_sink.hpp"
+#include "application/active_play_context_provider.hpp"
 #include "application/active_play_context_reader.hpp"
+#include "application/active_session_publication_router.hpp"
 #include "application/bridge_callback_registry.hpp"
 #include "application/bridge_config.hpp"
 #include "application/bridge_transport.hpp"
 #include "application/bridge_worker_pool.hpp"
+#include "application/cadence_scheduler.hpp"
+#include "application/cadence_tick_driver.hpp"
+#include "application/capture_dispatch_worker.hpp"
+#include "application/capture_policy_registry.hpp"
 #include "application/character_state_store.hpp"
 #include "application/connection_session.hpp"
 #include "application/coordinator.hpp"
@@ -18,17 +24,24 @@
 #include "application/handshake_handler.hpp"
 #include "application/pairing_notification_sink.hpp"
 #include "application/play_context_lifecycle.hpp"
+#include "application/registered_state_area_policy.hpp"
 #include "application/session_manager.hpp"
+#include "application/session_publication_factory.hpp"
+#include "application/state_publisher.hpp"
 #include "application/trust_device_admin_service.hpp"
 #include "application/trust_reset_service.hpp"
+#include "game_state/commonlib_capture_queue_diagnostics.hpp"
 #include "game_state/commonlib_game_behavior_compatibility.hpp"
 #include "game_state/commonlib_game_lifecycle_sink.hpp"
 #include "game_state/commonlib_level_increase_sink.hpp"
 #include "game_state/commonlib_pairing_notification_sink.hpp"
+#include "game_state/commonlib_publication_diagnostics.hpp"
+#include "game_state/commonlib_task_marshaller.hpp"
 #include "game_state/commonlib_trust_admin_papyrus_adapter.hpp"
 #include "game_state/level_increase_handler.hpp"
 #include "game_state/player_level_accessor.hpp"
 #include "game_state/runtime_guard.hpp"
+#include "security/constants.hpp"
 #include "security/csprng.hpp"
 #include "security/environment_reader.hpp"
 #include "security/factory_reset_challenge.hpp"
@@ -239,7 +252,8 @@ SKSEPluginInfo(
     //  for SKSEPluginLoad) time control reaches its declaration, so this
     //  ordering is exactly the construction order, without needing a
     //  hand-rolled aggregate to express the same dependency graph.
-    static dovahlink::transport::ConnectionSlot connectionSlot;
+    static dovahlink::transport::ConnectionSlot connectionSlot(
+        dovahlink::security::kMaxConnectedClients);
     static dovahlink::security::TokenStore tokenStore(std::move(tokenRead.bytes));
     static dovahlink::security::FailedTokenThrottle tokenThrottle;
 
@@ -266,15 +280,17 @@ SKSEPluginInfo(
     static dovahlink::game_state::CommonLibPairingNotificationSink
         pairingNotificationSink;
 
-    static dovahlink::application::SessionManager sessionManager;
+    static dovahlink::application::SessionManager sessionManager(
+        dovahlink::security::kMaxConnectedClients);
 
     //  The authoritative, play-context-owned identity and state per
     //  ARCHITECTURE.md's runtime/identity model. `playContextLifecycle` owns
     //  lifecycle state and context publication atomically, while
     //  `activePlayContextReader` is the read-only capability passed to
-    //  connection-facing consumers. Declared
-    //  before `levelIncreaseHandler` below, which routes its captures into
-    //  whichever context is active through `ActivePlayContextLevelSink`.
+    //  connection-facing consumers. `levelIncreaseHandler` below (after the
+    //  production capture and lifecycle composition block) routes its
+    //  captures into whichever context is active through
+    //  `ActivePlayContextLevelSink`.
     static dovahlink::application::PlayContextLifecycle playContextLifecycle;
     static dovahlink::game_state::CommonLibGameLifecycleSink lifecycleSink(
         playContextLifecycle);
@@ -282,20 +298,12 @@ SKSEPluginInfo(
         lifecycleSinkContract = lifecycleSink;
     static dovahlink::application::ActivePlayContextReader
         activePlayContextReader(playContextLifecycle);
+    static dovahlink::application::ActivePlayContextProvider
+        activePlayContextProvider(playContextLifecycle);
     static dovahlink::application::ActiveSessionSocket activeSessionSocket;
     static dovahlink::application::ActiveSessionController
         activeSessionController(sessionManager, activeSessionSocket,
                                 activePlayContextReader, bridgeInstanceId);
-
-    static dovahlink::application::ActivePlayContextLevelSink levelSink(
-        playContextLifecycle);
-    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
-    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
-        levelAccessor, levelSink);
-    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
-        levelIncreaseHandler);
-    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
-        levelIncreaseSink);
 
     static dovahlink::application::BridgeTransport bridgeTransport(listenerV4,
                                                                    listenerV6);
@@ -342,8 +350,65 @@ SKSEPluginInfo(
     dovahlink::game_state::InstallTrustAdminPapyrusAdapter(
         trustDeviceAdminServiceContract, trustResetServiceContract);
 
+    //  Production capture and lifecycle composition: constructs and injects
+    //  the capture, worker-handoff, and publication-routing chain.
+    //  `registeredStateAreaPolicy` has a real caller -- `levelSink` below
+    //  gates its worker handoff on it -- though 4.2 registers zero state
+    //  areas, so that gate always reports unregistered and the handoff
+    //  stays unreachable in production. `capturePolicyRegistry` is consumed
+    //  by `cadenceTickDriver` as the due-key policy gate, but no sampled key
+    //  is registered in 4.2 because the first real capture policy and value
+    //  reader belong to Phase 4.3.
+    //  `activeSessionPublicationRouter` has nothing attached, so every
+    //  publication `statePublisher` builds is dropped, matching "authoritative
+    //  state continues to update when no session is connected." Revisions
+    //  belong to whichever `PlayContext` a capture was pinned against
+    //  (reached through `activePlayContextProvider`), not to a
+    //  process-lifetime tracker: a new play context always starts with a
+    //  fresh, empty revision sequence.
+    static dovahlink::application::CapturePolicyRegistry capturePolicyRegistry;
+    static dovahlink::application::CadenceScheduler cadenceScheduler;
+    static dovahlink::application::RegisteredStateAreaPolicy
+        registeredStateAreaPolicy;
+    static dovahlink::application::ActiveSessionPublicationRouter
+        activeSessionPublicationRouter;
+    static dovahlink::application::StatePublisher statePublisher(
+        activeSessionPublicationRouter);
+    static dovahlink::game_state::CommonLibCaptureQueueDiagnostics
+        captureQueueDiagnostics;
+    static dovahlink::application::CaptureDispatchWorker captureDispatchWorker(
+        statePublisher, activePlayContextProvider, captureQueueDiagnostics);
+    static dovahlink::game_state::CommonLibTaskMarshaller taskMarshaller;
+    static dovahlink::application::CadenceTickDriver cadenceTickDriver(
+        cadenceScheduler, capturePolicyRegistry, captureDispatchWorker,
+        taskMarshaller, activePlayContextProvider);
+    static dovahlink::game_state::CommonLibPublicationDiagnostics
+        publicationDiagnostics;
+    static dovahlink::application::SessionPublicationFactory
+        sessionPublicationFactory(activeSessionPublicationRouter,
+                                  publicationDiagnostics);
+
+    //  `levelSink` binds the native-event level capture built in
+    //  `bridge/game_state/level_increase_handler.cpp` to the same
+    //  pinned-context provider, registered-area gate, and worker handoff
+    //  sampled capture uses. "character_level" is this native event's
+    //  documented state-area identity; using it here only as a lookup key
+    //  for a registry nothing ever registers into does not register the
+    //  domain or define its wire contract -- both remain Phase 4.3 scope.
+    static dovahlink::application::ActivePlayContextLevelSink levelSink(
+        activePlayContextProvider, registeredStateAreaPolicy,
+        captureDispatchWorker, "character_level");
+    static dovahlink::game_state::PlayerLevelAccessor levelAccessor;
+    static dovahlink::game_state::LevelIncreaseHandler levelIncreaseHandler(
+        levelAccessor, levelSink);
+    static dovahlink::game_state::CommonLibLevelIncreaseSink levelIncreaseSink(
+        levelIncreaseHandler);
+    static dovahlink::application::BridgeCallbackRegistry callbackRegistry(
+        levelIncreaseSink);
+
     static dovahlink::application::Coordinator coordinator(
-        callbackRegistry, bridgeWorkerPool, bridgeTransport);
+        callbackRegistry, bridgeWorkerPool, bridgeTransport,
+        captureDispatchWorker, cadenceTickDriver);
 
     //  RE::PlayerCharacter is not valid before data loads, so the initial
     //  capture, event registration, worker pool, and transport startup are
