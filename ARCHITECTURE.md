@@ -41,6 +41,28 @@ there except a maintainer-approved compatibility or safety fix needed to keep th
 It is not refactored as part of the migration and is removed only after the replacement passes the
 full conformance and runtime validation matrix, per "Bridge migration and cutover" below.
 
+## Bridge migration and cutover
+
+Final cutover to `host/`/`adapter/` and removal of `bridge/` follow explicit gate conditions,
+recorded here as durable project policy that `host/PLAN.md`'s own Stage 7 and Stage 8 acceptance
+criteria implement:
+
+- `bridge/` remains the production implementation, and every production path continues to link,
+  launch, and depend on it, until the replacement passes the complete conformance, security,
+  pairing, reconnect, state, queue, failure, and runtime validation matrix described in
+  `host/PLAN.md`'s Stage 7. A failed or incomplete gate leaves `bridge/` as the production
+  implementation; it does not fall back to a partial cutover.
+- Every retained 4.1/4.2 semantic decision recorded in `ai/context/host/migration-audit.md` must be
+  proven equivalent (or an approved, documented difference) at the live boundary before the gate is
+  considered passed, not merely implemented in isolation.
+- Once the gate passes, production packaging starts the C# host and installs the native adapter
+  with the required lifecycle relationship; no production path may link, launch, or depend on the
+  old `bridge/` tree.
+- Deleting `bridge/` and its build/test wiring is a separately reviewable change from the cutover
+  itself, opened only after the conformance gate has already passed and the replacement is already
+  the production implementation -- deletion never happens in the same change that first proves the
+  replacement works.
+
 ## Target shape
 
 ```text
