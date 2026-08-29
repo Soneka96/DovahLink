@@ -2,11 +2,22 @@ using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Pairing;
 
-/// <summary>The outcome of confirming a pairing challenge's code.</summary>
+/// <summary>The outcome of evaluating or finalizing a pairing operation.</summary>
 /// <param name="Outcome">
-/// The resulting state: <see cref="Host.PairingState.Trusted"/> on success, or
-/// <see cref="Host.PairingState.Rejected"/> or <see cref="Host.PairingState.Expired"/> on failure.
+/// The operation result, such as credential issuance, expiry, invalid input, or a persistence
+/// failure.
 /// </param>
-/// <param name="ClientId">The newly trusted device's identity, present only when <paramref name="Outcome"/> is <see cref="Host.PairingState.Trusted"/>.</param>
-/// <param name="Credential">The newly issued credential the device must persist, present only when <paramref name="Outcome"/> is <see cref="Host.PairingState.Trusted"/>.</param>
-public sealed record PairingConfirmationResult(PairingState Outcome, ClientId? ClientId, string? Credential);
+/// <param name="ClientId">The pairing client's identity, present when a credential belongs to it.</param>
+/// <param name="Credential">The raw credential, present only when one was issued or trusted.</param>
+/// <param name="ShortId">The administration short id, present after final trust.</param>
+/// <param name="DisplayName">The presentation label associated with final trust.</param>
+/// <param name="RetryAfter">The remaining pacing duration, when applicable.</param>
+/// <param name="ShouldAutoRenotify">Whether the owner may be shown the code again after a wrong attempt.</param>
+public sealed record PairingConfirmationResult(
+    PairingConfirmOutcome Outcome,
+    ClientId? ClientId,
+    string? Credential,
+    string? ShortId = null,
+    string? DisplayName = null,
+    TimeSpan? RetryAfter = null,
+    bool ShouldAutoRenotify = false);

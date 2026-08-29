@@ -21,6 +21,19 @@ public interface ITrustStore
     /// <summary>Deletes every trust record and persists the empty store as one mutation.</summary>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task ClearAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>The number of successful trust mutations applied by this store instance.</summary>
+    long MutationGeneration { get; }
+
+    /// <summary>Upserts a record only when the store still has the supplied generation.</summary>
+    /// <param name="record">The record to store.</param>
+    /// <param name="expectedGeneration">The generation observed before a pending operation began.</param>
+    /// <param name="cancellationToken">The token used to cancel the persistence write.</param>
+    /// <returns><see langword="true"/> when the record was persisted; otherwise the generation changed first.</returns>
+    Task<bool> TryUpsertIfGenerationAsync(
+        TrustRecord record,
+        long expectedGeneration,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -41,6 +54,9 @@ public sealed class TrustStore : ITrustStore
 
     /// <summary>The in-memory index of every known trust record, keyed by client.</summary>
     private readonly Dictionary<ClientId, TrustRecord> recordsByClientId;
+
+    /// <summary>The successful mutation count used to fence pending pairing operations.</summary>
+    private long mutationGeneration;
 
     /// <summary>Creates a trust store pre-populated with already-loaded records.</summary>
     /// <param name="persistence">The persistence adapter to write through to.</param>
@@ -101,6 +117,10 @@ public sealed class TrustStore : ITrustStore
             try
             {
                 await persistence.SaveAsync(snapshot, cancellationToken);
+                lock (recordsLock)
+                {
+                    mutationGeneration++;
+                }
             }
             catch
             {
@@ -146,6 +166,10 @@ public sealed class TrustStore : ITrustStore
             try
             {
                 await persistence.SaveAsync([], cancellationToken);
+                lock (recordsLock)
+                {
+                    mutationGeneration++;
+                }
             }
             catch
             {
@@ -155,6 +179,73 @@ public sealed class TrustStore : ITrustStore
                     foreach (TrustRecord record in previousRecords)
                     {
                         recordsByClientId[record.ClientId] = record;
+                    }
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            mutationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public long MutationGeneration
+    {
+        get
+        {
+            lock (recordsLock)
+            {
+                return mutationGeneration;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> TryUpsertIfGenerationAsync(
+        TrustRecord record,
+        long expectedGeneration,
+        CancellationToken cancellationToken = default)
+    {
+        await mutationSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            TrustRecord? previousRecord;
+            List<TrustRecord> snapshot;
+            lock (recordsLock)
+            {
+                if (mutationGeneration != expectedGeneration)
+                {
+                    return false;
+                }
+
+                recordsByClientId.TryGetValue(record.ClientId, out previousRecord);
+                recordsByClientId[record.ClientId] = record;
+                snapshot = recordsByClientId.Values.ToList();
+            }
+
+            try
+            {
+                await persistence.SaveAsync(snapshot, cancellationToken);
+                lock (recordsLock)
+                {
+                    mutationGeneration++;
+                }
+                return true;
+            }
+            catch
+            {
+                lock (recordsLock)
+                {
+                    if (previousRecord is null)
+                    {
+                        recordsByClientId.Remove(record.ClientId);
+                    }
+                    else
+                    {
+                        recordsByClientId[record.ClientId] = previousRecord;
                     }
                 }
 

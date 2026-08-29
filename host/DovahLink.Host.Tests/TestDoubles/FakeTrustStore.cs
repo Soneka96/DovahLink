@@ -21,8 +21,14 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>When set, <see cref="ClearAsync"/> throws this instead of clearing the records.</summary>
     public Exception? ThrowOnClear { get; set; }
 
+    /// <summary>The successful mutation count exposed to pending-pairing tests.</summary>
+    public long MutationGeneration { get; private set; }
+
     /// <summary>Optional asynchronous work used to hold a clear in flight during concurrency tests.</summary>
     public Func<Task>? BeforeClear { get; set; }
+
+    /// <summary>Optional asynchronous work used to hold a conditional upsert in flight during concurrency tests.</summary>
+    public Func<Task>? BeforeConditionalUpsert { get; set; }
 
     /// <summary>Seeds the fake with a record as if it had already been upserted.</summary>
     /// <param name="record">The record to seed.</param>
@@ -44,6 +50,7 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
+        MutationGeneration++;
         return Task.CompletedTask;
     }
 
@@ -62,5 +69,44 @@ public sealed class FakeTrustStore : ITrustStore
 
         recordsByClientId.Clear();
         ClearCallCount++;
+        MutationGeneration++;
+    }
+
+    /// <inheritdoc/>
+    public Task<bool> TryUpsertIfGenerationAsync(
+        TrustRecord record,
+        long expectedGeneration,
+        CancellationToken cancellationToken = default)
+    {
+        if (MutationGeneration != expectedGeneration)
+        {
+            return Task.FromResult(false);
+        }
+
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<bool>(exception);
+        }
+
+        if (BeforeConditionalUpsert is { } beforeConditionalUpsert)
+        {
+            return ConditionalUpsertAfterWaitAsync(record, beforeConditionalUpsert);
+        }
+
+        recordsByClientId[record.ClientId] = record;
+        UpsertCallCount++;
+        MutationGeneration++;
+        return Task.FromResult(true);
+    }
+
+    /// <summary>Completes a conditional upsert after its test-controlled wait finishes.</summary>
+    private async Task<bool> ConditionalUpsertAfterWaitAsync(
+        TrustRecord record, Func<Task> beforeConditionalUpsert)
+    {
+        await beforeConditionalUpsert();
+        recordsByClientId[record.ClientId] = record;
+        UpsertCallCount++;
+        MutationGeneration++;
+        return true;
     }
 }

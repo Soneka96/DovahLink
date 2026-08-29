@@ -61,6 +61,67 @@ public class TrustStoreTests
             persistence.SavedRecords.OrderBy(saved => saved.ClientId.Value));
     }
 
+    /// <summary>Verifies that a matching mutation generation permits a conditional upsert.</summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_MatchingGeneration_PersistsRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(record, store.MutationGeneration);
+
+        Assert.True(committed);
+        Assert.Equal(record, store.TryGet(record.ClientId));
+    }
+
+    /// <summary>Verifies that a stale mutation generation cannot recreate trust after another mutation.</summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_StaleGeneration_DoesNotMutateStore()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        long initialGeneration = store.MutationGeneration;
+        TrustRecord existing = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        TrustRecord attempted = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(existing);
+
+        bool committed = await store.TryUpsertIfGenerationAsync(attempted, initialGeneration);
+
+        Assert.False(committed);
+        Assert.Equal(existing, store.TryGet(existing.ClientId));
+        Assert.Null(store.TryGet(attempted.ClientId));
+    }
+
+    /// <summary>Verifies that a conditional upsert rolls back on persistence failure without changing its generation.</summary>
+    [Fact]
+    public async Task TryUpsertIfGenerationAsync_PersistenceFails_RestoresRecordAndGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        long generation = store.MutationGeneration;
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.TryUpsertIfGenerationAsync(record, generation));
+
+        Assert.Null(store.TryGet(record.ClientId));
+        Assert.Equal(generation, store.MutationGeneration);
+    }
+
+    /// <summary>Verifies that a successful clear advances the mutation generation.</summary>
+    [Fact]
+    public async Task ClearAsync_Success_AdvancesMutationGeneration()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        long initialGeneration = store.MutationGeneration;
+
+        await store.ClearAsync();
+
+        Assert.Equal(initialGeneration + 1, store.MutationGeneration);
+    }
+
     /// <summary>Verifies that a store constructed over an empty persistence starts with no records.</summary>
     [Fact]
     public async Task CreateAsync_EmptyPersistence_StartsEmpty()

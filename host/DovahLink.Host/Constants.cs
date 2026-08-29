@@ -29,8 +29,29 @@ public static class Constants
     /// <summary>The number of hex characters in a newly issued pairing credential.</summary>
     public const int PairingCredentialLength = 32;
 
-    /// <summary>The number of hex characters in a newly paired device's short id.</summary>
-    public const int PairingShortIdLength = 4;
+    /// <summary>The number of decimal digits in a newly paired device's short id.</summary>
+    public const int PairingShortIdDigits = 5;
+
+    /// <summary>The maximum number of short-id candidates tried before pairing fails closed.</summary>
+    public const int PairingMaxShortIdGenerationAttempts = 20;
+
+    /// <summary>How long an owner may be disconnected before its pairing challenge expires.</summary>
+    public static readonly TimeSpan PairingReconnectGracePeriod = TimeSpan.FromSeconds(10);
+
+    /// <summary>The minimum interval between manual or automatic pairing-code redisplays.</summary>
+    public static readonly TimeSpan PairingRenotifyCooldown = TimeSpan.FromSeconds(5);
+
+    /// <summary>The minimum interval between evaluated pairing-code attempts.</summary>
+    public static readonly TimeSpan PairingConfirmPacingInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>The number of evaluated wrong codes allowed before the challenge is cancelled.</summary>
+    public const int PairingMaxWrongAttempts = 5;
+
+    /// <summary>How long an issued credential may remain pending final confirmation.</summary>
+    public static readonly TimeSpan PairingPendingCredentialLifetime = TimeSpan.FromMinutes(5);
+
+    /// <summary>The maximum UTF-8 byte length of a trusted device display name.</summary>
+    public const int MaxDisplayNameLengthBytes = 64;
 
     // ---- Authentication ----
 
