@@ -17,3 +17,15 @@ public enum KnownDeviceState
     /// <summary>The device is blocked from pairing or reconnecting until explicitly unblocked.</summary>
     Blocked,
 }
+
+// ---- Sessions ----
+
+/// <summary>The lifecycle state of one client connection's session.</summary>
+public enum SessionState
+{
+    /// <summary>The session is live and its identifier remains usable.</summary>
+    Active,
+
+    /// <summary>The session has ended; its identifier can never become valid again.</summary>
+    Invalidated,
+}
