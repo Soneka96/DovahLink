@@ -34,6 +34,25 @@ public interface ITrustStore
         TrustRecord record,
         long expectedGeneration,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Returns a known device by its administration-only short identifier.</summary>
+    /// <param name="shortId">The five-digit administration identifier.</param>
+    TrustRecord? TryGetByShortId(string shortId);
+
+    /// <summary>Revokes a trusted device and destroys its credential verifier.</summary>
+    Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks any existing non-blocked known device and destroys its credential verifier.</summary>
+    Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Unblocks a blocked device and returns it to the unpaired state.</summary>
+    Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets an eligible revoked or unpaired device completely.</summary>
+    Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Applies Reset Trust to every trusted device and returns affected identities.</summary>
+    Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -82,6 +101,15 @@ public sealed class TrustStore : ITrustStore
         lock (recordsLock)
         {
             return recordsByClientId.GetValueOrDefault(clientId);
+        }
+    }
+
+    /// <inheritdoc/>
+    public TrustRecord? TryGetByShortId(string shortId)
+    {
+        lock (recordsLock)
+        {
+            return recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
         }
     }
 
@@ -246,6 +274,184 @@ public sealed class TrustStore : ITrustStore
                     else
                     {
                         recordsByClientId[record.ClientId] = previousRecord;
+                    }
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            mutationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
+        MutateAsync(clientId, record => record.State == KnownDeviceState.Trusted
+            ? record with { State = KnownDeviceState.Revoked, CredentialVerifier = string.Empty, BlockedAtUtc = null }
+            : null,
+            TrustMutationOutcome.NotEligible,
+            cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
+        MutateAsync(clientId, record => record.State == KnownDeviceState.Blocked
+            ? record
+            : record with
+            {
+                State = KnownDeviceState.Blocked,
+                CredentialVerifier = string.Empty,
+                BlockedAtUtc = DateTimeOffset.UtcNow,
+            },
+            TrustMutationOutcome.AlreadyInState,
+            cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
+        MutateAsync(clientId, record => record.State == KnownDeviceState.Blocked
+            ? record with { State = KnownDeviceState.Unpaired, BlockedAtUtc = null }
+            : null,
+            TrustMutationOutcome.AlreadyInState,
+            cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default) =>
+        MutateAsync(clientId, record => record.State is KnownDeviceState.Revoked or KnownDeviceState.Unpaired
+            ? null
+            : record,
+            TrustMutationOutcome.NotEligible,
+            cancellationToken,
+            removeWhenNull: true);
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    {
+        await mutationSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            List<TrustRecord> previousRecords;
+            List<ClientId> affected;
+            lock (recordsLock)
+            {
+                previousRecords = recordsByClientId.Values.ToList();
+                affected = previousRecords
+                    .Where(record => record.State == KnownDeviceState.Trusted)
+                    .Select(record => record.ClientId)
+                    .ToList();
+                if (affected.Count == 0)
+                {
+                    return affected;
+                }
+
+                foreach (ClientId clientId in affected)
+                {
+                    TrustRecord record = recordsByClientId[clientId];
+                    recordsByClientId[clientId] = record with
+                    {
+                        State = KnownDeviceState.Revoked,
+                        CredentialVerifier = string.Empty,
+                        BlockedAtUtc = null,
+                    };
+                }
+            }
+
+            try
+            {
+                await persistence.SaveAsync(List(), cancellationToken);
+                lock (recordsLock)
+                {
+                    mutationGeneration++;
+                }
+                return affected;
+            }
+            catch
+            {
+                lock (recordsLock)
+                {
+                    recordsByClientId.Clear();
+                    foreach (TrustRecord record in previousRecords)
+                    {
+                        recordsByClientId[record.ClientId] = record;
+                    }
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            mutationSemaphore.Release();
+        }
+    }
+
+    /// <summary>Applies one persisted trust mutation and restores the prior record on failure.</summary>
+    private async Task<TrustMutationOutcome> MutateAsync(
+        ClientId clientId,
+        Func<TrustRecord, TrustRecord?> mutation,
+        TrustMutationOutcome ineligibleOutcome,
+        CancellationToken cancellationToken,
+        bool removeWhenNull = false)
+    {
+        await mutationSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            TrustRecord? previousRecord;
+            List<TrustRecord> snapshot;
+            TrustMutationOutcome outcome;
+            lock (recordsLock)
+            {
+                if (!recordsByClientId.TryGetValue(clientId, out previousRecord))
+                {
+                    return TrustMutationOutcome.NotFound;
+                }
+
+                TrustRecord? mutated = mutation(previousRecord);
+                if (!removeWhenNull && ReferenceEquals(mutated, previousRecord))
+                {
+                    return ineligibleOutcome;
+                }
+                if (!removeWhenNull && mutated is null)
+                {
+                    return ineligibleOutcome;
+                }
+                if (removeWhenNull && mutated is not null)
+                {
+                    return ineligibleOutcome;
+                }
+
+                if (removeWhenNull)
+                {
+                    recordsByClientId.Remove(clientId);
+                }
+                else
+                {
+                    recordsByClientId[clientId] = mutated!;
+                }
+                snapshot = recordsByClientId.Values.ToList();
+                outcome = TrustMutationOutcome.Changed;
+            }
+
+            try
+            {
+                await persistence.SaveAsync(snapshot, cancellationToken);
+                lock (recordsLock)
+                {
+                    mutationGeneration++;
+                }
+                return outcome;
+            }
+            catch
+            {
+                lock (recordsLock)
+                {
+                    if (removeWhenNull)
+                    {
+                        recordsByClientId[clientId] = previousRecord;
+                    }
+                    else
+                    {
+                        recordsByClientId[clientId] = previousRecord;
                     }
                 }
 

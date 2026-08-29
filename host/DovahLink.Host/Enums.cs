@@ -18,6 +18,22 @@ public enum KnownDeviceState
     Blocked,
 }
 
+/// <summary>The result of a known-device trust mutation.</summary>
+public enum TrustMutationOutcome
+{
+    /// <summary>The requested state transition was persisted.</summary>
+    Changed,
+
+    /// <summary>No known device matched the requested identity.</summary>
+    NotFound,
+
+    /// <summary>The device exists but is not eligible for this operation.</summary>
+    NotEligible,
+
+    /// <summary>The device already has the requested state.</summary>
+    AlreadyInState,
+}
+
 // ---- Sessions ----
 
 /// <summary>The lifecycle state of one client connection's session.</summary>

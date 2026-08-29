@@ -12,10 +12,12 @@ namespace DovahLink.Host.Trust;
 /// <param name="State">The device's current trust state.</param>
 /// <param name="CredentialVerifier">A hex-encoded, one-way verifier for the credential this device holds, never the credential itself.</param>
 /// <param name="PairedAtUtc">The UTC time the trust relationship was first established.</param>
+/// <param name="BlockedAtUtc">The time the device was blocked, or <see langword="null"/> when it is not blocked.</param>
 public sealed record TrustRecord(
     ClientId ClientId,
     string ShortId,
     string? DisplayName,
     KnownDeviceState State,
     string CredentialVerifier,
-    DateTimeOffset PairedAtUtc);
+    DateTimeOffset PairedAtUtc,
+    DateTimeOffset? BlockedAtUtc = null);

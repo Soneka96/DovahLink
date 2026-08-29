@@ -1,100 +1,275 @@
+using System.Text;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Pairing;
 using DovahLink.Host.Sessions;
 
 namespace DovahLink.Host.Trust;
 
 /// <summary>
-/// Administrative operations on known devices: listing, renaming, revoking, blocking, and
-/// resetting a single device back to unpaired. Revoking, blocking, or resetting a device
-/// immediately invalidates any of its active sessions, per
-/// <c>ai/context/host/migration-audit.md</c>'s "Revocation immediacy".
+/// Coordinates known-device administration over the durable trust store, pairing state, and active
+/// sessions. It uses short IDs for human-facing selection and client IDs for security identity.
 /// </summary>
 public interface ITrustAdminService
 {
-    /// <summary>Lists every currently known device.</summary>
-    IReadOnlyList<TrustRecord> List();
+    /// <summary>Lists known devices using the all, trust, or block scope.</summary>
+    IReadOnlyList<TrustRecord> List(string scope = "all");
 
-    /// <summary>Changes a known device's display name.</summary>
+    /// <summary>Returns the canonical trust-administration command help.</summary>
+    string Help();
+
+    /// <summary>Changes a trusted device's optional display name.</summary>
     /// <param name="clientId">The device to rename.</param>
-    /// <param name="displayName">The new display name.</param>
-    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <param name="displayName">The new name, or an empty value to clear it.</param>
+    /// <param name="cancellationToken">The token used to cancel persistence.</param>
     Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default);
 
-    /// <summary>Revokes a known device's trust and invalidates its active sessions.</summary>
-    /// <param name="clientId">The device to revoke.</param>
-    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <summary>Revokes a trusted device and invalidates its sessions.</summary>
     Task RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default);
 
-    /// <summary>Blocks a known device from pairing or reconnecting and invalidates its active sessions.</summary>
-    /// <param name="clientId">The device to block.</param>
-    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    /// <summary>Blocks a known device and invalidates its sessions.</summary>
     Task BlockAsync(ClientId clientId, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Resets a single known device back to unpaired, so it can pair again, and invalidates its
-    /// active sessions. Distinct from a global factory reset, which clears every known device.
-    /// </summary>
-    /// <param name="clientId">The device to reset.</param>
-    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
-    Task ResetAsync(ClientId clientId, CancellationToken cancellationToken = default);
+    /// <summary>Unblocks a device and returns it to the unpaired state.</summary>
+    Task UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets an eligible revoked or unpaired device.</summary>
+    Task ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>Applies Reset Trust to every trusted device and invalidates affected sessions.</summary>
+    Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Revokes the device selected by short ID and returns its mutation outcome.</summary>
+    Task<TrustMutationOutcome> RevokeByShortIdAsync(string shortId, CancellationToken cancellationToken = default);
+
+    /// <summary>Blocks the device selected by short ID and returns its mutation outcome.</summary>
+    Task<TrustMutationOutcome> BlockByShortIdAsync(string shortId, CancellationToken cancellationToken = default);
+
+    /// <summary>Unblocks the device selected by short ID and returns its mutation outcome.</summary>
+    Task<TrustMutationOutcome> UnblockByShortIdAsync(string shortId, CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets the device selected by short ID and returns its mutation outcome.</summary>
+    Task<TrustMutationOutcome> ForgetByShortIdAsync(string shortId, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc cref="ITrustAdminService"/>
 public sealed class TrustAdminService : ITrustAdminService
 {
-    /// <summary>The trust records administered by this service.</summary>
+    /// <summary>The durable trust domain administered by this service.</summary>
     private readonly ITrustStore trustStore;
 
-    /// <summary>The session registry whose sessions are invalidated when a device is revoked or blocked.</summary>
+    /// <summary>The active sessions invalidated by successful security mutations.</summary>
     private readonly ISessionRegistry sessionRegistry;
 
+    /// <summary>The pairing state cancelled by successful security mutations.</summary>
+    private readonly IPairingCoordinator pairingCoordinator;
+
     /// <summary>Creates a trust administration service.</summary>
-    /// <param name="trustStore">The trust records to administer.</param>
-    /// <param name="sessionRegistry">The session registry to invalidate sessions in on revoke or block.</param>
-    public TrustAdminService(ITrustStore trustStore, ISessionRegistry sessionRegistry)
+    /// <param name="trustStore">The durable trust domain.</param>
+    /// <param name="sessionRegistry">The active session registry.</param>
+    /// <param name="pairingCoordinator">The pairing state to cancel on security mutations.</param>
+    public TrustAdminService(ITrustStore trustStore, ISessionRegistry sessionRegistry, IPairingCoordinator pairingCoordinator)
     {
         this.trustStore = trustStore;
         this.sessionRegistry = sessionRegistry;
+        this.pairingCoordinator = pairingCoordinator;
     }
 
     /// <inheritdoc/>
-    public IReadOnlyList<TrustRecord> List() => trustStore.List();
+    public IReadOnlyList<TrustRecord> List(string scope = "all")
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        IReadOnlyList<TrustRecord> records = scope.ToLowerInvariant() switch
+        {
+            "all" or "" => trustStore.List().OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            "trust" => trustStore.List().Where(record => record.State == KnownDeviceState.Trusted).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            "block" => trustStore.List().Where(record => record.State == KnownDeviceState.Blocked).OrderBy(record => record.PairedAtUtc).ThenBy(record => record.ShortId).ToList(),
+            _ => throw new ArgumentException("Scope must be all, trust, or block.", nameof(scope)),
+        };
+
+        Dictionary<string, int> counts = records
+            .Where(record => !string.IsNullOrEmpty(record.DisplayName))
+            .GroupBy(record => record.DisplayName!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        Dictionary<string, int> indexes = new(StringComparer.Ordinal);
+        return records.Select(record =>
+        {
+            if (string.IsNullOrEmpty(record.DisplayName) || counts[record.DisplayName] < 2)
+            {
+                return record;
+            }
+
+            int index = indexes.TryGetValue(record.DisplayName, out int currentIndex)
+                ? currentIndex + 1
+                : 1;
+            indexes[record.DisplayName] = index;
+            return record with { DisplayName = $"{record.DisplayName} #{index}" };
+        }).ToList();
+    }
+
+    /// <inheritdoc/>
+    public string Help() =>
+        "DovahLink commands:\n" +
+        " list [all|trust|block]\n" +
+        " revoke -id <id> | block -id <id> | unblock -id <id> | forget -id <id>\n" +
+        " reset-trust | reset | confirm-reset -confirm <code> | help";
 
     /// <inheritdoc/>
     public async Task RenameAsync(ClientId clientId, string displayName, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(displayName);
+        ValidateDisplayName(displayName);
         TrustRecord record = GetKnownRecord(clientId);
+        if (record.State != KnownDeviceState.Trusted)
+        {
+            throw new InvalidOperationException("Only a trusted device can be renamed.");
+        }
+
         await trustStore.UpsertAsync(record with { DisplayName = displayName }, cancellationToken);
     }
 
     /// <inheritdoc/>
     public async Task RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)
     {
-        TrustRecord record = GetKnownRecord(clientId);
-        await trustStore.UpsertAsync(record with { State = KnownDeviceState.Revoked }, cancellationToken);
-        sessionRegistry.InvalidateAllForClient(clientId);
+        TrustMutationOutcome outcome = await RevokeCoreAsync(clientId, cancellationToken);
+        EnsureChangedOrAlreadyHandled(outcome, clientId, "revoke");
     }
 
     /// <inheritdoc/>
     public async Task BlockAsync(ClientId clientId, CancellationToken cancellationToken = default)
     {
-        TrustRecord record = GetKnownRecord(clientId);
-        await trustStore.UpsertAsync(record with { State = KnownDeviceState.Blocked }, cancellationToken);
-        sessionRegistry.InvalidateAllForClient(clientId);
+        TrustMutationOutcome outcome = await BlockCoreAsync(clientId, cancellationToken);
+        EnsureChangedOrAlreadyHandled(outcome, clientId, "block");
     }
 
     /// <inheritdoc/>
-    public async Task ResetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    public async Task UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default)
     {
-        TrustRecord record = GetKnownRecord(clientId);
-        await trustStore.UpsertAsync(record with { State = KnownDeviceState.Unpaired }, cancellationToken);
-        sessionRegistry.InvalidateAllForClient(clientId);
+        TrustMutationOutcome outcome = await trustStore.UnblockAsync(clientId, cancellationToken);
+        if (outcome == TrustMutationOutcome.NotFound)
+        {
+            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+        }
     }
 
-    /// <summary>Looks up a device's trust record, or fails if the device is not known.</summary>
-    /// <param name="clientId">The device to look up.</param>
-    /// <returns>The device's current trust record.</returns>
-    /// <exception cref="KeyNotFoundException">No device with this <paramref name="clientId"/> is known.</exception>
+    /// <inheritdoc/>
+    public async Task ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        TrustMutationOutcome outcome = await trustStore.ForgetAsync(clientId, cancellationToken);
+        if (outcome == TrustMutationOutcome.NotFound)
+        {
+            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+        }
+        if (outcome == TrustMutationOutcome.NotEligible)
+        {
+            throw new InvalidOperationException("Only revoked or unpaired devices can be forgotten.");
+        }
+
+        pairingCoordinator.Cancel(clientId);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<ClientId> affected = await trustStore.ResetTrustAsync(cancellationToken);
+        pairingCoordinator.CancelAll();
+        foreach (ClientId clientId in affected)
+        {
+            sessionRegistry.InvalidateAllForClient(clientId);
+        }
+
+        return affected;
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RevokeByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
+        MutateByShortIdAsync(shortId, RevokeCoreAsync, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> BlockByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
+        MutateByShortIdAsync(shortId, BlockCoreAsync, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> UnblockByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
+        MutateByShortIdAsync(shortId, trustStore.UnblockAsync, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> ForgetByShortIdAsync(string shortId, CancellationToken cancellationToken = default) =>
+        MutateByShortIdAsync(shortId, ForgetCoreAsync, cancellationToken);
+
+    /// <summary>Revokes a client and performs successful-mutation side effects.</summary>
+    private async Task<TrustMutationOutcome> RevokeCoreAsync(ClientId clientId, CancellationToken cancellationToken)
+    {
+        TrustMutationOutcome outcome = await trustStore.RevokeAsync(clientId, cancellationToken);
+        if (outcome == TrustMutationOutcome.Changed)
+        {
+            pairingCoordinator.Cancel(clientId);
+            sessionRegistry.InvalidateAllForClient(clientId);
+        }
+
+        return outcome;
+    }
+
+    /// <summary>Blocks a client and performs successful-mutation side effects.</summary>
+    private async Task<TrustMutationOutcome> BlockCoreAsync(ClientId clientId, CancellationToken cancellationToken)
+    {
+        TrustMutationOutcome outcome = await trustStore.BlockAsync(clientId, cancellationToken);
+        if (outcome == TrustMutationOutcome.Changed)
+        {
+            pairingCoordinator.Cancel(clientId);
+            sessionRegistry.InvalidateAllForClient(clientId);
+        }
+
+        return outcome;
+    }
+
+    /// <summary>Forgets a client and cancels any pairing state it owns.</summary>
+    private async Task<TrustMutationOutcome> ForgetCoreAsync(ClientId clientId, CancellationToken cancellationToken)
+    {
+        TrustMutationOutcome outcome = await trustStore.ForgetAsync(clientId, cancellationToken);
+        if (outcome == TrustMutationOutcome.Changed)
+        {
+            pairingCoordinator.Cancel(clientId);
+        }
+
+        return outcome;
+    }
+
+    /// <summary>Resolves a short ID and applies one client-ID mutation.</summary>
+    private async Task<TrustMutationOutcome> MutateByShortIdAsync(
+        string shortId,
+        Func<ClientId, CancellationToken, Task<TrustMutationOutcome>> mutation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(shortId);
+        TrustRecord? record = trustStore.TryGetByShortId(shortId);
+        return record is null
+            ? TrustMutationOutcome.NotFound
+            : await mutation(record.ClientId, cancellationToken);
+    }
+
+    /// <summary>Returns a known client record or rejects an unknown identity.</summary>
     private TrustRecord GetKnownRecord(ClientId clientId) =>
         trustStore.TryGet(clientId) ?? throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+
+    /// <summary>Rejects a mutation result that cannot be represented by the legacy throwing API.</summary>
+    private static void EnsureChangedOrAlreadyHandled(TrustMutationOutcome outcome, ClientId clientId, string operation)
+    {
+        if (outcome == TrustMutationOutcome.NotFound)
+        {
+            throw new KeyNotFoundException($"No known device for client '{clientId}'.");
+        }
+        if (outcome == TrustMutationOutcome.NotEligible)
+        {
+            throw new InvalidOperationException($"Device is not eligible for {operation}.");
+        }
+    }
+
+    /// <summary>Validates the presentation-only display-name contract.</summary>
+    private static void ValidateDisplayName(string displayName)
+    {
+        if (Encoding.UTF8.GetByteCount(displayName) > Constants.MaxDisplayNameLengthBytes || displayName.Any(char.IsControl))
+        {
+            throw new ArgumentException("The display name is not valid.", nameof(displayName));
+        }
+    }
 }

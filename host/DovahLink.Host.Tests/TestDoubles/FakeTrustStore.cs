@@ -109,4 +109,134 @@ public sealed class FakeTrustStore : ITrustStore
         MutationGeneration++;
         return true;
     }
+
+    /// <inheritdoc/>
+    public TrustRecord? TryGetByShortId(string shortId) =>
+        recordsByClientId.Values.FirstOrDefault(record => record.ShortId == shortId);
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> RevokeAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State != KnownDeviceState.Trusted)
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
+        }
+
+        recordsByClientId[clientId] = record with
+        {
+            State = KnownDeviceState.Revoked,
+            CredentialVerifier = string.Empty,
+            BlockedAtUtc = null,
+        };
+        MutationGeneration++;
+        return Task.FromResult(TrustMutationOutcome.Changed);
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> BlockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State == KnownDeviceState.Blocked)
+        {
+            return Task.FromResult(TrustMutationOutcome.AlreadyInState);
+        }
+
+        recordsByClientId[clientId] = record with
+        {
+            State = KnownDeviceState.Blocked,
+            CredentialVerifier = string.Empty,
+            BlockedAtUtc = DateTimeOffset.UtcNow,
+        };
+        MutationGeneration++;
+        return Task.FromResult(TrustMutationOutcome.Changed);
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> UnblockAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State != KnownDeviceState.Blocked)
+        {
+            return Task.FromResult(TrustMutationOutcome.AlreadyInState);
+        }
+
+        recordsByClientId[clientId] = record with
+        {
+            State = KnownDeviceState.Unpaired,
+            BlockedAtUtc = null,
+        };
+        MutationGeneration++;
+        return Task.FromResult(TrustMutationOutcome.Changed);
+    }
+
+    /// <inheritdoc/>
+    public Task<TrustMutationOutcome> ForgetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<TrustMutationOutcome>(exception);
+        }
+        if (!recordsByClientId.TryGetValue(clientId, out TrustRecord? record))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotFound);
+        }
+        if (record.State is not (KnownDeviceState.Revoked or KnownDeviceState.Unpaired))
+        {
+            return Task.FromResult(TrustMutationOutcome.NotEligible);
+        }
+
+        recordsByClientId.Remove(clientId);
+        MutationGeneration++;
+        return Task.FromResult(TrustMutationOutcome.Changed);
+    }
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<ClientId>> ResetTrustAsync(CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnUpsert is { } exception)
+        {
+            return Task.FromException<IReadOnlyList<ClientId>>(exception);
+        }
+        List<ClientId> affected = recordsByClientId.Values
+            .Where(record => record.State == KnownDeviceState.Trusted)
+            .Select(record => record.ClientId)
+            .ToList();
+        foreach (ClientId clientId in affected)
+        {
+            TrustRecord record = recordsByClientId[clientId];
+            recordsByClientId[clientId] = record with
+            {
+                State = KnownDeviceState.Revoked,
+                CredentialVerifier = string.Empty,
+                BlockedAtUtc = null,
+            };
+        }
+        if (affected.Count > 0)
+        {
+            MutationGeneration++;
+        }
+        return Task.FromResult<IReadOnlyList<ClientId>>(affected);
+    }
 }

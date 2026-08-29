@@ -128,6 +128,122 @@ public class TrustStoreTests
         Assert.Equal(generation, store.MutationGeneration);
     }
 
+    /// <summary>Verifies that administration lookup returns the record matching its stable short ID.</summary>
+    [Fact]
+    public async Task TryGetByShortId_ReturnsMatchingRecordOnly()
+    {
+        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustRecord record = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+
+        Assert.Equal(record, store.TryGetByShortId("12345"));
+        Assert.Null(store.TryGetByShortId("54321"));
+    }
+
+    /// <summary>Verifies that revocation destroys the verifier while preserving device metadata.</summary>
+    [Fact]
+    public async Task RevokeAsync_TrustedRecord_ClearsVerifierAndPreservesMetadata()
+    {
+        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        DateTimeOffset pairedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        TrustRecord original = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Trusted, "hash", pairedAt);
+        await store.UpsertAsync(original);
+
+        TrustMutationOutcome outcome = await store.RevokeAsync(original.ClientId);
+        TrustRecord revoked = store.TryGet(original.ClientId)!;
+
+        Assert.Equal(TrustMutationOutcome.Changed, outcome);
+        Assert.Equal(KnownDeviceState.Revoked, revoked.State);
+        Assert.Empty(revoked.CredentialVerifier);
+        Assert.Equal(original.ShortId, revoked.ShortId);
+        Assert.Equal(original.DisplayName, revoked.DisplayName);
+        Assert.Equal(original.PairedAtUtc, revoked.PairedAtUtc);
+    }
+
+    /// <summary>Verifies that blocking is allowed for an unpaired known device and is idempotent.</summary>
+    [Fact]
+    public async Task BlockAsync_UnpairedRecord_BlocksThenReportsAlreadyInState()
+    {
+        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustRecord original = new(ClientId.NewId(), "12345", null, KnownDeviceState.Unpaired, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(original);
+
+        Assert.Equal(TrustMutationOutcome.Changed, await store.BlockAsync(original.ClientId));
+        Assert.Equal(TrustMutationOutcome.AlreadyInState, await store.BlockAsync(original.ClientId));
+        Assert.Equal(KnownDeviceState.Blocked, store.TryGet(original.ClientId)!.State);
+        Assert.NotNull(store.TryGet(original.ClientId)!.BlockedAtUtc);
+    }
+
+    /// <summary>Verifies that unblocking clears block metadata and forgetting removes the record.</summary>
+    [Fact]
+    public async Task UnblockThenForgetAsync_RemovesKnownDevice()
+    {
+        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustRecord blocked = new(ClientId.NewId(), "12345", "Living Room PC", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(blocked);
+
+        Assert.Equal(TrustMutationOutcome.Changed, await store.UnblockAsync(blocked.ClientId));
+        Assert.Equal(KnownDeviceState.Unpaired, store.TryGet(blocked.ClientId)!.State);
+        Assert.Null(store.TryGet(blocked.ClientId)!.BlockedAtUtc);
+        Assert.Equal(TrustMutationOutcome.Changed, await store.ForgetAsync(blocked.ClientId));
+        Assert.Null(store.TryGet(blocked.ClientId));
+    }
+
+    /// <summary>Verifies that Reset Trust revokes only trusted records and preserves other states.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_RevokesTrustedOnly()
+    {
+        TrustStore store = await TrustStore.CreateAsync(new FakeTrustStorePersistence());
+        TrustRecord trusted = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        TrustRecord revoked = new(ClientId.NewId(), "12346", "Revoked", KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        TrustRecord blocked = new(ClientId.NewId(), "12347", "Blocked", KnownDeviceState.Blocked, string.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(trusted);
+        await store.UpsertAsync(revoked);
+        await store.UpsertAsync(blocked);
+
+        IReadOnlyList<ClientId> affected = await store.ResetTrustAsync();
+
+        Assert.Equal([trusted.ClientId], affected);
+        Assert.Equal(KnownDeviceState.Revoked, store.TryGet(trusted.ClientId)!.State);
+        Assert.Empty(store.TryGet(trusted.ClientId)!.CredentialVerifier);
+        Assert.Equal(revoked, store.TryGet(revoked.ClientId));
+        Assert.Equal(blocked, store.TryGet(blocked.ClientId));
+    }
+
+    /// <summary>Verifies that a failed Reset Trust persistence write restores the prior state.</summary>
+    [Fact]
+    public async Task ResetTrustAsync_PersistenceFails_RestoresTrustedRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "12345", "Trusted", KnownDeviceState.Trusted, "hash", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generation = store.MutationGeneration;
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.ResetTrustAsync());
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Equal(generation, store.MutationGeneration);
+    }
+
+    /// <summary>Verifies that a failed forget restores the removed record and mutation generation.</summary>
+    [Fact]
+    public async Task ForgetAsync_PersistenceFails_RestoresRecord()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "12345", null, KnownDeviceState.Revoked, string.Empty, DateTimeOffset.UtcNow);
+        await store.UpsertAsync(record);
+        long generation = store.MutationGeneration;
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.ForgetAsync(record.ClientId));
+
+        Assert.Equal(record, store.TryGet(record.ClientId));
+        Assert.Equal(generation, store.MutationGeneration);
+    }
+
     /// <summary>Verifies that a successful clear advances the mutation generation.</summary>
     [Fact]
     public async Task ClearAsync_Success_AdvancesMutationGeneration()
