@@ -116,7 +116,7 @@ public class TrustAdminServiceTests
 
         Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(clientId)!.State);
         Assert.Empty(trustStore.TryGet(clientId)!.CredentialVerifier);
-        Assert.False(sessions.IsActive(session));
+        Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Equal([clientId], pairing.CancelledClientIds);
     }
 
@@ -136,8 +136,8 @@ public class TrustAdminServiceTests
 
         await admin.RevokeAsync(target);
 
-        Assert.False(sessions.IsActive(targetSession));
-        Assert.True(sessions.IsActive(otherSession));
+        Assert.False(sessions.IsActive(targetSession, sessions.ConnectionIdFor(targetSession)));
+        Assert.True(sessions.IsActive(otherSession, sessions.ConnectionIdFor(otherSession)));
     }
 
     /// <summary>Verifies that blocking an unpaired known device is allowed and creates no credential.</summary>
@@ -171,7 +171,7 @@ public class TrustAdminServiceTests
         await admin.BlockAsync(clientId);
 
         Assert.Empty(trustStore.TryGet(clientId)!.CredentialVerifier);
-        Assert.False(sessions.IsActive(session));
+        Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Equal([clientId], pairing.CancelledClientIds);
     }
 
@@ -309,7 +309,7 @@ public class TrustAdminServiceTests
         await Assert.ThrowsAsync<IOException>(() => admin.RevokeAsync(clientId));
 
         Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
-        Assert.True(sessions.IsActive(session));
+        Assert.True(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Empty(pairing.CancelledClientIds);
     }
 
@@ -332,7 +332,7 @@ public class TrustAdminServiceTests
         Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(trusted)!.State);
         Assert.Equal(blocked, trustStore.TryGet(blocked)!.ClientId);
         Assert.Equal(KnownDeviceState.Blocked, trustStore.TryGet(blocked)!.State);
-        Assert.False(sessions.IsActive(session));
+        Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
     }
 
     /// <summary>Verifies that Reset Trust cancels pairing even when no trusted device needs revocation.</summary>
@@ -363,7 +363,7 @@ public class TrustAdminServiceTests
         await Assert.ThrowsAsync<IOException>(() => admin.ResetTrustAsync());
 
         Assert.Equal(KnownDeviceState.Trusted, trustStore.TryGet(clientId)!.State);
-        Assert.True(sessions.IsActive(session));
+        Assert.True(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Equal(0, pairing.CancelAllCallCount);
     }
 
@@ -386,7 +386,7 @@ public class TrustAdminServiceTests
         Assert.Equal([trustedClient], affected);
         Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(trustedClient)!.State);
         Assert.Equal(KnownDeviceState.Revoked, trustStore.TryGet(revokedClient)!.State);
-        Assert.False(sessions.IsActive(session));
+        Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Equal(1, pairing.CancelAllCallCount);
     }
 
@@ -429,7 +429,7 @@ public class TrustAdminServiceTests
         Assert.Equal(TrustMutationOutcome.Changed, await admin.BlockByShortIdAsync("12345"));
 
         Assert.Equal(KnownDeviceState.Blocked, trustStore.TryGet(clientId)!.State);
-        Assert.False(sessions.IsActive(session));
+        Assert.False(sessions.IsActive(session, sessions.ConnectionIdFor(session)));
         Assert.Equal([clientId], pairing.CancelledClientIds);
     }
 

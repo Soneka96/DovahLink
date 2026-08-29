@@ -6,196 +6,215 @@ namespace DovahLink.Host.Tests.Sessions;
 /// <summary>Tests for <see cref="SessionRegistry"/>.</summary>
 public class SessionRegistryTests
 {
-    /// <summary>Verifies that a newly created session reports as active.</summary>
+    /// <summary>Verifies that a newly created session reports as active only for its owner.</summary>
     [Fact]
-    public void Create_ReturnsAnActiveSession()
+    public void TryCreate_ReturnsAnActiveOwnedSession()
     {
         var registry = new SessionRegistry();
+        ConnectionId connectionId = ConnectionId.NewId();
 
-        SessionId sessionId = registry.Create(ClientId.NewId());
+        Assert.True(registry.TryCreate(ClientId.NewId(), connectionId, out SessionId sessionId));
 
-        Assert.True(registry.IsActive(sessionId));
+        Assert.True(registry.IsActive(sessionId, connectionId));
+        Assert.Equal(1, registry.ActiveCount);
     }
 
-    /// <summary>Verifies that a session id that was never created is reported as not active.</summary>
+    /// <summary>Verifies that an unknown session is inactive.</summary>
     [Fact]
     public void IsActive_UnknownSession_ReturnsFalse()
     {
         var registry = new SessionRegistry();
 
-        Assert.False(registry.IsActive(SessionId.NewId()));
+        Assert.False(registry.IsActive(SessionId.NewId(), ConnectionId.NewId()));
     }
 
-    /// <summary>Verifies that an invalidated session stops being reported as active.</summary>
+    /// <summary>Verifies that an owner can invalidate its session and free the admission slot.</summary>
     [Fact]
-    public void Invalidate_ActiveSession_BecomesInactive()
+    public void Invalidate_OwnerConnection_RemovesSession()
     {
         var registry = new SessionRegistry();
-        SessionId sessionId = registry.Create(ClientId.NewId());
+        ConnectionId connectionId = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(ClientId.NewId(), connectionId, out SessionId sessionId));
 
-        registry.Invalidate(sessionId);
+        registry.Invalidate(sessionId, connectionId);
 
-        Assert.False(registry.IsActive(sessionId));
+        Assert.False(registry.IsActive(sessionId, connectionId));
+        Assert.Equal(0, registry.ActiveCount);
+        Assert.True(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
     }
 
-    /// <summary>Verifies that invalidating an already-invalidated session is a harmless no-op.</summary>
+    /// <summary>Verifies that a non-owner cannot invalidate a live session.</summary>
     [Fact]
-    public void Invalidate_AlreadyInvalidatedSession_StaysInactive()
+    public void Invalidate_WrongConnection_LeavesSessionActive()
     {
         var registry = new SessionRegistry();
-        SessionId sessionId = registry.Create(ClientId.NewId());
-        registry.Invalidate(sessionId);
+        ConnectionId owner = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(ClientId.NewId(), owner, out SessionId sessionId));
 
-        registry.Invalidate(sessionId);
+        registry.Invalidate(sessionId, ConnectionId.NewId());
 
-        Assert.False(registry.IsActive(sessionId));
+        Assert.True(registry.IsActive(sessionId, owner));
+        Assert.Equal(1, registry.ActiveCount);
     }
 
-    /// <summary>Verifies that invalidating an unknown session id does not throw.</summary>
+    /// <summary>Verifies that a session id cannot be reused by another connection.</summary>
     [Fact]
-    public void Invalidate_UnknownSession_DoesNotThrow()
+    public void IsActive_SessionCannotCrossConnections()
     {
         var registry = new SessionRegistry();
+        ConnectionId owner = ConnectionId.NewId();
+        ConnectionId otherConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(ClientId.NewId(), owner, out SessionId sessionId));
 
-        registry.Invalidate(SessionId.NewId());
+        Assert.False(registry.IsActive(sessionId, otherConnection));
+        Assert.True(registry.IsActive(sessionId, owner));
     }
 
-    /// <summary>Verifies that invalidating all of a client's sessions affects every one of them but no other client's.</summary>
+    /// <summary>Verifies that client-wide invalidation affects only that client's active sessions.</summary>
     [Fact]
     public void InvalidateAllForClient_InvalidatesOnlyThatClientsSessions()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(3);
         ClientId targetClient = ClientId.NewId();
-        SessionId firstSession = registry.Create(targetClient);
-        SessionId secondSession = registry.Create(targetClient);
-        SessionId otherClientSession = registry.Create(ClientId.NewId());
+        ConnectionId firstConnection = ConnectionId.NewId();
+        ConnectionId secondConnection = ConnectionId.NewId();
+        ConnectionId otherConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(targetClient, firstConnection, out SessionId firstSession));
+        Assert.True(registry.TryCreate(targetClient, secondConnection, out SessionId secondSession));
+        Assert.True(registry.TryCreate(ClientId.NewId(), otherConnection, out SessionId otherSession));
 
         registry.InvalidateAllForClient(targetClient);
 
-        Assert.False(registry.IsActive(firstSession));
-        Assert.False(registry.IsActive(secondSession));
-        Assert.True(registry.IsActive(otherClientSession));
+        Assert.False(registry.IsActive(firstSession, firstConnection));
+        Assert.False(registry.IsActive(secondSession, secondConnection));
+        Assert.True(registry.IsActive(otherSession, otherConnection));
+        Assert.Equal(1, registry.ActiveCount);
     }
 
-    /// <summary>
-    /// Verifies the stale-session guarantee: reconnecting for the same client always creates a
-    /// fresh session id, and the prior session never becomes active again.
-    /// </summary>
+    /// <summary>Verifies that reconnecting creates a fresh session bound to the new connection.</summary>
     [Fact]
-    public void Create_AfterInvalidatingPriorSessionForSameClient_NeverReactivatesOldSession()
+    public void Create_ReconnectWithNewConnection_CreatesFreshOwnedSession()
     {
         var registry = new SessionRegistry();
         ClientId clientId = ClientId.NewId();
-        SessionId firstSession = registry.Create(clientId);
-        registry.Invalidate(firstSession);
+        ConnectionId firstConnection = ConnectionId.NewId();
+        ConnectionId secondConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(clientId, firstConnection, out SessionId firstSession));
+        registry.Invalidate(firstSession, firstConnection);
 
-        SessionId secondSession = registry.Create(clientId);
+        Assert.True(registry.TryCreate(clientId, secondConnection, out SessionId secondSession));
 
         Assert.NotEqual(firstSession, secondSession);
-        Assert.False(registry.IsActive(firstSession));
-        Assert.True(registry.IsActive(secondSession));
+        Assert.False(registry.IsActive(firstSession, firstConnection));
+        Assert.True(registry.IsActive(secondSession, secondConnection));
     }
 
-    /// <summary>Verifies that session state does not survive a host restart: a fresh registry starts with no active sessions.</summary>
+    /// <summary>Verifies that admission rejects sessions at capacity.</summary>
     [Fact]
-    public void NewRegistry_StartsWithNoActiveSessions()
+    public void TryCreate_AtCapacity_RejectsAdditionalSession()
     {
-        var priorRegistry = new SessionRegistry();
-        SessionId sessionId = priorRegistry.Create(ClientId.NewId());
+        var registry = new SessionRegistry(1);
+        Assert.True(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
 
-        var restartedRegistry = new SessionRegistry();
-
-        Assert.False(restartedRegistry.IsActive(sessionId));
+        Assert.False(registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out _));
+        Assert.Equal(1, registry.ActiveCount);
     }
 
-    /// <summary>Verifies that back-to-back sessions for the same client never collide.</summary>
+    /// <summary>Verifies that concurrent admission cannot exceed the configured capacity.</summary>
     [Fact]
-    public void Create_CalledTwiceForSameClient_ReturnsDistinctActiveSessions()
+    public async Task TryCreate_ConcurrentCalls_RespectCapacity()
     {
-        var registry = new SessionRegistry();
+        var registry = new SessionRegistry(1);
+
+        (bool Accepted, SessionId SessionId)[] results = await Task.WhenAll(
+            Enumerable.Range(0, 32).Select(_ => Task.Run(() =>
+            {
+                bool accepted = registry.TryCreate(ClientId.NewId(), ConnectionId.NewId(), out SessionId sessionId);
+                return (accepted, sessionId);
+            })));
+
+        Assert.Single(results, result => result.Accepted);
+        Assert.Equal(31, results.Count(result => !result.Accepted));
+        Assert.Equal(1, registry.ActiveCount);
+    }
+
+    /// <summary>Verifies that overlapping owner invalidation and administrative invalidation leave no active records.</summary>
+    [Fact]
+    public async Task ConcurrentOwnerAndAdministrativeInvalidation_CleansAllSessions()
+    {
+        var registry = new SessionRegistry(32);
+        ClientId clientId = ClientId.NewId();
+        (SessionId SessionId, ConnectionId ConnectionId)[] sessions = Enumerable.Range(0, 16)
+            .Select(_ =>
+            {
+                ConnectionId connectionId = ConnectionId.NewId();
+                registry.TryCreate(clientId, connectionId, out SessionId sessionId);
+                return (sessionId, connectionId);
+            })
+            .ToArray();
+
+        Task[] operations = sessions
+            .Select(session => Task.Run(() => registry.Invalidate(session.SessionId, session.ConnectionId)))
+            .Append(Task.Run(() => registry.InvalidateAllForClient(clientId)))
+            .ToArray();
+
+        await Task.WhenAll(operations);
+
+        Assert.Equal(0, registry.ActiveCount);
+        Assert.All(sessions, session => Assert.False(registry.IsActive(session.SessionId, session.ConnectionId)));
+    }
+
+    /// <summary>Verifies that admission and invalidation can overlap without exceeding capacity or corrupting state.</summary>
+    [Fact]
+    public async Task ConcurrentCreateAndInvalidation_RespectOwnershipAndCapacity()
+    {
+        var registry = new SessionRegistry(1);
         ClientId clientId = ClientId.NewId();
 
-        SessionId first = registry.Create(clientId);
-        SessionId second = registry.Create(clientId);
+        Task[] operations = Enumerable.Range(0, 32)
+            .Select(index => Task.Run(() =>
+            {
+                if (index % 2 == 0)
+                {
+                    ConnectionId connectionId = ConnectionId.NewId();
+                    if (registry.TryCreate(clientId, connectionId, out SessionId sessionId))
+                    {
+                        registry.Invalidate(sessionId, connectionId);
+                    }
+                }
+                else
+                {
+                    registry.InvalidateAllForClient(clientId);
+                }
+            }))
+            .ToArray();
 
-        Assert.NotEqual(first, second);
-        Assert.True(registry.IsActive(first));
-        Assert.True(registry.IsActive(second));
+        await Task.WhenAll(operations);
+
+        Assert.InRange(registry.ActiveCount, 0, 1);
     }
 
-    /// <summary>Verifies that invalidating a client with no sessions at all is a harmless no-op.</summary>
+    /// <summary>Verifies that global invalidation removes every active session.</summary>
     [Fact]
-    public void InvalidateAllForClient_ClientWithNoSessions_DoesNotThrow()
+    public void InvalidateAll_RemovesEverySession()
     {
-        var registry = new SessionRegistry();
-
-        registry.InvalidateAllForClient(ClientId.NewId());
-    }
-
-    /// <summary>Verifies that a client can still create fresh, active sessions after all of its prior sessions were invalidated.</summary>
-    [Fact]
-    public void Create_AfterInvalidateAllForClient_StillCreatesActiveSession()
-    {
-        var registry = new SessionRegistry();
-        ClientId clientId = ClientId.NewId();
-        registry.Create(clientId);
-        registry.InvalidateAllForClient(clientId);
-
-        SessionId newSession = registry.Create(clientId);
-
-        Assert.True(registry.IsActive(newSession));
-    }
-
-    /// <summary>Verifies that concurrent creates and invalidations for distinct clients don't corrupt the shared dictionary.</summary>
-    [Fact]
-    public async Task ConcurrentCreateAndInvalidate_DistinctClients_AllEndUpCorrect()
-    {
-        var registry = new SessionRegistry();
-        ClientId[] clientIds = Enumerable.Range(0, 20).Select(_ => ClientId.NewId()).ToArray();
-
-        SessionId[] sessions = await Task.WhenAll(clientIds.Select(clientId => Task.Run(() => registry.Create(clientId))));
-        await Task.WhenAll(sessions.Take(10).Select(sessionId => Task.Run(() => registry.Invalidate(sessionId))));
-
-        Assert.Equal(20, sessions.Distinct().Count());
-        for (int i = 0; i < sessions.Length; i++)
-        {
-            Assert.Equal(i >= 10, registry.IsActive(sessions[i]));
-        }
-    }
-
-    /// <summary>Verifies that InvalidateAll invalidates every session regardless of client.</summary>
-    [Fact]
-    public void InvalidateAll_InvalidatesEverySessionForEveryClient()
-    {
-        var registry = new SessionRegistry();
-        SessionId firstClientSession = registry.Create(ClientId.NewId());
-        SessionId secondClientSession = registry.Create(ClientId.NewId());
+        var registry = new SessionRegistry(2);
+        ConnectionId firstConnection = ConnectionId.NewId();
+        ConnectionId secondConnection = ConnectionId.NewId();
+        Assert.True(registry.TryCreate(ClientId.NewId(), firstConnection, out SessionId firstSession));
+        Assert.True(registry.TryCreate(ClientId.NewId(), secondConnection, out SessionId secondSession));
 
         registry.InvalidateAll();
 
-        Assert.False(registry.IsActive(firstClientSession));
-        Assert.False(registry.IsActive(secondClientSession));
+        Assert.Equal(0, registry.ActiveCount);
+        Assert.False(registry.IsActive(firstSession, firstConnection));
+        Assert.False(registry.IsActive(secondSession, secondConnection));
     }
 
-    /// <summary>Verifies that InvalidateAll on a registry with no sessions is a harmless no-op.</summary>
+    /// <summary>Verifies that non-positive capacity is rejected.</summary>
     [Fact]
-    public void InvalidateAll_NoSessions_DoesNotThrow()
+    public void Constructor_NonPositiveCapacity_Throws()
     {
-        var registry = new SessionRegistry();
-
-        registry.InvalidateAll();
-    }
-
-    /// <summary>Verifies that calling InvalidateAll a second time is a harmless no-op.</summary>
-    [Fact]
-    public void InvalidateAll_CalledTwice_StaysInactive()
-    {
-        var registry = new SessionRegistry();
-        SessionId sessionId = registry.Create(ClientId.NewId());
-
-        registry.InvalidateAll();
-        registry.InvalidateAll();
-
-        Assert.False(registry.IsActive(sessionId));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SessionRegistry(0));
     }
 }

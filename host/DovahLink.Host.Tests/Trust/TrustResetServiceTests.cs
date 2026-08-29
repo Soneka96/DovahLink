@@ -32,8 +32,8 @@ public class TrustResetServiceTests
         Assert.Null(trustStore.TryGet(secondClient));
         Assert.Equal(1, trustStore.ClearCallCount);
         Assert.Equal(1, pairingCoordinator.CancelAllCallCount);
-        Assert.False(sessionRegistry.IsActive(firstSession));
-        Assert.False(sessionRegistry.IsActive(secondSession));
+        Assert.False(sessionRegistry.IsActive(firstSession, sessionRegistry.ConnectionIdFor(firstSession)));
+        Assert.False(sessionRegistry.IsActive(secondSession, sessionRegistry.ConnectionIdFor(secondSession)));
         Assert.Equal(1, sessionRegistry.InvalidateAllCallCount);
     }
 

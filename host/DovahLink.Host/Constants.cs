@@ -73,4 +73,9 @@ public static class Constants
 
     /// <summary>The rolling window over which failed token attempts are counted.</summary>
     public static readonly TimeSpan LocalConnectionTokenFailureWindow = TimeSpan.FromSeconds(60);
+
+    // ---- Sessions ----
+
+    /// <summary>The maximum number of active client sessions admitted by the first host proof.</summary>
+    public const int MaxActiveSessions = 1;
 }
