@@ -15,6 +15,15 @@ public sealed class FakeTrustStore : ITrustStore
     /// <summary>When set, <see cref="UpsertAsync"/> throws this instead of storing the record.</summary>
     public Exception? ThrowOnUpsert { get; set; }
 
+    /// <summary>The number of times <see cref="ClearAsync"/> has succeeded.</summary>
+    public int ClearCallCount { get; private set; }
+
+    /// <summary>When set, <see cref="ClearAsync"/> throws this instead of clearing the records.</summary>
+    public Exception? ThrowOnClear { get; set; }
+
+    /// <summary>Optional asynchronous work used to hold a clear in flight during concurrency tests.</summary>
+    public Func<Task>? BeforeClear { get; set; }
+
     /// <summary>Seeds the fake with a record as if it had already been upserted.</summary>
     /// <param name="record">The record to seed.</param>
     public void Seed(TrustRecord record) => recordsByClientId[record.ClientId] = record;
@@ -36,5 +45,22 @@ public sealed class FakeTrustStore : ITrustStore
         recordsByClientId[record.ClientId] = record;
         UpsertCallCount++;
         return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnClear is { } exception)
+        {
+            throw exception;
+        }
+
+        if (BeforeClear is { } beforeClear)
+        {
+            await beforeClear();
+        }
+
+        recordsByClientId.Clear();
+        ClearCallCount++;
     }
 }

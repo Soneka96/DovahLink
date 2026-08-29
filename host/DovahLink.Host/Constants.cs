@@ -12,11 +12,11 @@ public static class Constants
         "host",
         "trust-store.dat");
 
-    /// <summary>The number of hex characters in a generated factory-reset confirmation code.</summary>
-    public const int FactoryResetChallengeCodeLength = 8;
+    /// <summary>The number of decimal digits in a generated factory-reset confirmation code.</summary>
+    public const int FactoryResetChallengeCodeDigits = 6;
 
     /// <summary>How long a factory-reset challenge remains confirmable after it is issued.</summary>
-    public static readonly TimeSpan FactoryResetChallengeLifetime = TimeSpan.FromMinutes(5);
+    public static readonly TimeSpan FactoryResetChallengeLifetime = TimeSpan.FromSeconds(60);
 
     // ---- Pairing ----
 

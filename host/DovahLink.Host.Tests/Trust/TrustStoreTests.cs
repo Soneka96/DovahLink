@@ -7,6 +7,60 @@ namespace DovahLink.Host.Tests.Trust;
 /// <summary>Tests for <see cref="TrustStore"/>.</summary>
 public class TrustStoreTests
 {
+    /// <summary>Verifies that clearing removes every record and persists an empty store.</summary>
+    [Fact]
+    public async Task ClearAsync_RemovesEveryRecordAndPersistsEmptySet()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord first = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        TrustRecord second = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Trusted, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(first);
+        await store.UpsertAsync(second);
+
+        await store.ClearAsync();
+
+        Assert.Empty(store.List());
+        Assert.Empty(persistence.SavedRecords);
+    }
+
+    /// <summary>Verifies that a failed clear restores the complete in-memory record set.</summary>
+    [Fact]
+    public async Task ClearAsync_PersistenceFails_RestoresPreviousRecords()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord first = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+        TrustRecord second = new(ClientId.NewId(), "CD34", "Bedroom Tablet", KnownDeviceState.Revoked, "beefdead", DateTimeOffset.UtcNow);
+        await store.UpsertAsync(first);
+        await store.UpsertAsync(second);
+        persistence.ThrowOnSave = new IOException("disk full");
+
+        await Assert.ThrowsAsync<IOException>(() => store.ClearAsync());
+
+        Assert.Equal(
+            new[] { first, second }.OrderBy(record => record.ClientId.Value),
+            store.List().OrderBy(record => record.ClientId.Value));
+        Assert.Equal(
+            new[] { first, second }.OrderBy(record => record.ClientId.Value),
+            persistence.SavedRecords.OrderBy(record => record.ClientId.Value));
+    }
+
+    /// <summary>Verifies that a clear and an upsert serialize into a persisted snapshot matching the final store.</summary>
+    [Fact]
+    public async Task ClearAsync_ConcurrentUpsert_PersistsTheFinalSerializedState()
+    {
+        var persistence = new FakeTrustStorePersistence();
+        TrustStore store = await TrustStore.CreateAsync(persistence);
+        TrustRecord record = new(ClientId.NewId(), "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow);
+
+        await Task.WhenAll(store.ClearAsync(), store.UpsertAsync(record));
+
+        Assert.Equal(
+            store.List().OrderBy(saved => saved.ClientId.Value),
+            persistence.SavedRecords.OrderBy(saved => saved.ClientId.Value));
+    }
+
     /// <summary>Verifies that a store constructed over an empty persistence starts with no records.</summary>
     [Fact]
     public async Task CreateAsync_EmptyPersistence_StartsEmpty()

@@ -17,6 +17,10 @@ public interface ITrustStore
     /// <param name="record">The record to store.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task UpsertAsync(TrustRecord record, CancellationToken cancellationToken = default);
+
+    /// <summary>Deletes every trust record and persists the empty store as one mutation.</summary>
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    Task ClearAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -109,6 +113,48 @@ public sealed class TrustStore : ITrustStore
                     else
                     {
                         recordsByClientId[record.ClientId] = previousRecord;
+                    }
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            mutationSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// If persistence fails, the complete previous record set is restored in memory before the
+    /// exception propagates, so a failed clear never leaves the store reporting a deletion that
+    /// was not persisted.
+    /// </remarks>
+    public async Task ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await mutationSemaphore.WaitAsync(cancellationToken);
+        try
+        {
+            List<TrustRecord> previousRecords;
+            lock (recordsLock)
+            {
+                previousRecords = recordsByClientId.Values.ToList();
+                recordsByClientId.Clear();
+            }
+
+            try
+            {
+                await persistence.SaveAsync([], cancellationToken);
+            }
+            catch
+            {
+                lock (recordsLock)
+                {
+                    recordsByClientId.Clear();
+                    foreach (TrustRecord record in previousRecords)
+                    {
+                        recordsByClientId[record.ClientId] = record;
                     }
                 }
 

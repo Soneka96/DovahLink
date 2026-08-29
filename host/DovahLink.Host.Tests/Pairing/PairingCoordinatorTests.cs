@@ -8,6 +8,19 @@ namespace DovahLink.Host.Tests.Pairing;
 /// <summary>Tests for <see cref="PairingCoordinator"/>.</summary>
 public class PairingCoordinatorTests
 {
+    /// <summary>Verifies that global reset cancellation removes the active challenge.</summary>
+    [Fact]
+    public async Task CancelAll_RemovesActiveChallenge()
+    {
+        var coordinator = new PairingCoordinator(new FakeTrustStore(), new FakeClock());
+        PairingChallenge challenge = coordinator.BeginPairing();
+
+        coordinator.CancelAll();
+
+        PairingConfirmationResult result = await coordinator.ConfirmCredentialAsync(challenge.Code, "Living Room PC");
+        Assert.Equal(PairingState.Rejected, result.Outcome);
+    }
+
     /// <summary>Verifies that confirming the correct, unexpired code commits a new trusted device.</summary>
     [Fact]
     public async Task ConfirmCredentialAsync_CorrectCode_CommitsNewTrustedDevice()

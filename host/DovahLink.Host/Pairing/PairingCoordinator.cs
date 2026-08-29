@@ -27,6 +27,9 @@ public interface IPairingCoordinator
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     /// <returns>The confirmation outcome: trusted, rejected, or expired.</returns>
     Task<PairingConfirmationResult> ConfirmCredentialAsync(string code, string displayName, CancellationToken cancellationToken = default);
+
+    /// <summary>Cancels the active pairing challenge so it cannot be confirmed later.</summary>
+    void CancelAll();
 }
 
 /// <inheritdoc cref="IPairingCoordinator"/>
@@ -131,6 +134,15 @@ public sealed class PairingCoordinator : IPairingCoordinator
         finally
         {
             confirmSemaphore.Release();
+        }
+    }
+
+    /// <inheritdoc/>
+    public void CancelAll()
+    {
+        lock (gate)
+        {
+            activeChallenge = null;
         }
     }
 }
