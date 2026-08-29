@@ -162,4 +162,40 @@ public class SessionRegistryTests
             Assert.Equal(i >= 10, registry.IsActive(sessions[i]));
         }
     }
+
+    /// <summary>Verifies that InvalidateAll invalidates every session regardless of client.</summary>
+    [Fact]
+    public void InvalidateAll_InvalidatesEverySessionForEveryClient()
+    {
+        var registry = new SessionRegistry();
+        SessionId firstClientSession = registry.Create(ClientId.NewId());
+        SessionId secondClientSession = registry.Create(ClientId.NewId());
+
+        registry.InvalidateAll();
+
+        Assert.False(registry.IsActive(firstClientSession));
+        Assert.False(registry.IsActive(secondClientSession));
+    }
+
+    /// <summary>Verifies that InvalidateAll on a registry with no sessions is a harmless no-op.</summary>
+    [Fact]
+    public void InvalidateAll_NoSessions_DoesNotThrow()
+    {
+        var registry = new SessionRegistry();
+
+        registry.InvalidateAll();
+    }
+
+    /// <summary>Verifies that calling InvalidateAll a second time is a harmless no-op.</summary>
+    [Fact]
+    public void InvalidateAll_CalledTwice_StaysInactive()
+    {
+        var registry = new SessionRegistry();
+        SessionId sessionId = registry.Create(ClientId.NewId());
+
+        registry.InvalidateAll();
+        registry.InvalidateAll();
+
+        Assert.False(registry.IsActive(sessionId));
+    }
 }

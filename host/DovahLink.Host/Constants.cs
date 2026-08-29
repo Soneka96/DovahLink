@@ -11,4 +11,10 @@ public static class Constants
         "DovahLink",
         "host",
         "trust-store.dat");
+
+    /// <summary>The number of hex characters in a generated factory-reset confirmation code.</summary>
+    public const int FactoryResetChallengeCodeLength = 8;
+
+    /// <summary>How long a factory-reset challenge remains confirmable after it is issued.</summary>
+    public static readonly TimeSpan FactoryResetChallengeLifetime = TimeSpan.FromMinutes(5);
 }

@@ -35,4 +35,14 @@ public sealed class FakeSessionRegistry : ISessionRegistry
 
     /// <inheritdoc/>
     public bool IsActive(SessionId sessionId) => activeSessionClients.ContainsKey(sessionId);
+
+    /// <summary>The number of times <see cref="InvalidateAll"/> has been called.</summary>
+    public int InvalidateAllCallCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void InvalidateAll()
+    {
+        InvalidateAllCallCount++;
+        activeSessionClients.Clear();
+    }
 }

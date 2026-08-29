@@ -4,8 +4,9 @@ using DovahLink.Host.Sessions;
 namespace DovahLink.Host.Trust;
 
 /// <summary>
-/// Administrative operations on known devices: listing, renaming, revoking, and blocking. Revoking
-/// or blocking a device immediately invalidates any of its active sessions, per
+/// Administrative operations on known devices: listing, renaming, revoking, blocking, and
+/// resetting a single device back to unpaired. Revoking, blocking, or resetting a device
+/// immediately invalidates any of its active sessions, per
 /// <c>ai/context/host/migration-audit.md</c>'s "Revocation immediacy".
 /// </summary>
 public interface ITrustAdminService
@@ -28,6 +29,14 @@ public interface ITrustAdminService
     /// <param name="clientId">The device to block.</param>
     /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
     Task BlockAsync(ClientId clientId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resets a single known device back to unpaired, so it can pair again, and invalidates its
+    /// active sessions. Distinct from a global factory reset, which clears every known device.
+    /// </summary>
+    /// <param name="clientId">The device to reset.</param>
+    /// <param name="cancellationToken">The token used to cancel the underlying persistence write.</param>
+    Task ResetAsync(ClientId clientId, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc cref="ITrustAdminService"/>
@@ -71,6 +80,14 @@ public sealed class TrustAdminService : ITrustAdminService
     {
         TrustRecord record = GetKnownRecord(clientId);
         await trustStore.UpsertAsync(record with { State = KnownDeviceState.Blocked }, cancellationToken);
+        sessionRegistry.InvalidateAllForClient(clientId);
+    }
+
+    /// <inheritdoc/>
+    public async Task ResetAsync(ClientId clientId, CancellationToken cancellationToken = default)
+    {
+        TrustRecord record = GetKnownRecord(clientId);
+        await trustStore.UpsertAsync(record with { State = KnownDeviceState.Unpaired }, cancellationToken);
         sessionRegistry.InvalidateAllForClient(clientId);
     }
 

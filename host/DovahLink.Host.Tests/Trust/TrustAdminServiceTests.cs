@@ -180,4 +180,51 @@ public class TrustAdminServiceTests
         Assert.True(sessionRegistry.IsActive(session));
         Assert.Empty(sessionRegistry.InvalidateAllForClientCalls);
     }
+
+    /// <summary>Verifies that resetting a known device sets its state to Unpaired and invalidates its active sessions.</summary>
+    [Fact]
+    public async Task ResetAsync_KnownClient_ResetsAndInvalidatesSessions()
+    {
+        var trustStore = new FakeTrustStore();
+        var sessionRegistry = new FakeSessionRegistry();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var admin = new TrustAdminService(trustStore, sessionRegistry);
+        SessionId session = sessionRegistry.Create(clientId);
+
+        await admin.ResetAsync(clientId);
+
+        Assert.Equal(KnownDeviceState.Unpaired, trustStore.TryGet(clientId)!.State);
+        Assert.False(sessionRegistry.IsActive(session));
+        Assert.Equal([clientId], sessionRegistry.InvalidateAllForClientCalls);
+    }
+
+    /// <summary>Verifies that resetting an unknown client is rejected.</summary>
+    [Fact]
+    public async Task ResetAsync_UnknownClient_Throws()
+    {
+        var admin = new TrustAdminService(new FakeTrustStore(), new FakeSessionRegistry());
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(() => admin.ResetAsync(ClientId.NewId()));
+    }
+
+    /// <summary>
+    /// Verifies that when the trust store's write fails, reset never invalidates the client's
+    /// sessions, mirroring RevokeAsync's and BlockAsync's same guarantee.
+    /// </summary>
+    [Fact]
+    public async Task ResetAsync_PersistenceFails_DoesNotInvalidateSessions()
+    {
+        var trustStore = new FakeTrustStore { ThrowOnUpsert = new IOException("disk full") };
+        var sessionRegistry = new FakeSessionRegistry();
+        ClientId clientId = ClientId.NewId();
+        trustStore.Seed(new TrustRecord(clientId, "AB12", "Living Room PC", KnownDeviceState.Trusted, "deadbeef", DateTimeOffset.UtcNow));
+        var admin = new TrustAdminService(trustStore, sessionRegistry);
+        SessionId session = sessionRegistry.Create(clientId);
+
+        await Assert.ThrowsAsync<IOException>(() => admin.ResetAsync(clientId));
+
+        Assert.True(sessionRegistry.IsActive(session));
+        Assert.Empty(sessionRegistry.InvalidateAllForClientCalls);
+    }
 }

@@ -26,6 +26,13 @@ public interface ISessionRegistry
     /// <param name="sessionId">The session to check.</param>
     /// <returns><see langword="true"/> if the session exists and has not been invalidated.</returns>
     bool IsActive(SessionId sessionId);
+
+    /// <summary>
+    /// Unconditionally invalidates every currently active session, regardless of client. Used only
+    /// by a global factory reset, per <c>ai/context/protocol/security.md</c>'s "Factory Reset's
+    /// unconditional session invalidation".
+    /// </summary>
+    void InvalidateAll();
 }
 
 /// <summary>
@@ -88,6 +95,18 @@ public sealed class SessionRegistry : ISessionRegistry
         lock (gate)
         {
             return sessionsById.TryGetValue(sessionId, out ActiveSessionRecord? record) && record.State == SessionState.Active;
+        }
+    }
+
+    /// <inheritdoc/>
+    public void InvalidateAll()
+    {
+        lock (gate)
+        {
+            foreach (SessionId sessionId in sessionsById.Keys.ToList())
+            {
+                sessionsById[sessionId] = sessionsById[sessionId] with { State = SessionState.Invalidated };
+            }
         }
     }
 }
