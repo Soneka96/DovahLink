@@ -125,4 +125,36 @@ public class PlayContextTrackerTests
         Assert.Equal(20, eventCount);
         Assert.Contains(tracker.Current!.Value, contexts);
     }
+
+    /// <summary>Verifies that a delayed transition callback cannot be overtaken by a newer transition callback.</summary>
+    [Fact]
+    public async Task NotifyTransition_DelayedCallback_BlocksLaterTransitionPublication()
+    {
+        var tracker = new PlayContextTracker();
+        PlayContextId firstContext = PlayContextId.NewId();
+        PlayContextId secondContext = PlayContextId.NewId();
+        using var firstCallbackEntered = new ManualResetEventSlim();
+        using var releaseFirstCallback = new ManualResetEventSlim();
+        int callbackCount = 0;
+        tracker.Transitioned += transition =>
+        {
+            if (Interlocked.Increment(ref callbackCount) == 1)
+            {
+                firstCallbackEntered.Set();
+                releaseFirstCallback.Wait();
+            }
+        };
+
+        Task firstTransition = Task.Run(() => tracker.NotifyTransition(firstContext));
+        Assert.True(firstCallbackEntered.Wait(TimeSpan.FromSeconds(5)));
+        Task secondTransition = Task.Run(() => tracker.NotifyTransition(secondContext));
+
+        Task completed = await Task.WhenAny(secondTransition, Task.Delay(100));
+        Assert.NotSame(secondTransition, completed);
+        releaseFirstCallback.Set();
+        await Task.WhenAll(firstTransition, secondTransition);
+
+        Assert.Equal(secondContext, tracker.Current);
+        Assert.Equal(2, callbackCount);
+    }
 }

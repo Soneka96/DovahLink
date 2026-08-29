@@ -16,6 +16,9 @@ public interface IPlayContextTracker
     /// <summary>Raised after every transition, including the first.</summary>
     event Action<PlayContextTransition>? Transitioned;
 
+    /// <summary>Reads the current play context and transition generation together.</summary>
+    PlayContextSnapshot GetSnapshot();
+
     /// <summary>Records a play-context transition notified by the adapter.</summary>
     /// <param name="newPlayContextId">The play context now active.</param>
     void NotifyTransition(PlayContextId newPlayContextId);
@@ -27,8 +30,14 @@ public sealed class PlayContextTracker : IPlayContextTracker
     /// <summary>Guards <see cref="current"/> against concurrent access.</summary>
     private readonly object gate = new();
 
+    /// <summary>Serializes state updates with ordered transition callback publication.</summary>
+    private readonly object publicationGate = new();
+
     /// <summary>The currently active play context, or <see langword="null"/> if none has been notified yet.</summary>
     private PlayContextId? current;
+
+    /// <summary>Increases whenever a new play-context transition is committed.</summary>
+    private long transitionGeneration;
 
     /// <inheritdoc/>
     public PlayContextId? Current
@@ -46,15 +55,28 @@ public sealed class PlayContextTracker : IPlayContextTracker
     public event Action<PlayContextTransition>? Transitioned;
 
     /// <inheritdoc/>
-    public void NotifyTransition(PlayContextId newPlayContextId)
+    public PlayContextSnapshot GetSnapshot()
     {
-        PlayContextTransition transition;
         lock (gate)
         {
-            transition = new PlayContextTransition(current, newPlayContextId);
-            current = newPlayContextId;
+            return new PlayContextSnapshot(current, transitionGeneration);
         }
+    }
 
-        Transitioned?.Invoke(transition);
+    /// <inheritdoc/>
+    public void NotifyTransition(PlayContextId newPlayContextId)
+    {
+        lock (publicationGate)
+        {
+            PlayContextTransition transition;
+            lock (gate)
+            {
+                transition = new PlayContextTransition(current, newPlayContextId);
+                current = newPlayContextId;
+                transitionGeneration++;
+            }
+
+            Transitioned?.Invoke(transition);
+        }
     }
 }

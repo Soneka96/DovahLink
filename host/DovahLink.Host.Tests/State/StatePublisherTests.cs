@@ -1,3 +1,4 @@
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Identity;
 using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
@@ -24,9 +25,10 @@ public class StatePublisherTests
     [Fact]
     public void Apply_NoPlayContextYet_Throws()
     {
-        var publisher = new StatePublisher<int>(new RevisionTracker(), new FakePlayContextTracker(), new FakeAdapterAvailabilityTracker());
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), new FakePlayContextTracker(), adapterTracker);
 
-        Assert.Throws<InvalidOperationException>(() => publisher.Apply(AreaId, 1));
+        Assert.Throws<InvalidOperationException>(() => publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 1));
     }
 
     /// <summary>Verifies that the first applied value advances the revision past the initial revision and becomes the current value.</summary>
@@ -38,7 +40,7 @@ public class StatePublisherTests
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
 
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(42, value);
@@ -53,10 +55,10 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
         RevisionNumber revisionAfterFirstApply = publisher.CurrentRevision(AreaId);
 
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         Assert.Equal(revisionAfterFirstApply, publisher.CurrentRevision(AreaId));
     }
@@ -69,9 +71,9 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
-        publisher.Apply(AreaId, 43);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 43);
 
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(43, value);
@@ -86,7 +88,7 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         adapterTracker.Current = AdapterAvailability.Unavailable;
 
@@ -101,26 +103,60 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available, NeedsResynchronization = true };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        bool accepted = publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
+        Assert.False(accepted);
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
     }
 
-    /// <summary>Verifies that a value becomes visible again once the adapter is available and resynchronized.</summary>
+    /// <summary>Verifies that an ordinary capture cannot be smuggled through the resynchronization gate before an explicit baseline.</summary>
+    [Fact]
+    public void Apply_WhileResynchronizationRequired_RejectsOrdinaryCaptureUntilBaselineIsAccepted()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var adapterTracker = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            CurrentInstanceId = instanceId,
+            CurrentConnectionGeneration = 1,
+            NeedsResynchronization = true,
+        };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        Assert.False(publisher.Apply(instanceId, 1, AreaId, 41));
+        adapterTracker.NeedsResynchronization = false;
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+
+        adapterTracker.NeedsResynchronization = true;
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
+        adapterTracker.NeedsResynchronization = false;
+
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(42, value);
+    }
+
+    /// <summary>Verifies that an old adapter value does not become visible after a new adapter resynchronizes.</summary>
     [Fact]
     public void TryGetCurrentValue_AfterResynchronization_ReturnsValueAgain()
     {
         var playContextTracker = new FakePlayContextTracker();
         playContextTracker.NotifyTransition(PlayContextId.NewId());
-        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Unavailable };
+        var adapterInstanceId = AdapterInstanceId.NewId();
+        var adapterTracker = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            CurrentInstanceId = adapterInstanceId,
+        };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterInstanceId, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         adapterTracker.Current = AdapterAvailability.Available;
+        adapterTracker.CurrentInstanceId = AdapterInstanceId.NewId();
         adapterTracker.NeedsResynchronization = false;
 
-        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
-        Assert.Equal(42, value);
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
     }
 
     /// <summary>Verifies that a play-context transition clears the previous context's value and resets the revision for the new context.</summary>
@@ -131,7 +167,7 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         playContextTracker.NotifyTransition(PlayContextId.NewId());
 
@@ -147,10 +183,10 @@ public class StatePublisherTests
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
         playContextTracker.NotifyTransition(PlayContextId.NewId());
 
-        publisher.Apply(AreaId, 7);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 7);
 
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(7, value);
@@ -180,7 +216,7 @@ public class StatePublisherTests
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
         var otherAreaId = new StateAreaId("Inventory");
 
-        publisher.Apply(AreaId, 42);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int characterValue));
         Assert.Equal(42, characterValue);
@@ -201,26 +237,242 @@ public class StatePublisherTests
 
         playContextTracker.NotifyTransition(PlayContextId.NewId());
 
-        publisher.Apply(AreaId, 1);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 1);
         Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
         Assert.Equal(1, value);
     }
 
-    /// <summary>
-    /// Verifies that Apply still records a captured value and advances its revision even while the
-    /// adapter is reported unavailable -- availability only masks reads, it does not reject writes.
-    /// </summary>
+    /// <summary>Verifies that a capture from an unavailable adapter is rejected and does not advance revision.</summary>
     [Fact]
-    public void Apply_WhileAdapterUnavailable_StillAdvancesRevisionButStaysMasked()
+    public void Apply_WhileAdapterUnavailable_RejectsCapture()
     {
         var playContextTracker = new FakePlayContextTracker();
         playContextTracker.NotifyTransition(PlayContextId.NewId());
         var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Unavailable };
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
 
-        publisher.Apply(AreaId, 42);
+        bool accepted = publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 42);
 
-        Assert.Equal(RevisionNumber.Initial.Next(), publisher.CurrentRevision(AreaId));
+        Assert.False(accepted);
+        Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(AreaId));
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+    }
+
+    /// <summary>Verifies that a value from a stale adapter instance is rejected.</summary>
+    [Fact]
+    public void Apply_StaleAdapterInstance_IsRejected()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        bool accepted = publisher.Apply(AdapterInstanceId.NewId(), adapterTracker.CurrentConnectionGeneration, AreaId, 42);
+
+        Assert.False(accepted);
+        Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(AreaId));
+    }
+
+    /// <summary>Verifies that the same adapter instance's new connection cannot reveal its old value.</summary>
+    [Fact]
+    public void TryGetCurrentValue_SameInstanceNewConnectionGeneration_HidesOldValue()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var adapterTracker = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            CurrentInstanceId = instanceId,
+            CurrentConnectionGeneration = 1,
+            NeedsResynchronization = false,
+        };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        Assert.True(publisher.Apply(instanceId, 1, AreaId, 42));
+
+        adapterTracker.CurrentConnectionGeneration = 2;
+        adapterTracker.NeedsResynchronization = false;
+
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+    }
+
+    /// <summary>Verifies that a matching fresh resynchronization becomes visible without advancing an unchanged revision.</summary>
+    [Fact]
+    public void Apply_MatchingResynchronization_SameValueKeepsRevision()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var adapterTracker = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            CurrentInstanceId = instanceId,
+            CurrentConnectionGeneration = 1,
+            NeedsResynchronization = false,
+        };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        Assert.True(publisher.Apply(instanceId, 1, AreaId, 42));
+        RevisionNumber revision = publisher.CurrentRevision(AreaId);
+
+        adapterTracker.CurrentConnectionGeneration = 2;
+        adapterTracker.NeedsResynchronization = true;
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
+        adapterTracker.NeedsResynchronization = false;
+
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(42, value);
+        Assert.Equal(revision, publisher.CurrentRevision(AreaId));
+    }
+
+    /// <summary>Verifies that a baseline token from an older adapter connection cannot authorize a new connection.</summary>
+    [Fact]
+    public void ApplyResynchronizationBaseline_StaleToken_IsRejected()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        var adapterTracker = new AdapterAvailabilityTracker();
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        long firstGeneration = adapterTracker.NotifyConnected(instanceId);
+        IAdapterResynchronizationToken staleToken = adapterTracker.TryClaimResynchronizationToken()!;
+        Assert.True(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 1));
+        adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
+        Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 2));
+
+        long secondGeneration = adapterTracker.NotifyConnected(instanceId);
+
+        Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 2));
+        Assert.False(publisher.ApplyResynchronizationBaseline(new ForeignResynchronizationToken(), AreaId, 2));
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 2));
+        adapterTracker.NotifyResynchronized(instanceId, secondGeneration);
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(2, value);
+    }
+
+    /// <summary>Verifies that a new-context value accepted before transition notification cleanup is not erased.</summary>
+    [Fact]
+    public async Task Apply_DuringDelayedPlayContextTransition_PreservesNewContextValue()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId firstContext = PlayContextId.NewId();
+        PlayContextId secondContext = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(firstContext);
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        using var notificationEntered = new ManualResetEventSlim();
+        using var releaseNotification = new ManualResetEventSlim();
+        playContextTracker.Transitioned += transition =>
+        {
+            if (transition.NewPlayContextId == secondContext)
+            {
+                notificationEntered.Set();
+                releaseNotification.Wait();
+            }
+        };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 1);
+
+        Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(secondContext));
+        Assert.True(notificationEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 2));
+        releaseNotification.Set();
+        await transitionTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(2, value);
+    }
+
+    /// <summary>Verifies that first-context cleanup cannot erase a value accepted after context publication.</summary>
+    [Fact]
+    public async Task Apply_DuringDelayedFirstPlayContextTransition_PreservesValue()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId firstContext = PlayContextId.NewId();
+        using var transitionEntered = new ManualResetEventSlim();
+        using var releaseTransition = new ManualResetEventSlim();
+        playContextTracker.Transitioned += _ =>
+        {
+            transitionEntered.Set();
+            releaseTransition.Wait();
+        };
+        var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+        Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(firstContext));
+        Assert.True(transitionEntered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.True(publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, AreaId, 7));
+        releaseTransition.Set();
+        await transitionTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(7, value);
+    }
+
+    /// <summary>Verifies that adapter availability handling cannot create a revision in a context whose cleanup is delayed.</summary>
+    [Fact]
+    public async Task AdapterAvailabilityDuringDelayedPlayContextTransition_DoesNotCreateGhostRevision()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId firstContext = PlayContextId.NewId();
+        PlayContextId secondContext = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(firstContext);
+        using var transitionEntered = new ManualResetEventSlim();
+        using var releaseTransition = new ManualResetEventSlim();
+        playContextTracker.Transitioned += transition =>
+        {
+            if (transition.NewPlayContextId == secondContext)
+            {
+                transitionEntered.Set();
+                releaseTransition.Wait();
+            }
+        };
+        var adapterTracker = new AdapterAvailabilityTracker();
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        long generation = adapterTracker.NotifyConnected(instanceId);
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 1));
+        adapterTracker.NotifyResynchronized(instanceId, generation);
+
+        Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(secondContext));
+        Assert.True(transitionEntered.Wait(TimeSpan.FromSeconds(5)));
+
+        adapterTracker.NotifyDisconnected(instanceId, generation);
+
+        Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(AreaId));
+        releaseTransition.Set();
+        await transitionTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(AreaId));
+    }
+
+    /// <summary>Verifies that adapter availability transitions advance populated-area revisions once each.</summary>
+    [Fact]
+    public void AdapterAvailabilityTransitions_AdvanceRevisionAndRequireFreshBaseline()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        var adapterTracker = new AdapterAvailabilityTracker();
+        var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        long firstGeneration = adapterTracker.NotifyConnected(instanceId);
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
+        adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
+        RevisionNumber synchronizedRevision = publisher.CurrentRevision(AreaId);
+
+        adapterTracker.NotifyDisconnected(instanceId, firstGeneration);
+        Assert.Equal(synchronizedRevision.Next(), publisher.CurrentRevision(AreaId));
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+
+        long secondGeneration = adapterTracker.NotifyConnected(instanceId);
+        Assert.Equal(synchronizedRevision.Next().Next(), publisher.CurrentRevision(AreaId));
+        Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
+        Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
+        adapterTracker.NotifyResynchronized(instanceId, secondGeneration);
+
+        Assert.True(publisher.TryGetCurrentValue(AreaId, out int value));
+        Assert.Equal(42, value);
+        Assert.Equal(synchronizedRevision.Next().Next(), publisher.CurrentRevision(AreaId));
+    }
+
+    private sealed class ForeignResynchronizationToken : IAdapterResynchronizationToken
+    {
     }
 }

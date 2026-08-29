@@ -4,9 +4,7 @@ namespace DovahLink.Host.State;
 
 /// <summary>
 /// Tracks each state area's revision independently per play context: one authoritative state
-/// store per state area per active play context, with the revision advancing only on change, per
-/// <c>ai/context/host/migration-audit.md</c>'s "Authoritative state, revisions, and publication
-/// ordering".
+/// store per state area per active play context, with the revision advancing only on change.
 /// </summary>
 public interface IRevisionTracker
 {
@@ -33,8 +31,7 @@ public interface IRevisionTracker
 /// <summary>
 /// An in-memory revision tracker. Revisions do not persist across a host restart: a restarted
 /// host holds no authoritative state until it resynchronizes with the adapter and starts a fresh
-/// revision sequence for every affected state area, per
-/// <c>ai/context/host/architecture.md</c>'s "Restart behavior".
+/// revision sequence for every affected state area.
 /// </summary>
 public sealed class RevisionTracker : IRevisionTracker
 {
