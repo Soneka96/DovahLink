@@ -11,7 +11,7 @@ namespace DovahLink.Host.Trust;
 /// The global factory reset: a challenge-confirmed operation that deletes every known device and
 /// unconditionally invalidates every active session, per
 /// <c>ai/context/protocol/security.md</c>'s "Factory Reset's unconditional session invalidation".
-/// Distinct from <see cref="ITrustAdminService.ResetAsync"/>, which resets one device.
+/// Distinct from <see cref="ITrustAdminService.ResetTrustAsync"/>, which resets trusted devices.
 /// </summary>
 public interface ITrustResetService
 {

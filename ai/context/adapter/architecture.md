@@ -22,25 +22,29 @@ The adapter is the sole new owner of:
 - SKSE loading, runtime compatibility, and native lifecycle callbacks.
 - Synchronous game-thread reads and bounded capture handoff.
 - Play-context transition notifications and Skyrim-facing pairing/admin notifications.
+- Starting and supervising the packaged host executable as an external, hidden process, including
+  requesting graceful host shutdown when Skyrim closes.
 - A private, bounded, versioned IPC connection to the host.
 
 ## Boundary against client-facing behavior
 
 The adapter does not own WebSocket hosting, client session lifecycle, pairing/trust/authentication
 decisions, protocol mapping to the Dart SDK, or any part of the public SDK-to-host contract --
-those stay entirely on the host, per `ai/context/host/architecture.md`'s "Ownership". Where the
-adapter surfaces a Skyrim-facing pairing or admin notification (for example displaying an in-game
-pairing code), it only presents a value the host decided; it never makes a pairing, trust, or
-authorization decision itself.
+those stay entirely on the host, per `ai/context/host/architecture.md`'s "Ownership". Starting the
+external host process is lifecycle plumbing, not ownership of host application behavior; the
+adapter never embeds the CLR, loads host assemblies, or passes untrusted shell command text. Where
+the adapter surfaces a Skyrim-facing pairing or admin notification (for example displaying an
+in-game pairing code), it only presents a value the host decided; it never makes a pairing, trust,
+or authorization decision itself.
 
 ## Restart behavior
 
 An adapter restart (an SKSE plugin reload or a Skyrim process restart) creates a new adapter
 instance identity, the same relationship `ARCHITECTURE.md`'s existing `bridgeInstanceId` already
-describes for the native process. A restarted adapter starts with no assumption that the host
-remembers anything about its previous connection; it establishes a fresh IPC connection and answers
-the host's resynchronization request rather than assuming continuity, per
-`ai/context/host/architecture.md`'s "Restart behavior".
+describes for the native process. A restarted adapter starts or reuses only the host process tied
+to that Skyrim lifetime, establishes a fresh IPC connection, and answers the host's
+resynchronization request rather than assuming continuity, per `ai/context/host/architecture.md`'s
+"Restart behavior".
 
 Host loss while the adapter keeps running -- as opposed to the adapter's own restart -- is a
 property of the IPC channel between them, not of the adapter's own lifecycle: the adapter must

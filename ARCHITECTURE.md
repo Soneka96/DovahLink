@@ -41,9 +41,15 @@ there except a maintainer-approved compatibility or safety fix needed to keep th
 It is not refactored as part of the migration and is removed only after the replacement passes the
 full conformance and runtime validation matrix, per "Bridge migration and cutover" below.
 
-The package installs the standalone C# host and native adapter together. Startup
-brings up the host's private IPC listener before Skyrim loads the adapter; the
-adapter then connects to the host. The two are independent OS processes: host
+The Vortex-installable mod package contains the native adapter and the standalone
+C# host executable together. When Skyrim loads the adapter, the adapter starts
+the packaged host as a hidden external Windows process if it is not already
+running; it never embeds the CLR or loads host assemblies into Skyrim. The host
+opens its private IPC listener and the adapter connects to it, retrying without
+blocking game-thread work if startup takes time or the host is temporarily
+unavailable. The adapter supervises the host with an OS-backed parent-lifetime
+mechanism and requests graceful shutdown when Skyrim closes; forced cleanup is
+the fallback if Skyrim crashes. The two remain independent OS processes: host
 failure must not crash or block the adapter, and adapter absence is a valid host
 state. OS process identifiers are diagnostic only and are not DovahLink
 identities. The durable migration plan is [host/PLAN.md](host/PLAN.md).
