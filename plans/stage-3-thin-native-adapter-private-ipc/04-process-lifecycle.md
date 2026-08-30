@@ -1,6 +1,6 @@
 # 04 — Host process lifecycle and composition
 
-Status: pending
+Status: complete
 
 Covers: R1, R4, R5, R8
 

@@ -17,7 +17,9 @@ not drop any of 4.1/4.2's security or reliability guarantees.
 `host/PLAN.md` is the canonical, durable plan for this parallel migration. The
 current branch has completed the host-side foundation and its security,
 lifecycle, session, persistence, and documentation remediation through the
-current remediation sequence's Step 7. Live WebSocket hosting, private IPC,
+current remediation sequence's Step 7. Private IPC is now complete on both
+sides (the host listener and the native adapter, including process launch,
+mutual authentication, and lifecycle supervision). Live WebSocket hosting,
 real capture, conformance, and final `bridge/` removal remain later work.
 
 The existing `bridge/` tree remains the frozen behavioral reference until the
@@ -170,13 +172,19 @@ this audit authorizes deleting or silently replacing that reference.
 
 These are new-boundary decisions required by Stage 1 rather than reused public wire semantics:
 
-- **Private IPC framing and versioning** (owned host/adapter messages with an explicit negotiated
-  version and fail-closed incompatibility handling) -- **Changed.** Owners: host and adapter at
-  their respective endpoints; the public protocol envelope is not reused as the IPC model.
+- **Private IPC framing and versioning** (owned host/adapter messages, fail-closed incompatibility
+  handling) -- **Changed.** Owners: host and adapter at their respective endpoints; the public
+  protocol envelope is not reused as the IPC model. No protocol version is negotiated: host and
+  adapter ship as one atomic package, so same-package peer-ownership and Skyrim-lifetime proof are
+  the compatibility boundary instead (approved divergence D1,
+  `plans/stage-3-thin-native-adapter-private-ipc/DIVERGENCES.md`).
 - **Private IPC limits and access control** (bounded message/rate capacity, local-machine exposure,
-  explicit ACL/authentication expectations, and no unbounded pipe) -- **Changed.** Owners: host for
-  the listener and adapter for its client; concrete limits and the exact Windows access mechanism
-  remain Stage 3 implementation work.
+  explicit authentication expectations, and no unbounded pipe) -- **Changed.** Owners: host for the
+  listener and adapter for its client. Settled: a loopback-only TCP listener (no Windows ACL or
+  named pipe), bounded frame size, outbound queue capacity, and per-connection message rate, with a
+  mutually authenticated HMAC-based peer-ownership proof -- not a Windows access-control mechanism
+  -- as the actual authentication boundary, per `ai/context/protocol/security.md`'s "Local-OS-user
+  threat boundary".
 - **Private IPC pressure and loss behavior** (game-thread capture never blocks on a full channel;
   host loss leaves the adapter safe; adapter loss makes host state unavailable; reconnect requires a
   fresh current-state baseline) -- **Changed.** Owners: adapter for bounded capture handoff and
