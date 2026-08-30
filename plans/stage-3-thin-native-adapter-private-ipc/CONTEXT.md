@@ -130,8 +130,8 @@ Status: complete
 - `adapter/process/` and `adapter/tests/process/`: owner-lifetime-id, the
   candidate handshake verifier, the hidden process launcher, the shutdown
   requester, the persistent discovery supervisor, the shutdown orchestrator,
-  the shared endpoint-report parser, and their tests, including a small
-  standalone test-fixture executable for real process-launch tests.
+  the shared endpoint-report parser, and their tests, including standalone
+  owner-lifetime and real-host process fixtures.
 - `adapter/plugin/dovahlink_adapter_plugin.cpp`: the real process-lifecycle
   composition (rendezvous reader, verifier, launcher, supervisor) replacing
   the provisional port/token placeholders, and a signal-only `DllMain`.
@@ -144,10 +144,10 @@ Status: complete
 
 - `git branch --show-current`: `feature/3-thin-native-adapter-and-private-ipc-continued-3`
 - `host/PLAN.md` SHA-256: `8833DE2264DDBCB987CD1A1DC3B5E0DF236DDC1EF77B72B6F75A69757B2EAF92` (recorded after marking Stage 3 complete)
-- `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: passed
-- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: 486 passed
+- `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore --configuration Debug`: passed
+- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore --configuration Debug`: 486 passed
 - `cmake --build adapter/build/windows-x64-debug --parallel` (clean, from-scratch reconfigure): passed
-- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 230 passed
+- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 236 passed
 
 ## Handoff
 

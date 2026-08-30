@@ -137,7 +137,8 @@ or connection.
 
 For historical compatibility, the old bridge behavior is recorded here.
 A bridge restart creates a new identity in the old bridge implementation; in
-the replacement this means an adapter restart creates a new `adapterInstanceId`.
+the replacement this means a Skyrim process restart creates a new
+`adapterInstanceId`.
 The target architecture distinguishes five
 identifiers across four lifetimes:
 the transport `ConnectionId` and authenticated `sessionId` share the per-socket

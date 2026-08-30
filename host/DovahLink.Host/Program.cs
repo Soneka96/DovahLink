@@ -60,6 +60,9 @@ internal static class Program
             listenerPort,
             stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier, ownerLifetimeId), clock));
 
+        using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
+        Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
+
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
         rendezvousPublisher.Publish(listener.BoundPort, verifier.ExpectedToken);
 
@@ -67,8 +70,6 @@ internal static class Program
         await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
         await rendezvousOutput.FlushAsync();
 
-        using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
-        Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
         Task listenerTask = listener.RunAsync(shutdown.Token);
 
         int exitCode = await RunAsync(lifetime, shutdown.Token);

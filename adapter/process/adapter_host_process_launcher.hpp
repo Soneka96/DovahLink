@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 
@@ -44,10 +45,10 @@ public:
   virtual bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) = 0;
 
   ///  Releases any process and Job Object handle this launcher currently
-  ///  holds. A no-op if nothing is held. Never terminates a still-running
-  ///  process itself -- callers release only once they already know the
-  ///  process is gone (typically right after `AwaitExitOrTerminate`), as
-  ///  the last step of orderly shutdown.
+  ///  holds. A no-op if nothing is held. If the process is still running,
+  ///  closing the kill-on-close Job Object terminates it; callers should
+  ///  normally release only once they already know the process is gone,
+  ///  typically right after `AwaitExitOrTerminate`.
   virtual void Release() = 0;
 };
 
@@ -79,6 +80,10 @@ public:
 
   ///  @copydoc IAdapterHostProcessLauncher::Launch
   std::optional<AdapterHostEndpoint> Launch() override;
+
+  ///  Returns the process id of the most recently launched host, or zero when
+  ///  this launcher is not currently holding a launched process.
+  std::uint32_t ProcessId() const;
 
   ///  @copydoc IAdapterHostProcessLauncher::AwaitExitOrTerminate
   bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) override;

@@ -92,6 +92,18 @@ set(DOVAHLINK_HOST_EXECUTABLE
     CACHE FILEPATH
     "Built DovahLink.Host.exe used by the native cross-process lifecycle test")
 
+add_executable(dovahlink_adapter_owner_lifetime_test_fixture
+    tests/process/adapter_host_owner_lifetime_test_fixture.cpp
+)
+if(MSVC)
+    target_compile_options(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE /EHsc)
+endif()
+target_link_libraries(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE
+    dovahlink_adapter_core
+)
+target_compile_definitions(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE
+    DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
+)
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
@@ -131,6 +143,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
     DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
+    DOVAHLINK_ADAPTER_OWNER_LIFETIME_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_owner_lifetime_test_fixture>"
 )
 
 include(CTest)

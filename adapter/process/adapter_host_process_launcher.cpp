@@ -132,15 +132,15 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
   //  latter only hides a GUI window, but a console-subsystem host process
   //  would otherwise still flash an allocated console window.
   BOOL created = CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr,
-                                /*bInheritHandles=*/TRUE, CREATE_NO_WINDOW,
-                                nullptr, nullptr, &startupInfo, &processInfo);
+                                /*bInheritHandles=*/TRUE,
+                                CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                                nullptr, &startupInfo, &processInfo);
 
   CloseHandle(pipeWrite);
   if (!created) {
     CloseHandle(pipeRead);
     return std::nullopt;
   }
-  CloseHandle(processInfo.hThread);
 
   HANDLE jobHandle = CreateJobObjectW(nullptr, nullptr);
   bool jobConfigured = false;
@@ -159,13 +159,43 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
     //  orphaned host" invariant forbids. Fail the launch rather than
     //  continue without that safety net.
     if (jobHandle != nullptr) {
+      //  This is normally an unassigned job because either configuration or
+      //  assignment failed, but a best-effort job termination closes the
+      //  remaining safety path before the handle is released.
+      TerminateJobObject(jobHandle, 1);
+    }
+    BOOL terminated = TerminateProcess(processInfo.hProcess, 1);
+    DWORD terminationWait = WaitForSingleObject(
+        processInfo.hProcess,
+        static_cast<DWORD>(kAdapterHostForceTerminateGraceWait.count()));
+    if ((!terminated || terminationWait != WAIT_OBJECT_0) &&
+        jobHandle != nullptr) {
+      TerminateJobObject(jobHandle, 1);
+      terminationWait = WaitForSingleObject(
+          processInfo.hProcess,
+          static_cast<DWORD>(kAdapterHostForceTerminateGraceWait.count()));
+    }
+    if (jobHandle != nullptr) {
       CloseHandle(jobHandle);
     }
-    TerminateProcess(processInfo.hProcess, 1);
+    CloseHandle(processInfo.hThread);
     CloseHandle(processInfo.hProcess);
     CloseHandle(pipeRead);
     return std::nullopt;
   }
+
+  //  Resume only after the child is inside the kill-on-close Job Object.
+  //  This closes the crash window in which Skyrim could disappear after
+  //  CreateProcessW but before parent-lifetime supervision was established.
+  if (ResumeThread(processInfo.hThread) == static_cast<DWORD>(-1)) {
+    TerminateJobObject(jobHandle, 1);
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    CloseHandle(jobHandle);
+    CloseHandle(pipeRead);
+    return std::nullopt;
+  }
+  CloseHandle(processInfo.hThread);
 
   std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + launchTimeout_;
@@ -187,6 +217,14 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
   processHandle_ = processInfo.hProcess;
   jobHandle_ = jobHandle;
   return endpoint;
+}
+
+std::uint32_t Win32AdapterHostProcessLauncher::ProcessId() const {
+  if (processHandle_ == nullptr) {
+    return 0;
+  }
+  return static_cast<std::uint32_t>(
+      GetProcessId(static_cast<HANDLE>(processHandle_)));
 }
 
 bool Win32AdapterHostProcessLauncher::AwaitExitOrTerminate(

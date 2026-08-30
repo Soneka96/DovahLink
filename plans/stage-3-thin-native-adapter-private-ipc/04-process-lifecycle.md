@@ -148,9 +148,8 @@ same time would collide with the first.
 - Every adapter/host pairing is scoped by an `ownerLifetimeId`: 12 bytes,
   the owning Skyrim process's OS process id and its `GetProcessTimes` creation
   timestamp. Both values are trivially and deterministically re-derivable by
-  any adapter instance running inside the same Skyrim process (including after
-  an SKSE plugin reload, since the owning OS process and its creation time do
-  not change), and are guaranteed to differ from any other Skyrim process,
+  any adapter instance running inside the same Skyrim process, and are
+  guaranteed to differ from any other Skyrim process,
   including one that later reuses the same PID (its creation time will
   differ). This is not "a PID alone."
 - The adapter passes `ownerLifetimeId` to the host it launches via a
@@ -437,3 +436,8 @@ with tests covering pre-handshake and rejected-peer requests.
 - Focused lifecycle/composition checks pass.
 - The phase completion gate can point to an independently buildable adapter,
   host, and private-channel proof without unresolved divergence.
+- The real Windows process checks launch the actual C# host, verify dynamic
+  rendezvous and mutual authentication, prove cross-lifetime isolation,
+  validate graceful signal shutdown, prove Job Object cleanup after abrupt
+  owner termination, and reconnect the running adapter IPC connection after
+  a host restart on a new dynamic port.

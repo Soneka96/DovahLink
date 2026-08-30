@@ -111,6 +111,20 @@ TEST_CASE("Win32AdapterHostProcessLauncher::AwaitExitOrTerminate is a no-op "
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
 }
 
+TEST_CASE("Win32AdapterHostProcessLauncher reports and clears the launched "
+          "host process id") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+
+  CHECK(launcher.ProcessId() == 0);
+  REQUIRE(launcher.Launch().has_value());
+  CHECK(launcher.ProcessId() != 0);
+
+  launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0));
+  launcher.Release();
+  CHECK(launcher.ProcessId() == 0);
+}
+
 TEST_CASE("Win32AdapterHostProcessLauncher::Launch returns nullopt when the "
           "process never reports its endpoint within the bound") {
   ScopedEnvironmentVariable silent(L"DOVAHLINK_TEST_HOST_SILENT", L"1");
