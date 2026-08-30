@@ -27,6 +27,7 @@ add_library(dovahlink_adapter_core STATIC
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
+    process/adapter_owner_lifetime_id.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -66,6 +67,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/adapter_ipc_connection_test.cpp
     tests/ipc/adapter_ipc_session_test.cpp
     tests/ipc/adapter_ipc_hmac_test.cpp
+    tests/process/adapter_owner_lifetime_id_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
@@ -80,6 +82,7 @@ target_link_libraries(dovahlink_adapter_tests PRIVATE
 )
 target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_IPC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/ipc"
+    DOVAHLINK_ADAPTER_PROCESS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/process"
     DOVAHLINK_ADAPTER_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/runtime"
     DOVAHLINK_ADAPTER_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_task_marshaller.cpp"
     DOVAHLINK_ADAPTER_PAPYRUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/papyrus"

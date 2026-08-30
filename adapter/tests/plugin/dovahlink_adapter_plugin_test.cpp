@@ -128,7 +128,7 @@ TEST_CASE("no adapter production source file includes a bridge/ header",
   int fileCount = 0;
   for (const char *subdirectory :
        std::array{"capture", "dispatch", "identity", "ipc", "papyrus", "plugin",
-                  "runtime"}) {
+                  "process", "runtime"}) {
     std::filesystem::path directory = root / subdirectory;
     REQUIRE(std::filesystem::exists(directory));
 
