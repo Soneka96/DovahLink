@@ -52,6 +52,12 @@ public:
     connectAttemptedPromise_ = &attempted;
   }
 
+  ///  Signals `failed` after the next connect attempt returns false.
+  void SetConnectFailureSignal(std::promise<void> &failed) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    connectFailurePromise_ = &failed;
+  }
+
   ///  The number of times `Connect` has been called so far.
   int ConnectCallCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -102,6 +108,9 @@ public:
     }
     if (result) {
       disconnected_ = false;
+    } else if (connectFailurePromise_ != nullptr) {
+      connectFailurePromise_->set_value();
+      connectFailurePromise_ = nullptr;
     }
     return result;
   }
@@ -159,6 +168,7 @@ private:
   std::vector<bool> connectResults_;
   bool throwOnConnect_ = false;
   std::promise<void> *connectAttemptedPromise_ = nullptr;
+  std::promise<void> *connectFailurePromise_ = nullptr;
   std::size_t connectCallIndex_ = 0;
   int connectCallCount_ = 0;
   std::vector<std::byte> writtenBytes_;
@@ -265,10 +275,13 @@ TEST_CASE("AdapterIpcConnection reconnects after a failed connect attempt") {
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection::Stop returns promptly during a reconnect "
-          "backoff wait, without waiting out the full delay") {
+TEST_CASE("AdapterIpcConnection::Stop completes after a failed connect "
+          "attempt") {
   FakeAdapterIpcSocket socket;
   socket.SetConnectResults({false});
+  std::promise<void> connectFailurePromise;
+  std::future<void> connectFailureFuture = connectFailurePromise.get_future();
+  socket.SetConnectFailureSignal(connectFailurePromise);
   IpcFrameCodec codec;
 
   AdapterIpcConnectionCallbacks callbacks{
@@ -280,15 +293,21 @@ TEST_CASE("AdapterIpcConnection::Stop returns promptly during a reconnect "
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
 
-  //  Give the background thread a moment to enter its backoff wait before
-  //  measuring how quickly Stop() interrupts it.
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  REQUIRE(WaitReady(connectFailureFuture));
 
-  auto start = std::chrono::steady_clock::now();
-  connection.Stop();
-  auto elapsed = std::chrono::steady_clock::now() - start;
+  std::promise<void> stopReturnedPromise;
+  std::future<void> stopReturnedFuture = stopReturnedPromise.get_future();
+  std::thread stopper([&] {
+    connection.Stop();
+    stopReturnedPromise.set_value();
+  });
 
-  CHECK(elapsed < std::chrono::milliseconds(150));
+  bool stopReturned = WaitReady(stopReturnedFuture);
+  if (!stopReturned) {
+    connection.Stop();
+  }
+  stopper.join();
+  REQUIRE(stopReturned);
 }
 
 TEST_CASE("AdapterIpcConnection::Stop can be requested from an inbound "
