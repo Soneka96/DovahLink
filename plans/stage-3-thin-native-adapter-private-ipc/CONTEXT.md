@@ -52,10 +52,10 @@ Status: active
 
 ## Verification
 
-- `git branch --show-current`: `feature/3-thin-native-adapter-and-private-ipc`
+- `git branch --show-current`: `feature/3-thin-native-adapter-and-private-ipc-continued`
 - `host/PLAN.md` SHA-256: matches recorded fingerprint
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: passed
-- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: 420 passed
+- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: 426 passed
 - `cmake --build adapter/build/windows-x64-debug --parallel`: passed
 - `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 54 passed
 - `dotnet format` verification: passed
