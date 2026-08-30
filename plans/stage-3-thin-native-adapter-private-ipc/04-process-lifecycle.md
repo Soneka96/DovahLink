@@ -290,24 +290,29 @@ only fire step 3's non-blocking *signal* (never the bounded wait that follows
 it in the same step, and never steps 1, 2, 4, or 5). It must never join a
 thread, wait on a handle, or perform any other blocking I/O: `DLL_PROCESS_DETACH`
 runs under the loader lock, where a join or wait can deadlock or hang past the
-OS's own patience for process exit. The full ordered sequence (steps 1
-through 5, including the bounded wait and forced-fallback) is implemented as
-one explicit, directly callable, directly testable orchestration method,
-entirely separate from the signal-only call `DllMain` is allowed to make.
+OS's own patience for process exit. The adapter therefore uses the Skyrim
+process lifetime as its supported module lifetime: live plugin unload/reload
+while Skyrim remains running is not supported. Worker-owning runtime objects
+are intentionally kept alive until the operating system tears down the Skyrim
+process, and the launched host's Job Object remains the forced-cleanup
+fallback.
 
-**Deferred runtime debt, recorded explicitly:** there is currently no
-confirmed safe production hook to call that full orchestration method from
-before the process disappears, since classic SKSE exposes no pre-exit
-main-thread message and `ExitProcess`-driven teardown reclaims every
-adapter-side thread, socket, and handle regardless of whether that method
-ran. `DllMain` must not be described, documented, or tested as if it performs
-the complete shutdown sequence -- it performs only the narrow, non-blocking
-signal from step 3, and that is the whole extent of what runs in production
-today. The orchestration method exists, is unit-tested for its own ordering
-contract, and is ready to be wired to a real caller the moment a safe
-pre-exit hook is confirmed (a future CommonLibSSE-NG hook, for example) --
-that wiring does not change the method's own contract. This gap is tracked
-here and in `CONTEXT.md`'s "Deferred debt", not silently assumed away.
+The full ordered sequence (steps 1 through 5, including the bounded wait and
+forced-fallback) remains one explicit, directly callable, directly testable
+orchestration method, entirely separate from the signal-only call `DllMain` is
+allowed to make. It is retained for a future safe lifecycle caller and for
+focused ordering tests; it is not invoked by DLL detach in the current
+process-lifetime policy.
+
+**Process-lifetime policy, recorded explicitly:** there is no confirmed safe
+production hook to call the full orchestration method before the process
+disappears, since classic SKSE exposes no pre-exit main-thread message and
+`ExitProcess`-driven teardown reclaims every adapter-side thread, socket, and
+handle regardless of whether that method ran. `DllMain` performs only the
+narrow, non-blocking signal from step 3, and worker-owning adapter state is
+not destructed as part of the supported process-exit path. A future safe
+pre-exit hook may wire the full method without changing its contract, but
+discovering or adding such a hook is outside this concept.
 
 ## Required handoff from Concept 03
 
@@ -344,6 +349,10 @@ with tests covering pre-handshake and rejected-peer requests.
   graceful shutdown request has had its bounded chance to succeed; forced
   termination is a deliberate fallback action, never an accidental
   side effect of an earlier teardown step.
+- The supported adapter module lifetime is the owning Skyrim process lifetime;
+  live plugin unload/reload while Skyrim remains running is not supported.
+- A failed plugin load constructs no thread-owning runtime object before its
+  failure guards return.
 
 ## Allowed files/modules
 
@@ -418,9 +427,10 @@ with tests covering pre-handshake and rejected-peer requests.
 - Packaging the final Vortex release, deleting `bridge/`, or final runtime
   conformance; those belong to later stages.
 - Adding application behavior to the adapter.
-- A confirmed, safe, blocking pre-exit hook for the full ordered shutdown
-  sequence; only the non-blocking `DllMain` signal is exercised in production
-  today, per "Shutdown ordering" above.
+- A safe live plugin unload/reload lifecycle or a confirmed, blocking
+  pre-exit hook for the full ordered shutdown sequence; production uses only
+  the non-blocking `DllMain` signal and OS process teardown, per "Shutdown
+  ordering" above.
 
 ## Completion evidence
 

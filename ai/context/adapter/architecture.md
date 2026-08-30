@@ -39,12 +39,18 @@ or authorization decision itself.
 
 ## Restart behavior
 
-An adapter restart (an SKSE plugin reload or a Skyrim process restart) creates a new adapter
-instance identity, the same relationship `ARCHITECTURE.md`'s existing `bridgeInstanceId` already
-describes for the native process. A restarted adapter starts or reuses only the host process tied
-to that Skyrim lifetime, establishes a fresh IPC connection, and answers the host's
-resynchronization request rather than assuming continuity, per `ai/context/host/architecture.md`'s
-"Restart behavior".
+An adapter restart means a new Skyrim process restart and creates a new adapter instance identity,
+the same relationship `ARCHITECTURE.md`'s existing `bridgeInstanceId` already describes for the
+native process. The adapter is intentionally a process-lifetime module: live SKSE plugin
+unload/reload while Skyrim remains running is not supported, because its worker threads and
+registered callbacks must remain inside the loaded DLL. A restarted adapter starts or reuses only
+the host process tied to that Skyrim lifetime, establishes a fresh IPC connection, and answers the
+host's resynchronization request rather than assuming continuity, per
+`ai/context/host/architecture.md`'s "Restart behavior".
+
+On an orderly Skyrim close, `DllMain` can only make the non-blocking host shutdown signal. The
+launched host remains protected by the OS Job Object until Skyrim exits, so forced or abrupt
+process termination is the cleanup boundary rather than a blocking DLL-unload sequence.
 
 Host loss while the adapter keeps running -- as opposed to the adapter's own restart -- is a
 property of the IPC channel between them, not of the adapter's own lifecycle: the adapter must

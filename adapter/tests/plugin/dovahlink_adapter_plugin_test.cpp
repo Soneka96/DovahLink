@@ -43,7 +43,7 @@ TEST_CASE("the adapter plugin defers connection startup to kDataLoaded",
 
   std::size_t dataLoadedCheck =
       source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-  std::size_t connectionStart = source.find("connection.Start();");
+  std::size_t connectionStart = source.find("connection->Start();");
 
   REQUIRE(dataLoadedCheck != std::string::npos);
   REQUIRE(connectionStart != std::string::npos);
@@ -72,9 +72,9 @@ TEST_CASE("the adapter plugin attaches the connection to the session and "
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
   std::size_t attachConnection =
-      source.find("session.AttachConnection(connection);");
+      source.find("session->AttachConnection(*connection);");
   std::size_t installPapyrus =
-      source.find("InstallAdapterStatusPapyrusAdapter(session);");
+      source.find("InstallAdapterStatusPapyrusAdapter(*session);");
   std::size_t registerListener = source.find("messaging->RegisterListener(");
 
   REQUIRE(attachConnection != std::string::npos);
@@ -92,14 +92,19 @@ TEST_CASE("the adapter plugin fails load cleanly when SKSE's messaging "
   std::size_t messagingCheck = source.find("if (!messaging)");
   std::size_t returnFalse = source.find("return false;", messagingCheck);
   std::size_t registerListener = source.find("messaging->RegisterListener(");
+  std::size_t setupLogging = source.find("SetupLogging();");
   std::size_t returnTrue = source.find("return true;");
 
   REQUIRE(messagingCheck != std::string::npos);
   REQUIRE(returnFalse != std::string::npos);
   REQUIRE(returnTrue != std::string::npos);
+  REQUIRE(setupLogging != std::string::npos);
   //  The failure return belongs to the null-interface guard, before the
-  //  listener is ever registered; the success return comes after it.
+  //  listener is ever registered. Asynchronous logging is also configured
+  //  only after every fatal startup guard has passed.
   CHECK(returnFalse < registerListener);
+  CHECK(returnFalse < setupLogging);
+  CHECK(setupLogging < registerListener);
   CHECK(returnTrue > registerListener);
 }
 
@@ -156,7 +161,7 @@ TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
 
   std::size_t dataLoadedCheck =
       source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-  std::size_t supervisorStart = source.find("supervisor.Start();");
+  std::size_t supervisorStart = source.find("supervisor->Start();");
 
   REQUIRE(dataLoadedCheck != std::string::npos);
   REQUIRE(supervisorStart != std::string::npos);
@@ -171,9 +176,9 @@ TEST_CASE("the adapter plugin notifies the supervisor when the connection "
   std::size_t onDisconnected = source.find(".onDisconnected =");
   REQUIRE(onDisconnected != std::string::npos);
   std::size_t handleDisconnected =
-      source.find("session.HandleDisconnected();", onDisconnected);
+      source.find("session->HandleDisconnected();", onDisconnected);
   std::size_t notifyConnectionLost =
-      source.find("supervisor.NotifyConnectionLost();", onDisconnected);
+      source.find("supervisor->NotifyConnectionLost();", onDisconnected);
 
   REQUIRE(handleDisconnected != std::string::npos);
   REQUIRE(notifyConnectionLost != std::string::npos);
@@ -204,11 +209,20 @@ TEST_CASE("DllMain signals shutdown without calling the blocking ordered "
   //  The signal is gated on DLL_PROCESS_DETACH specifically, not fired
   //  unconditionally for every DllMain reason (attach, thread attach/detach).
   CHECK(reasonCheck < requestShutdown);
-  CHECK(dllMainOnward.find("RunOrderedShutdown") == std::string::npos);
-  CHECK(dllMainOnward.find(".join(") == std::string::npos);
-  CHECK(dllMainOnward.find("WaitForSingleObject") == std::string::npos);
-  CHECK(dllMainOnward.find(".Stop()") == std::string::npos);
-  CHECK(dllMainOnward.find("AwaitExitOrTerminate") == std::string::npos);
+  std::size_t bodyStart = dllMainOnward.find('{');
+  std::size_t bodyEnd = dllMainOnward.find('}', bodyStart);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(bodyEnd != std::string::npos);
+  std::string body = dllMainOnward.substr(bodyStart, bodyEnd - bodyStart + 1);
+  CHECK(body.find("RequestShutdown()") != std::string::npos);
+  for (const char *loaderUnsafeOperation :
+       {"RunOrderedShutdown", ".join(", "WaitForSingleObject", ".Stop(",
+        "AwaitExitOrTerminate", "RequestStop(", "Release(", "std::thread",
+        "CreateThread", "Sleep(", "CloseHandle", "TerminateProcess",
+        "SetupLogging", "new ", "delete "}) {
+    INFO("checking " << loaderUnsafeOperation);
+    CHECK(body.find(loaderUnsafeOperation) == std::string::npos);
+  }
 }
 
 TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
@@ -222,18 +236,52 @@ TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
   std::size_t executableCheck = source.find("!hostExecutablePath.has_value()");
   std::size_t executableReturnFalse =
       source.find("return false;", executableCheck);
-  std::size_t readerConstruction =
-      source.find("FileAdapterHostRendezvousReader reader(");
+  std::size_t messagingCheck = source.find("if (!messaging)");
+  std::size_t messagingReturnFalse =
+      source.find("return false;", messagingCheck);
+  std::size_t workerConstruction = source.find(
+      "new dovahlink::adapter::capture::AdapterCaptureHandoffQueue");
 
   REQUIRE(rendezvousCheck != std::string::npos);
   REQUIRE(rendezvousReturnFalse != std::string::npos);
   REQUIRE(executableCheck != std::string::npos);
   REQUIRE(executableReturnFalse != std::string::npos);
-  REQUIRE(readerConstruction != std::string::npos);
-  //  Both guards fail load before any object depending on the resolved
-  //  paths is constructed.
+  REQUIRE(messagingCheck != std::string::npos);
+  REQUIRE(messagingReturnFalse != std::string::npos);
+  REQUIRE(workerConstruction != std::string::npos);
+  //  Every failure guard runs before any thread-owning process-lifetime
+  //  object is constructed, so a rejected load can safely unload the DLL.
   CHECK(rendezvousCheck < rendezvousReturnFalse);
-  CHECK(rendezvousReturnFalse < readerConstruction);
+  CHECK(rendezvousReturnFalse < workerConstruction);
   CHECK(executableCheck < executableReturnFalse);
-  CHECK(executableReturnFalse < readerConstruction);
+  CHECK(executableReturnFalse < workerConstruction);
+  CHECK(messagingCheck < messagingReturnFalse);
+  CHECK(messagingReturnFalse < workerConstruction);
+}
+
+TEST_CASE("the adapter plugin keeps worker-owning runtime objects out of DLL "
+          "detach destruction",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  //  1B intentionally keeps these objects alive until Skyrim exits. A
+  //  function-local static object would be destroyed during DLL detach and
+  //  could join its worker under the loader lock.
+  for (const char *automaticWorkerType :
+       {"static dovahlink::adapter::capture::AdapterCaptureHandoffQueue",
+        "static dovahlink::adapter::ipc::AdapterIpcConnection",
+        "static dovahlink::adapter::process::AdapterHostSupervisor"}) {
+    INFO("checking " << automaticWorkerType);
+    CHECK(source.find(automaticWorkerType) == std::string::npos);
+  }
+
+  CHECK(
+      source.find("static auto *captureQueue =\n      new "
+                  "dovahlink::adapter::capture::AdapterCaptureHandoffQueue") !=
+      std::string::npos);
+  CHECK(source.find("static auto *connection = new dovahlink::adapter::ipc::"
+                    "AdapterIpcConnection") != std::string::npos);
+  CHECK(source.find("static auto *supervisor =\n      new "
+                    "dovahlink::adapter::process::AdapterHostSupervisor") !=
+        std::string::npos);
 }

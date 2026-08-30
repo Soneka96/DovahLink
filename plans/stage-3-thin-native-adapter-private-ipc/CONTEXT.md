@@ -87,6 +87,12 @@ Status: complete
   caller yet, since classic SKSE has no pre-exit main-thread hook -- recorded
   as deferred runtime debt below and in `04-process-lifecycle.md`'s
   "Shutdown ordering" and "Non-goals".
+- The adapter now deliberately uses the Skyrim process lifetime as its module
+  lifetime. Live plugin unload/reload while Skyrim remains running is not
+  supported; worker-owning runtime objects are process-lifetime allocations,
+  fatal load guards run before their construction, and `DllMain` remains only
+  the non-blocking host-shutdown signal. The Job Object is the forced cleanup
+  boundary when Skyrim exits abruptly.
 
 ## Deferred debt
 
@@ -97,10 +103,10 @@ Status: complete
   wait, forced-termination fallback, connection stop, process-handle release)
   has no confirmed safe production caller: classic SKSE exposes no pre-exit
   main-thread hook, and `DllMain`'s `DLL_PROCESS_DETACH` may only fire the
-  non-blocking shutdown signal. `AdapterShutdownOrchestrator` itself is built
-  and directly unit-tested for its ordering and exception-safety contract;
-  wiring it to a real caller is deferred until a safe pre-exit hook is
-  confirmed (for example a future CommonLibSSE-NG addition).
+  non-blocking shutdown signal. The selected 1B policy treats Skyrim process
+  exit as the cleanup boundary and does not support live plugin unload/reload.
+  `AdapterShutdownOrchestrator` remains built and directly unit-tested for its
+  ordering and exception-safety contract, ready for a future safe caller.
 - Packaging the final release layout (installing the packaged host executable
   alongside the adapter plugin DLL) is a non-goal of this stage; the assumed
   relative layout is recorded in `adapter/process/adapter_host_constants.hpp`
