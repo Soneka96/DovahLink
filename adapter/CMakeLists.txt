@@ -21,6 +21,7 @@ add_library(dovahlink_adapter_core STATIC
     ipc/ipc_frame_codec.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
+    identity/adapter_instance_id_generator.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -44,6 +45,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
+    tests/identity/adapter_instance_id_generator_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
 )
 target_include_directories(dovahlink_adapter_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
