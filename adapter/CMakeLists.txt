@@ -29,6 +29,7 @@ add_library(dovahlink_adapter_core STATIC
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
     process/adapter_owner_lifetime_id.cpp
+    process/adapter_host_rendezvous_reader.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -70,6 +71,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/adapter_ipc_hmac_test.cpp
     tests/ipc/settable_adapter_ipc_peer_proof_provider_test.cpp
     tests/process/adapter_owner_lifetime_id_test.cpp
+    tests/process/adapter_host_rendezvous_reader_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
