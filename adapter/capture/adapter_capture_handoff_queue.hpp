@@ -28,8 +28,10 @@ public:
   virtual bool TryEnqueue(AdapterCaptureWorkItem item) = 0;
 
   ///  Stops accepting new items, wakes the worker thread, and waits for it to
-  ///  drain every already-accepted item before returning. Idempotent: a second
-  ///  call is a harmless no-op.
+  ///  drain every already-accepted item before returning. When called from the
+  ///  drain callback on the worker thread, it marks the queue stopped and
+  ///  returns without self-joining; an external owner must later join it.
+  ///  Idempotent: repeated calls remain safe.
   virtual void Stop() = 0;
 };
 
@@ -70,6 +72,8 @@ private:
   std::function<void(const AdapterCaptureWorkItem &)> onRejected_;
   ///  Guards `queue_` and `stopping_`.
   std::mutex mutex_;
+  ///  Guards access to `worker_` during shutdown.
+  std::mutex lifecycleMutex_;
   ///  Signaled when an item is enqueued or the queue is stopped.
   std::condition_variable itemAvailable_;
   ///  The bounded FIFO of accepted, not-yet-drained items.
@@ -78,6 +82,8 @@ private:
   bool stopping_ = false;
   ///  The dedicated drain thread.
   std::thread worker_;
+  ///  The dedicated drain thread's immutable identity for self-stop checks.
+  std::thread::id workerThreadId_;
 };
 
 } //  namespace dovahlink::adapter::capture

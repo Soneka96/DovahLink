@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -90,6 +91,7 @@ TEST_CASE("AdapterCaptureHandoffQueue rejects without blocking once full, "
   std::mutex drainedMutex;
   std::vector<AdapterCaptureWorkItem> drainedItems;
   std::vector<AdapterCaptureWorkItem> rejectedItems;
+  bool workerBlocked = false;
 
   AdapterCaptureHandoffQueue queue(
       [&](const AdapterCaptureWorkItem &item) {
@@ -97,8 +99,11 @@ TEST_CASE("AdapterCaptureHandoffQueue rejects without blocking once full, "
           std::lock_guard<std::mutex> lock(drainedMutex);
           drainedItems.push_back(item);
         }
-        workerBlockedPromise.set_value();
-        gate.WaitUntilReleased();
+        if (!workerBlocked) {
+          workerBlocked = true;
+          workerBlockedPromise.set_value();
+          gate.WaitUntilReleased();
+        }
       },
       [&](const AdapterCaptureWorkItem &item) {
         rejectedItems.push_back(item);
@@ -205,10 +210,146 @@ TEST_CASE("AdapterCaptureHandoffQueue::Stop is idempotent") {
 }
 
 TEST_CASE("AdapterCaptureHandoffQueue rejects new items after Stop") {
+  std::thread::id callerThreadId = std::this_thread::get_id();
+  std::thread::id rejectedThreadId;
   AdapterCaptureHandoffQueue queue([](const AdapterCaptureWorkItem &) {},
-                                   [](const AdapterCaptureWorkItem &) {});
+                                   [&](const AdapterCaptureWorkItem &) {
+                                     rejectedThreadId =
+                                         std::this_thread::get_id();
+                                   });
 
   queue.Stop();
 
   REQUIRE_FALSE(queue.TryEnqueue(BuildWorkItem(1)));
+  CHECK(rejectedThreadId == callerThreadId);
+}
+
+TEST_CASE("AdapterCaptureHandoffQueue safely destroys after callback-initiated "
+          "Stop") {
+  std::promise<void> callbackFinishedPromise;
+  std::future<void> callbackFinishedFuture =
+      callbackFinishedPromise.get_future();
+  AdapterCaptureHandoffQueue *queuePointer = nullptr;
+  std::atomic<bool> stopThrew{false};
+
+  {
+    AdapterCaptureHandoffQueue queue(
+        [&](const AdapterCaptureWorkItem &) {
+          try {
+            queuePointer->Stop();
+          } catch (...) {
+            stopThrew = true;
+          }
+          callbackFinishedPromise.set_value();
+        },
+        [](const AdapterCaptureWorkItem &) {});
+    queuePointer = &queue;
+
+    REQUIRE(queue.TryEnqueue(BuildWorkItem(1)));
+    REQUIRE(callbackFinishedFuture.wait_for(std::chrono::seconds(5)) ==
+            std::future_status::ready);
+  }
+
+  CHECK_FALSE(stopThrew.load());
+}
+
+TEST_CASE("AdapterCaptureHandoffQueue drains pending items after a "
+          "callback-initiated Stop") {
+  std::mutex drainedMutex;
+  std::vector<AdapterCaptureWorkItem> drainedItems;
+  std::promise<void> firstEnteredPromise;
+  std::future<void> firstEnteredFuture = firstEnteredPromise.get_future();
+  std::promise<void> releaseFirstPromise;
+  std::shared_future<void> releaseFirstFuture =
+      releaseFirstPromise.get_future().share();
+  AdapterCaptureHandoffQueue *queuePointer = nullptr;
+  std::atomic<bool> stopThrew{false};
+
+  {
+    AdapterCaptureHandoffQueue queue(
+        [&](const AdapterCaptureWorkItem &item) {
+          {
+            std::lock_guard<std::mutex> lock(drainedMutex);
+            drainedItems.push_back(item);
+          }
+          if (item.intentKey == 1) {
+            firstEnteredPromise.set_value();
+            releaseFirstFuture.wait();
+            try {
+              queuePointer->Stop();
+            } catch (...) {
+              stopThrew = true;
+            }
+          }
+        },
+        [](const AdapterCaptureWorkItem &) {});
+    queuePointer = &queue;
+
+    REQUIRE(queue.TryEnqueue(BuildWorkItem(1)));
+    REQUIRE(firstEnteredFuture.wait_for(std::chrono::seconds(5)) ==
+            std::future_status::ready);
+    REQUIRE(queue.TryEnqueue(BuildWorkItem(2)));
+    releaseFirstPromise.set_value();
+  }
+
+  CHECK_FALSE(stopThrew.load());
+  std::lock_guard<std::mutex> lock(drainedMutex);
+  CHECK(drainedItems == std::vector<AdapterCaptureWorkItem>{BuildWorkItem(1),
+                                                            BuildWorkItem(2)});
+}
+
+TEST_CASE("AdapterCaptureHandoffQueue coordinates concurrent external Stop "
+          "calls") {
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releaseCallbackPromise;
+  std::shared_future<void> releaseCallbackFuture =
+      releaseCallbackPromise.get_future().share();
+  std::promise<void> firstStopStartedPromise;
+  std::future<void> firstStopStartedFuture =
+      firstStopStartedPromise.get_future();
+  std::promise<void> secondStopStartedPromise;
+  std::future<void> secondStopStartedFuture =
+      secondStopStartedPromise.get_future();
+  std::atomic<bool> firstStopThrew{false};
+  std::atomic<bool> secondStopThrew{false};
+
+  AdapterCaptureHandoffQueue queue(
+      [&](const AdapterCaptureWorkItem &) {
+        callbackEnteredPromise.set_value();
+        releaseCallbackFuture.wait();
+      },
+      [](const AdapterCaptureWorkItem &) {});
+
+  REQUIRE(queue.TryEnqueue(BuildWorkItem(1)));
+  REQUIRE(callbackEnteredFuture.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+
+  std::thread firstStopper([&] {
+    firstStopStartedPromise.set_value();
+    try {
+      queue.Stop();
+    } catch (...) {
+      firstStopThrew = true;
+    }
+  });
+  std::thread secondStopper([&] {
+    secondStopStartedPromise.set_value();
+    try {
+      queue.Stop();
+    } catch (...) {
+      secondStopThrew = true;
+    }
+  });
+
+  REQUIRE(firstStopStartedFuture.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  REQUIRE(secondStopStartedFuture.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  releaseCallbackPromise.set_value();
+
+  firstStopper.join();
+  secondStopper.join();
+  CHECK_FALSE(firstStopThrew.load());
+  CHECK_FALSE(secondStopThrew.load());
 }

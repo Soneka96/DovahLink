@@ -11,14 +11,15 @@ AdapterCaptureHandoffQueue::AdapterCaptureHandoffQueue(
     std::function<void(const AdapterCaptureWorkItem &)> onRejected)
     : onDrained_(std::move(onDrained)), onRejected_(std::move(onRejected)) {
   worker_ = std::thread([this] { WorkerLoop(); });
+  workerThreadId_ = worker_.get_id();
 }
 
 AdapterCaptureHandoffQueue::~AdapterCaptureHandoffQueue() { Stop(); }
 
 bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
   bool accepted = false;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
+  std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+  if (lock.owns_lock()) {
     if (!stopping_ && queue_.size() < kMaxAdapterCaptureQueueItems) {
       queue_.push_back(std::move(item));
       accepted = true;
@@ -42,13 +43,15 @@ bool AdapterCaptureHandoffQueue::TryEnqueue(AdapterCaptureWorkItem item) {
 void AdapterCaptureHandoffQueue::Stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (stopping_) {
-      return;
-    }
     stopping_ = true;
   }
 
   itemAvailable_.notify_all();
+  if (std::this_thread::get_id() == workerThreadId_) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
   if (worker_.joinable()) {
     worker_.join();
   }
