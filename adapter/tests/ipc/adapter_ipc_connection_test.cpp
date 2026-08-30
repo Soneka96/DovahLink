@@ -45,6 +45,13 @@ public:
     connectResults_ = std::move(results);
   }
 
+  ///  Makes the next connect attempt signal `attempted` and then throw.
+  void SetThrowOnConnect(std::promise<void> &attempted) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    throwOnConnect_ = true;
+    connectAttemptedPromise_ = &attempted;
+  }
+
   ///  The number of times `Connect` has been called so far.
   int ConnectCallCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -79,6 +86,10 @@ public:
   bool Connect() override {
     std::lock_guard<std::mutex> lock(mutex_);
     ++connectCallCount_;
+    if (throwOnConnect_) {
+      connectAttemptedPromise_->set_value();
+      throw std::runtime_error("Connect failed unexpectedly");
+    }
     bool result = true;
     if (!connectResults_.empty()) {
       std::size_t index = connectCallIndex_ < connectResults_.size()
@@ -146,6 +157,8 @@ private:
   bool disconnected_ = false;
   bool stopRequested_ = false;
   std::vector<bool> connectResults_;
+  bool throwOnConnect_ = false;
+  std::promise<void> *connectAttemptedPromise_ = nullptr;
   std::size_t connectCallIndex_ = 0;
   int connectCallCount_ = 0;
   std::vector<std::byte> writtenBytes_;
@@ -276,6 +289,138 @@ TEST_CASE("AdapterIpcConnection::Stop returns promptly during a reconnect "
   auto elapsed = std::chrono::steady_clock::now() - start;
 
   CHECK(elapsed < std::chrono::milliseconds(150));
+}
+
+TEST_CASE("AdapterIpcConnection::Stop can be requested from an inbound "
+          "message callback without self-joining") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> stopReturnedPromise;
+  std::atomic<bool> stopThrew{false};
+  AdapterIpcConnection *connectionPointer = nullptr;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [] {},
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            try {
+              connectionPointer->Stop();
+            } catch (...) {
+              stopThrew = true;
+            }
+            stopReturnedPromise.set_value();
+            return true;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  connection.Start();
+
+  socket.PushReadableBytes(codec.Encode(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}}));
+
+  std::future<void> stopReturnedFuture = stopReturnedPromise.get_future();
+  REQUIRE(WaitReady(stopReturnedFuture));
+  connection.Stop();
+  CHECK_FALSE(stopThrew.load());
+}
+
+TEST_CASE("AdapterIpcConnection contains an exception from the transport "
+          "connect loop") {
+  FakeAdapterIpcSocket socket;
+  std::promise<void> connectAttemptedPromise;
+  std::future<void> connectAttemptedFuture =
+      connectAttemptedPromise.get_future();
+  socket.SetThrowOnConnect(connectAttemptedPromise);
+  IpcFrameCodec codec;
+
+  AdapterIpcConnection connection(socket, codec,
+                                  AdapterIpcConnectionCallbacks{});
+  connection.Start();
+
+  REQUIRE(WaitReady(connectAttemptedFuture));
+  REQUIRE_NOTHROW(connection.Stop());
+}
+
+TEST_CASE("AdapterIpcConnection coordinates concurrent external Stop calls") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false});
+  IpcFrameCodec codec;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [] {},
+      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  std::atomic<bool> firstStopThrew{false};
+  std::atomic<bool> secondStopThrew{false};
+  std::thread firstStopper([&] {
+    try {
+      connection.Stop();
+    } catch (...) {
+      firstStopThrew = true;
+    }
+  });
+  std::thread secondStopper([&] {
+    try {
+      connection.Stop();
+    } catch (...) {
+      secondStopThrew = true;
+    }
+  });
+
+  firstStopper.join();
+  secondStopper.join();
+  CHECK_FALSE(firstStopThrew.load());
+  CHECK_FALSE(secondStopThrew.load());
+}
+
+TEST_CASE("AdapterIpcConnection Stop waits for an in-flight message callback") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [] {},
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            callbackEnteredPromise.set_value();
+            releaseFuture.wait();
+            return true;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+  socket.PushReadableBytes(codec.Encode(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}}));
+  REQUIRE(WaitReady(callbackEnteredFuture));
+
+  std::promise<void> stopReturnedPromise;
+  std::future<void> stopReturnedFuture = stopReturnedPromise.get_future();
+  std::thread stopper([&] {
+    connection.Stop();
+    stopReturnedPromise.set_value();
+  });
+
+  bool stopWaited =
+      stopReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+      std::future_status::timeout;
+  releasePromise.set_value();
+  bool stopCompleted = WaitReady(stopReturnedFuture);
+  stopper.join();
+
+  CHECK(stopWaited);
+  CHECK(stopCompleted);
 }
 
 TEST_CASE("AdapterIpcConnection::TrySend rejects once the outbound queue is "

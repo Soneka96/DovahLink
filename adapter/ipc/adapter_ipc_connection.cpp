@@ -38,6 +38,7 @@ AdapterIpcConnection::AdapterIpcConnection(
 AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
 
 void AdapterIpcConnection::Start() {
+  std::lock_guard<std::mutex> lock(lifecycleMutex_);
   if (worker_.joinable()) {
     return;
   }
@@ -64,39 +65,89 @@ void AdapterIpcConnection::Stop() {
     stopping_ = true;
   }
   stopCondition_.notify_all();
-  socket_.RequestStop();
-  if (worker_.joinable()) {
-    worker_.join();
+  try {
+    socket_.RequestStop();
+  } catch (...) {
+    //  A transport shutdown failure must not prevent the worker join or
+    //  escape a callback that requested shutdown.
   }
+
+  std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
+  while (worker_.joinable()) {
+    if (worker_.get_id() == std::this_thread::get_id()) {
+      //  A lifecycle callback may request shutdown from the connection's own
+      //  worker. The worker will return after the callback completes; joining
+      //  it here would deadlock or throw a self-join error.
+      return;
+    }
+    if (!joinInProgress_) {
+      joinInProgress_ = true;
+      break;
+    }
+    lifecycleCondition_.wait(lifecycleLock);
+  }
+
+  lifecycleLock.unlock();
+
+  if (worker_.joinable()) {
+    try {
+      worker_.join();
+    } catch (...) {
+      std::lock_guard<std::mutex> lock(lifecycleMutex_);
+      joinInProgress_ = false;
+      lifecycleCondition_.notify_all();
+      throw;
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    joinInProgress_ = false;
+  }
+  lifecycleCondition_.notify_all();
 }
 
 void AdapterIpcConnection::RunLoop() {
-  while (true) {
-    {
-      std::lock_guard<std::mutex> lock(stopMutex_);
-      if (stopping_) {
-        return;
+  bool connected = false;
+  try {
+    while (true) {
+      {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        if (stopping_) {
+          return;
+        }
       }
-    }
 
-    if (!socket_.Connect()) {
+      if (!socket_.Connect()) {
+        WaitBoundedBackoff();
+        continue;
+      }
+      connected = true;
+
+      InvokeContained(callbacks_.onConnected);
+
+      ServeConnection();
+
+      //  Best-effort final flush: a handler invoked from ServeConnection (for
+      //  example a decode-failure response) may have queued one last message
+      //  that no read poll will run again to drain.
+      DrainOutbound();
+
+      socket_.Close();
+      InvokeContained(callbacks_.onDisconnected);
+      connected = false;
+
       WaitBoundedBackoff();
-      continue;
     }
-
-    InvokeContained(callbacks_.onConnected);
-
-    ServeConnection();
-
-    //  Best-effort final flush: a handler invoked from ServeConnection (for
-    //  example a decode-failure response) may have queued one last message
-    //  that no read poll will run again to drain.
-    DrainOutbound();
-
-    socket_.Close();
-    InvokeContained(callbacks_.onDisconnected);
-
-    WaitBoundedBackoff();
+  } catch (...) {
+    //  No transport, codec, or callback failure may escape the worker thread.
+    try {
+      socket_.Close();
+    } catch (...) {
+    }
+    if (connected) {
+      InvokeContained(callbacks_.onDisconnected);
+    }
   }
 }
 

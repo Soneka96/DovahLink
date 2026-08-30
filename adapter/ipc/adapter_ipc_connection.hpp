@@ -108,6 +108,12 @@ private:
   const IIpcFrameCodec &codec_;
   ///  The lifecycle event hooks this connection invokes.
   AdapterIpcConnectionCallbacks callbacks_;
+  ///  Guards access to the worker thread object and coordinates joins.
+  std::mutex lifecycleMutex_;
+  ///  Wakes concurrent shutdown callers after the worker join completes.
+  std::condition_variable lifecycleCondition_;
+  ///  Whether another caller currently owns the worker join operation.
+  bool joinInProgress_ = false;
   ///  Guards `stopping_` and backs `stopCondition_`.
   std::mutex stopMutex_;
   ///  Signaled when `Stop()` is called, to interrupt a reconnect wait.
