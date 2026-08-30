@@ -1,19 +1,16 @@
 #include "ipc/adapter_ipc_connection.hpp"
 
+#include "ipc/adapter_ipc_socket_test_support.hpp"
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <future>
-#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -29,150 +26,9 @@ using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::kMaxIpcQueuedMessages;
+using dovahlink::adapter::ipc::test_support::FakeAdapterIpcSocket;
 
 namespace {
-
-///  A deterministic, fully controllable `IAdapterIpcSocket` test double.
-///  `TryReadSome` blocks on a condition variable rather than a real socket
-///  poll, so tests control exactly when data, a disconnect, or a stop
-///  becomes visible without relying on timing.
-class FakeAdapterIpcSocket final : public IAdapterIpcSocket {
-public:
-  ///  Configures the sequence of `Connect` results; the last entry repeats
-  ///  once exhausted. An empty sequence (the default) always succeeds.
-  void SetConnectResults(std::vector<bool> results) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    connectResults_ = std::move(results);
-  }
-
-  ///  Makes the next connect attempt signal `attempted` and then throw.
-  void SetThrowOnConnect(std::promise<void> &attempted) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    throwOnConnect_ = true;
-    connectAttemptedPromise_ = &attempted;
-  }
-
-  ///  Signals `failed` after the next connect attempt returns false.
-  void SetConnectFailureSignal(std::promise<void> &failed) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    connectFailurePromise_ = &failed;
-  }
-
-  ///  The number of times `Connect` has been called so far.
-  int ConnectCallCount() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return connectCallCount_;
-  }
-
-  ///  Appends bytes for `TryReadSome` to serve, waking any blocked reader.
-  void PushReadableBytes(const std::vector<std::byte> &bytes) {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      readableBytes_.insert(readableBytes_.end(), bytes.begin(), bytes.end());
-    }
-    readCondition_.notify_all();
-  }
-
-  ///  Makes the current and every future `TryReadSome` call fail, as if the
-  ///  peer disconnected, until the next successful `Connect` clears it.
-  void SimulateDisconnect() {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      disconnected_ = true;
-    }
-    readCondition_.notify_all();
-  }
-
-  ///  Every byte handed to `WriteAll` so far, in order.
-  std::vector<std::byte> WrittenBytes() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return writtenBytes_;
-  }
-
-  bool Connect() override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    ++connectCallCount_;
-    if (throwOnConnect_) {
-      connectAttemptedPromise_->set_value();
-      throw std::runtime_error("Connect failed unexpectedly");
-    }
-    bool result = true;
-    if (!connectResults_.empty()) {
-      std::size_t index = connectCallIndex_ < connectResults_.size()
-                              ? connectCallIndex_
-                              : connectResults_.size() - 1;
-      result = connectResults_[index];
-      if (connectCallIndex_ + 1 < connectResults_.size()) {
-        ++connectCallIndex_;
-      }
-    }
-    if (result) {
-      disconnected_ = false;
-    } else if (connectFailurePromise_ != nullptr) {
-      connectFailurePromise_->set_value();
-      connectFailurePromise_ = nullptr;
-    }
-    return result;
-  }
-
-  std::optional<std::size_t> TryReadSome(std::span<std::byte> buffer) override {
-    std::unique_lock<std::mutex> lock(mutex_);
-    //  Mirrors the real socket's bounded single-poll semantics: return
-    //  promptly with zero bytes when nothing is ready yet, rather than
-    //  blocking forever, so a caller polling in a loop (as
-    //  AdapterIpcConnection does) can still interleave other work.
-    bool ready =
-        readCondition_.wait_for(lock, std::chrono::milliseconds(20), [&] {
-          return !readableBytes_.empty() || disconnected_ || stopRequested_;
-        });
-    if (!ready) {
-      return std::size_t{0};
-    }
-    if (readableBytes_.empty()) {
-      return std::nullopt;
-    }
-
-    std::size_t count = std::min(buffer.size(), readableBytes_.size());
-    for (std::size_t i = 0; i < count; ++i) {
-      buffer[i] = readableBytes_.front();
-      readableBytes_.pop_front();
-    }
-    return count;
-  }
-
-  bool WriteAll(std::span<const std::byte> data) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (stopRequested_) {
-      return false;
-    }
-    writtenBytes_.insert(writtenBytes_.end(), data.begin(), data.end());
-    return true;
-  }
-
-  void Close() override {}
-
-  void RequestStop() override {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      stopRequested_ = true;
-    }
-    readCondition_.notify_all();
-  }
-
-private:
-  mutable std::mutex mutex_;
-  std::condition_variable readCondition_;
-  std::deque<std::byte> readableBytes_;
-  bool disconnected_ = false;
-  bool stopRequested_ = false;
-  std::vector<bool> connectResults_;
-  bool throwOnConnect_ = false;
-  std::promise<void> *connectAttemptedPromise_ = nullptr;
-  std::promise<void> *connectFailurePromise_ = nullptr;
-  std::size_t connectCallIndex_ = 0;
-  int connectCallCount_ = 0;
-  std::vector<std::byte> writtenBytes_;
-};
 
 ///  Waits for `future` up to a generous bound and returns whether it became
 ///  ready, instead of hanging the test suite if production code regresses.
