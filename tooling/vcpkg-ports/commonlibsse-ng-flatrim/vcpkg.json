@@ -3,7 +3,7 @@
   "name": "commonlibsse-ng-flatrim",
   "version-semver": "3.7.0",
   "port-version": 0,
-  "description": "A reverse engineered resource for developing SKSE plugins, supporting portable plugins that work across AE, SE, and VR.",
+  "description": "A reverse engineered resource for developing SKSE plugins, supporting portable plugins that work across AE and SE.",
   "homepage": "https://github.com/CharmedBaryon/CommonLibSSE",
   "license": "MIT",
   "supports": "windows & x64",
