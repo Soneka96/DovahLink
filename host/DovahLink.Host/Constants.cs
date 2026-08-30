@@ -115,6 +115,9 @@ public static class Constants
     /// </summary>
     public const int MaxIpcMessagesPerSecond = 200;
 
+    /// <summary>The rolling window used for the private IPC inbound message-rate limit.</summary>
+    public static readonly TimeSpan IpcMessageRateWindow = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// The default loopback TCP port the host's private adapter listener binds to. Distinct from the
     /// public client transport's own default loopback port.

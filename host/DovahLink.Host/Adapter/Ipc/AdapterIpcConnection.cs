@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
@@ -49,6 +50,15 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The protocol decisions this connection defers to.</summary>
     private readonly IAdapterIpcSession session;
 
+    /// <summary>The clock used to enforce the per-connection inbound message rate.</summary>
+    private readonly IClock clock;
+
+    /// <summary>The timestamps of inbound messages still inside the rate-limit window.</summary>
+    private readonly Queue<DateTimeOffset> inboundMessageTimes = [];
+
+    /// <summary>Whether the connection ended because its inbound message rate was exceeded.</summary>
+    private bool inboundRateLimitExceeded;
+
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(Constants.MaxIpcQueuedMessages) { SingleReader = true, SingleWriter = false });
@@ -57,11 +67,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
     /// <param name="codec">The codec used to encode outbound frames and decode inbound ones.</param>
     /// <param name="session">The protocol decisions this connection defers to.</param>
-    public AdapterIpcConnection(Stream stream, IIpcFrameCodec codec, IAdapterIpcSession session)
+    /// <param name="clock">The time source used to enforce the inbound message rate.</param>
+    public AdapterIpcConnection(Stream stream, IIpcFrameCodec codec, IAdapterIpcSession session, IClock clock)
     {
         this.stream = stream;
         this.codec = codec;
         this.session = session;
+        this.clock = clock;
     }
 
     /// <inheritdoc/>
@@ -86,7 +98,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         {
             session.HandleDisconnected();
             outbound.Writer.TryComplete();
-            bool forceClose = cancellationToken.IsCancellationRequested || ioCancellation.IsCancellationRequested;
+            bool forceClose = cancellationToken.IsCancellationRequested ||
+                ioCancellation.IsCancellationRequested ||
+                inboundRateLimitExceeded;
             if (forceClose)
             {
                 ioCancellation.Cancel();
@@ -207,7 +221,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
     /// <summary>Reads one frame's length prefix and payload and decodes it.</summary>
     /// <param name="cancellationToken">The token used to stop waiting for the frame.</param>
-    /// <returns>The decode result, or <see langword="null"/> when the peer disconnected before a complete frame arrived.</returns>
+    /// <returns>The decode result, or <see langword="null"/> when the peer disconnected or exceeded the inbound rate limit.</returns>
     private async Task<IpcDecodeResult?> ReadFrameAsync(CancellationToken cancellationToken)
     {
         byte[] lengthPrefix = new byte[sizeof(uint)];
@@ -222,9 +236,38 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
 
         byte[] frame = new byte[frameLength];
-        return !await ReadExactAsync(frame, cancellationToken).ConfigureAwait(false)
-            ? null
-            : codec.Decode(frame);
+        if (!await ReadExactAsync(frame, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        if (!TryAcceptInboundMessage())
+        {
+            inboundRateLimitExceeded = true;
+            return null;
+        }
+
+        return codec.Decode(frame);
+    }
+
+    /// <summary>Records one inbound message if the connection remains within its bounded rate window.</summary>
+    /// <returns><see langword="true"/> when the message may be decoded; otherwise the connection must close.</returns>
+    private bool TryAcceptInboundMessage()
+    {
+        DateTimeOffset now = clock.UtcNow;
+        DateTimeOffset windowStart = now - Constants.IpcMessageRateWindow;
+        while (inboundMessageTimes.Count > 0 && inboundMessageTimes.Peek() < windowStart)
+        {
+            inboundMessageTimes.Dequeue();
+        }
+
+        if (inboundMessageTimes.Count >= Constants.MaxIpcMessagesPerSecond)
+        {
+            return false;
+        }
+
+        inboundMessageTimes.Enqueue(now);
+        return true;
     }
 
     /// <summary>Fills a buffer completely from the transport, tolerating any number of partial reads.</summary>

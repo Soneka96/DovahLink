@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Tests.Adapter.Ipc;
 
@@ -164,7 +165,7 @@ public class AdapterIpcChannelIntegrationTests
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier)));
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier), new SystemClock()));
         return (listener, tracker, verifier);
     }
 
