@@ -29,8 +29,11 @@ add_library(dovahlink_adapter_core STATIC
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
     process/adapter_owner_lifetime_id.cpp
+    process/adapter_host_endpoint_report.cpp
     process/adapter_host_rendezvous_reader.cpp
     process/adapter_host_handshake_verifier.cpp
+    process/adapter_host_process_launcher.cpp
+    process/adapter_host_shutdown_requester.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -64,6 +67,19 @@ add_library(dovahlink_adapter_plugin SHARED plugin/dovahlink_adapter_plugin.cpp)
 target_compile_definitions(dovahlink_adapter_plugin PRIVATE __CMAKE_COMMONLIBSSE_PLUGIN=1)
 target_link_libraries(dovahlink_adapter_plugin PRIVATE dovahlink_adapter_runtime)
 
+# A tiny standalone process used only by
+# adapter_host_process_launcher_test.cpp to exercise real Win32 process
+# launch, stdout redirection, and Job Object termination: a real,
+# controllable child process referenced by its own built path, the same
+# shape the Bridge's own test-harness executable target uses for its
+# equivalent need.
+add_executable(dovahlink_adapter_launcher_test_fixture
+    tests/process/adapter_host_launcher_test_fixture_process.cpp
+)
+if(MSVC)
+    target_compile_options(dovahlink_adapter_launcher_test_fixture PRIVATE /EHsc)
+endif()
+
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
@@ -72,8 +88,11 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/adapter_ipc_hmac_test.cpp
     tests/ipc/settable_adapter_ipc_peer_proof_provider_test.cpp
     tests/process/adapter_owner_lifetime_id_test.cpp
+    tests/process/adapter_host_endpoint_report_test.cpp
     tests/process/adapter_host_rendezvous_reader_test.cpp
     tests/process/adapter_host_handshake_verifier_test.cpp
+    tests/process/adapter_host_process_launcher_test.cpp
+    tests/process/adapter_host_shutdown_requester_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
@@ -95,6 +114,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_status_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_adapter_plugin.cpp"
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
 )
 
 include(CTest)
