@@ -8,9 +8,9 @@ Status: active
 
 ## Active concept
 
-- File: `02-host-ipc-channel.md`
-- Status: complete
-- Prerequisites: Stage 1, Stage 2, and Concept 01 complete; feature branch active
+- File: `03-native-adapter-core.md`
+- Status: pending
+- Prerequisites: Stage 1, Stage 2, and Concepts 01-02 complete; feature branch active
 - Next action: Implement the native adapter boundary, bounded handoff, and private IPC client in Concept 03.
 
 ## Completed concepts
