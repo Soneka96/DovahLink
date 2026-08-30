@@ -1,6 +1,6 @@
 # 02 — Host IPC channel and recovery
 
-Status: pending
+Status: complete
 
 Covers: R2, R4, R6, R7
 
@@ -13,6 +13,11 @@ The C# host owns the private listener and connection lifecycle. This is a stable
 host-side service boundary: it translates private messages into host-owned
 availability and resynchronization operations without exposing adapter IPC to
 public clients.
+
+The listener uses an asynchronous TCP socket bound to the IPv4 loopback address.
+The listener accepts port `0`, allowing the operating system to select an
+available port; process composition and passing that assigned endpoint to the
+adapter belong to concept 04.
 
 ## Inputs and outputs
 

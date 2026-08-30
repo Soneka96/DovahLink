@@ -529,9 +529,8 @@ public class AdapterIpcConnectionTests
 
     /// <summary>
     /// Creates a connected pair of loopback-socket streams for realistic byte-level I/O tests. A
-    /// loopback socket is used rather than a named pipe purely as a test transport convenience --
-    /// the production listener still uses a named pipe -- since the connection under test depends
-    /// only on <see cref="Stream"/>.
+    /// loopback socket matches the production listener and keeps the connection under test focused
+    /// on its <see cref="Stream"/> boundary.
     /// </summary>
     private static async Task<(Stream Server, Stream Client)> CreateConnectedStreamPairAsync()
     {
