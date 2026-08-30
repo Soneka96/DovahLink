@@ -20,6 +20,7 @@ public class AdapterIpcChannelIntegrationTests
     public async Task Connect_ValidHelloThenAcceptedResync_TrackerBecomesAvailableAndResynchronized()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
         var codec = new IpcFrameCodec();
@@ -41,7 +42,6 @@ public class AdapterIpcChannelIntegrationTests
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        listener.Dispose();
     }
 
     /// <summary>Verifies that a declined resynchronization result leaves the tracker still needing resynchronization rather than clearing it.</summary>
@@ -49,6 +49,7 @@ public class AdapterIpcChannelIntegrationTests
     public async Task Connect_ValidHelloThenDeclinedResync_TrackerStillNeedsResynchronization()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
         var codec = new IpcFrameCodec();
@@ -67,7 +68,6 @@ public class AdapterIpcChannelIntegrationTests
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        listener.Dispose();
     }
 
     /// <summary>Verifies that a Hello with the wrong peer-ownership proof is rejected and never reports the tracker as available.</summary>
@@ -75,6 +75,7 @@ public class AdapterIpcChannelIntegrationTests
     public async Task Connect_WrongProofHello_RejectsAndTrackerStaysUnavailable()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, _) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
         var codec = new IpcFrameCodec();
@@ -90,7 +91,6 @@ public class AdapterIpcChannelIntegrationTests
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        listener.Dispose();
     }
 
     /// <summary>Verifies that the adapter disconnecting after a full resynchronization marks the tracker unavailable and needing a fresh resynchronization.</summary>
@@ -98,6 +98,7 @@ public class AdapterIpcChannelIntegrationTests
     public async Task Disconnect_AfterResynchronized_MarksTrackerUnavailableAndNeedingResync()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
         var codec = new IpcFrameCodec();
@@ -117,7 +118,6 @@ public class AdapterIpcChannelIntegrationTests
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        listener.Dispose();
     }
 
     /// <summary>Verifies that reconnecting after a disconnect is assigned a fresh connection generation and again requires a fresh baseline.</summary>
@@ -125,6 +125,7 @@ public class AdapterIpcChannelIntegrationTests
     public async Task Reconnect_AfterDisconnect_GetsFreshGenerationAndRequiresFreshBaseline()
     {
         (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
         var codec = new IpcFrameCodec();
@@ -155,7 +156,6 @@ public class AdapterIpcChannelIntegrationTests
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        listener.Dispose();
     }
 
     /// <summary>Composes the real production private-IPC graph over a listener bound to an OS-assigned loopback port.</summary>
