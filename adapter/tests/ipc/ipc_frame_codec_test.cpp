@@ -11,6 +11,7 @@
 #include <expected>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <span>
 #include <sstream>
@@ -73,6 +74,16 @@ std::array<std::byte, 4> LittleEndianLength(std::uint32_t value) {
       static_cast<std::byte>((value >> 16) & 0xFF),
       static_cast<std::byte>((value >> 24) & 0xFF),
   };
+}
+
+///  Creates owned bytes from a readable list of hexadecimal byte values.
+std::vector<std::byte> Bytes(std::initializer_list<std::uint8_t> values) {
+  std::vector<std::byte> result;
+  result.reserve(values.size());
+  for (std::uint8_t value : values) {
+    result.push_back(static_cast<std::byte>(value));
+  }
+  return result;
 }
 
 ///  Builds a frame's header-plus-payload bytes directly, for constructing wire
@@ -767,6 +778,66 @@ TEST_CASE("capture intents preserve the maximum correlation id",
           return decoded.correlationId == kMaxCorrelationId;
         },
         *result));
+  }
+}
+
+TEST_CASE("host and adapter share exact no-version golden wire vectors",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const std::array<std::byte, 16> adapterInstanceId{
+      std::byte{0x00}, std::byte{0x11}, std::byte{0x22}, std::byte{0x33},
+      std::byte{0x44}, std::byte{0x55}, std::byte{0x66}, std::byte{0x77},
+      std::byte{0x88}, std::byte{0x99}, std::byte{0xAA}, std::byte{0xBB},
+      std::byte{0xCC}, std::byte{0xDD}, std::byte{0xEE}, std::byte{0xFF}};
+  const std::vector<std::pair<IpcMessage, std::vector<std::byte>>> vectors = {
+      {IpcMessage{
+           IpcHelloMessage{.correlationId = 1,
+                           .adapterInstanceId = adapterInstanceId,
+                           .peerProofToken = {std::byte{0xA0}, std::byte{0xB1},
+                                              std::byte{0xC2}}}},
+       Bytes({0x1D, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44,
+              0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+              0xEE, 0xFF, 0x03, 0xA0, 0xB1, 0xC2})},
+      {IpcMessage{
+           IpcHelloAckMessage{.correlationId = 2,
+                              .accepted = true,
+                              .rejectReason = IpcHelloRejectReason::kNone}},
+       Bytes({0x0B, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x01, 0x00})},
+      {IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 4}},
+       Bytes({0x09, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00})},
+      {IpcMessage{
+           IpcResynchronizeResultMessage{.correlationId = 5, .accepted = true}},
+       Bytes({0x0A, 0x00, 0x00, 0x00, 0x04, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x01})},
+      {IpcMessage{IpcCloseMessage{.correlationId = 0,
+                                  .reason = IpcCloseReason::kNormal}},
+       Bytes({0x0A, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00})},
+      {IpcMessage{IpcRejectMessage{
+           .correlationId = 6, .reason = IpcRejectReason::kInvalidIdentity}},
+       Bytes({0x0A, 0x00, 0x00, 0x00, 0x06, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x02})},
+      {IpcMessage{IpcCancelMessage{.correlationId = 7}},
+       Bytes({0x09, 0x00, 0x00, 0x00, 0x07, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00})},
+      {IpcMessage{IpcListenEventMessage{.correlationId = 0x0102030405060708,
+                                        .eventKey = 0x0A0B0C0D}},
+       Bytes({0x0D, 0x00, 0x00, 0x00, 0x08, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03,
+              0x02, 0x01, 0x0D, 0x0C, 0x0B, 0x0A})},
+      {IpcMessage{IpcReadSampleMessage{.correlationId = 0x1122334455667788,
+                                       .sampleToken = 0xA1B2C3D4}},
+       Bytes({0x0D, 0x00, 0x00, 0x00, 0x09, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33,
+              0x22, 0x11, 0xD4, 0xC3, 0xB2, 0xA1})},
+  };
+
+  for (const auto &[message, expected] : vectors) {
+    CHECK(codec.Encode(message) == expected);
+    auto decoded = codec.Decode(std::span(expected).subspan(4));
+    REQUIRE(decoded.has_value());
+    CHECK(*decoded == message);
   }
 }
 

@@ -704,6 +704,71 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies exact no-version wire bytes for every current private IPC message kind.</summary>
+    [Fact]
+    public void GoldenVectors_EncodeAndDecodeWithTheSharedWireLayout()
+    {
+        var codec = new IpcFrameCodec();
+        var adapterInstanceId = new AdapterInstanceId(new Guid("00112233-4455-6677-8899-aabbccddeeff"));
+        var vectors = new (IpcMessage Message, string Hex)[]
+        {
+            (new IpcHelloMessage(1, adapterInstanceId, [0xA0, 0xB1, 0xC2]),
+                "1D00000001010000000000000000112233445566778899AABBCCDDEEFF03A0B1C2"),
+            (new IpcHelloAckMessage(2, Accepted: true, IpcHelloRejectReason.None), "0B0000000202000000000000000100"),
+            (new IpcResynchronizeRequestMessage(4), "09000000030400000000000000"),
+            (new IpcResynchronizeResultMessage(5, Accepted: true), "0A00000004050000000000000001"),
+            (new IpcCloseMessage(0, IpcCloseReason.Normal), "0A00000005000000000000000000"),
+            (new IpcRejectMessage(6, IpcRejectReason.InvalidIdentity), "0A00000006060000000000000002"),
+            (new IpcCancelMessage(7), "09000000070700000000000000"),
+            (new IpcListenEventMessage(0x0102030405060708, 0x0A0B0C0D), "0D0000000808070605040302010D0C0B0A"),
+            (new IpcReadSampleMessage(0x1122334455667788, 0xA1B2C3D4), "0D000000098877665544332211D4C3B2A1"),
+        };
+
+        foreach ((IpcMessage message, string hex) in vectors)
+        {
+            byte[] expected = Convert.FromHexString(hex);
+            byte[] encoded = codec.Encode(message);
+            Assert.Equal(expected, encoded);
+
+            IpcDecodeResult decoded = codec.Decode(expected.AsSpan(4));
+            Assert.Null(decoded.FailureReason);
+            Assert.IsType(message.GetType(), decoded.Message);
+            Assert.Equal(message.CorrelationId, decoded.Message!.CorrelationId);
+            switch ((message, decoded.Message))
+            {
+                case (IpcHelloMessage expectedMessage, IpcHelloMessage actualMessage):
+                    Assert.Equal(expectedMessage.AdapterInstanceId, actualMessage.AdapterInstanceId);
+                    Assert.Equal(expectedMessage.PeerProofToken, actualMessage.PeerProofToken);
+                    break;
+                case (IpcHelloAckMessage expectedMessage, IpcHelloAckMessage actualMessage):
+                    Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    Assert.Equal(expectedMessage.RejectReason, actualMessage.RejectReason);
+                    break;
+                case (IpcResynchronizeResultMessage expectedMessage, IpcResynchronizeResultMessage actualMessage):
+                    Assert.Equal(expectedMessage.Accepted, actualMessage.Accepted);
+                    break;
+                case (IpcCloseMessage expectedMessage, IpcCloseMessage actualMessage):
+                    Assert.Equal(expectedMessage.Reason, actualMessage.Reason);
+                    break;
+                case (IpcRejectMessage expectedMessage, IpcRejectMessage actualMessage):
+                    Assert.Equal(expectedMessage.Reason, actualMessage.Reason);
+                    break;
+                case (IpcListenEventMessage expectedMessage, IpcListenEventMessage actualMessage):
+                    Assert.Equal(expectedMessage.EventKey, actualMessage.EventKey);
+                    break;
+                case (IpcReadSampleMessage expectedMessage, IpcReadSampleMessage actualMessage):
+                    Assert.Equal(expectedMessage.SampleToken, actualMessage.SampleToken);
+                    break;
+                case (IpcResynchronizeRequestMessage, IpcResynchronizeRequestMessage):
+                case (IpcCancelMessage, IpcCancelMessage):
+                    break;
+                default:
+                    Assert.Fail("The decoded message shape did not match the golden vector.");
+                    break;
+            }
+        }
+    }
+
     // ---- Idempotence and robustness ----
 
     /// <summary>Verifies that decoding the same Close frame repeatedly is side-effect-free and never throws.</summary>
