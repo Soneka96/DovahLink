@@ -56,4 +56,13 @@ inline constexpr std::size_t kMaxAdapterHostEndpointReportBytes = 1024;
 inline constexpr std::chrono::milliseconds kAdapterHostForceTerminateGraceWait{
     5000};
 
+//  ---- Supervision ----
+
+///  The default bound `AdapterHostSupervisor` waits before retrying a
+///  discovery round that exhausted its bounded adopt-and-launch attempts
+///  without success, so a persistently unreachable host is retried
+///  indefinitely without spinning.
+inline constexpr std::chrono::milliseconds
+    kDefaultAdapterHostSupervisorFailedRoundBackoff{1000};
+
 } //  namespace dovahlink::adapter::process

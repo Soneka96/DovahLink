@@ -34,6 +34,7 @@ add_library(dovahlink_adapter_core STATIC
     process/adapter_host_handshake_verifier.cpp
     process/adapter_host_process_launcher.cpp
     process/adapter_host_shutdown_requester.cpp
+    process/adapter_host_supervisor.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -93,6 +94,7 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_handshake_verifier_test.cpp
     tests/process/adapter_host_process_launcher_test.cpp
     tests/process/adapter_host_shutdown_requester_test.cpp
+    tests/process/adapter_host_supervisor_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp

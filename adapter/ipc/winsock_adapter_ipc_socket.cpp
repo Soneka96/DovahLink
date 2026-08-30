@@ -129,4 +129,6 @@ void WinsockAdapterIpcSocket::RequestStop() { stopRequested_.store(true); }
 
 void WinsockAdapterIpcSocket::SetPort(std::uint16_t port) { port_.store(port); }
 
+std::uint16_t WinsockAdapterIpcSocket::Port() const { return port_.load(); }
+
 } //  namespace dovahlink::adapter::ipc

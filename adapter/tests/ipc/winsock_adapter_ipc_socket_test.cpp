@@ -331,6 +331,16 @@ TEST_CASE("WinsockAdapterIpcSocket::SetPort redirects a later reconnection "
   CHECK(secondListener.Accepted());
 }
 
+TEST_CASE("WinsockAdapterIpcSocket::Port reflects the constructed port and "
+          "every subsequent SetPort call",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  WinsockAdapterIpcSocket socket(1);
+  CHECK(socket.Port() == 1);
+
+  socket.SetPort(2);
+  CHECK(socket.Port() == 2);
+}
+
 TEST_CASE("WinsockAdapterIpcSocket::Close is idempotent",
           "[ipc][winsock_adapter_ipc_socket]") {
   RawLoopbackListener listener;

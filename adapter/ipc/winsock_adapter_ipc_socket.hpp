@@ -94,6 +94,10 @@ public:
   ///  `Connect()` call is guaranteed to see the update.
   void SetPort(std::uint16_t port);
 
+  ///  The loopback port a subsequent `Connect()` call currently targets. Not
+  ///  part of `IAdapterIpcSocket`, for the same reason as `SetPort`.
+  std::uint16_t Port() const;
+
 private:
   ///  The loopback port to connect to.
   std::atomic<std::uint16_t> port_;
