@@ -19,6 +19,8 @@ find_package(Catch2 3.0 CONFIG REQUIRED)
 # ai/context/adapter/architecture.md's "Technology boundary".
 add_library(dovahlink_adapter_core STATIC
     ipc/ipc_frame_codec.cpp
+    ipc/winsock_adapter_ipc_socket.cpp
+    ipc/adapter_ipc_connection.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
@@ -27,6 +29,9 @@ target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
 if(MSVC)
     target_compile_options(dovahlink_adapter_core PUBLIC /EHsc)
+endif()
+if(WIN32)
+    target_link_libraries(dovahlink_adapter_core PUBLIC ws2_32)
 endif()
 
 # CommonLib-dependent runtime adapters. Kept in a separate target from
@@ -43,6 +48,8 @@ target_link_libraries(dovahlink_adapter_runtime PUBLIC dovahlink_adapter_core Co
 
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
+    tests/ipc/winsock_adapter_ipc_socket_test.cpp
+    tests/ipc/adapter_ipc_connection_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
