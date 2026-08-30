@@ -111,6 +111,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
 
+    def test_commonlibsse_port_is_repository_owned_and_pinned(self) -> None:
+        """Keep the shared CommonLib port local and aligned with the frozen source recipe."""
+        expected_overlay = {"overlay-ports": ["../tooling/vcpkg-ports"]}
+        for configuration_path in (
+            "bridge/vcpkg-configuration.json",
+            "adapter/vcpkg-configuration.json",
+        ):
+            self.assertEqual(
+                json.loads(self._read(configuration_path)),
+                expected_overlay,
+                configuration_path,
+            )
+
+        for manifest_path in ("bridge/vcpkg.json", "adapter/vcpkg.json"):
+            manifest = json.loads(self._read(manifest_path))
+            self.assertIn("commonlibsse-ng-flatrim", manifest["dependencies"])
+
+        port = json.loads(
+            self._read("tooling/vcpkg-ports/commonlibsse-ng-flatrim/vcpkg.json")
+        )
+        self.assertEqual(port["name"], "commonlibsse-ng-flatrim")
+        self.assertEqual(port["version-semver"], "3.7.0")
+        self.assertEqual(port["port-version"], 0)
+        dependencies = {
+            dependency["name"] if isinstance(dependency, dict) else dependency
+            for dependency in port["dependencies"]
+        }
+        self.assertIn("vcpkg-cmake-config", dependencies)
+
+        portfile = self._read(
+            "tooling/vcpkg-ports/commonlibsse-ng-flatrim/portfile.cmake"
+        )
+        for required_fragment in (
+            "REPO CharmedBaryon/CommonLibSSE",
+            "REF c4ab853d095e81e3390b282d7ba01ab2f24ebf25",
+            "SHA512 fd615c16f8f2c637cad5ed9d139c776d21314664f4084a62231645114d03ee74e720c1ecf09b4e5daa5d56d418374ad6d587806788d95af8ac08ce3de930015b",
+            "-DENABLE_SKYRIM_VR=off",
+            "-DSKSE_SUPPORT_XBYAK=on",
+        ):
+            self.assertIn(required_fragment, portfile)
+
     def test_bridge_clang_format_uses_the_established_source_style(self) -> None:
         """Keep Bridge formatting explicit instead of relying on clang-format defaults."""
         style = self._read("bridge/.clang-format")

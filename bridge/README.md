@@ -67,12 +67,12 @@ Pinned package versions resolved at that baseline:
 | Catch2 | `3.15.3` |
 | GoogleTest/GoogleMock (test-only, Catch2 target integration) | `1.18.0` |
 
-CommonLibSSE-NG (`commonlibsse-ng-flatrim`, SE/AE-capable, VR excluded) comes from the
-Color-Glass Studios vcpkg registry, not the vcpkg builtin registry:
+CommonLibSSE-NG (`commonlibsse-ng-flatrim`, SE/AE-capable, VR excluded) uses the repository-owned
+vcpkg overlay at `tooling/vcpkg-ports/commonlibsse-ng-flatrim`. The overlay preserves the frozen
+Color-Glass port recipe and removes the build's dependency on a live GitLab registry lookup:
 
-- Registry: `https://gitlab.com/colorglass/vcpkg-colorglass`
-- Registry baseline commit: `6309841a1ce770409708a67a9ba5c26c537d2937` (registry `main`, last
-  updated 2023-05-13; the registry has not changed since)
+- Original registry baseline: `6309841a1ce770409708a67a9ba5c26c537d2937` (registry `main`, last
+  updated 2023-05-13)
 - Port version: `commonlibsse-ng-flatrim` `3.7.0#0`
 - Upstream source the port builds: `CharmedBaryon/CommonLibSSE` at commit
   `c4ab853d095e81e3390b282d7ba01ab2f24ebf25`
@@ -103,8 +103,9 @@ synchronization, or mutable state is under test.
 `bridge/vcpkg.json` declares each of these pinned versions incrementally, in the same step that
 first consumes it, rather than all at once: `catch2` landed with the build scaffolding, `boost-json`
 with the bounded JSON decoder, `boost-asio` with the loopback listener, `boost-beast` with WebSocket
-framing, `gtest` with the C1 cross-thread contract test, and `commonlibsse-ng-flatrim` (via
-`bridge/vcpkg-configuration.json`) lands with the game-state adapter.
+framing, `gtest` with the C1 cross-thread contract test, and `commonlibsse-ng-flatrim` (via the
+repository-owned overlay referenced by `bridge/vcpkg-configuration.json`) lands with the
+game-state adapter.
 This keeps every step's build from compiling dependencies it doesn't use yet.
 
 ## Default loopback port
