@@ -78,10 +78,22 @@ IpcFrameCodec::EncodeHello(const IpcHelloMessage &hello) {
         "The peer-proof token exceeds kMaxIpcPeerProofTokenBytes.");
   }
 
-  std::vector<std::byte> payload(17 + hello.peerProofToken.size());
+  const std::size_t tokenOffset = 17;
+  const std::size_t challengeOffset = tokenOffset + hello.peerProofToken.size();
+  const std::size_t ownerLifetimeIdOffset =
+      challengeOffset + kIpcChallengeBytes;
+  std::vector<std::byte> payload(ownerLifetimeIdOffset +
+                                 kIpcOwnerLifetimeIdBytes);
   std::ranges::copy(hello.adapterInstanceId, payload.begin());
   payload[16] = static_cast<std::byte>(hello.peerProofToken.size());
-  std::ranges::copy(hello.peerProofToken, payload.begin() + 17);
+  std::ranges::copy(hello.peerProofToken,
+                    payload.begin() + static_cast<std::ptrdiff_t>(tokenOffset));
+  std::ranges::copy(hello.challenge,
+                    payload.begin() +
+                        static_cast<std::ptrdiff_t>(challengeOffset));
+  std::ranges::copy(hello.ownerLifetimeId,
+                    payload.begin() +
+                        static_cast<std::ptrdiff_t>(ownerLifetimeIdOffset));
   return payload;
 }
 
@@ -95,10 +107,12 @@ IpcFrameCodec::EncodeHelloAck(const IpcHelloAckMessage &helloAck) {
         "HelloAck must have one.");
   }
 
-  return {
-      static_cast<std::byte>(helloAck.accepted ? 1 : 0),
-      static_cast<std::byte>(std::to_underlying(helloAck.rejectReason)),
-  };
+  std::vector<std::byte> payload(2 + kIpcHostProofBytes);
+  payload[0] = static_cast<std::byte>(helloAck.accepted ? 1 : 0);
+  payload[1] =
+      static_cast<std::byte>(std::to_underlying(helloAck.rejectReason));
+  std::ranges::copy(helloAck.hostProof, payload.begin() + 2);
+  return payload;
 }
 
 std::vector<std::byte>
@@ -218,22 +232,30 @@ IpcFrameCodec::DecodeHello(std::uint64_t correlationId,
     return std::unexpected(IpcRejectReason::kInvalidIdentity);
   }
 
-  if (payload.size() != 17 + tokenLength) {
+  const std::size_t challengeOffset = 17 + tokenLength;
+  const std::size_t ownerLifetimeIdOffset =
+      challengeOffset + kIpcChallengeBytes;
+  if (payload.size() != ownerLifetimeIdOffset + kIpcOwnerLifetimeIdBytes) {
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
   IpcHelloMessage hello{.correlationId = correlationId};
   std::ranges::copy(payload.first(16), hello.adapterInstanceId.begin());
-  hello.peerProofToken.assign(
-      payload.begin() + 17,
-      payload.begin() + static_cast<std::ptrdiff_t>(17 + tokenLength));
+  hello.peerProofToken.assign(payload.begin() + 17,
+                              payload.begin() +
+                                  static_cast<std::ptrdiff_t>(challengeOffset));
+  std::ranges::copy(payload.subspan(challengeOffset, kIpcChallengeBytes),
+                    hello.challenge.begin());
+  std::ranges::copy(
+      payload.subspan(ownerLifetimeIdOffset, kIpcOwnerLifetimeIdBytes),
+      hello.ownerLifetimeId.begin());
   return IpcMessage{hello};
 }
 
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeHelloAck(std::uint64_t correlationId,
                               std::span<const std::byte> payload) {
-  if (payload.size() != 2) {
+  if (payload.size() != 2 + kIpcHostProofBytes) {
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
@@ -251,11 +273,14 @@ IpcFrameCodec::DecodeHelloAck(std::uint64_t correlationId,
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
-  return IpcMessage{IpcHelloAckMessage{
+  IpcHelloAckMessage helloAck{
       .correlationId = correlationId,
       .accepted = accepted,
       .rejectReason = static_cast<IpcHelloRejectReason>(rejectReasonByte),
-  }};
+  };
+  std::ranges::copy(payload.subspan(2, kIpcHostProofBytes),
+                    helloAck.hostProof.begin());
+  return IpcMessage{helloAck};
 }
 
 std::expected<IpcMessage, IpcRejectReason>

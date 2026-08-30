@@ -42,4 +42,22 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 ///  with the same documented approval this file's other limits require.
 inline constexpr std::chrono::milliseconds kAdapterIpcReconnectDelay{200};
 
+//  ---- Authentication ----
+
+///  The byte length of the adapter-generated random challenge carried in
+///  `IpcHelloMessage`, and of the host's resulting HMAC-SHA256 `hostProof` in
+///  `IpcHelloAckMessage`.
+inline constexpr std::size_t kIpcChallengeBytes = 32;
+
+///  The byte length of the owning Skyrim process's lifetime identity
+///  (`ownerLifetimeId`) carried in `IpcHelloMessage`: a 4-byte process id and
+///  an 8-byte process creation timestamp.
+inline constexpr std::size_t kIpcOwnerLifetimeIdBytes = 12;
+
+///  The byte length of `IpcHelloAckMessage`'s HMAC-SHA256 `hostProof`. Equal
+///  to `kIpcChallengeBytes` because both are full, untruncated HMAC-SHA256
+///  outputs, but named separately since they serve different roles on the
+///  wire.
+inline constexpr std::size_t kIpcHostProofBytes = 32;
+
 } //  namespace dovahlink::adapter::ipc

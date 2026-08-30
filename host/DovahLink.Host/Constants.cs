@@ -138,4 +138,21 @@ public static class Constants
     /// served-connection slot indefinitely.
     /// </summary>
     public static readonly TimeSpan AdapterIpcHandshakeTimeout = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The byte length of the adapter-generated random challenge carried in
+    /// <see cref="Adapter.Ipc.IpcHelloMessage"/>, and of the host's resulting HMAC-SHA256
+    /// <c>HostProof</c> in <see cref="Adapter.Ipc.IpcHelloAckMessage"/>.
+    /// </summary>
+    public const int IpcChallengeBytes = 32;
+
+    /// <summary>
+    /// The byte length of the owning Skyrim process's lifetime identity (<c>OwnerLifetimeId</c>)
+    /// carried in <see cref="Adapter.Ipc.IpcHelloMessage"/>: a 4-byte process id and an 8-byte
+    /// process creation timestamp.
+    /// </summary>
+    public const int IpcOwnerLifetimeIdBytes = 12;
+
+    /// <summary>The byte length of <see cref="Adapter.Ipc.IpcHelloAckMessage"/>'s HMAC-SHA256 <c>HostProof</c>.</summary>
+    public const int IpcHostProofBytes = 32;
 }
