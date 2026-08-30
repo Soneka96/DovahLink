@@ -17,6 +17,14 @@ class IAdapterHostRendezvousReader;
 class IAdapterHostHandshakeVerifier;
 class IAdapterHostProcessLauncher;
 
+} // namespace dovahlink::adapter::process
+
+namespace dovahlink::adapter::ipc {
+class IAdapterIpcConnection;
+} // namespace dovahlink::adapter::ipc
+
+namespace dovahlink::adapter::process {
+
 ///  Watches for the adapter's private IPC connection losing its host and
 ///  keeps rediscovering and reverifying one for the whole adapter process
 ///  lifetime, reconfiguring the existing long-lived connection's target in
@@ -63,6 +71,9 @@ public:
   ///  @param connectionProofProvider The same connection's peer-proof
   ///  provider, retargeted to a verified candidate's proof token on every
   ///  successful round.
+  ///  @param connection The existing long-lived private IPC connection,
+  ///  started only after the first candidate has been verified and its target
+  ///  configured.
   ///  @param failedRoundBackoff The bound a round that exhausts its bounded
   ///  adopt-and-launch attempts waits before retrying.
   AdapterHostSupervisor(
@@ -72,6 +83,7 @@ public:
       IAdapterHostProcessLauncher &launcher,
       ipc::WinsockAdapterIpcSocket &connectionSocket,
       ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider,
+      ipc::IAdapterIpcConnection &connection,
       std::chrono::milliseconds failedRoundBackoff =
           kDefaultAdapterHostSupervisorFailedRoundBackoff);
 
@@ -133,6 +145,9 @@ private:
   ipc::WinsockAdapterIpcSocket &connectionSocket_;
   ///  The same connection's peer-proof provider.
   ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider_;
+  ///  The existing long-lived private IPC connection, started after its
+  ///  first verified target is configured.
+  ipc::IAdapterIpcConnection &connection_;
   ///  The bound a failed round waits before retrying.
   std::chrono::milliseconds failedRoundBackoff_;
   ///  Guards the worker thread object itself, separate from `stateMutex_` so

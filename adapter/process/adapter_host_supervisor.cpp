@@ -1,5 +1,6 @@
 #include "process/adapter_host_supervisor.hpp"
 
+#include "ipc/adapter_ipc_connection.hpp"
 #include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -13,11 +14,12 @@ AdapterHostSupervisor::AdapterHostSupervisor(
     IAdapterHostProcessLauncher &launcher,
     ipc::WinsockAdapterIpcSocket &connectionSocket,
     ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider,
+    ipc::IAdapterIpcConnection &connection,
     std::chrono::milliseconds failedRoundBackoff)
     : reader_(reader), verifier_(verifier), verifierSocket_(verifierSocket),
       launcher_(launcher), connectionSocket_(connectionSocket),
       connectionProofProvider_(connectionProofProvider),
-      failedRoundBackoff_(failedRoundBackoff) {}
+      connection_(connection), failedRoundBackoff_(failedRoundBackoff) {}
 
 AdapterHostSupervisor::~AdapterHostSupervisor() { RequestStop(); }
 
@@ -64,6 +66,7 @@ void AdapterHostSupervisor::RunLoop() {
       std::optional<AdapterHostEndpoint> endpoint = RunOneDiscoveryRound();
       if (endpoint.has_value()) {
         ReconfigureLiveTarget(*endpoint);
+        connection_.Start();
         succeeded = true;
       }
     } catch (...) {

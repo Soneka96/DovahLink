@@ -32,6 +32,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -455,19 +456,10 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
                                         ownerLifetimeId, verifierSocket, codec,
                                         std::chrono::seconds(2));
   SettableAdapterIpcPeerProofProvider proofProvider;
-  AdapterHostSupervisor supervisor(reader, verifier, verifierSocket, launcher,
-                                   connectionSocket, proofProvider,
-                                   std::chrono::milliseconds(50));
-  supervisor.Start();
-
-  REQUIRE(
-      WaitUntil([&] { return connectionSocket.Port() == firstEndpoint->port; },
-                std::chrono::seconds(5)));
-  CHECK(proofProvider.Token() == firstEndpoint->proofToken);
-
   ImmediateTaskMarshaller taskMarshaller;
   AdapterNativeDispatcher dispatcher;
   NoopCaptureQueue captureQueue;
+  std::unique_ptr<AdapterHostSupervisor> supervisor;
   AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
                             ownerLifetimeId, proofProvider, taskMarshaller,
                             dispatcher, captureQueue);
@@ -488,11 +480,20 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
           .onDisconnected =
               [&] {
                 session.HandleDisconnected();
-                supervisor.NotifyConnectionLost();
+                supervisor->NotifyConnectionLost();
               },
       });
   session.AttachConnection(connection);
-  connection.Start();
+  supervisor = std::make_unique<AdapterHostSupervisor>(
+      reader, verifier, verifierSocket, launcher, connectionSocket,
+      proofProvider, connection, std::chrono::milliseconds(50));
+  supervisor->Start();
+
+  REQUIRE(
+      WaitUntil([&] { return connectionSocket.Port() == firstEndpoint->port; },
+                std::chrono::seconds(5)));
+  CHECK(proofProvider.Token() == firstEndpoint->proofToken);
+
   REQUIRE(WaitUntil(
       [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
       std::chrono::seconds(5)));
@@ -516,8 +517,9 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
       std::chrono::seconds(10)));
   CHECK(proofProvider.Token() == secondEndpoint->proofToken);
 
-  supervisor.RequestStop();
+  supervisor->RequestStop();
   connection.Stop();
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+  supervisor.reset();
 }

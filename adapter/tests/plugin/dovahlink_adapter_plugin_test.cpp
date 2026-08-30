@@ -37,17 +37,17 @@ TEST_CASE("the adapter plugin registers exactly one SKSE messaging listener",
   CHECK(CountOccurrences(source, "RegisterListener(") == 1);
 }
 
-TEST_CASE("the adapter plugin defers connection startup to kDataLoaded",
+TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
           "[plugin][structural]") {
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
   std::size_t dataLoadedCheck =
       source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-  std::size_t connectionStart = source.find("connection->Start();");
+  std::size_t supervisorStart = source.find("supervisor->Start();");
 
   REQUIRE(dataLoadedCheck != std::string::npos);
-  REQUIRE(connectionStart != std::string::npos);
-  CHECK(dataLoadedCheck < connectionStart);
+  REQUIRE(supervisorStart != std::string::npos);
+  CHECK(dataLoadedCheck < supervisorStart);
 }
 
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
@@ -168,6 +168,14 @@ TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
   CHECK(dataLoadedCheck < supervisorStart);
 }
 
+TEST_CASE("the adapter plugin does not start IPC before supervisor discovery",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(source.find("connection->Start();") == std::string::npos);
+  CHECK(source.find("*peerProofProvider, *connection") != std::string::npos);
+}
+
 TEST_CASE("the adapter plugin notifies the supervisor when the connection "
           "reports the host lost",
           "[plugin][structural]") {
@@ -281,7 +289,10 @@ TEST_CASE("the adapter plugin keeps worker-owning runtime objects out of DLL "
       std::string::npos);
   CHECK(source.find("static auto *connection = new dovahlink::adapter::ipc::"
                     "AdapterIpcConnection") != std::string::npos);
-  CHECK(source.find("static auto *supervisor =\n      new "
+  CHECK(source.find("static auto *supervisor =\n      static_cast<"
+                    "dovahlink::adapter::process::AdapterHostSupervisor *>") !=
+        std::string::npos);
+  CHECK(source.find("supervisor = new "
                     "dovahlink::adapter::process::AdapterHostSupervisor") !=
         std::string::npos);
 }

@@ -1,5 +1,6 @@
 #include "process/adapter_host_supervisor.hpp"
 
+#include "ipc/adapter_ipc_connection.hpp"
 #include "process/adapter_host_handshake_verifier.hpp"
 #include "process/adapter_host_process_launcher.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
@@ -255,6 +256,50 @@ private:
   int callCount_ = 0;
 };
 
+///  A test-only connection that records when the supervisor starts the
+/// long-lived IPC worker.
+class FakeAdapterIpcConnection final
+    : public dovahlink::adapter::ipc::IAdapterIpcConnection {
+public:
+  ///  Records that the connection was started.
+  void Start() override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (throwOnce_) {
+      throwOnce_ = false;
+      throw std::runtime_error("connection start failed unexpectedly");
+    }
+    ++startCount_;
+  }
+
+  ///  The supervisor never sends through this test connection.
+  bool TrySend(const dovahlink::adapter::ipc::IpcMessage &) override {
+    return true;
+  }
+
+  ///  The supervisor never stops this test connection.
+  void Stop() override {}
+
+  ///  Returns how many times the supervisor requested startup.
+  int StartCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return startCount_;
+  }
+
+  ///  Makes the next startup request throw instead of recording a start.
+  void SetThrowsOnce() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    throwOnce_ = true;
+  }
+
+private:
+  ///  Guards the observed start count.
+  mutable std::mutex mutex_;
+  ///  Number of startup requests observed.
+  int startCount_ = 0;
+  ///  Whether the next startup request should throw.
+  bool throwOnce_ = false;
+};
+
 ///  Bundles a supervisor with the fakes and real, never-connected socket/
 ///  proof-provider it was constructed against, so each test can inspect and
 ///  drive them without repeating setup. Uses a short failed-round backoff so
@@ -267,13 +312,12 @@ struct SupervisorFixture {
   dovahlink::adapter::ipc::WinsockAdapterIpcSocket connectionSocket{0};
   dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider
       connectionProofProvider;
-  AdapterHostSupervisor supervisor{reader,
-                                   verifier,
-                                   verifierSocket,
-                                   launcher,
-                                   connectionSocket,
-                                   connectionProofProvider,
-                                   std::chrono::milliseconds(30)};
+  FakeAdapterIpcConnection connection;
+  AdapterHostSupervisor supervisor{
+      reader,           verifier,
+      verifierSocket,   launcher,
+      connectionSocket, connectionProofProvider,
+      connection,       std::chrono::milliseconds(30)};
 };
 
 } //  namespace
@@ -290,6 +334,7 @@ TEST_CASE("AdapterHostSupervisor adopts a verified rendezvous candidate and "
   REQUIRE(WaitUntil(
       [&] { return fixture.connectionSocket.Port() == endpoint.port; }));
   CHECK(fixture.connectionProofProvider.Token() == endpoint.proofToken);
+  CHECK(fixture.connection.StartCount() == 1);
   CHECK(fixture.launcher.CallCount() == 0);
 
   fixture.supervisor.RequestStop();
@@ -325,6 +370,7 @@ TEST_CASE("AdapterHostSupervisor retries automatically after a round that "
   //  that one attempt was made.
   REQUIRE(WaitUntil([&] { return fixture.launcher.CallCount() >= 2; }));
 
+  CHECK(fixture.connection.StartCount() == 0);
   fixture.supervisor.RequestStop();
 }
 
@@ -426,6 +472,7 @@ TEST_CASE("AdapterHostSupervisor recovers after repeated failed rounds") {
       [&] { return fixture.connectionSocket.Port() == endpoint.port; },
       std::chrono::seconds(10)));
 
+  CHECK(fixture.connection.StartCount() == 1);
   fixture.supervisor.RequestStop();
 }
 
@@ -466,5 +513,21 @@ TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within a "
   //  A second, ordinary call from this (the main) thread: if the reentrant
   //  call above had incorrectly joined its own thread, the worker would
   //  never have returned and this call would hang instead of completing.
+  fixture.supervisor.RequestStop();
+}
+
+TEST_CASE("AdapterHostSupervisor contains a connection-start exception and "
+          "retries the verified target") {
+  SupervisorFixture fixture;
+  AdapterHostEndpoint endpoint = SampleEndpoint(1234);
+  fixture.reader.SetResults({endpoint});
+  fixture.verifier.SetResults({true});
+  fixture.connection.SetThrowsOnce();
+
+  fixture.supervisor.Start();
+
+  REQUIRE(WaitUntil([&] { return fixture.connection.StartCount() == 1; }));
+  CHECK(fixture.connectionSocket.Port() == endpoint.port);
+
   fixture.supervisor.RequestStop();
 }

@@ -192,10 +192,8 @@ SKSEPluginInfo(
       new dovahlink::adapter::process::Win32AdapterHostProcessLauncher(
           *hostExecutablePath, ownerLifetimeId);
   static auto *supervisor =
-      new dovahlink::adapter::process::AdapterHostSupervisor(
-          *reader, *verifier, *verifierSocket, *launcher, *socket,
-          *peerProofProvider);
-
+      static_cast<dovahlink::adapter::process::AdapterHostSupervisor *>(
+          nullptr);
   static auto *connection = new dovahlink::adapter::ipc::AdapterIpcConnection(
       *socket, *codec,
       dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
@@ -211,6 +209,11 @@ SKSEPluginInfo(
                 supervisor->NotifyConnectionLost();
               },
       });
+  if (supervisor == nullptr) {
+    supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
+        *reader, *verifier, *verifierSocket, *launcher, *socket,
+        *peerProofProvider, *connection);
+  }
   session->AttachConnection(*connection);
 
   dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
@@ -222,7 +225,6 @@ SKSEPluginInfo(
   //  it fails if a second RegisterListener call is ever added to this file.
   messaging->RegisterListener([](SKSE::MessagingInterface::Message *message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
-      connection->Start();
       supervisor->Start();
       SKSE::log::info(
           "DovahLink Adapter connecting to the private host IPC channel.");
