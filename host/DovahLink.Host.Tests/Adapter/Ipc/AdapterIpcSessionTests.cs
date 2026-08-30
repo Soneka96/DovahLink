@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Process;
 using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Adapter.Ipc;
@@ -27,6 +30,90 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
         Assert.NotNull(session.ConnectionGeneration);
+    }
+
+    /// <summary>
+    /// Verifies that an accepted handshake's HostProof matches an independently computed HMAC-SHA256
+    /// over the exact challenge/correlationId/adapterInstanceId/ownerLifetimeId field layout, and
+    /// that a rejected handshake's HostProof stays all-zero.
+    /// </summary>
+    [Fact]
+    public void Handshake_ValidProof_ComputesExpectedHostProof()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var ownerLifetimeId = new OwnerLifetimeId(1, 2);
+        var session = new AdapterIpcSession(tracker, verifier, ownerLifetimeId);
+        byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
+        var hello = new IpcHelloMessage(
+            7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
+
+        AdapterHandshakeResult result = session.Handshake(hello);
+
+        Assert.True(result.Accepted);
+        Assert.Equal(IndependentlyComputedHostProof(hello, verifier.ExpectedToken), result.AckMessage.HostProof);
+    }
+
+    /// <summary>Verifies that a rejected handshake's HostProof is all-zero -- the host never computes a real proof for a peer it refuses.</summary>
+    [Fact]
+    public void Handshake_WrongProof_HostProofStaysAllZero()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var session = new AdapterIpcSession(tracker, verifier);
+        var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
+
+        AdapterHandshakeResult result = session.Handshake(hello);
+
+        Assert.Equal(new byte[Constants.IpcHostProofBytes], result.AckMessage.HostProof);
+    }
+
+    /// <summary>Verifies that a Hello with a matching proof but a mismatched owner-lifetime-id is rejected, even though the proof itself is correct.</summary>
+    [Fact]
+    public void Handshake_MatchingProofWrongLifetimeId_RejectsWithLifetimeMismatch()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var session = new AdapterIpcSession(tracker, verifier, new OwnerLifetimeId(1, 2));
+        var hello = new IpcHelloMessage(
+            7, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes());
+
+        AdapterHandshakeResult result = session.Handshake(hello);
+
+        Assert.False(result.Accepted);
+        Assert.False(result.AckMessage.Accepted);
+        Assert.Equal(IpcHelloRejectReason.LifetimeMismatch, result.AckMessage.RejectReason);
+        Assert.Null(session.ConnectionGeneration);
+        Assert.Equal(new byte[Constants.IpcHostProofBytes], result.AckMessage.HostProof);
+    }
+
+    /// <summary>Verifies that a Hello with a matching lifetime id but a mismatched proof is still rejected for the proof reason, not the lifetime.</summary>
+    [Fact]
+    public void Handshake_MatchingLifetimeIdWrongProof_RejectsWithInvalidProof()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var ownerLifetimeId = new OwnerLifetimeId(1, 2);
+        var session = new AdapterIpcSession(tracker, verifier, ownerLifetimeId);
+        var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3], ownerLifetimeId: ownerLifetimeId.ToBytes());
+
+        AdapterHandshakeResult result = session.Handshake(hello);
+
+        Assert.False(result.Accepted);
+        Assert.Equal(IpcHelloRejectReason.InvalidProof, result.AckMessage.RejectReason);
+    }
+
+    /// <summary>Independently recomputes the expected HostProof, mirroring the production byte layout without calling its private helper.</summary>
+    private static byte[] IndependentlyComputedHostProof(IpcHelloMessage hello, byte[] peerProofToken)
+    {
+        var message = new byte[Constants.IpcHostProofMessageBytes];
+        hello.Challenge.CopyTo(message, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), hello.CorrelationId);
+        hello.AdapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
+        hello.OwnerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
+
+        using var hmac = new HMACSHA256(peerProofToken);
+        return hmac.ComputeHash(message);
     }
 
     /// <summary>Verifies that a Hello with a mismatched proof is rejected without connecting the tracker.</summary>
@@ -60,6 +147,7 @@ public class AdapterIpcSessionTests
         Assert.False(result.Accepted);
         Assert.Equal(IpcHelloRejectReason.Malformed, result.AckMessage.RejectReason);
         Assert.Null(session.ConnectionGeneration);
+        Assert.Equal(new byte[Constants.IpcHostProofBytes], result.AckMessage.HostProof);
     }
 
     /// <summary>Verifies that the acknowledgement always carries the Hello's own correlation id, accepted or not.</summary>

@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Process;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
@@ -61,6 +64,13 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The verifier this session checks a connecting adapter's peer-ownership proof against.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
 
+    /// <summary>
+    /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
+    /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
+    /// before <see cref="HostProof"/> is ever computed for it.
+    /// </summary>
+    private readonly OwnerLifetimeId expectedOwnerLifetimeId;
+
     /// <summary>The connecting adapter's instance identity, set once the handshake succeeds.</summary>
     private AdapterInstanceId? instanceId;
 
@@ -79,10 +89,19 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>Creates a session for one connection attempt.</summary>
     /// <param name="tracker">The availability tracker this session reports connection transitions to.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
-    public AdapterIpcSession(IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier peerProofVerifier)
+    /// <param name="expectedOwnerLifetimeId">
+    /// The owning Skyrim process's lifetime identity this host process was launched with, or
+    /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
+    /// <see cref="IpcHelloMessage"/>'s own all-zero default for its <see cref="IpcHelloMessage.OwnerLifetimeId"/>).
+    /// </param>
+    public AdapterIpcSession(
+        IAdapterAvailabilityTracker tracker,
+        IAdapterPeerProofVerifier peerProofVerifier,
+        OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
         this.tracker = tracker;
         this.peerProofVerifier = peerProofVerifier;
+        this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
     /// <inheritdoc/>
@@ -101,9 +120,45 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             return new AdapterHandshakeResult(false, new IpcHelloAckMessage(hello.CorrelationId, false, IpcHelloRejectReason.InvalidProof));
         }
 
+        if (!hello.OwnerLifetimeId.AsSpan().SequenceEqual(expectedOwnerLifetimeId.ToBytes()))
+        {
+            return new AdapterHandshakeResult(
+                false, new IpcHelloAckMessage(hello.CorrelationId, false, IpcHelloRejectReason.LifetimeMismatch));
+        }
+
         instanceId = hello.AdapterInstanceId;
         connectionGeneration = tracker.NotifyConnected(hello.AdapterInstanceId);
-        return new AdapterHandshakeResult(true, new IpcHelloAckMessage(hello.CorrelationId, true, IpcHelloRejectReason.None));
+        byte[] hostProof = ComputeHostProof(hello);
+        return new AdapterHandshakeResult(true, new IpcHelloAckMessage(hello.CorrelationId, true, IpcHelloRejectReason.None, hostProof));
+    }
+
+    /// <summary>
+    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = the host's own expected
+    /// peer-proof token, message = Challenge || CorrelationId || AdapterInstanceId ||
+    /// OwnerLifetimeId)</c>, proving to the adapter that this host holds the shared secret. Only
+    /// called once the Hello's own proof and lifetime id have already been verified.
+    /// </summary>
+    /// <param name="hello">The verified Hello to compute the proof for.</param>
+    private byte[] ComputeHostProof(IpcHelloMessage hello)
+    {
+        byte[] message = BuildHostProofMessage(hello.Challenge, hello.CorrelationId, hello.AdapterInstanceId, hello.OwnerLifetimeId);
+        using var hmac = new HMACSHA256(peerProofVerifier.ExpectedToken);
+        return hmac.ComputeHash(message);
+    }
+
+    /// <summary>
+    /// Builds the fixed message a handshake's <c>HostProof</c> is computed over: <c>challenge ||
+    /// correlationId || adapterInstanceId || ownerLifetimeId</c>, in exactly this field order,
+    /// matching the wire's little-endian integer convention and the adapter's own construction.
+    /// </summary>
+    private static byte[] BuildHostProofMessage(byte[] challenge, ulong correlationId, AdapterInstanceId adapterInstanceId, byte[] ownerLifetimeId)
+    {
+        var message = new byte[Constants.IpcHostProofMessageBytes];
+        challenge.CopyTo(message, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), correlationId);
+        adapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
+        ownerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
+        return message;
     }
 
     /// <inheritdoc/>

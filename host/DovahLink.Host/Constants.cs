@@ -155,4 +155,11 @@ public static class Constants
 
     /// <summary>The byte length of <see cref="Adapter.Ipc.IpcHelloAckMessage"/>'s HMAC-SHA256 <c>HostProof</c>.</summary>
     public const int IpcHostProofBytes = 32;
+
+    /// <summary>
+    /// The fixed byte length of the message <c>HostProof</c> is computed over: <c>Challenge
+    /// (IpcChallengeBytes) || CorrelationId (8) || AdapterInstanceId (16) || OwnerLifetimeId
+    /// (IpcOwnerLifetimeIdBytes)</c>.
+    /// </summary>
+    public const int IpcHostProofMessageBytes = IpcChallengeBytes + 8 + 16 + IpcOwnerLifetimeIdBytes;
 }
