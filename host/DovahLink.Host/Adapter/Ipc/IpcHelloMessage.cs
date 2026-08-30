@@ -3,15 +3,28 @@ using DovahLink.Host.Identity;
 namespace DovahLink.Host.Adapter.Ipc;
 
 /// <summary>
-/// Sent by the connecting adapter to negotiate the private channel: the requested protocol version
-/// (carried in the frame header, not this payload), the adapter's own instance identity, and a
-/// bounded peer-ownership proof token. The proof's expected value and comparison policy belong to
-/// the host channel that consumes this message, not to this wire contract.
+/// Sent by the connecting adapter to establish the private channel: the adapter's own instance
+/// identity and a bounded peer-ownership proof token. The proof's expected value and comparison
+/// policy belong to the host channel that consumes this message, not to this wire contract.
 /// </summary>
-/// <param name="CorrelationId">Pairs this request with its <see cref="IpcHelloAckMessage"/> response.</param>
-/// <param name="AdapterInstanceId">The connecting adapter's instance identity.</param>
-/// <param name="PeerProofToken">
-/// The bounded peer-ownership proof, at most <see cref="Constants.MaxIpcPeerProofTokenBytes"/> bytes.
-/// </param>
-public sealed record IpcHelloMessage(ulong CorrelationId, AdapterInstanceId AdapterInstanceId, byte[] PeerProofToken)
-    : IpcMessage(CorrelationId);
+/// The correlation id pairs this request with its <see cref="IpcHelloAckMessage"/> response.
+public sealed record IpcHelloMessage : IpcMessage
+{
+    /// <summary>The connecting adapter's instance identity.</summary>
+    public AdapterInstanceId AdapterInstanceId { get; }
+
+    /// <summary>An owned copy of the bounded peer-ownership proof.</summary>
+    public byte[] PeerProofToken { get; }
+
+    /// <summary>Creates a Hello message and copies the caller's proof token into owned storage.</summary>
+    /// <param name="correlationId">Pairs this request with its response.</param>
+    /// <param name="adapterInstanceId">The connecting adapter's instance identity.</param>
+    /// <param name="peerProofToken">The bounded peer-ownership proof to copy.</param>
+    public IpcHelloMessage(ulong correlationId, AdapterInstanceId adapterInstanceId, byte[] peerProofToken)
+        : base(correlationId)
+    {
+        ArgumentNullException.ThrowIfNull(peerProofToken);
+        AdapterInstanceId = adapterInstanceId;
+        PeerProofToken = peerProofToken.ToArray();
+    }
+}

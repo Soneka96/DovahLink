@@ -6,9 +6,10 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// <summary>
 /// Encodes and decodes private host-to-adapter IPC frames. The wire layout is:
 /// a 4-byte little-endian frame length (the byte count of everything after this field), a 1-byte
-/// protocol version, a 1-byte message kind, an 8-byte little-endian correlation id, then a
-/// kind-specific payload. This codec performs no I/O; it operates on already-read frame bytes and
-/// produces owned plain values only.
+/// message kind, an 8-byte little-endian correlation id, then a kind-specific payload. Host and
+/// adapter are shipped as one package; peer ownership and lifetime proof determine whether the
+/// connection belongs to this installation. This codec performs no I/O; it operates on already-read
+/// frame bytes and produces owned plain values only.
 /// </summary>
 public interface IIpcFrameCodec
 {
@@ -45,18 +46,17 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcResynchronizeRequestMessage => (IpcMessageKind.ResynchronizeRequest, Array.Empty<byte>()),
             IpcResynchronizeResultMessage resynchronizeResult =>
                 (IpcMessageKind.ResynchronizeResult, new byte[] { resynchronizeResult.Accepted ? (byte)1 : (byte)0 }),
-            IpcCloseMessage close => (IpcMessageKind.Close, new byte[] { (byte)close.Reason }),
+            IpcCloseMessage close => (IpcMessageKind.Close, EncodeClose(close)),
             IpcRejectMessage reject => (IpcMessageKind.Reject, new byte[] { (byte)reject.Reason }),
-            IpcCancelMessage => (IpcMessageKind.Cancel, Array.Empty<byte>()),
+            IpcCancelMessage cancel => (IpcMessageKind.Cancel, EncodeCancel(cancel)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
         int totalLength = Constants.IpcFrameHeaderBytes + payload.Length;
         var frame = new byte[sizeof(uint) + totalLength];
         BinaryPrimitives.WriteUInt32LittleEndian(frame, (uint)totalLength);
-        frame[4] = Constants.SupportedIpcProtocolVersion;
-        frame[5] = (byte)kind;
-        BinaryPrimitives.WriteUInt64LittleEndian(frame.AsSpan(6, 8), message.CorrelationId);
+        frame[4] = (byte)kind;
+        BinaryPrimitives.WriteUInt64LittleEndian(frame.AsSpan(5, 8), message.CorrelationId);
         payload.CopyTo(frame.AsSpan(Constants.IpcFrameHeaderBytes + sizeof(uint)));
         return frame;
     }
@@ -89,19 +89,13 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedFrameLength);
         }
 
-        byte version = frame[0];
-        if (version != Constants.SupportedIpcProtocolVersion)
-        {
-            return IpcDecodeResult.Failure(IpcRejectReason.UnsupportedProtocolVersion);
-        }
-
-        byte kindByte = frame[1];
+        byte kindByte = frame[0];
         if (!Enum.IsDefined((IpcMessageKind)kindByte))
         {
             return IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind);
         }
 
-        ulong correlationId = BinaryPrimitives.ReadUInt64LittleEndian(frame.Slice(2, sizeof(ulong)));
+        ulong correlationId = BinaryPrimitives.ReadUInt64LittleEndian(frame.Slice(1, sizeof(ulong)));
         ReadOnlySpan<byte> payload = frame[Constants.IpcFrameHeaderBytes..];
 
         return (IpcMessageKind)kindByte switch
@@ -114,9 +108,9 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.ResynchronizeResult => DecodeResynchronizeResult(correlationId, payload),
             IpcMessageKind.Close => DecodeClose(correlationId, payload),
             IpcMessageKind.Reject => DecodeReject(correlationId, payload),
-            IpcMessageKind.Cancel => payload.IsEmpty
-                ? IpcDecodeResult.Success(new IpcCancelMessage(correlationId))
-                : IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload),
+            IpcMessageKind.Cancel => correlationId == 0 || !payload.IsEmpty
+                ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
+                : IpcDecodeResult.Success(new IpcCancelMessage(correlationId)),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -137,9 +131,50 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         return payload;
     }
 
-    /// <summary>Encodes an <see cref="IpcHelloAckMessage"/> payload: accepted, negotiated version, reject reason.</summary>
-    private static byte[] EncodeHelloAck(IpcHelloAckMessage helloAck) =>
-        [helloAck.Accepted ? (byte)1 : (byte)0, helloAck.NegotiatedProtocolVersion, (byte)helloAck.RejectReason];
+    /// <summary>Encodes an <see cref="IpcHelloAckMessage"/> payload: accepted and reject reason.</summary>
+    private static byte[] EncodeHelloAck(IpcHelloAckMessage helloAck)
+    {
+        ValidateHelloAck(helloAck);
+        return [helloAck.Accepted ? (byte)1 : (byte)0, (byte)helloAck.RejectReason];
+    }
+
+    /// <summary>Validates the semantic relationship between HelloAck fields.</summary>
+    /// <param name="helloAck">The acknowledgement to validate.</param>
+    /// <exception cref="ArgumentException">Thrown when the acknowledgement is inconsistent with the supported protocol.</exception>
+    private static void ValidateHelloAck(IpcHelloAckMessage helloAck)
+    {
+        bool hasRejectReason = helloAck.RejectReason != IpcHelloRejectReason.None;
+        if (helloAck.Accepted == hasRejectReason)
+        {
+            throw new ArgumentException("An accepted HelloAck must have no reject reason, and a rejected HelloAck must have one.", nameof(helloAck));
+        }
+    }
+
+    /// <summary>Encodes a close message after enforcing its unsolicited-message correlation rule.</summary>
+    /// <param name="close">The close message to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the close carries a nonzero correlation id.</exception>
+    private static byte[] EncodeClose(IpcCloseMessage close)
+    {
+        if (close.CorrelationId != 0)
+        {
+            throw new ArgumentException("A close message must have correlation id zero.", nameof(close));
+        }
+
+        return [(byte)close.Reason];
+    }
+
+    /// <summary>Encodes a cancellation after enforcing its required request correlation.</summary>
+    /// <param name="cancel">The cancellation message to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the cancellation has correlation id zero.</exception>
+    private static byte[] EncodeCancel(IpcCancelMessage cancel)
+    {
+        if (cancel.CorrelationId == 0)
+        {
+            throw new ArgumentException("A cancel message must identify a nonzero request correlation id.", nameof(cancel));
+        }
+
+        return Array.Empty<byte>();
+    }
 
     /// <summary>Decodes an <see cref="IpcHelloMessage"/> payload, validating the bounded token length.</summary>
     private static IpcDecodeResult DecodeHello(ulong correlationId, ReadOnlySpan<byte> payload)
@@ -168,13 +203,20 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
     /// <summary>Decodes an <see cref="IpcHelloAckMessage"/> payload, validating its boolean and enum fields.</summary>
     private static IpcDecodeResult DecodeHelloAck(ulong correlationId, ReadOnlySpan<byte> payload)
     {
-        if (payload.Length != 3 || payload[0] > 1 || !Enum.IsDefined((IpcHelloRejectReason)payload[2]))
+        if (payload.Length != 2 || payload[0] > 1 || !Enum.IsDefined((IpcHelloRejectReason)payload[1]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        bool accepted = payload[0] == 1;
+        bool hasRejectReason = (IpcHelloRejectReason)payload[1] != IpcHelloRejectReason.None;
+        if (accepted == hasRejectReason)
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
 
         return IpcDecodeResult.Success(
-            new IpcHelloAckMessage(correlationId, payload[0] == 1, payload[1], (IpcHelloRejectReason)payload[2]));
+            new IpcHelloAckMessage(correlationId, accepted, (IpcHelloRejectReason)payload[1]));
     }
 
     /// <summary>Decodes an <see cref="IpcResynchronizeResultMessage"/> payload, validating its boolean field.</summary>
@@ -191,7 +233,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
     /// <summary>Decodes an <see cref="IpcCloseMessage"/> payload, validating its reason enum.</summary>
     private static IpcDecodeResult DecodeClose(ulong correlationId, ReadOnlySpan<byte> payload)
     {
-        if (payload.Length != 1 || !Enum.IsDefined((IpcCloseReason)payload[0]))
+        if (correlationId != 0 || payload.Length != 1 || !Enum.IsDefined((IpcCloseReason)payload[0]))
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }

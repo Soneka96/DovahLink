@@ -7,14 +7,8 @@ namespace dovahlink::adapter::ipc {
 
 //  ---- Framing ----
 
-///  The private host-to-adapter IPC protocol version this build supports. A
-///  frame declaring any other version fails closed rather than being
-///  interpreted.
-inline constexpr std::uint8_t kSupportedIpcProtocolVersion = 1;
-
-///  The fixed byte length of an IPC frame header (protocol version, kind, and
-///  correlation id).
-inline constexpr std::size_t kIpcFrameHeaderBytes = 10;
+///  The fixed byte length of an IPC frame header (kind and correlation id).
+inline constexpr std::size_t kIpcFrameHeaderBytes = 9;
 
 //  ---- Limits ----
 

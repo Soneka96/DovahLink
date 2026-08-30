@@ -89,14 +89,8 @@ public static class Constants
 
     // ---- Adapter IPC ----
 
-    /// <summary>
-    /// The private host-to-adapter IPC protocol version this build supports. A frame declaring any
-    /// other version fails closed rather than being interpreted.
-    /// </summary>
-    public const byte SupportedIpcProtocolVersion = 1;
-
-    /// <summary>The fixed byte length of an IPC frame header (protocol version, kind, and correlation id).</summary>
-    public const int IpcFrameHeaderBytes = 10;
+    /// <summary>The fixed byte length of an IPC frame header (kind and correlation id).</summary>
+    public const int IpcFrameHeaderBytes = 9;
 
     /// <summary>
     /// The maximum total byte length (header plus payload) of one private IPC frame. Approved as a

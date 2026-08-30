@@ -24,7 +24,7 @@ public class IpcFrameCodecTests
     public void RoundTrip_Hello_WithToken()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloMessage(CorrelationId: 7, AdapterInstanceId.NewId(), PeerProofToken: [1, 2, 3, 4]);
+        var original = new IpcHelloMessage(correlationId: 7, AdapterInstanceId.NewId(), peerProofToken: [1, 2, 3, 4]);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -35,12 +35,40 @@ public class IpcFrameCodecTests
         Assert.True(original.PeerProofToken.SequenceEqual(decoded.PeerProofToken));
     }
 
+    /// <summary>Verifies that constructing a Hello takes ownership of a copy rather than the caller's mutable array.</summary>
+    [Fact]
+    public void Hello_CopiesPeerProofTokenOnConstruction()
+    {
+        byte[] sourceToken = [1, 2, 3];
+        var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), sourceToken);
+        sourceToken[0] = 99;
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, message.PeerProofToken);
+    }
+
+    /// <summary>Verifies that decoding a Hello copies identity and token bytes out of the source frame.</summary>
+    [Fact]
+    public void Decode_Hello_OwnsDecodedBytes()
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcHelloMessage(1, AdapterInstanceId.NewId(), [1, 2, 3]);
+        byte[] frame = codec.Encode(original);
+
+        IpcDecodeResult result = codec.Decode(frame.AsSpan(4));
+        var decoded = Assert.IsType<IpcHelloMessage>(result.Message);
+        frame[13] = 99;
+        frame[30] = 99;
+
+        Assert.Equal(original.AdapterInstanceId, decoded.AdapterInstanceId);
+        Assert.Equal(new byte[] { 1, 2, 3 }, decoded.PeerProofToken);
+    }
+
     /// <summary>Verifies that a Hello with an empty peer-proof token round-trips.</summary>
     [Fact]
     public void RoundTrip_Hello_EmptyToken()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloMessage(1, AdapterInstanceId.NewId(), PeerProofToken: []);
+        var original = new IpcHelloMessage(1, AdapterInstanceId.NewId(), peerProofToken: []);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -67,22 +95,41 @@ public class IpcFrameCodecTests
     public void RoundTrip_HelloAck_Accepted()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloAckMessage(1, Accepted: true, Constants.SupportedIpcProtocolVersion, IpcHelloRejectReason.None);
+        var original = new IpcHelloAckMessage(1, Accepted: true, IpcHelloRejectReason.None);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that encoding an accepted HelloAck with a rejection reason fails closed.</summary>
+    [Fact]
+    public void Encode_HelloAck_AcceptedWithRejectReason_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcHelloAckMessage(1, Accepted: true, IpcHelloRejectReason.InvalidProof);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that encoding a rejected HelloAck without a rejection reason fails closed.</summary>
+    [Fact]
+    public void Encode_HelloAck_RejectedWithoutRejectReason_Throws()
+    {
+        var codec = new IpcFrameCodec();
+        var message = new IpcHelloAckMessage(1, Accepted: false, IpcHelloRejectReason.None);
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
     /// <summary>Verifies that a rejected HelloAck round-trips for every non-<see cref="IpcHelloRejectReason.None"/> reason.</summary>
     [Theory]
-    [InlineData(IpcHelloRejectReason.UnsupportedProtocolVersion)]
     [InlineData(IpcHelloRejectReason.InvalidProof)]
     [InlineData(IpcHelloRejectReason.Malformed)]
     public void RoundTrip_HelloAck_Rejected(IpcHelloRejectReason reason)
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloAckMessage(1, Accepted: false, Constants.SupportedIpcProtocolVersion, reason);
+        var original = new IpcHelloAckMessage(1, Accepted: false, reason);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
@@ -133,7 +180,6 @@ public class IpcFrameCodecTests
     /// <summary>Verifies that a Reject message round-trips for every defined reject reason.</summary>
     [Theory]
     [InlineData(IpcRejectReason.MalformedFrameLength)]
-    [InlineData(IpcRejectReason.UnsupportedProtocolVersion)]
     [InlineData(IpcRejectReason.UnknownMessageKind)]
     [InlineData(IpcRejectReason.InvalidIdentity)]
     [InlineData(IpcRejectReason.MalformedPayload)]
@@ -159,16 +205,14 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
-    /// <summary>Verifies that a zero correlation id (unsolicited) round-trips.</summary>
+    /// <summary>Verifies that encoding a cancellation with zero correlation id fails closed.</summary>
     [Fact]
-    public void RoundTrip_PreservesCorrelationId_Zero()
+    public void Encode_Cancel_ZeroCorrelationId_Throws()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcCancelMessage(0);
+        var message = new IpcCancelMessage(0);
 
-        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
-
-        Assert.Equal(0UL, result.Message!.CorrelationId);
+        Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
 
     /// <summary>Verifies that a large, non-zero correlation id round-trips exactly.</summary>
@@ -206,6 +250,15 @@ public class IpcFrameCodecTests
         var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), oversizedToken);
 
         Assert.Throws<ArgumentException>(() => codec.Encode(message));
+    }
+
+    /// <summary>Verifies that encoding a close with a nonzero correlation id fails closed.</summary>
+    [Fact]
+    public void Encode_Close_NonZeroCorrelationId_Throws()
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcCloseMessage(1, IpcCloseReason.Normal)));
     }
 
     // ---- TryReadFrameLength ----
@@ -270,27 +323,13 @@ public class IpcFrameCodecTests
 
     // ---- Decode failures ----
 
-    /// <summary>Verifies that a frame declaring an unsupported protocol version fails closed.</summary>
-    [Fact]
-    public void Decode_UnsupportedVersion_FailsClosed()
-    {
-        var codec = new IpcFrameCodec();
-        byte[] frame = codec.Encode(new IpcCancelMessage(1));
-        frame[4] = unchecked((byte)(Constants.SupportedIpcProtocolVersion + 1));
-
-        IpcDecodeResult result = codec.Decode(frame.AsSpan(4));
-
-        Assert.Null(result.Message);
-        Assert.Equal(IpcRejectReason.UnsupportedProtocolVersion, result.FailureReason);
-    }
-
     /// <summary>Verifies that a frame declaring an unrecognized message kind fails closed.</summary>
     [Fact]
     public void Decode_UnknownKind_FailsClosed()
     {
         var codec = new IpcFrameCodec();
         byte[] frame = codec.Encode(new IpcCancelMessage(1));
-        frame[5] = 250;
+        frame[4] = 250;
 
         IpcDecodeResult result = codec.Decode(frame.AsSpan(4));
 
@@ -364,7 +403,33 @@ public class IpcFrameCodecTests
     public void Decode_HelloAck_InvalidAcceptedByte_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [2, 1, 0]);
+        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [2, 0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that an accepted HelloAck cannot carry a rejection reason.</summary>
+    [Fact]
+    public void Decode_HelloAck_AcceptedWithRejectReason_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1,
+            new byte[] { 1, (byte)IpcHelloRejectReason.InvalidProof });
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a rejected HelloAck must carry a rejection reason.</summary>
+    [Fact]
+    public void Decode_HelloAck_RejectedWithoutRejectReason_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1,
+            new byte[] { 0, (byte)IpcHelloRejectReason.None });
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -376,17 +441,17 @@ public class IpcFrameCodecTests
     public void Decode_HelloAck_UnknownRejectReason_FailsClosed()
     {
         var codec = new IpcFrameCodec();
-        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [0, 1, 250]);
+        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [0, 250]);
 
         IpcDecodeResult result = codec.Decode(frame);
 
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
-    /// <summary>Verifies that a HelloAck payload of the wrong length fails closed, both shorter and longer than the fixed 3-byte shape.</summary>
+    /// <summary>Verifies that a HelloAck payload of the wrong length fails closed, both shorter and longer than the fixed 2-byte shape.</summary>
     [Theory]
-    [InlineData(new byte[] { 0, 1 })]
-    [InlineData(new byte[] { 0, 1, 0, 0 })]
+    [InlineData(new byte[] { 0 })]
+    [InlineData(new byte[] { 0, 1, 0 })]
     public void Decode_HelloAck_WrongPayloadLength_FailsClosed(byte[] payload)
     {
         var codec = new IpcFrameCodec();
@@ -427,6 +492,18 @@ public class IpcFrameCodecTests
     {
         var codec = new IpcFrameCodec();
         byte[] frame = BuildFrame(IpcMessageKind.Close, correlationId: 0, [250]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a close carrying a correlation id fails closed because close is unsolicited.</summary>
+    [Fact]
+    public void Decode_Close_NonZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.Close, correlationId: 1, new byte[] { (byte)IpcCloseReason.Normal });
 
         IpcDecodeResult result = codec.Decode(frame);
 
@@ -485,6 +562,18 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a cancellation without a target request fails closed.</summary>
+    [Fact]
+    public void Decode_Cancel_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.Cancel, correlationId: 0, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     // ---- Idempotence and robustness ----
 
     /// <summary>Verifies that decoding the same Close frame repeatedly is side-effect-free and never throws.</summary>
@@ -517,8 +606,8 @@ public class IpcFrameCodecTests
     [Theory]
     [InlineData(new byte[] { })]
     [InlineData(new byte[] { 0xFF })]
-    [InlineData(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 })]
-    [InlineData(new byte[] { 1, 250, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3 })]
+    [InlineData(new byte[] { 0, 0, 0, 0, 0, 0, 0, 0, 0 })]
+    [InlineData(new byte[] { 250, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3 })]
     public void Decode_GarbageBytes_NeverThrows(byte[] garbage)
     {
         var codec = new IpcFrameCodec();
@@ -532,9 +621,8 @@ public class IpcFrameCodecTests
     private static byte[] BuildFrame(IpcMessageKind kind, ulong correlationId, byte[] payload)
     {
         var frame = new byte[Constants.IpcFrameHeaderBytes + payload.Length];
-        frame[0] = Constants.SupportedIpcProtocolVersion;
-        frame[1] = (byte)kind;
-        BinaryPrimitives.WriteUInt64LittleEndian(frame.AsSpan(2, 8), correlationId);
+        frame[0] = (byte)kind;
+        BinaryPrimitives.WriteUInt64LittleEndian(frame.AsSpan(1, 8), correlationId);
         payload.CopyTo(frame, Constants.IpcFrameHeaderBytes);
         return frame;
     }

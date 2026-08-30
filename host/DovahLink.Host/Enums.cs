@@ -213,17 +213,14 @@ public enum IpcRejectReason : byte
     /// <summary>The frame's declared length is impossible or exceeds the configured limit.</summary>
     MalformedFrameLength = 0,
 
-    /// <summary>The frame's protocol version is not the version this side supports.</summary>
-    UnsupportedProtocolVersion = 1,
-
     /// <summary>The frame's message kind is not a recognized value.</summary>
-    UnknownMessageKind = 2,
+    UnknownMessageKind = 1,
 
     /// <summary>A peer-ownership proof in the payload is structurally invalid.</summary>
-    InvalidIdentity = 3,
+    InvalidIdentity = 2,
 
     /// <summary>The payload bytes do not match the fixed or declared layout for the frame's kind.</summary>
-    MalformedPayload = 4,
+    MalformedPayload = 3,
 }
 
 /// <summary>Why the host rejected an <see cref="Adapter.Ipc.IpcHelloMessage"/> negotiation.</summary>
@@ -232,12 +229,9 @@ public enum IpcHelloRejectReason : byte
     /// <summary>Negotiation was not rejected; used only when the hello was accepted.</summary>
     None = 0,
 
-    /// <summary>The requested protocol version is not supported.</summary>
-    UnsupportedProtocolVersion = 1,
-
     /// <summary>The peer-ownership proof did not match the expected value.</summary>
-    InvalidProof = 2,
+    InvalidProof = 1,
 
     /// <summary>The hello payload was structurally invalid.</summary>
-    Malformed = 3,
+    Malformed = 2,
 }

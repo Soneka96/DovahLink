@@ -7,11 +7,10 @@
 
 namespace dovahlink::adapter::ipc {
 
-///  Sent by the connecting adapter to negotiate the private channel: the
-///  requested protocol version (carried in the frame header, not this payload),
-///  the adapter's own instance identity, and a bounded peer-ownership proof
-///  token. The proof's expected value and comparison policy belong to the host
-///  channel that consumes this message, not to this wire contract.
+///  Sent by the connecting adapter to establish the private channel: the
+///  adapter's own instance identity and a bounded peer-ownership proof token.
+///  The proof's expected value and comparison policy belong to the host channel
+///  that consumes this message, not to this wire contract.
 struct IpcHelloMessage {
   ///  Pairs this request with its `IpcHelloAckMessage` response.
   std::uint64_t correlationId = 0;

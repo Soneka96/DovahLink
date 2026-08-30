@@ -12,8 +12,6 @@ struct IpcHelloAckMessage {
   std::uint64_t correlationId = 0;
   ///  Whether the host accepted the connection.
   bool accepted = false;
-  ///  The protocol version the host will use for this connection.
-  std::uint8_t negotiatedProtocolVersion = 0;
   ///  The negotiation failure reason when `accepted` is `false`; otherwise
   ///  `IpcHelloRejectReason::kNone`.
   IpcHelloRejectReason rejectReason = IpcHelloRejectReason::kNone;

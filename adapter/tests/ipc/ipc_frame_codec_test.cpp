@@ -37,7 +37,6 @@ using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
 using dovahlink::adapter::ipc::kIpcFrameHeaderBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
-using dovahlink::adapter::ipc::kSupportedIpcProtocolVersion;
 
 namespace {
 
@@ -79,10 +78,9 @@ std::vector<std::byte> BuildFrame(IpcMessageKind kind,
                                   std::uint64_t correlationId,
                                   const std::vector<std::byte> &payload) {
   std::vector<std::byte> frame(kIpcFrameHeaderBytes + payload.size());
-  frame[0] = static_cast<std::byte>(kSupportedIpcProtocolVersion);
-  frame[1] = static_cast<std::byte>(std::to_underlying(kind));
+  frame[0] = static_cast<std::byte>(std::to_underlying(kind));
   for (int index = 0; index < 8; ++index) {
-    frame[2 + static_cast<std::size_t>(index)] =
+    frame[1 + static_cast<std::size_t>(index)] =
         static_cast<std::byte>((correlationId >> (8 * index)) & 0xFF);
   }
   std::ranges::copy(payload, frame.begin() + static_cast<std::ptrdiff_t>(
@@ -105,6 +103,23 @@ TEST_CASE("hello with a token round-trips", "[ipc][ipc_frame_codec]") {
 
   REQUIRE(result.has_value());
   CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("decoded hello owns its token bytes", "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  IpcHelloMessage original{
+      .correlationId = 7,
+      .adapterInstanceId = SampleInstanceId(),
+      .peerProofToken = {std::byte{1}, std::byte{2}, std::byte{3}}};
+  std::vector<std::byte> frameBytes = codec.Encode(IpcMessage{original});
+
+  auto result = codec.Decode(std::span(frameBytes).subspan(4));
+
+  REQUIRE(result.has_value());
+  auto *decoded = std::get_if<IpcHelloMessage>(&*result);
+  REQUIRE(decoded != nullptr);
+  frameBytes.back() = std::byte{99};
+  CHECK(decoded->peerProofToken == original.peerProofToken);
 }
 
 TEST_CASE("hello with an empty token round-trips", "[ipc][ipc_frame_codec]") {
@@ -140,8 +155,6 @@ TEST_CASE("accepted hello-ack round-trips", "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
   IpcHelloAckMessage original{.correlationId = 1,
                               .accepted = true,
-                              .negotiatedProtocolVersion =
-                                  kSupportedIpcProtocolVersion,
                               .rejectReason = IpcHelloRejectReason::kNone};
 
   auto result = EncodeThenDecode(codec, IpcMessage{original});
@@ -150,18 +163,34 @@ TEST_CASE("accepted hello-ack round-trips", "[ipc][ipc_frame_codec]") {
   CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("encoding an accepted hello-ack with a reject reason throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  IpcHelloAckMessage message{.correlationId = 1,
+                             .accepted = true,
+                             .rejectReason =
+                                 IpcHelloRejectReason::kInvalidProof};
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{message}), std::invalid_argument);
+}
+
+TEST_CASE("encoding a rejected hello-ack without a reject reason throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  IpcHelloAckMessage message{.correlationId = 1,
+                             .accepted = false,
+                             .rejectReason = IpcHelloRejectReason::kNone};
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{message}), std::invalid_argument);
+}
+
 TEST_CASE("rejected hello-ack round-trips for every reject reason",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (IpcHelloRejectReason reason :
-       {IpcHelloRejectReason::kUnsupportedProtocolVersion,
-        IpcHelloRejectReason::kInvalidProof,
-        IpcHelloRejectReason::kMalformed}) {
-    IpcHelloAckMessage original{.correlationId = 1,
-                                .accepted = false,
-                                .negotiatedProtocolVersion =
-                                    kSupportedIpcProtocolVersion,
-                                .rejectReason = reason};
+  for (IpcHelloRejectReason reason : {IpcHelloRejectReason::kInvalidProof,
+                                      IpcHelloRejectReason::kMalformed}) {
+    IpcHelloAckMessage original{
+        .correlationId = 1, .accepted = false, .rejectReason = reason};
 
     auto result = EncodeThenDecode(codec, IpcMessage{original});
 
@@ -214,7 +243,6 @@ TEST_CASE("reject round-trips for every reject reason",
   IpcFrameCodec codec;
   for (IpcRejectReason reason : {
            IpcRejectReason::kMalformedFrameLength,
-           IpcRejectReason::kUnsupportedProtocolVersion,
            IpcRejectReason::kUnknownMessageKind,
            IpcRejectReason::kInvalidIdentity,
            IpcRejectReason::kMalformedPayload,
@@ -238,16 +266,13 @@ TEST_CASE("cancel round-trips", "[ipc][ipc_frame_codec]") {
   CHECK(*result == IpcMessage{original});
 }
 
-TEST_CASE("zero correlation id round-trips", "[ipc][ipc_frame_codec]") {
+TEST_CASE("encoding a cancel with zero correlation id throws",
+          "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
 
-  auto result =
-      EncodeThenDecode(codec, IpcMessage{IpcCancelMessage{.correlationId = 0}});
-
-  REQUIRE(result.has_value());
-  auto *cancel = std::get_if<IpcCancelMessage>(&*result);
-  REQUIRE(cancel != nullptr);
-  CHECK(cancel->correlationId == 0);
+  CHECK_THROWS_AS(
+      codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 0}}),
+      std::invalid_argument);
 }
 
 TEST_CASE("maximum correlation id round-trips exactly",
@@ -276,6 +301,15 @@ TEST_CASE("encoding a hello with an oversized token throws",
                           .peerProofToken = oversizedToken};
 
   CHECK_THROWS_AS(codec.Encode(IpcMessage{message}), std::invalid_argument);
+}
+
+TEST_CASE("encoding a close with nonzero correlation id throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcCloseMessage{
+                      .correlationId = 1, .reason = IpcCloseReason::kNormal}}),
+                  std::invalid_argument);
 }
 
 //  ---- TryReadFrameLength ----
@@ -333,26 +367,13 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 
 //  ---- Decode failures ----
 
-TEST_CASE("a frame declaring an unsupported protocol version fails closed",
-          "[ipc][ipc_frame_codec]") {
-  IpcFrameCodec codec;
-  std::vector<std::byte> frame =
-      codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
-  frame[4] = static_cast<std::byte>(kSupportedIpcProtocolVersion + 1);
-
-  auto result = codec.Decode(std::span(frame).subspan(4));
-
-  REQUIRE_FALSE(result.has_value());
-  CHECK(result.error() == IpcRejectReason::kUnsupportedProtocolVersion);
-}
-
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
   for (std::byte kindByte : {std::byte{0}, std::byte{8}, std::byte{250}}) {
     std::vector<std::byte> frame =
         codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
-    frame[5] = kindByte;
+    frame[4] = kindByte;
 
     auto result = codec.Decode(std::span(frame).subspan(4));
 
@@ -430,9 +451,35 @@ TEST_CASE("a hello payload whose declared token length exceeds the bound fails "
 TEST_CASE("a hello-ack payload with an out-of-range accepted byte fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  std::vector<std::byte> payload{std::byte{2}, std::byte{1}, std::byte{0}};
+  std::vector<std::byte> payload{std::byte{2}, std::byte{0}};
   std::vector<std::byte> frame =
       BuildFrame(IpcMessageKind::kHelloAck, 1, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("an accepted hello-ack with a reject reason fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kHelloAck, 1,
+                 {std::byte{1}, std::byte{static_cast<std::uint8_t>(
+                                    IpcHelloRejectReason::kInvalidProof)}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a rejected hello-ack without a reject reason fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kHelloAck, 1, {std::byte{0}, std::byte{0}});
 
   auto result = codec.Decode(frame);
 
@@ -444,7 +491,7 @@ TEST_CASE("a hello-ack payload with an unrecognized reject reason fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
   for (std::byte reasonByte : {std::byte{4}, std::byte{250}}) {
-    std::vector<std::byte> payload{std::byte{0}, std::byte{1}, reasonByte};
+    std::vector<std::byte> payload{std::byte{0}, reasonByte};
     std::vector<std::byte> frame =
         BuildFrame(IpcMessageKind::kHelloAck, 1, payload);
 
@@ -459,7 +506,7 @@ TEST_CASE("a hello-ack payload of the wrong length fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
   for (std::size_t payloadSize :
-       {std::size_t{0}, std::size_t{2}, std::size_t{4}}) {
+       {std::size_t{0}, std::size_t{1}, std::size_t{3}}) {
     std::vector<std::byte> frame = BuildFrame(
         IpcMessageKind::kHelloAck, 1, std::vector<std::byte>(payloadSize));
 
@@ -509,6 +556,19 @@ TEST_CASE("a close payload with an unrecognized reason fails closed",
   }
 }
 
+TEST_CASE("a close with nonzero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame = BuildFrame(
+      IpcMessageKind::kClose, 1,
+      {std::byte{static_cast<std::uint8_t>(IpcCloseReason::kNormal)}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("a close payload of the wrong length fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -556,6 +616,17 @@ TEST_CASE("a cancel message carrying an unexpected payload fails closed",
   IpcFrameCodec codec;
   std::vector<std::byte> frame =
       BuildFrame(IpcMessageKind::kCancel, 1, {std::byte{0}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("a cancel with zero correlation id fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::vector<std::byte> frame = BuildFrame(IpcMessageKind::kCancel, 0, {});
 
   auto result = codec.Decode(frame);
 

@@ -14,10 +14,12 @@ namespace dovahlink::adapter::ipc {
 
 ///  Encodes and decodes private host-to-adapter IPC frames. The wire layout is:
 ///  a 4-byte little-endian frame length (the byte count of everything after
-///  this field), a 1-byte protocol version, a 1-byte message kind, an 8-byte
-///  little-endian correlation id, then a kind-specific payload. This codec
-///  performs no I/O; it operates on already-read frame bytes and produces owned
-///  plain values only.
+///  this field), a 1-byte message kind, an 8-byte little-endian correlation id,
+///  then a kind-specific payload. Host and adapter are shipped as one package;
+///  peer ownership and lifetime proof, rather than a negotiated protocol
+///  version, determine whether the connection belongs to this installation.
+///  This codec performs no I/O; it operates on already-read frame bytes and
+///  produces owned plain values only.
 class IIpcFrameCodec {
 public:
   virtual ~IIpcFrameCodec() = default;

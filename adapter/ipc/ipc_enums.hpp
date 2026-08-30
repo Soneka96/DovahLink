@@ -46,27 +46,23 @@ enum class IpcRejectReason : std::uint8_t {
   ///  The frame's declared length is impossible or exceeds the configured
   ///  limit.
   kMalformedFrameLength = 0,
-  ///  The frame's protocol version is not the version this side supports.
-  kUnsupportedProtocolVersion = 1,
   ///  The frame's message kind is not a recognized value.
-  kUnknownMessageKind = 2,
+  kUnknownMessageKind = 1,
   ///  A peer-ownership proof in the payload is structurally invalid.
-  kInvalidIdentity = 3,
+  kInvalidIdentity = 2,
   ///  The payload bytes do not match the fixed or declared layout for the
   ///  frame's kind.
-  kMalformedPayload = 4,
+  kMalformedPayload = 3,
 };
 
 ///  Why the host rejected an `IpcHelloMessage` negotiation.
 enum class IpcHelloRejectReason : std::uint8_t {
   ///  Negotiation was not rejected; used only when the hello was accepted.
   kNone = 0,
-  ///  The requested protocol version is not supported.
-  kUnsupportedProtocolVersion = 1,
   ///  The peer-ownership proof did not match the expected value.
-  kInvalidProof = 2,
+  kInvalidProof = 1,
   ///  The hello payload was structurally invalid.
-  kMalformed = 3,
+  kMalformed = 2,
 };
 
 } //  namespace dovahlink::adapter::ipc

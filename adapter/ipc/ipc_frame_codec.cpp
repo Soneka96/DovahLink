@@ -87,9 +87,16 @@ IpcFrameCodec::EncodeHello(const IpcHelloMessage &hello) {
 
 std::vector<std::byte>
 IpcFrameCodec::EncodeHelloAck(const IpcHelloAckMessage &helloAck) {
+  const bool hasRejectReason =
+      helloAck.rejectReason != IpcHelloRejectReason::kNone;
+  if (helloAck.accepted == hasRejectReason) {
+    throw std::invalid_argument(
+        "An accepted HelloAck must have no reject reason, and a rejected "
+        "HelloAck must have one.");
+  }
+
   return {
       static_cast<std::byte>(helloAck.accepted ? 1 : 0),
-      static_cast<std::byte>(helloAck.negotiatedProtocolVersion),
       static_cast<std::byte>(std::to_underlying(helloAck.rejectReason)),
   };
 }
@@ -116,12 +123,20 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
           kind = IpcMessageKind::kResynchronizeResult;
           payload = {static_cast<std::byte>(value.accepted ? 1 : 0)};
         } else if constexpr (std::is_same_v<T, IpcCloseMessage>) {
+          if (value.correlationId != 0) {
+            throw std::invalid_argument(
+                "A close message must have correlation id zero.");
+          }
           kind = IpcMessageKind::kClose;
           payload = {static_cast<std::byte>(std::to_underlying(value.reason))};
         } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
           kind = IpcMessageKind::kReject;
           payload = {static_cast<std::byte>(std::to_underlying(value.reason))};
         } else if constexpr (std::is_same_v<T, IpcCancelMessage>) {
+          if (value.correlationId == 0) {
+            throw std::invalid_argument("A cancel message must identify a "
+                                        "nonzero request correlation id.");
+          }
           kind = IpcMessageKind::kCancel;
         }
       },
@@ -132,9 +147,8 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
   std::vector<std::byte> frame(sizeof(std::uint32_t) + totalLength);
   WriteUInt32LittleEndian(std::span<std::byte, 4>(frame.data(), 4),
                           totalLength);
-  frame[4] = static_cast<std::byte>(kSupportedIpcProtocolVersion);
-  frame[5] = static_cast<std::byte>(std::to_underlying(kind));
-  WriteUInt64LittleEndian(std::span<std::byte, 8>(frame.data() + 6, 8),
+  frame[4] = static_cast<std::byte>(std::to_underlying(kind));
+  WriteUInt64LittleEndian(std::span<std::byte, 8>(frame.data() + 5, 8),
                           correlationId);
   std::ranges::copy(payload, frame.begin() + static_cast<std::ptrdiff_t>(
                                                  kIpcFrameHeaderBytes +
@@ -185,20 +199,27 @@ IpcFrameCodec::DecodeHello(std::uint64_t correlationId,
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeHelloAck(std::uint64_t correlationId,
                               std::span<const std::byte> payload) {
-  if (payload.size() != 3) {
+  if (payload.size() != 2) {
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
   const auto acceptedByte = std::to_integer<std::uint8_t>(payload[0]);
-  const auto rejectReasonByte = std::to_integer<std::uint8_t>(payload[2]);
+  const auto rejectReasonByte = std::to_integer<std::uint8_t>(payload[1]);
   if (acceptedByte > 1 || !IsDefinedHelloRejectReason(rejectReasonByte)) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  const bool accepted = acceptedByte == 1;
+  const bool hasRejectReason =
+      static_cast<IpcHelloRejectReason>(rejectReasonByte) !=
+      IpcHelloRejectReason::kNone;
+  if (accepted == hasRejectReason) {
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
   return IpcMessage{IpcHelloAckMessage{
       .correlationId = correlationId,
-      .accepted = acceptedByte == 1,
-      .negotiatedProtocolVersion = std::to_integer<std::uint8_t>(payload[1]),
+      .accepted = accepted,
       .rejectReason = static_cast<IpcHelloRejectReason>(rejectReasonByte),
   }};
 }
@@ -222,7 +243,7 @@ IpcFrameCodec::DecodeResynchronizeResult(std::uint64_t correlationId,
 std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodeClose(std::uint64_t correlationId,
                            std::span<const std::byte> payload) {
-  if (payload.size() != 1) {
+  if (correlationId != 0 || payload.size() != 1) {
     return std::unexpected(IpcRejectReason::kMalformedPayload);
   }
 
@@ -259,18 +280,13 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
     return std::unexpected(IpcRejectReason::kMalformedFrameLength);
   }
 
-  const auto version = std::to_integer<std::uint8_t>(frame[0]);
-  if (version != kSupportedIpcProtocolVersion) {
-    return std::unexpected(IpcRejectReason::kUnsupportedProtocolVersion);
-  }
-
-  const auto kindByte = std::to_integer<std::uint8_t>(frame[1]);
+  const auto kindByte = std::to_integer<std::uint8_t>(frame[0]);
   if (!IsDefinedMessageKind(kindByte)) {
     return std::unexpected(IpcRejectReason::kUnknownMessageKind);
   }
 
   const std::uint64_t correlationId = ReadUInt64LittleEndian(
-      std::span<const std::byte, 8>(frame.data() + 2, 8));
+      std::span<const std::byte, 8>(frame.data() + 1, 8));
   const std::span<const std::byte> payload =
       frame.subspan(kIpcFrameHeaderBytes);
 
@@ -292,7 +308,7 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
   case IpcMessageKind::kReject:
     return DecodeReject(correlationId, payload);
   case IpcMessageKind::kCancel:
-    if (!payload.empty()) {
+    if (correlationId == 0 || !payload.empty()) {
       return std::unexpected(IpcRejectReason::kMalformedPayload);
     }
     return IpcMessage{IpcCancelMessage{.correlationId = correlationId}};
