@@ -262,6 +262,75 @@ TEST_CASE("WinsockAdapterIpcSocket::WriteAll with an empty span succeeds "
   CHECK(socket.WriteAll(std::span<const std::byte>{}));
 }
 
+TEST_CASE("WinsockAdapterIpcSocket::SetPort redirects the next Connect call "
+          "to the new port",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  RawLoopbackListener listener;
+  //  Port 1 is a reserved, essentially always-closed loopback port: the
+  //  socket is constructed targeting it, then redirected before connecting.
+  WinsockAdapterIpcSocket socket(1);
+
+  socket.SetPort(listener.Port());
+
+  std::thread acceptThread([&] { listener.AcceptOne(); });
+  bool connected = socket.Connect();
+  if (!connected) {
+    listener.StopAccepting();
+  }
+  acceptThread.join();
+
+  REQUIRE(connected);
+  CHECK(listener.Accepted());
+}
+
+TEST_CASE("WinsockAdapterIpcSocket::SetPort called more than once before "
+          "Connect uses only the most recent value",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  RawLoopbackListener wrongListener;
+  RawLoopbackListener rightListener;
+  WinsockAdapterIpcSocket socket(1);
+
+  socket.SetPort(wrongListener.Port());
+  socket.SetPort(rightListener.Port());
+
+  std::thread acceptThread([&] { rightListener.AcceptOne(); });
+  bool connected = socket.Connect();
+  if (!connected) {
+    rightListener.StopAccepting();
+  }
+  acceptThread.join();
+
+  REQUIRE(connected);
+  CHECK(rightListener.Accepted());
+  CHECK_FALSE(wrongListener.Accepted());
+}
+
+TEST_CASE("WinsockAdapterIpcSocket::SetPort redirects a later reconnection "
+          "after the first connection closes",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  RawLoopbackListener firstListener;
+  WinsockAdapterIpcSocket socket(firstListener.Port());
+
+  std::thread firstAcceptThread([&] { firstListener.AcceptOne(); });
+  REQUIRE(socket.Connect());
+  firstAcceptThread.join();
+  REQUIRE(firstListener.Accepted());
+  socket.Close();
+
+  RawLoopbackListener secondListener;
+  socket.SetPort(secondListener.Port());
+
+  std::thread secondAcceptThread([&] { secondListener.AcceptOne(); });
+  bool reconnected = socket.Connect();
+  if (!reconnected) {
+    secondListener.StopAccepting();
+  }
+  secondAcceptThread.join();
+
+  REQUIRE(reconnected);
+  CHECK(secondListener.Accepted());
+}
+
 TEST_CASE("WinsockAdapterIpcSocket::Close is idempotent",
           "[ipc][winsock_adapter_ipc_socket]") {
   RawLoopbackListener listener;

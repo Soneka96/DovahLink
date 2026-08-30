@@ -84,9 +84,19 @@ public:
   ///  @copydoc IAdapterIpcSocket::RequestStop
   void RequestStop() override;
 
+  ///  Reconfigures the loopback port a subsequent `Connect()` call targets.
+  ///  Not part of `IAdapterIpcSocket`: only the composition root, which holds
+  ///  the concrete type, needs to redirect the target once the real
+  ///  packaged-host endpoint is discovered -- ordinary consumers behind the
+  ///  interface never reconfigure a socket's target. Safe to call
+  ///  concurrently with `Connect()` from another thread; a call already in
+  ///  progress uses whichever value it already read, and only the next
+  ///  `Connect()` call is guaranteed to see the update.
+  void SetPort(std::uint16_t port);
+
 private:
   ///  The loopback port to connect to.
-  std::uint16_t port_;
+  std::atomic<std::uint16_t> port_;
   ///  The underlying Winsock socket handle, or `INVALID_SOCKET` when closed.
   SOCKET socket_ = INVALID_SOCKET;
   ///  Set by `RequestStop`; polled by every blocking call.

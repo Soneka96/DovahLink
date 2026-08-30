@@ -31,7 +31,7 @@ bool WinsockAdapterIpcSocket::Connect() {
 
   sockaddr_in target{};
   target.sin_family = AF_INET;
-  target.sin_port = htons(port_);
+  target.sin_port = htons(port_.load());
   inet_pton(AF_INET, "127.0.0.1", &target.sin_addr);
   connect(socket_, reinterpret_cast<sockaddr *>(&target), sizeof(target));
 
@@ -126,5 +126,7 @@ void WinsockAdapterIpcSocket::Close() {
 }
 
 void WinsockAdapterIpcSocket::RequestStop() { stopRequested_.store(true); }
+
+void WinsockAdapterIpcSocket::SetPort(std::uint16_t port) { port_.store(port); }
 
 } //  namespace dovahlink::adapter::ipc

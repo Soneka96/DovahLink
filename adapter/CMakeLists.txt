@@ -24,6 +24,7 @@ add_library(dovahlink_adapter_core STATIC
     ipc/adapter_ipc_peer_proof_provider.cpp
     ipc/adapter_ipc_session.cpp
     ipc/adapter_ipc_hmac.cpp
+    ipc/settable_adapter_ipc_peer_proof_provider.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
@@ -67,6 +68,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/adapter_ipc_connection_test.cpp
     tests/ipc/adapter_ipc_session_test.cpp
     tests/ipc/adapter_ipc_hmac_test.cpp
+    tests/ipc/settable_adapter_ipc_peer_proof_provider_test.cpp
     tests/process/adapter_owner_lifetime_id_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
