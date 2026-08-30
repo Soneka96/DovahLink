@@ -208,6 +208,8 @@ bool Win32AdapterHostProcessLauncher::AwaitExitOrTerminate(
   return false;
 }
 
+void Win32AdapterHostProcessLauncher::Release() { ReleaseCurrentProcess(); }
+
 void Win32AdapterHostProcessLauncher::ReleaseCurrentProcess() {
   if (processHandle_ != nullptr) {
     CloseHandle(static_cast<HANDLE>(processHandle_));

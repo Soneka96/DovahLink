@@ -42,6 +42,13 @@ public:
   ///  @return `true` if the process had already exited, or there was none
   ///  to wait on; `false` if force-termination was required.
   virtual bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) = 0;
+
+  ///  Releases any process and Job Object handle this launcher currently
+  ///  holds. A no-op if nothing is held. Never terminates a still-running
+  ///  process itself -- callers release only once they already know the
+  ///  process is gone (typically right after `AwaitExitOrTerminate`), as
+  ///  the last step of orderly shutdown.
+  virtual void Release() = 0;
 };
 
 ///  @copydoc IAdapterHostProcessLauncher
@@ -75,6 +82,9 @@ public:
 
   ///  @copydoc IAdapterHostProcessLauncher::AwaitExitOrTerminate
   bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) override;
+
+  ///  @copydoc IAdapterHostProcessLauncher::Release
+  void Release() override;
 
 private:
   ///  Closes any process and Job Object handle this instance currently

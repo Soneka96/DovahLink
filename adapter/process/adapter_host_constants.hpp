@@ -65,4 +65,12 @@ inline constexpr std::chrono::milliseconds kAdapterHostForceTerminateGraceWait{
 inline constexpr std::chrono::milliseconds
     kDefaultAdapterHostSupervisorFailedRoundBackoff{1000};
 
+//  ---- Shutdown orchestration ----
+
+///  The default bound `AdapterShutdownOrchestrator` waits for a launched
+///  host to exit gracefully after signaling it, before force-terminating it
+///  as the deliberate fallback.
+inline constexpr std::chrono::milliseconds
+    kDefaultAdapterGracefulShutdownWaitBound{3000};
+
 } //  namespace dovahlink::adapter::process

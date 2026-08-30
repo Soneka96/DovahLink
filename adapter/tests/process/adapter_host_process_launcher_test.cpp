@@ -184,3 +184,37 @@ TEST_CASE("Win32AdapterHostProcessLauncher::Launch releases a previously "
   CHECK(second->port == 4242);
   launcher.AwaitExitOrTerminate(std::chrono::milliseconds(200));
 }
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Release clears any held handle "
+          "so a later AwaitExitOrTerminate becomes a no-op") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+  REQUIRE(launcher.Launch().has_value());
+
+  launcher.Release();
+  //  A second, redundant call: idempotent, since nothing is held anymore.
+  REQUIRE_NOTHROW(launcher.Release());
+
+  CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher's destructor releases a still-"
+          "running launched process without hanging") {
+  {
+    Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                             SampleLifetimeId());
+    REQUIRE(launcher.Launch().has_value());
+    //  Deliberately no AwaitExitOrTerminate/Release call: the destructor
+    //  alone must clean up a process that is still running (the fixture's
+    //  default sleep is long) when this scope ends.
+  }
+  SUCCEED("destructor returned without hanging");
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Release is a no-op when nothing "
+          "has been launched") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+
+  REQUIRE_NOTHROW(launcher.Release());
+}

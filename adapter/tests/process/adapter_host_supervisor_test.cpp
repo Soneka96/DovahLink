@@ -213,7 +213,7 @@ private:
 
 ///  A deterministic, fully controllable `IAdapterHostProcessLauncher` test
 ///  double: `Launch` replays a scripted result sequence (the last entry
-///  repeats) and can signal a test-owned promise the moment it is called.
+///  repeats).
 class FakeAdapterHostProcessLauncher final
     : public IAdapterHostProcessLauncher {
 public:
@@ -245,6 +245,8 @@ public:
   }
 
   bool AwaitExitOrTerminate(std::chrono::milliseconds) override { return true; }
+
+  void Release() override {}
 
 private:
   mutable std::mutex mutex_;

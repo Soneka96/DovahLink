@@ -148,3 +148,92 @@ TEST_CASE("no adapter production source file includes a bridge/ header",
 
   CHECK(fileCount > 0);
 }
+
+TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
+          "kDataLoaded",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t dataLoadedCheck =
+      source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
+  std::size_t supervisorStart = source.find("supervisor.Start();");
+
+  REQUIRE(dataLoadedCheck != std::string::npos);
+  REQUIRE(supervisorStart != std::string::npos);
+  CHECK(dataLoadedCheck < supervisorStart);
+}
+
+TEST_CASE("the adapter plugin notifies the supervisor when the connection "
+          "reports the host lost",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t onDisconnected = source.find(".onDisconnected =");
+  REQUIRE(onDisconnected != std::string::npos);
+  std::size_t handleDisconnected =
+      source.find("session.HandleDisconnected();", onDisconnected);
+  std::size_t notifyConnectionLost =
+      source.find("supervisor.NotifyConnectionLost();", onDisconnected);
+
+  REQUIRE(handleDisconnected != std::string::npos);
+  REQUIRE(notifyConnectionLost != std::string::npos);
+  //  Both calls belong to this one callback, in this order: the session
+  //  observes the disconnect first, then the supervisor is told to run
+  //  another discovery round.
+  CHECK(onDisconnected < handleDisconnected);
+  CHECK(handleDisconnected < notifyConnectionLost);
+}
+
+TEST_CASE("DllMain signals shutdown without calling the blocking ordered "
+          "shutdown sequence, joining a thread, or waiting on a handle",
+          "[plugin][structural]") {
+  //  DLL_PROCESS_DETACH runs under the loader lock; only the non-blocking
+  //  RequestShutdown() signal is safe there. This structural check pins
+  //  that DllMain's own body never grows a call to the blocking orchestrator
+  //  method or any thread join/handle wait.
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t dllMain = source.find("DllMain(");
+  REQUIRE(dllMain != std::string::npos);
+  std::string dllMainOnward = source.substr(dllMain);
+
+  std::size_t reasonCheck = dllMainOnward.find("reason == DLL_PROCESS_DETACH");
+  std::size_t requestShutdown = dllMainOnward.find("RequestShutdown()");
+  REQUIRE(reasonCheck != std::string::npos);
+  REQUIRE(requestShutdown != std::string::npos);
+  //  The signal is gated on DLL_PROCESS_DETACH specifically, not fired
+  //  unconditionally for every DllMain reason (attach, thread attach/detach).
+  CHECK(reasonCheck < requestShutdown);
+  CHECK(dllMainOnward.find("RunOrderedShutdown") == std::string::npos);
+  CHECK(dllMainOnward.find(".join(") == std::string::npos);
+  CHECK(dllMainOnward.find("WaitForSingleObject") == std::string::npos);
+  CHECK(dllMainOnward.find(".Stop()") == std::string::npos);
+  CHECK(dllMainOnward.find("AwaitExitOrTerminate") == std::string::npos);
+}
+
+TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
+          "path or the host executable path cannot be resolved",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t rendezvousCheck = source.find("!rendezvousPath.has_value()");
+  std::size_t rendezvousReturnFalse =
+      source.find("return false;", rendezvousCheck);
+  std::size_t executableCheck = source.find("!hostExecutablePath.has_value()");
+  std::size_t executableReturnFalse =
+      source.find("return false;", executableCheck);
+  std::size_t readerConstruction =
+      source.find("FileAdapterHostRendezvousReader reader(");
+
+  REQUIRE(rendezvousCheck != std::string::npos);
+  REQUIRE(rendezvousReturnFalse != std::string::npos);
+  REQUIRE(executableCheck != std::string::npos);
+  REQUIRE(executableReturnFalse != std::string::npos);
+  REQUIRE(readerConstruction != std::string::npos);
+  //  Both guards fail load before any object depending on the resolved
+  //  paths is constructed.
+  CHECK(rendezvousCheck < rendezvousReturnFalse);
+  CHECK(rendezvousReturnFalse < readerConstruction);
+  CHECK(executableCheck < executableReturnFalse);
+  CHECK(executableReturnFalse < readerConstruction);
+}
