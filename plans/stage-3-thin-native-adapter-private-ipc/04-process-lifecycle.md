@@ -436,6 +436,9 @@ with tests covering pre-handshake and rejected-peer requests.
 - Focused lifecycle/composition checks pass.
 - The phase completion gate can point to an independently buildable adapter,
   host, and private-channel proof without unresolved divergence.
+- The lifecycle checks explicitly cover cancellation of in-flight discovery,
+  rejection of stale occupied rendezvous endpoints before fresh launch, and
+  exact adoption of the fresh host's verified dynamic endpoint.
 - The real Windows process checks launch the actual C# host, verify dynamic
   rendezvous and mutual authentication, prove cross-lifetime isolation,
   validate graceful signal shutdown, prove Job Object cleanup after abrupt

@@ -23,7 +23,9 @@ Status: complete
   ever restarting that connection; a five-step ordered shutdown orchestrator
   (the process handle is always released exactly once, even when an earlier
   step throws); and the real plugin composition, including a signal-only
-  `DllMain`. Focused C++ and C# tests pass on both sides.
+  `DllMain`. Focused C++ and C# tests pass on both sides, including
+  cancellation during verification/launch and stale rendezvous data naming
+  an occupied unrelated loopback port.
 
 ## Decisions and approved deviations
 
@@ -147,7 +149,7 @@ Status: complete
 - `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore --configuration Debug`: passed
 - `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore --configuration Debug`: 486 passed
 - `cmake --build adapter/build/windows-x64-debug --parallel` (clean, from-scratch reconfigure): passed
-- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 236 passed
+- `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 245 passed
 
 ## Handoff
 

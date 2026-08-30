@@ -31,8 +31,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -258,6 +260,124 @@ class NoopCaptureQueue final : public IAdapterCaptureHandoffQueue {
 public:
   bool TryEnqueue(AdapterCaptureWorkItem) override { return true; }
   void Stop() override {}
+};
+
+///  A real loopback listener that occupies a port without speaking the
+///  private IPC protocol, representing stale rendezvous data naming an
+///  unrelated process.
+class ScopedLoopbackListener {
+public:
+  ///  Binds and listens on an operating-system-assigned loopback port.
+  ScopedLoopbackListener() {
+    WSADATA data{};
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+      throw std::runtime_error("Unable to initialize Winsock.");
+    }
+    winsockStarted_ = true;
+
+    listener_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listener_ == INVALID_SOCKET) {
+      throw std::runtime_error("Unable to create stale listener socket.");
+    }
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(0);
+    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+    if (bind(listener_, reinterpret_cast<const sockaddr *>(&address),
+             sizeof(address)) == SOCKET_ERROR ||
+        listen(listener_, 1) == SOCKET_ERROR) {
+      throw std::runtime_error("Unable to bind stale listener socket.");
+    }
+
+    int addressLength = sizeof(address);
+    if (getsockname(listener_, reinterpret_cast<sockaddr *>(&address),
+                    &addressLength) == SOCKET_ERROR) {
+      throw std::runtime_error("Unable to read stale listener port.");
+    }
+    port_ = ntohs(address.sin_port);
+  }
+
+  ///  Closes the occupied listener and releases its Winsock reference.
+  ~ScopedLoopbackListener() {
+    if (listener_ != INVALID_SOCKET) {
+      closesocket(listener_);
+    }
+    if (winsockStarted_) {
+      WSACleanup();
+    }
+  }
+
+  ScopedLoopbackListener(const ScopedLoopbackListener &) = delete;
+  ScopedLoopbackListener &operator=(const ScopedLoopbackListener &) = delete;
+
+  ///  Returns the occupied loopback port.
+  std::uint16_t Port() const { return port_; }
+
+private:
+  ///  The occupied listening socket.
+  SOCKET listener_ = INVALID_SOCKET;
+  ///  Whether this instance owns a Winsock startup reference.
+  bool winsockStarted_ = false;
+  ///  The operating-system-assigned listening port.
+  std::uint16_t port_ = 0;
+};
+
+///  A test-only IPC connection that records the first verified target startup
+///  without opening a second real connection in this fallback test.
+class RecordingAdapterIpcConnection final
+    : public dovahlink::adapter::ipc::IAdapterIpcConnection {
+public:
+  ///  Records a connection start request.
+  void Start() override { ++startCount_; }
+
+  ///  The fallback test never sends through this connection.
+  bool TrySend(const IpcMessage &) override { return true; }
+
+  ///  The fallback test has no connection worker to stop.
+  void Stop() override {}
+
+  ///  Returns how many times the supervisor requested startup.
+  int StartCount() const { return startCount_.load(); }
+
+private:
+  ///  The observed number of connection start requests.
+  std::atomic<int> startCount_ = 0;
+};
+
+///  Records every candidate sent through a real handshake verifier while
+/// preserving the verifier's actual network and authentication behavior.
+class RecordingAdapterHostHandshakeVerifier final
+    : public dovahlink::adapter::process::IAdapterHostHandshakeVerifier {
+public:
+  ///  Creates a recording wrapper around a real handshake verifier.
+  explicit RecordingAdapterHostHandshakeVerifier(
+      AdapterHostHandshakeVerifier &verifier)
+      : verifier_(verifier) {}
+
+  ///  Records the candidate and delegates the bounded real verification.
+  bool Verify(const AdapterHostEndpoint &candidate,
+              std::stop_token cancellationToken) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      candidates_.push_back(candidate);
+    }
+    return verifier_.Verify(candidate, cancellationToken);
+  }
+
+  ///  Returns the candidates verified so far, in call order.
+  std::vector<AdapterHostEndpoint> VerifiedCandidates() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return candidates_;
+  }
+
+private:
+  ///  The real verifier that owns the handshake implementation.
+  AdapterHostHandshakeVerifier &verifier_;
+  ///  Guards the recorded candidate sequence.
+  mutable std::mutex mutex_;
+  ///  Every candidate passed to the wrapped verifier.
+  std::vector<AdapterHostEndpoint> candidates_;
 };
 
 ///  Builds a deterministic lifetime identity for two concurrent test hosts.
@@ -522,4 +642,67 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
   supervisor.reset();
+}
+
+TEST_CASE("a rendezvous port occupied by another process falls back to a "
+          "fresh verified host",
+          "[process][integration]") {
+  const std::filesystem::path hostExecutable{DOVAHLINK_HOST_EXECUTABLE};
+  REQUIRE(std::filesystem::exists(hostExecutable));
+
+  const auto ownerLifetimeId = LifetimeIdWithMarker(std::byte{0xD4});
+  auto rendezvousPath = ResolveDefaultRendezvousFilePath(ownerLifetimeId);
+  REQUIRE(rendezvousPath.has_value());
+  ScopedRendezvousCleanup rendezvousCleanup(*rendezvousPath);
+
+  ScopedLoopbackListener staleListener;
+  {
+    std::ofstream rendezvousFile(*rendezvousPath);
+    REQUIRE(rendezvousFile.is_open());
+    rendezvousFile << "PORT " << staleListener.Port() << "\nPROOF aa\n";
+  }
+
+  FileAdapterHostRendezvousReader reader(*rendezvousPath);
+  auto staleEndpoint = reader.TryRead();
+  REQUIRE(staleEndpoint.has_value());
+  CHECK(staleEndpoint->port == staleListener.Port());
+
+  Win32AdapterHostProcessLauncher launcher(hostExecutable, ownerLifetimeId,
+                                           std::chrono::seconds(10));
+  WinsockAdapterIpcSocket verifierSocket(0);
+  WinsockAdapterIpcSocket connectionSocket(0);
+  IpcFrameCodec codec;
+  AdapterHostHandshakeVerifier realVerifier(
+      AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId, verifierSocket,
+      codec, std::chrono::seconds(2));
+  RecordingAdapterHostHandshakeVerifier verifier(realVerifier);
+  SettableAdapterIpcPeerProofProvider proofProvider;
+  RecordingAdapterIpcConnection connection;
+  AdapterHostSupervisor supervisor(reader, verifier, verifierSocket, launcher,
+                                   connectionSocket, proofProvider, connection,
+                                   std::chrono::milliseconds(50));
+
+  supervisor.Start();
+
+  REQUIRE(WaitUntil(
+      [&] {
+        return connection.StartCount() == 1 &&
+               connectionSocket.Port() != staleListener.Port() &&
+               connectionSocket.Port() != 0;
+      },
+      std::chrono::seconds(10)));
+  auto verifiedCandidates = verifier.VerifiedCandidates();
+  REQUIRE(verifiedCandidates.size() == 2);
+  CHECK(verifiedCandidates.front() == *staleEndpoint);
+  CHECK(verifiedCandidates.back().port != staleListener.Port());
+
+  auto freshEndpoint = reader.TryRead();
+  REQUIRE(freshEndpoint.has_value());
+  CHECK(connectionSocket.Port() == freshEndpoint->port);
+  CHECK(proofProvider.Token() == freshEndpoint->proofToken);
+  CHECK(freshEndpoint->port == verifiedCandidates.back().port);
+
+  supervisor.RequestStop();
+  CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+  CHECK(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
 }
