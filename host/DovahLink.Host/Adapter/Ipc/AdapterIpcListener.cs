@@ -80,19 +80,10 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     {
         while (true)
         {
+            Socket acceptedSocket;
             try
             {
-                Socket acceptedSocket = await listenerSocket.AcceptAsync(cancellationToken).ConfigureAwait(false);
-                IAdapterIpcConnection connection = connectionFactory(new NetworkStream(acceptedSocket, ownsSocket: true));
-                SetCurrentConnection(connection);
-                try
-                {
-                    await connection.RunAsync(cancellationToken).ConfigureAwait(false);
-                }
-                finally
-                {
-                    SetCurrentConnection(null);
-                }
+                acceptedSocket = await listenerSocket.AcceptAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -100,15 +91,48 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
             }
             catch (ObjectDisposedException)
             {
-                // The listening socket was disposed out from under a running loop; stop rather than
+                // The listening socket was disposed out from under a pending accept; stop rather than
                 // spin retrying an accept that can only ever fail the same way from here on.
                 return;
             }
             catch (Exception)
             {
-                // A failed accept, connection, or connection-factory attempt must not end the loop
-                // for the rest of the host process's life; the adapter simply remains unavailable
-                // until the next attempt succeeds.
+                // A failed accept must not end the loop for the rest of the host process's life.
+                continue;
+            }
+
+            NetworkStream acceptedStream = new(acceptedSocket, ownsSocket: true);
+            IAdapterIpcConnection connection;
+            try
+            {
+                connection = connectionFactory(acceptedStream);
+            }
+            catch (Exception)
+            {
+                acceptedStream.Dispose();
+                continue;
+            }
+
+            try
+            {
+                SetCurrentConnection(connection);
+                try
+                {
+                    await connection.RunAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                finally
+                {
+                    SetCurrentConnection(null);
+                }
+            }
+            catch (Exception)
+            {
+                // A failed connection must not end the loop for the rest of the host process's life;
+                // the adapter simply remains unavailable until the next attempt succeeds.
             }
         }
     }

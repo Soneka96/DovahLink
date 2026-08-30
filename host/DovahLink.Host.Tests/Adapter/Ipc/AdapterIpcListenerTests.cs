@@ -127,13 +127,15 @@ public class AdapterIpcListenerTests
     public async Task RunAsync_ConnectionThrows_StillAcceptsSubsequentConnection()
     {
         List<FakeAdapterIpcConnection> connections = [];
+        ThrowingAdapterIpcConnection? failingConnection = null;
         bool firstAccept = true;
         using var listener = new AdapterIpcListener(0, stream =>
         {
             if (firstAccept)
             {
                 firstAccept = false;
-                return new ThrowingAdapterIpcConnection();
+                failingConnection = new ThrowingAdapterIpcConnection(waitForRelease: true);
+                return failingConnection;
             }
 
             var connection = new FakeAdapterIpcConnection(stream);
@@ -145,6 +147,10 @@ public class AdapterIpcListenerTests
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => !firstAccept);
+        await failingConnection!.RunStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => listener.CurrentConnection is not null);
+        failingConnection.ReleaseFailure();
+        await WaitUntilAsync(() => listener.CurrentConnection is null);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
 
@@ -182,6 +188,115 @@ public class AdapterIpcListenerTests
         connections[0].Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a factory raising ObjectDisposedException does not end the accept loop.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionFactoryObjectDisposedException_StillAcceptsSubsequentConnection()
+    {
+        List<FakeAdapterIpcConnection> connections = [];
+        bool firstAccept = true;
+        using var listener = new AdapterIpcListener(0, stream =>
+        {
+            if (firstAccept)
+            {
+                firstAccept = false;
+                throw new ObjectDisposedException("factory");
+            }
+
+            var connection = new FakeAdapterIpcConnection(stream);
+            connections.Add(connection);
+            return connection;
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => !firstAccept);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => connections.Count == 1);
+
+        connections[0].Complete();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a connection raising ObjectDisposedException does not end the accept loop.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionObjectDisposedException_StillAcceptsSubsequentConnection()
+    {
+        List<FakeAdapterIpcConnection> connections = [];
+        bool firstAccept = true;
+        using var listener = new AdapterIpcListener(0, stream =>
+        {
+            if (firstAccept)
+            {
+                firstAccept = false;
+                return new ThrowingAdapterIpcConnection(new ObjectDisposedException("connection"));
+            }
+
+            var connection = new FakeAdapterIpcConnection(stream);
+            connections.Add(connection);
+            return connection;
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => !firstAccept);
+        using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => connections.Count == 1);
+
+        connections[0].Complete();
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that a stream accepted for a failed factory attempt is disposed before retrying.</summary>
+    [Fact]
+    public async Task RunAsync_ConnectionFactoryThrows_DisposesAcceptedStream()
+    {
+        Stream? acceptedStream = null;
+        using var listener = new AdapterIpcListener(0, stream =>
+        {
+            acceptedStream = stream;
+            throw new InvalidOperationException("Simulated factory failure.");
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket client = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => acceptedStream is not null && !acceptedStream.CanRead);
+        Assert.Throws<ObjectDisposedException>(() => acceptedStream!.ReadByte());
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies that disposing the listener stops accepting but leaves its active connection running.</summary>
+    [Fact]
+    public async Task Dispose_WhileConnectionActive_LeavesConnectionRunningUntilItEnds()
+    {
+        List<FakeAdapterIpcConnection> connections = [];
+        var listener = new AdapterIpcListener(0, stream =>
+        {
+            var connection = new FakeAdapterIpcConnection(stream);
+            connections.Add(connection);
+            return connection;
+        });
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+
+        using Socket client = await ConnectClientAsync(listener.BoundPort);
+        await WaitUntilAsync(() => connections.Count == 1);
+        Assert.NotNull(listener.CurrentConnection);
+
+        listener.Dispose();
+        Assert.NotNull(listener.CurrentConnection);
+
+        connections[0].Complete();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(listener.CurrentConnection);
     }
 
     /// <summary>Verifies that disposing the listener while it is waiting to accept ends the loop promptly instead of spinning.</summary>
