@@ -83,6 +83,8 @@ public class AdapterIpcConnectionTests
         Assert.Equal(IpcRejectReason.UnknownMessageKind, reject.Reason);
         Assert.Empty(fakeSession.HandshakeCalls);
         Assert.Single(fakeSession.HandledFrames);
+        var handledRequest = Assert.IsType<IpcCancelMessage>(fakeSession.HandledFrames[0]);
+        Assert.Equal(5UL, handledRequest.CorrelationId);
         client.Dispose();
     }
 
@@ -110,6 +112,27 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
+    /// <summary>Verifies that malformed input force-closes a writer that cannot drain its queued response.</summary>
+    [Fact]
+    public async Task RunAsync_MalformedFrameLength_ForceClosesBlockedWriter()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await client.WriteAsync(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF });
+
+        await AssertForcedClosureAsync(runTask, blockingStream, client);
+
+        Assert.Equal(1, fakeSession.DecodeFailureCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
     /// <summary>Verifies that a post-handshake outcome requesting closure without messages ends the loop cleanly.</summary>
     [Fact]
     public async Task RunAsync_PostHandshakeOutcomeRequestsClose_EndsLoopWithoutFurtherMessages()
@@ -131,6 +154,81 @@ public class AdapterIpcConnectionTests
         Assert.Single(fakeSession.HandledFrames);
         Assert.IsType<IpcCloseMessage>(fakeSession.HandledFrames[0]);
         client.Dispose();
+    }
+
+    /// <summary>Verifies that a protocol close force-closes a writer that is blocked on an earlier outbound frame.</summary>
+    [Fact]
+    public async Task RunAsync_PostHandshakeClose_ForceClosesBlockedWriter()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server, writesBeforeBlocking: 2);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            FrameOutcome = AdapterIpcOutcome.Close,
+            ListenEventResult = new IpcListenEventMessage(3, 42),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // acknowledgement
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        Assert.True(connection.TrySendListenEvent(42, out _));
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+
+        await AssertForcedClosureAsync(runTask, blockingStream, client);
+
+        Assert.Single(fakeSession.HandledFrames);
+        Assert.IsType<IpcCloseMessage>(fakeSession.HandledFrames[0]);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that an unexpected first message force-closes a writer blocked on its rejection response.</summary>
+    [Fact]
+    public async Task RunAsync_UnexpectedFirstMessage_ForceClosesBlockedWriter()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            FrameOutcome = AdapterIpcOutcome.SendAndClose(new IpcRejectMessage(5, IpcRejectReason.UnknownMessageKind)),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcCancelMessage(5)));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await AssertForcedClosureAsync(runTask, blockingStream, client);
+
+        Assert.Single(fakeSession.HandledFrames);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies that a rejected handshake force-closes a writer blocked on its rejection acknowledgement.</summary>
+    [Fact]
+    public async Task RunAsync_RejectedHandshake_ForceClosesBlockedWriter()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            HandshakeResult = new AdapterHandshakeResult(false, new IpcHelloAckMessage(1, false, IpcHelloRejectReason.InvalidProof)),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await AssertForcedClosureAsync(runTask, blockingStream, client);
+
+        Assert.Single(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
     /// <summary>Verifies that cancelling before a Hello ever arrives propagates cancellation and still notifies the session of disconnection.</summary>
@@ -258,6 +356,27 @@ public class AdapterIpcConnectionTests
 
         Assert.Single(fakeSession.HandshakeCalls);
         Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that an unexpected writer exception cancels the reader and still disposes the connection.</summary>
+    [Fact]
+    public async Task RunAsync_UnexpectedWriteFault_EndsWithoutHangingOrThrowing()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var session = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(
+            new WriteFaultingStream(server, new InvalidOperationException("Simulated unexpected write fault.")),
+            codec,
+            session,
+            new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Single(session.HandshakeCalls);
+        Assert.Equal(1, session.DisconnectedCalls);
         client.Dispose();
     }
 
@@ -563,6 +682,32 @@ public class AdapterIpcConnectionTests
         Assert.Equal(0UL, sampleCorrelationId);
     }
 
+    /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>
+    /// <param name="runTask">The connection task under test.</param>
+    /// <param name="blockingStream">The stream expected to be force-disposed.</param>
+    /// <param name="client">The peer stream to dispose after the assertion.</param>
+    private static async Task AssertForcedClosureAsync(Task runTask, BlockingWriteStream blockingStream, Stream client)
+    {
+        try
+        {
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(blockingStream.IsDisposed);
+        }
+        finally
+        {
+            blockingStream.Release();
+            client.Dispose();
+            try
+            {
+                await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception) when (runTask.IsCompleted)
+            {
+                // Preserve the original assertion or timeout result from the main await.
+            }
+        }
+    }
+
     /// <summary>
     /// Creates a connected pair of loopback-socket streams for realistic byte-level I/O tests. A
     /// loopback socket matches the production listener and keeps the connection under test focused
@@ -623,7 +768,7 @@ public class AdapterIpcConnectionTests
         }
     }
 
-    /// <summary>A stream whose first asynchronous write waits until release or disposal.</summary>
+    /// <summary>A stream whose asynchronous writes wait until release or disposal after an optional prefix.</summary>
     private sealed class BlockingWriteStream : Stream
     {
         /// <summary>The stream whose reads and synchronous operations are delegated.</summary>
@@ -638,11 +783,16 @@ public class AdapterIpcConnectionTests
         /// <summary>Completes the blocked write when the stream is released or disposed.</summary>
         private readonly TaskCompletionSource writeRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>The number of initial writes that should delegate normally before blocking.</summary>
+        private int writesBeforeBlocking;
+
         /// <summary>Creates a wrapper around the connected server stream.</summary>
         /// <param name="inner">The connected stream whose reads are delegated.</param>
-        public BlockingWriteStream(Stream inner)
+        /// <param name="writesBeforeBlocking">The number of initial writes to delegate before blocking.</param>
+        public BlockingWriteStream(Stream inner, int writesBeforeBlocking = 0)
         {
             this.inner = inner;
+            this.writesBeforeBlocking = writesBeforeBlocking;
         }
 
         /// <summary>Gets a task that completes when the first write begins.</summary>
@@ -692,6 +842,11 @@ public class AdapterIpcConnectionTests
         /// <inheritdoc/>
         public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            if (Interlocked.Decrement(ref writesBeforeBlocking) >= 0)
+            {
+                return inner.WriteAsync(buffer, cancellationToken);
+            }
+
             writeStarted.TrySetResult();
             return new ValueTask(writeRelease.Task);
         }

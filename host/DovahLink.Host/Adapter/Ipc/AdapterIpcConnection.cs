@@ -41,6 +41,9 @@ public interface IAdapterIpcConnection
 /// <inheritdoc cref="IAdapterIpcConnection"/>
 public sealed class AdapterIpcConnection : IAdapterIpcConnection
 {
+    /// <summary>The maximum time a graceful terminal response may wait for the outbound writer.</summary>
+    private static readonly TimeSpan gracefulWriterDrainTimeout = TimeSpan.FromSeconds(1);
+
     /// <summary>The underlying transport, owned by this connection for its lifetime.</summary>
     private readonly Stream stream;
 
@@ -105,16 +108,37 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
                 peerDisconnected;
-            if (forceClose)
+            bool streamDisposed = false;
+            try
             {
-                ioCancellation.Cancel();
-                await stream.DisposeAsync().ConfigureAwait(false);
-            }
+                if (forceClose)
+                {
+                    ioCancellation.Cancel();
+                    await stream.DisposeAsync().ConfigureAwait(false);
+                    streamDisposed = true;
+                }
+                else
+                {
+                    try
+                    {
+                        await writerTask.WaitAsync(gracefulWriterDrainTimeout).ConfigureAwait(false);
+                    }
+                    catch (TimeoutException)
+                    {
+                        ioCancellation.Cancel();
+                        await stream.DisposeAsync().ConfigureAwait(false);
+                        streamDisposed = true;
+                    }
+                }
 
-            await writerTask.ConfigureAwait(false);
-            if (!forceClose)
+                await writerTask.ConfigureAwait(false);
+            }
+            finally
             {
-                await stream.DisposeAsync().ConfigureAwait(false);
+                if (!streamDisposed)
+                {
+                    await stream.DisposeAsync().ConfigureAwait(false);
+                }
             }
         }
     }
@@ -331,11 +355,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
                 {
                     await stream.WriteAsync(frame, ioCancellation.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+                catch (Exception)
                 {
                     ioCancellation.Cancel();
                     return;
