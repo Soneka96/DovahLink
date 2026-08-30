@@ -114,4 +114,28 @@ public static class Constants
     /// Not itself enforced by this contract's codec.
     /// </summary>
     public const int MaxIpcMessagesPerSecond = 200;
+
+    /// <summary>The rolling window used for the private IPC inbound message-rate limit.</summary>
+    public static readonly TimeSpan IpcMessageRateWindow = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The configured loopback TCP port for the host's private adapter listener. Zero asks the
+    /// operating system to assign an available port. This is distinct from the public client
+    /// transport's own endpoint.
+    /// </summary>
+    public const int AdapterIpcLoopbackPort = 0;
+
+    /// <summary>
+    /// How long the private IPC listener's accept loop waits before retrying after a failed accept
+    /// caused by something other than the listening socket being disposed, so a persistent failure
+    /// cannot spin the loop without bound.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcAcceptRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// How long a newly accepted private IPC connection may take to send its Hello before the
+    /// connection is closed, so a peer that withholds its first frame cannot hold the listener's one
+    /// served-connection slot indefinitely.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcHandshakeTimeout = TimeSpan.FromSeconds(2);
 }

@@ -8,14 +8,15 @@ Status: active
 
 ## Active concept
 
-- File: `02-host-ipc-channel.md`
+- File: `03-native-adapter-core.md`
 - Status: pending
-- Prerequisites: Stage 1, Stage 2, and Concept 01 complete; feature branch active
-- Next action: Implement the C# private listener, adapter connection-generation handling, host-directed intent forwarding, and controlled resynchronization path.
+- Prerequisites: Stage 1, Stage 2, and Concepts 01-02 complete; feature branch active
+- Next action: Implement the native adapter boundary, bounded handoff, and private IPC client in Concept 03.
 
 ## Completed concepts
 
 - `01-private-ipc-contract.md`: complete. Host and native codecs, opaque event/sample intents, semantic validation, and golden vectors pass the focused checks.
+- `02-host-ipc-channel.md`: complete. The host-side loopback TCP listener, framed connection, peer proof, bounded queues, rate limit, availability transitions, reconnect, resynchronization, and failure handling pass focused checks.
 
 ## Decisions and approved deviations
 
@@ -31,27 +32,30 @@ Status: active
 
 - Real Skyrim runtime verification remains deferred until the adapter runtime
   integration concept; it cannot be replaced by unit tests.
-- Live IPC I/O, queueing, and process lifecycle remain in Concepts 02–04.
+- Real cross-process IPC, Skyrim runtime verification, and process lifecycle remain in Concepts 03–04.
 
 ## Changed files
 
 - `host/DovahLink.Host/Adapter/Ipc/` and
   `host/DovahLink.Host.Tests/Adapter/Ipc/`: no-version C# IPC messages, codecs,
-  validation, ownership handling, and tests.
-- `host/DovahLink.Host/Constants.cs` and `host/DovahLink.Host/Enums.cs`:
-  private IPC framing limits and message kinds.
+  validation, ownership handling, loopback listener, connection lifecycle,
+  rate limiting, and tests.
+- `host/DovahLink.Host/Constants.cs`, `host/DovahLink.Host/Enums.cs`, and
+  `host/DovahLink.Host.Tests/TestDoubles/FakeClock.cs`: private IPC limits,
+  message kinds, and deterministic thread-safe timing support.
 - `adapter/ipc/` and `adapter/tests/ipc/`: matching C++ messages, codecs,
   validation, golden vectors, and structural tests.
 - `adapter/CMakeLists.txt`, `adapter/CMakePresets.json`, and
   `adapter/vcpkg.json`: minimal independent native contract-test scaffold.
-- Phase planning files: Concept 01 completion, approved D1 divergence, and
-  handoff to Concept 02.
+- Phase planning files: Concept 01 and Concept 02 completion, approved D1
+  divergence, and handoff to Concept 03.
 
 ## Verification
 
-- `git branch --show-current`: `feature/3-thin-native-adapter-and-private-ipc`
+- `git branch --show-current`: `feature/3-thin-native-adapter-and-private-ipc-continued`
 - `host/PLAN.md` SHA-256: matches recorded fingerprint
-- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: 335 passed
+- `dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: passed
+- `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --no-restore`: 426 passed
 - `cmake --build adapter/build/windows-x64-debug --parallel`: passed
 - `ctest --test-dir adapter/build/windows-x64-debug --output-on-failure`: 54 passed
 - `dotnet format` verification: passed
@@ -62,5 +66,5 @@ Status: active
 
 ## Handoff
 
-Next concept: `02-host-ipc-channel.md`
+Next concept: `03-native-adapter-core.md`
 Blocked by: none
