@@ -2,7 +2,7 @@ namespace DovahLink.Host.Adapter.Ipc;
 
 /// <summary>
 /// Sent by either side to report that a frame it could still safely decode carried an invalid
-/// version, kind, identity, or payload. A frame that cannot be safely decoded at all is never
+/// length, kind, identity, or payload. A frame that cannot be safely decoded at all is never
 /// answered this way; the receiver closes immediately instead, per
 /// <c>ai/context/protocol/security.md</c>'s "Failure behavior".
 /// </summary>

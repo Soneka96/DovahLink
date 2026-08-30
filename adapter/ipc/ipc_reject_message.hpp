@@ -7,7 +7,7 @@
 namespace dovahlink::adapter::ipc {
 
 ///  Sent by either side to report that a frame it could still safely decode
-///  carried an invalid version, kind, identity, or payload. A frame that cannot
+///  carried an invalid length, kind, identity, or payload. A frame that cannot
 ///  be safely decoded at all is never answered this way; the receiver closes
 ///  immediately instead, per `ai/context/protocol/security.md`'s "Failure
 ///  behavior".
