@@ -111,8 +111,15 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             return false;
         }
 
+        byte[] frame = codec.Encode(message);
+        if (!outbound.Writer.TryWrite(frame))
+        {
+            correlationId = 0;
+            return false;
+        }
+
         correlationId = message.CorrelationId;
-        return outbound.Writer.TryWrite(codec.Encode(message));
+        return true;
     }
 
     /// <inheritdoc/>
@@ -125,8 +132,15 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             return false;
         }
 
+        byte[] frame = codec.Encode(message);
+        if (!outbound.Writer.TryWrite(frame))
+        {
+            correlationId = 0;
+            return false;
+        }
+
         correlationId = message.CorrelationId;
-        return outbound.Writer.TryWrite(codec.Encode(message));
+        return true;
     }
 
     /// <inheritdoc/>

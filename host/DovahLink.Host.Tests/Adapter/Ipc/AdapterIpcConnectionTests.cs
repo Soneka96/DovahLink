@@ -364,7 +364,46 @@ public class AdapterIpcConnectionTests
         bool enqueued = connection.TrySendListenEvent(1, out ulong correlationId);
 
         Assert.False(enqueued);
-        Assert.Equal(1UL, correlationId);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>Verifies that a full outbound queue refuses a sample-read intent without exposing an unsent correlation id.</summary>
+    [Fact]
+    public void TrySendReadSample_QueueFull_ReturnsFalseWithoutCorrelationId()
+    {
+        var fakeSession = new FakeAdapterIpcSession { ReadSampleResult = new IpcReadSampleMessage(1, 1) };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession);
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendReadSample(1, out _));
+        }
+
+        bool enqueued = connection.TrySendReadSample(1, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>Verifies that an intent attempted after connection teardown reports no queued correlation.</summary>
+    [Fact]
+    public async Task TrySendIntents_AfterConnectionEnds_ReturnFalseWithoutCorrelationIds()
+    {
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            ReadSampleResult = new IpcReadSampleMessage(2, 1),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), fakeSession);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connection.RunAsync(cancellation.Token))
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.False(connection.TrySendListenEvent(1, out ulong eventCorrelationId));
+        Assert.False(connection.TrySendReadSample(1, out ulong sampleCorrelationId));
+        Assert.Equal(0UL, eventCorrelationId);
+        Assert.Equal(0UL, sampleCorrelationId);
     }
 
     /// <summary>
