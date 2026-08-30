@@ -82,6 +82,16 @@ if(MSVC)
     target_compile_options(dovahlink_adapter_launcher_test_fixture PRIVATE /EHsc)
 endif()
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Debug")
+else()
+    set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Release")
+endif()
+set(DOVAHLINK_HOST_EXECUTABLE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net9.0-windows/DovahLink.Host.exe"
+    CACHE FILEPATH
+    "Built DovahLink.Host.exe used by the native cross-process lifecycle test")
+
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
@@ -94,6 +104,7 @@ add_executable(dovahlink_adapter_tests
     tests/process/adapter_host_rendezvous_reader_test.cpp
     tests/process/adapter_host_handshake_verifier_test.cpp
     tests/process/adapter_host_process_launcher_test.cpp
+    tests/process/adapter_host_real_process_test.cpp
     tests/process/adapter_host_shutdown_requester_test.cpp
     tests/process/adapter_host_supervisor_test.cpp
     tests/process/adapter_shutdown_orchestrator_test.cpp
@@ -119,6 +130,7 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_adapter_plugin.cpp"
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
     DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
+    DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
 )
 
 include(CTest)
