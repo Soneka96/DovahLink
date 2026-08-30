@@ -1,6 +1,7 @@
 #include "ipc/adapter_ipc_session.hpp"
 
 #include "ipc/adapter_ipc_connection.hpp"
+#include "ipc/adapter_ipc_hmac.hpp"
 
 #include <type_traits>
 #include <variant>
@@ -9,13 +10,14 @@ namespace dovahlink::adapter::ipc {
 
 AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
+    std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
     IAdapterIpcPeerProofProvider &peerProofProvider,
     runtime::IAdapterTaskMarshaller &taskMarshaller,
     dispatch::IAdapterNativeDispatcher &dispatcher,
     capture::IAdapterCaptureHandoffQueue &captureQueue)
-    : instanceId_(instanceId), peerProofProvider_(peerProofProvider),
-      taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
-      captureQueue_(captureQueue) {}
+    : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
+      peerProofProvider_(peerProofProvider), taskMarshaller_(taskMarshaller),
+      dispatcher_(dispatcher), captureQueue_(captureQueue) {}
 
 AdapterIpcSession::~AdapterIpcSession() {
   std::lock_guard<std::mutex> lock(*callbackMutex_);
@@ -27,10 +29,14 @@ void AdapterIpcSession::AttachConnection(IAdapterIpcConnection &connection) {
 }
 
 IpcMessage AdapterIpcSession::PrepareHello() {
+  pendingHelloCorrelationId_ = NextCorrelationId();
+  pendingHelloChallenge_ = GenerateIpcChallenge();
   return IpcMessage{IpcHelloMessage{
-      .correlationId = NextCorrelationId(),
+      .correlationId = pendingHelloCorrelationId_,
       .adapterInstanceId = instanceId_.value,
       .peerProofToken = peerProofProvider_.Token(),
+      .challenge = pendingHelloChallenge_,
+      .ownerLifetimeId = ownerLifetimeId_,
   }};
 }
 
@@ -49,8 +55,23 @@ bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
       [this](const auto &value) -> bool {
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, IpcHelloAckMessage>) {
+          //  accepted = true alone never proves the responder is the
+          //  legitimate host -- it only proves the responder checked this
+          //  adapter's presented proof. The full conjunction (accepted,
+          //  matching correlation id, and a verifying hostProof recomputed
+          //  from the exact challenge/instance id/lifetime id this adapter
+          //  sent) is what authenticates the connection.
+          auto expectedProof = ComputeIpcHmacSha256(
+              peerProofProvider_.Token(),
+              BuildHostProofMessage(pendingHelloChallenge_,
+                                    pendingHelloCorrelationId_,
+                                    instanceId_.value, ownerLifetimeId_));
+          bool authenticated =
+              value.accepted &&
+              value.correlationId == pendingHelloCorrelationId_ &&
+              ConstantTimeEqual(value.hostProof, expectedProof);
           std::lock_guard<std::mutex> lock(availableMutex_);
-          available_ = value.accepted;
+          available_ = authenticated;
           return true;
         } else if constexpr (std::is_same_v<T,
                                             IpcResynchronizeRequestMessage>) {
@@ -146,9 +167,17 @@ void AdapterIpcSession::HandleListenEvent(
     const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
   std::uint64_t connectionGeneration;
+  bool available;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
+    available = available_;
+  }
+  if (!available) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -163,7 +192,12 @@ void AdapterIpcSession::HandleListenEvent(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: a second
+        //  HelloAck rejecting the peer can flip `available_` to false on the
+        //  same connection generation (no disconnect, so the generation
+        //  guard alone would not catch it), and that must still block this
+        //  deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ || !available_) {
           return;
         }
       }
@@ -183,9 +217,17 @@ void AdapterIpcSession::HandleReadSample(
     const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
   std::uint64_t connectionGeneration;
+  bool available;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
+    available = available_;
+  }
+  if (!available) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -200,7 +242,12 @@ void AdapterIpcSession::HandleReadSample(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: a second
+        //  HelloAck rejecting the peer can flip `available_` to false on the
+        //  same connection generation (no disconnect, so the generation
+        //  guard alone would not catch it), and that must still block this
+        //  deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ || !available_) {
           return;
         }
       }

@@ -16,11 +16,13 @@
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
+#include "process/adapter_owner_lifetime_id.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -98,10 +100,14 @@ SKSEPluginInfo(
   dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
   static dovahlink::adapter::identity::AdapterInstanceId instanceId =
       idGenerator.Generate();
+  static std::array<std::byte,
+                    dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
+      ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
   static dovahlink::adapter::ipc::FixedAdapterIpcPeerProofProvider
       peerProofProvider(kProvisionalPeerProofToken);
   static dovahlink::adapter::ipc::AdapterIpcSession session(
-      instanceId, peerProofProvider, taskMarshaller, dispatcher, captureQueue);
+      instanceId, ownerLifetimeId, peerProofProvider, taskMarshaller,
+      dispatcher, captureQueue);
 
   static dovahlink::adapter::ipc::WinsockAdapterIpcSocket socket(
       kProvisionalHostIpcPort);

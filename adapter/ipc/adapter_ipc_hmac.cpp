@@ -7,6 +7,8 @@
 
 #include <bcrypt.h>
 
+#include <algorithm>
+#include <span>
 #include <stdexcept>
 
 namespace dovahlink::adapter::ipc {
@@ -99,6 +101,54 @@ ComputeIpcHmacSha256(std::span<const std::byte> key,
   }
 
   return digest;
+}
+
+std::array<std::byte, kIpcHostProofMessageBytes> BuildHostProofMessage(
+    const std::array<std::byte, kIpcChallengeBytes> &challenge,
+    std::uint64_t correlationId,
+    const std::array<std::byte, 16> &adapterInstanceId,
+    const std::array<std::byte, kIpcOwnerLifetimeIdBytes> &ownerLifetimeId) {
+  constexpr std::size_t kCorrelationIdOffset = kIpcChallengeBytes;
+  constexpr std::size_t kAdapterInstanceIdOffset = kCorrelationIdOffset + 8;
+  constexpr std::size_t kOwnerLifetimeIdOffset = kAdapterInstanceIdOffset + 16;
+
+  std::array<std::byte, kIpcHostProofMessageBytes> message{};
+  std::ranges::copy(challenge, message.begin());
+  for (int index = 0; index < 8; ++index) {
+    message[kCorrelationIdOffset + static_cast<std::size_t>(index)] =
+        static_cast<std::byte>((correlationId >> (8 * index)) & 0xFF);
+  }
+  std::ranges::copy(adapterInstanceId,
+                    message.begin() +
+                        static_cast<std::ptrdiff_t>(kAdapterInstanceIdOffset));
+  std::ranges::copy(ownerLifetimeId,
+                    message.begin() +
+                        static_cast<std::ptrdiff_t>(kOwnerLifetimeIdOffset));
+  return message;
+}
+
+bool ConstantTimeEqual(std::span<const std::byte> a,
+                       std::span<const std::byte> b) {
+  if (a.size() != b.size()) {
+    return false;
+  }
+
+  std::byte accumulatedDifference{0};
+  for (std::size_t index = 0; index < a.size(); ++index) {
+    accumulatedDifference |= (a[index] ^ b[index]);
+  }
+  return accumulatedDifference == std::byte{0};
+}
+
+std::array<std::byte, kIpcChallengeBytes> GenerateIpcChallenge() {
+  std::array<std::byte, kIpcChallengeBytes> challenge{};
+  if (!BCRYPT_SUCCESS(
+          BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(challenge.data()),
+                          static_cast<ULONG>(challenge.size()),
+                          BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+    throw std::runtime_error("BCryptGenRandom failed for the Hello challenge.");
+  }
+  return challenge;
 }
 
 } //  namespace dovahlink::adapter::ipc

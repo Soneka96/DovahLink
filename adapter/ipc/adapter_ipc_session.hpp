@@ -4,10 +4,13 @@
 #include "dispatch/adapter_native_dispatcher.hpp"
 #include "identity/adapter_instance_id.hpp"
 #include "ipc/adapter_ipc_peer_proof_provider.hpp"
+#include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -70,16 +73,21 @@ public:
   ///  Creates a session for the adapter's single, process-lifetime private
   ///  IPC connection.
   ///  @param instanceId This adapter process's own instance identity.
+  ///  @param ownerLifetimeId The owning Skyrim process's lifetime identity,
+  ///  scoping this handshake to the intended Skyrim lifetime. Not itself a
+  ///  cryptographic ownership proof.
   ///  @param peerProofProvider Supplies this adapter's Hello proof token.
   ///  @param taskMarshaller Marshals capture work onto the Skyrim game
   ///  thread.
   ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
   ///  @param captureQueue Receives owned captured values for handoff.
-  AdapterIpcSession(identity::AdapterInstanceId instanceId,
-                    IAdapterIpcPeerProofProvider &peerProofProvider,
-                    runtime::IAdapterTaskMarshaller &taskMarshaller,
-                    dispatch::IAdapterNativeDispatcher &dispatcher,
-                    capture::IAdapterCaptureHandoffQueue &captureQueue);
+  AdapterIpcSession(
+      identity::AdapterInstanceId instanceId,
+      std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
+      IAdapterIpcPeerProofProvider &peerProofProvider,
+      runtime::IAdapterTaskMarshaller &taskMarshaller,
+      dispatch::IAdapterNativeDispatcher &dispatcher,
+      capture::IAdapterCaptureHandoffQueue &captureQueue);
 
   ///  Invalidates deferred game-thread tasks and waits for any task already
   ///  inside the session lifetime gate before the session is destroyed.
@@ -126,6 +134,9 @@ private:
 
   ///  This adapter process's own instance identity.
   identity::AdapterInstanceId instanceId_;
+  ///  The owning Skyrim process's lifetime identity. Not itself a
+  ///  cryptographic ownership proof.
+  std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId_;
   ///  Supplies this adapter's Hello proof token.
   IAdapterIpcPeerProofProvider &peerProofProvider_;
   ///  Marshals capture work onto the Skyrim game thread.
@@ -142,6 +153,18 @@ private:
   std::atomic<std::uint64_t> nextCorrelationId_{0};
   ///  Identifies the currently connected transport generation.
   std::uint64_t connectionGeneration_ = 0;
+  ///  The correlation id of the most recently prepared Hello, verified
+  ///  against a received HelloAck's own correlation id. Touched only from
+  ///  the connection's single callback-invoking thread (`PrepareHello` is
+  ///  called from `HandleConnected`, and compared against in `HandleMessage`,
+  ///  both reached only through that thread in production), so it needs no
+  ///  additional synchronization beyond `availableMutex_`'s existing coverage
+  ///  of `available_` itself.
+  std::uint64_t pendingHelloCorrelationId_ = 0;
+  ///  The fresh random challenge sent with the most recently prepared Hello,
+  ///  bound into the expected `hostProof` recomputation. Same single-thread
+  ///  access pattern as `pendingHelloCorrelationId_`.
+  std::array<std::byte, kIpcChallengeBytes> pendingHelloChallenge_{};
   ///  Serializes deferred task execution with session destruction.
   std::shared_ptr<std::mutex> callbackMutex_ = std::make_shared<std::mutex>();
   ///  Lets deferred tasks reject themselves after session destruction begins.

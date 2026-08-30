@@ -4,15 +4,20 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
+using dovahlink::adapter::ipc::BuildHostProofMessage;
 using dovahlink::adapter::ipc::ComputeIpcHmacSha256;
+using dovahlink::adapter::ipc::ConstantTimeEqual;
+using dovahlink::adapter::ipc::GenerateIpcChallenge;
+using dovahlink::adapter::ipc::kIpcChallengeBytes;
+using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 
 namespace {
 
 ///  Builds owned bytes from a sequence of `[start, start + count)` values,
-///  matching `04-process-lifecycle.md`'s "Exact HMAC encoding" known-answer
-///  vector construction.
+///  the shared construction this file's known-answer vectors use.
 std::vector<std::byte> ByteRange(int start, int count) {
   std::vector<std::byte> bytes(static_cast<std::size_t>(count));
   for (int index = 0; index < count; ++index) {
@@ -26,10 +31,9 @@ std::vector<std::byte> ByteRange(int start, int count) {
 
 TEST_CASE("HMAC-SHA256 matches the shared known-answer vector",
           "[ipc][adapter_ipc_hmac]") {
-  //  Reproduces 04-process-lifecycle.md's "Exact HMAC encoding" vector
-  //  exactly: key = bytes 0x00..0x1F, message = challenge(0x20..0x3F) ||
-  //  correlationId=1 (little-endian 8 bytes) || adapterInstanceId(0x40..0x4F)
-  //  || ownerLifetimeId(0x50..0x5B).
+  //  A fixed known-answer vector: key = bytes 0x00..0x1F, message =
+  //  challenge(0x20..0x3F) || correlationId=1 (little-endian 8 bytes) ||
+  //  adapterInstanceId(0x40..0x4F) || ownerLifetimeId(0x50..0x5B).
   std::vector<std::byte> key = ByteRange(0x00, 32);
   std::vector<std::byte> message;
   message.reserve(68);
@@ -136,4 +140,60 @@ TEST_CASE("HMAC-SHA256 produces different digests for different keys or "
 
   CHECK(baseline != differentKey);
   CHECK(baseline != differentMessage);
+}
+
+TEST_CASE("BuildHostProofMessage matches the shared known-answer vector's "
+          "field layout",
+          "[ipc][adapter_ipc_hmac]") {
+  std::array<std::byte, kIpcChallengeBytes> challenge{};
+  for (std::size_t index = 0; index < challenge.size(); ++index) {
+    challenge[index] = static_cast<std::byte>(0x20 + index);
+  }
+  std::array<std::byte, 16> adapterInstanceId{};
+  for (std::size_t index = 0; index < adapterInstanceId.size(); ++index) {
+    adapterInstanceId[index] = static_cast<std::byte>(0x40 + index);
+  }
+  std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId{};
+  for (std::size_t index = 0; index < ownerLifetimeId.size(); ++index) {
+    ownerLifetimeId[index] = static_cast<std::byte>(0x50 + index);
+  }
+
+  auto message =
+      BuildHostProofMessage(challenge, 1, adapterInstanceId, ownerLifetimeId);
+  auto digest = ComputeIpcHmacSha256(ByteRange(0x00, 32), message);
+
+  std::array<std::byte, 32> expected{
+      std::byte{0x68}, std::byte{0x04}, std::byte{0x80}, std::byte{0xA0},
+      std::byte{0x58}, std::byte{0xA6}, std::byte{0x19}, std::byte{0x03},
+      std::byte{0x83}, std::byte{0x5D}, std::byte{0x6F}, std::byte{0x63},
+      std::byte{0xA3}, std::byte{0xE0}, std::byte{0xE9}, std::byte{0x2E},
+      std::byte{0x5E}, std::byte{0xF4}, std::byte{0xF3}, std::byte{0x6E},
+      std::byte{0xDE}, std::byte{0x56}, std::byte{0xAA}, std::byte{0xD5},
+      std::byte{0x67}, std::byte{0xBD}, std::byte{0xE6}, std::byte{0xB3},
+      std::byte{0x05}, std::byte{0x05}, std::byte{0x9D}, std::byte{0xEB}};
+
+  CHECK(digest == expected);
+}
+
+TEST_CASE("ConstantTimeEqual compares content and rejects mismatched length "
+          "or content",
+          "[ipc][adapter_ipc_hmac]") {
+  std::vector<std::byte> a = ByteRange(0, 32);
+  std::vector<std::byte> sameContent = ByteRange(0, 32);
+  std::vector<std::byte> differentContent = ByteRange(1, 32);
+  std::vector<std::byte> shorter = ByteRange(0, 16);
+
+  CHECK(ConstantTimeEqual(a, sameContent));
+  CHECK_FALSE(ConstantTimeEqual(a, differentContent));
+  CHECK_FALSE(ConstantTimeEqual(a, shorter));
+  CHECK(ConstantTimeEqual({}, {}));
+}
+
+TEST_CASE("GenerateIpcChallenge produces different values across successive "
+          "calls",
+          "[ipc][adapter_ipc_hmac]") {
+  auto first = GenerateIpcChallenge();
+  auto second = GenerateIpcChallenge();
+
+  CHECK(first != second);
 }

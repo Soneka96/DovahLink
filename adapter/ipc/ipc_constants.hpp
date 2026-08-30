@@ -60,4 +60,10 @@ inline constexpr std::size_t kIpcOwnerLifetimeIdBytes = 12;
 ///  wire.
 inline constexpr std::size_t kIpcHostProofBytes = 32;
 
+///  The fixed byte length of the message `hostProof` is computed over:
+///  `challenge (kIpcChallengeBytes) || correlationId (8) ||
+///  adapterInstanceId (16) || ownerLifetimeId (kIpcOwnerLifetimeIdBytes)`.
+inline constexpr std::size_t kIpcHostProofMessageBytes =
+    kIpcChallengeBytes + 8 + 16 + kIpcOwnerLifetimeIdBytes;
+
 } //  namespace dovahlink::adapter::ipc
