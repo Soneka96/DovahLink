@@ -35,6 +35,10 @@ IpcMessage AdapterIpcSession::PrepareHello() {
 }
 
 void AdapterIpcSession::HandleConnected() {
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    ++connectionGeneration_;
+  }
   if (connection_ != nullptr) {
     connection_->TrySend(PrepareHello());
   }
@@ -89,6 +93,7 @@ void AdapterIpcSession::HandleDecodeFailure() {
 void AdapterIpcSession::HandleDisconnected() {
   std::lock_guard<std::mutex> lock(availableMutex_);
   available_ = false;
+  ++connectionGeneration_;
 }
 
 bool AdapterIpcSession::IsHostAvailable() const {
@@ -99,30 +104,42 @@ bool AdapterIpcSession::IsHostAvailable() const {
 void AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage &request) {
   std::uint64_t correlationId = request.correlationId;
+  std::uint64_t connectionGeneration;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    connectionGeneration = connectionGeneration_;
+  }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread(
-      [this, callbackMutex = std::move(callbackMutex),
-       lifetimeToken = std::move(lifetimeToken), correlationId] {
-        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
-        if (!lifetimeToken->load()) {
+  taskMarshaller_.RunOnGameThread([this,
+                                   callbackMutex = std::move(callbackMutex),
+                                   lifetimeToken = std::move(lifetimeToken),
+                                   correlationId, connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        if (connectionGeneration != connectionGeneration_) {
           return;
         }
-        try {
-          //  No real baseline domain is registered yet; the game-thread path
-          //  is proven as a mechanism and always reports success, matching
-          //  IpcResynchronizeResultMessage's own documented scope.
-          if (connection_ != nullptr) {
-            connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-                .correlationId = correlationId, .accepted = true}});
-          }
-        } catch (...) {
-          //  Contained, per ai/context/skse/cpp-style.md's worker-thread
-          //  boundary rule: this task runs on the Skyrim game thread via
-          //  SKSE's own task interface, which must never see an exception
-          //  escape.
-        }
-      });
+      }
+      //  No approved baseline domain is registered yet. The game-thread
+      //  path is still exercised, but reporting failure prevents the host
+      //  from treating an empty capture as a fresh authoritative baseline.
+      if (connection_ != nullptr) {
+        connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
+            .correlationId = correlationId, .accepted = false}});
+      }
+    } catch (...) {
+      //  Contained, per ai/context/skse/cpp-style.md's worker-thread
+      //  boundary rule: this task runs on the Skyrim game thread via
+      //  SKSE's own task interface, which must never see an exception
+      //  escape.
+    }
+  });
 }
 
 void AdapterIpcSession::HandleListenEvent(

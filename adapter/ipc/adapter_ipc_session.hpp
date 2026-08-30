@@ -21,13 +21,13 @@ class IAdapterIpcConnection;
 ///  same generic pipe -- marshal onto the game thread, translate via
 ///  `IAdapterNativeDispatcher`, hand the owned result to
 ///  `IAdapterCaptureHandoffQueue`. No per-message-kind service exists; a
-///  resynchronization request is just another marshaled game-thread task
-///  that always reports success today, since no real baseline domain is
-///  registered yet (this phase's non-goal against speculative domain
-///  registries -- the fresh baseline data itself is a later concept's
-///  contract, per `IpcResynchronizeResultMessage`'s own documentation). Owns
-///  no transport I/O of its own; every lifecycle event reaches this session
-///  through `AdapterIpcConnection`'s callbacks.
+///  resynchronization request is just another marshaled game-thread task that
+///  reports unavailable until an approved baseline domain exists (this
+///  phase's non-goal against speculative domain registries -- the fresh
+///  baseline data itself is a later concept's contract, per
+///  `IpcResynchronizeResultMessage`'s own documentation). Owns no transport
+///  I/O of its own; every lifecycle event reaches this session through
+///  `AdapterIpcConnection`'s callbacks.
 class IAdapterIpcSession {
 public:
   virtual ~IAdapterIpcSession() = default;
@@ -107,8 +107,8 @@ public:
   [[nodiscard]] bool IsHostAvailable() const override;
 
 private:
-  ///  Marshals a trivial success capture onto the game thread and replies
-  ///  with a matching `IpcResynchronizeResultMessage`.
+  ///  Marshals the resynchronization decision onto the game thread and replies
+  ///  that no baseline is available until an approved domain is registered.
   void
   HandleResynchronizeRequest(const IpcResynchronizeRequestMessage &request);
 
@@ -140,6 +140,8 @@ private:
   IAdapterIpcConnection *connection_ = nullptr;
   ///  The most recently issued outbound correlation id.
   std::atomic<std::uint64_t> nextCorrelationId_{0};
+  ///  Identifies the currently connected transport generation.
+  std::uint64_t connectionGeneration_ = 0;
   ///  Serializes deferred task execution with session destruction.
   std::shared_ptr<std::mutex> callbackMutex_ = std::make_shared<std::mutex>();
   ///  Lets deferred tasks reject themselves after session destruction begins.

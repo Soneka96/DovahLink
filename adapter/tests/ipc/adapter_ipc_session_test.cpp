@@ -281,7 +281,7 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected marks the host "
 }
 
 TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
-          "a task that replies with a matching result") {
+          "a task that reports no baseline is available") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -300,7 +300,9 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
       std::get_if<IpcResynchronizeResultMessage>(&connection.Sent().front());
   REQUIRE(result != nullptr);
   CHECK(result->correlationId == 42);
-  CHECK(result->accepted);
+  CHECK_FALSE(result->accepted);
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
 TEST_CASE("AdapterIpcSession's marshaled resynchronize reply does nothing "
@@ -337,6 +339,24 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
   REQUIRE_NOTHROW(marshaller.RunAllPending());
   CHECK(dispatcher.DispatchedKeys().empty());
   CHECK(captureQueue.Enqueued().empty());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending resynchronization result after "
+          "disconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  fixture.session.HandleMessage(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
+  fixture.session.HandleDisconnected();
+  fixture.marshaller.RunAllPending();
+
   CHECK(connection.Sent().empty());
 }
 
@@ -428,6 +448,18 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
       IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 99}});
   fixture.marshaller.RunAllPending();
 
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession enqueues nothing for a read-sample token with "
+          "no registered translation") {
+  SessionFixture fixture;
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 99}});
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{99});
   CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
