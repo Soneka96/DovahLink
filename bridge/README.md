@@ -37,9 +37,8 @@ from a pinned, hash-verified direct download of Kitware's official GitHub releas
 installs it), and set up the MSVC 2022 developer environment before configuring. A local dev
 machine should match these same versions for a reproducible build. Both workflows also cache the
 checked-out and bootstrapped vcpkg tooling (see "Dependency baselines" below), keyed on its pinned
-commit, and the checked-out colorglass registry, keyed on the content hash of
-`bridge/vcpkg-configuration.json` rather than a literal commit -- a cache miss still fetches the
-registry normally, but a cache hit avoids repeatedly re-fetching it from GitHub or GitLab.
+commit. The CommonLib port recipe is repository-owned, so configuring the Bridge and Adapter does
+not require a live third-party registry lookup.
 
 Visual Studio 2022 installations with the Desktop development with C++ workload bundle CMake,
 Ninja, `vcvarsall.bat`, and vcpkg, but do not place all of them on `PATH` by default.

@@ -16,10 +16,6 @@ $cacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-binary
 New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
 $env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot
 
-$registriesCacheRoot = Join-Path ([System.IO.Path]::GetTempPath()) "DovahLink\vcpkg-registries-cache"
-New-Item -ItemType Directory -Force -Path $registriesCacheRoot | Out-Null
-$env:X_VCPKG_REGISTRIES_CACHE = $registriesCacheRoot
-
 if (-not (Test-Path -LiteralPath $vcpkgRoot -PathType Container)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $vcpkgRoot) | Out-Null
     Invoke-CheckedNativeCommand -FilePath "git" -ArgumentList @(

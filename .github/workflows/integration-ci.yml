@@ -44,13 +44,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-binary-cache" | Out-Null
 
-      - name: Set X_VCPKG_REGISTRIES_CACHE
-        run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\vcpkg-registries-cache" >> $env:GITHUB_ENV
-
-      - name: Prepare vcpkg registries cache
-        run: |
-          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-registries-cache" | Out-Null
-
       - name: Install pinned CMake
         # windows-2022 ships an older CMake than the pinned version; a direct download of the
         # official release archive is faster and no less trustworthy than a Chocolatey install.
@@ -69,20 +62,19 @@ jobs:
           $env:Path = "$cmakeBin;$env:Path"
           cmake --version
 
-      - name: Verify pinned Ninja is preinstalled
-        # windows-2022 ships exactly the pinned Ninja version already, so nothing installs it;
-        # this guards that assumption instead of silently building against a different version.
-        run: |
-          $ninjaVersion = (ninja --version).Trim()
-          if ($ninjaVersion -ne "1.13.2") {
-            throw "Expected the windows-2022 image to ship Ninja 1.13.2, but found '$ninjaVersion'."
-          }
-
       - name: Set up the MSVC 2022 developer environment
         # Maintained stable release; no stable Node 24 replacement is available yet.
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
         with:
           arch: x64
+
+      - name: Verify pinned Ninja is available in the build environment
+        # Check after the MSVC setup because CMake runs with this step's resulting PATH.
+        run: |
+          $ninjaVersion = (ninja --version).Trim()
+          if ($ninjaVersion -ne "1.13.2") {
+            throw "Expected the windows-2022 image to provide Ninja 1.13.2, but found '$ninjaVersion'."
+          }
 
       - name: Set up .NET 9
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
@@ -107,19 +99,7 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}
-
-      - name: Restore vcpkg registries cache
-        # The colorglass registry (bridge/vcpkg-configuration.json) is pinned to an immutable
-        # commit; caching its checkout avoids re-fetching it from GitLab on every run, which is
-        # what caused repeated HTTP 403s from GitLab's abuse detection on shared CI IPs. A cache
-        # miss still fetches it normally during Configure -- this is a cache, not a mirror. Keyed
-        # off the config file's hash (not a hand-copied commit literal) so a baseline bump can
-        # never drift out of sync with this key the way a duplicated literal could.
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ${{ runner.temp }}\vcpkg-registries-cache
-          key: ${{ runner.os }}-vcpkg-registries-${{ hashFiles('bridge/vcpkg-configuration.json') }}
+          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json', 'tooling/vcpkg-ports/**') }}
 
       - name: Configure bridge debug harness
         working-directory: bridge
