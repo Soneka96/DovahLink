@@ -37,7 +37,7 @@ rejection, cancellation, or shutdown.
 ## Invariants
 
 - No public client endpoint can reach the private listener or its message model.
-- Peer rejection, version failure, malformed input, and over-limit input fail
+- Peer rejection, malformed input, and over-limit input fail
   closed and leave the host in a controlled unavailable state.
 - Connection teardown is deterministic, bounded, and idempotent.
 - Late messages from an old connection generation cannot alter current state.
@@ -58,8 +58,8 @@ rejection, cancellation, or shutdown.
 - Adapter loss produces unavailable/resynchronization-required state.
 - Current-generation resynchronization succeeds; stale-generation responses are
   ignored safely.
-- Host-directed event keys and sample tokens reach the adapter as bounded,
-  versioned intent messages; the host remains the owner of their policy and
+- Host-directed event keys and sample tokens reach the adapter as bounded intent
+  messages; the host remains the owner of their policy and
   cadence.
 - Cancellation, peer failure, malformed input, and shutdown complete without
   hanging the host.
