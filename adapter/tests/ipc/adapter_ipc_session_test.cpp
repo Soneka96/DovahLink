@@ -4,11 +4,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <future>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -94,6 +98,31 @@ private:
   std::unordered_map<std::uint32_t, std::vector<std::byte>> results_;
   std::unordered_set<std::uint32_t> throwingKeys_;
   std::vector<std::uint32_t> dispatchedKeys_;
+};
+
+///  A dispatcher that holds a game-thread callback until the test releases it.
+class BlockingAdapterNativeDispatcher final : public IAdapterNativeDispatcher {
+public:
+  ///  Creates a dispatcher synchronized by the supplied entry and release
+  ///  signals.
+  BlockingAdapterNativeDispatcher(std::promise<void> &entered,
+                                  std::shared_future<void> release)
+      : entered_(entered), release_(std::move(release)) {}
+
+  ///  Signals that the callback entered, then waits for the test to release
+  ///  it before reporting that no translation exists.
+  std::optional<std::vector<std::byte>>
+  TryDispatch(std::uint32_t /*intentKey*/) override {
+    entered_.set_value();
+    release_.wait();
+    return std::nullopt;
+  }
+
+private:
+  ///  Signals that the callback has entered the dispatcher.
+  std::promise<void> &entered_;
+  ///  Keeps the callback blocked until the test releases it.
+  std::shared_future<void> release_;
 };
 
 ///  A fake `IAdapterCaptureHandoffQueue` that records every enqueued item.
@@ -281,6 +310,79 @@ TEST_CASE("AdapterIpcSession's marshaled resynchronize reply does nothing "
   fixture.session.HandleMessage(
       IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
   fixture.marshaller.RunAllPending();
+}
+
+TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
+          "destruction") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  FakeAdapterTaskMarshaller marshaller;
+  FakeAdapterNativeDispatcher dispatcher;
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterIpcConnection connection;
+
+  {
+    AdapterIpcSession session{SampleInstanceId(), peerProofProvider, marshaller,
+                              dispatcher, captureQueue};
+    session.AttachConnection(connection);
+    session.HandleMessage(
+        IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+    session.HandleMessage(
+        IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
+    session.HandleMessage(
+        IpcMessage{IpcReadSampleMessage{.correlationId = 3, .sampleToken = 8}});
+  }
+
+  REQUIRE(marshaller.PendingCount() == 3);
+  REQUIRE_NOTHROW(marshaller.RunAllPending());
+  CHECK(dispatcher.DispatchedKeys().empty());
+  CHECK(captureQueue.Enqueued().empty());
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
+          "callback before returning") {
+  FixedAdapterIpcPeerProofProvider peerProofProvider{
+      {std::byte{9}, std::byte{8}, std::byte{7}}};
+  FakeAdapterTaskMarshaller marshaller;
+  std::promise<void> enteredPromise;
+  std::shared_future<void> enteredFuture = enteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
+  BlockingAdapterNativeDispatcher dispatcher{enteredPromise, releaseFuture};
+  FakeAdapterCaptureHandoffQueue captureQueue;
+  FakeAdapterIpcConnection connection;
+  auto session =
+      std::make_unique<AdapterIpcSession>(SampleInstanceId(), peerProofProvider,
+                                          marshaller, dispatcher, captureQueue);
+  session->AttachConnection(connection);
+  session->HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+
+  std::thread gameThread([&] { marshaller.RunAllPending(); });
+  bool callbackEntered = enteredFuture.wait_for(std::chrono::seconds(5)) ==
+                         std::future_status::ready;
+  if (!callbackEntered) {
+    releasePromise.set_value();
+    gameThread.join();
+    FAIL("the game-thread callback did not enter the dispatcher");
+  }
+
+  std::promise<void> destroyedPromise;
+  std::future<void> destroyedFuture = destroyedPromise.get_future();
+  std::thread destructionThread([&] {
+    session.reset();
+    destroyedPromise.set_value();
+  });
+
+  CHECK(destroyedFuture.wait_for(std::chrono::milliseconds(50)) ==
+        std::future_status::timeout);
+
+  releasePromise.set_value();
+  REQUIRE(destroyedFuture.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  gameThread.join();
+  destructionThread.join();
 }
 
 TEST_CASE("AdapterIpcSession rejects and ends serving on a received "

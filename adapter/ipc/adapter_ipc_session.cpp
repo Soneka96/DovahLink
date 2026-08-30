@@ -17,6 +17,11 @@ AdapterIpcSession::AdapterIpcSession(
       taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
       captureQueue_(captureQueue) {}
 
+AdapterIpcSession::~AdapterIpcSession() {
+  std::lock_guard<std::mutex> lock(*callbackMutex_);
+  lifetimeToken_->store(false);
+}
+
 void AdapterIpcSession::AttachConnection(IAdapterIpcConnection &connection) {
   connection_ = &connection;
 }
@@ -94,55 +99,80 @@ bool AdapterIpcSession::IsHostAvailable() const {
 void AdapterIpcSession::HandleResynchronizeRequest(
     const IpcResynchronizeRequestMessage &request) {
   std::uint64_t correlationId = request.correlationId;
-  taskMarshaller_.RunOnGameThread([this, correlationId] {
-    try {
-      //  No real baseline domain is registered yet; the game-thread path is
-      //  proven as a mechanism and always reports success, matching
-      //  IpcResynchronizeResultMessage's own documented scope.
-      if (connection_ != nullptr) {
-        connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
-            .correlationId = correlationId, .accepted = true}});
-      }
-    } catch (...) {
-      //  Contained, per ai/context/skse/cpp-style.md's worker-thread
-      //  boundary rule: this task runs on the Skyrim game thread via SKSE's
-      //  own task interface, which must never see an exception escape.
-    }
-  });
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  taskMarshaller_.RunOnGameThread(
+      [this, callbackMutex = std::move(callbackMutex),
+       lifetimeToken = std::move(lifetimeToken), correlationId] {
+        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+        if (!lifetimeToken->load()) {
+          return;
+        }
+        try {
+          //  No real baseline domain is registered yet; the game-thread path
+          //  is proven as a mechanism and always reports success, matching
+          //  IpcResynchronizeResultMessage's own documented scope.
+          if (connection_ != nullptr) {
+            connection_->TrySend(IpcMessage{IpcResynchronizeResultMessage{
+                .correlationId = correlationId, .accepted = true}});
+          }
+        } catch (...) {
+          //  Contained, per ai/context/skse/cpp-style.md's worker-thread
+          //  boundary rule: this task runs on the Skyrim game thread via
+          //  SKSE's own task interface, which must never see an exception
+          //  escape.
+        }
+      });
 }
 
 void AdapterIpcSession::HandleListenEvent(
     const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
-  taskMarshaller_.RunOnGameThread([this, eventKey] {
-    try {
-      std::optional<std::vector<std::byte>> captured =
-          dispatcher_.TryDispatch(eventKey);
-      if (captured.has_value()) {
-        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-            .intentKey = eventKey, .capturedValue = *captured});
-      }
-    } catch (...) {
-      //  Contained; see HandleResynchronizeRequest's task for why.
-    }
-  });
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  taskMarshaller_.RunOnGameThread(
+      [this, callbackMutex = std::move(callbackMutex),
+       lifetimeToken = std::move(lifetimeToken), eventKey] {
+        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+        if (!lifetimeToken->load()) {
+          return;
+        }
+        try {
+          std::optional<std::vector<std::byte>> captured =
+              dispatcher_.TryDispatch(eventKey);
+          if (captured.has_value()) {
+            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                .intentKey = eventKey, .capturedValue = *captured});
+          }
+        } catch (...) {
+          //  Contained; see HandleResynchronizeRequest's task for why.
+        }
+      });
 }
 
 void AdapterIpcSession::HandleReadSample(
     const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
-  taskMarshaller_.RunOnGameThread([this, sampleToken] {
-    try {
-      std::optional<std::vector<std::byte>> captured =
-          dispatcher_.TryDispatch(sampleToken);
-      if (captured.has_value()) {
-        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-            .intentKey = sampleToken, .capturedValue = *captured});
-      }
-    } catch (...) {
-      //  Contained; see HandleResynchronizeRequest's task for why.
-    }
-  });
+  auto callbackMutex = callbackMutex_;
+  auto lifetimeToken = lifetimeToken_;
+  taskMarshaller_.RunOnGameThread(
+      [this, callbackMutex = std::move(callbackMutex),
+       lifetimeToken = std::move(lifetimeToken), sampleToken] {
+        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+        if (!lifetimeToken->load()) {
+          return;
+        }
+        try {
+          std::optional<std::vector<std::byte>> captured =
+              dispatcher_.TryDispatch(sampleToken);
+          if (captured.has_value()) {
+            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                .intentKey = sampleToken, .capturedValue = *captured});
+          }
+        } catch (...) {
+          //  Contained; see HandleResynchronizeRequest's task for why.
+        }
+      });
 }
 
 std::uint64_t AdapterIpcSession::NextCorrelationId() {

@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 
 namespace dovahlink::adapter::ipc {
@@ -80,6 +81,10 @@ public:
                     dispatch::IAdapterNativeDispatcher &dispatcher,
                     capture::IAdapterCaptureHandoffQueue &captureQueue);
 
+  ///  Invalidates deferred game-thread tasks and waits for any task already
+  ///  inside the session lifetime gate before the session is destroyed.
+  ~AdapterIpcSession() override;
+
   ///  @copydoc IAdapterIpcSession::AttachConnection
   void AttachConnection(IAdapterIpcConnection &connection) override;
 
@@ -135,6 +140,11 @@ private:
   IAdapterIpcConnection *connection_ = nullptr;
   ///  The most recently issued outbound correlation id.
   std::atomic<std::uint64_t> nextCorrelationId_{0};
+  ///  Serializes deferred task execution with session destruction.
+  std::shared_ptr<std::mutex> callbackMutex_ = std::make_shared<std::mutex>();
+  ///  Lets deferred tasks reject themselves after session destruction begins.
+  std::shared_ptr<std::atomic_bool> lifetimeToken_ =
+      std::make_shared<std::atomic_bool>(true);
   ///  Guards `available_`.
   mutable std::mutex availableMutex_;
   ///  Whether the host is currently available.
