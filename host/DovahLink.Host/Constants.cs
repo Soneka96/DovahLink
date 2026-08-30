@@ -1,3 +1,5 @@
+using DovahLink.Host.Process;
+
 namespace DovahLink.Host;
 
 // ---- Trust ----
@@ -162,4 +164,32 @@ public static class Constants
     /// (IpcOwnerLifetimeIdBytes)</c>.
     /// </summary>
     public const int IpcHostProofMessageBytes = IpcChallengeBytes + 8 + 16 + IpcOwnerLifetimeIdBytes;
+
+    // ---- Process ----
+
+    /// <summary>
+    /// The per-user, per-Skyrim-lifetime rendezvous file this host process publishes its currently
+    /// bound private-IPC port and peer-proof token to, so an adapter belonging to the same lifetime
+    /// can discover a candidate endpoint. Discovery only, never authentication.
+    /// </summary>
+    /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
+    public static string RendezvousFilePath(OwnerLifetimeId ownerLifetimeId)
+    {
+        string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localApplicationData))
+        {
+            throw new InvalidOperationException("The current Windows user has no local application-data directory.");
+        }
+
+        return Path.Combine(localApplicationData, "DovahLink", "host", $"rendezvous-{ownerLifetimeId.Format()}.dat");
+    }
+
+    /// <summary>
+    /// The per-Skyrim-lifetime named Windows event the adapter signals to request this host's
+    /// graceful shutdown. Scoped by owner-lifetime-id so a signal from one Skyrim lifetime's adapter
+    /// can never reach a different lifetime's host.
+    /// </summary>
+    /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
+    public static string ShutdownEventName(OwnerLifetimeId ownerLifetimeId) =>
+        $@"Local\DovahLink.Host.Shutdown.{ownerLifetimeId.Format()}";
 }
