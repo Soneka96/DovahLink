@@ -114,4 +114,10 @@ public static class Constants
     /// Not itself enforced by this contract's codec.
     /// </summary>
     public const int MaxIpcMessagesPerSecond = 200;
+
+    /// <summary>
+    /// The default loopback TCP port the host's private adapter listener binds to. Distinct from the
+    /// public client transport's own default loopback port.
+    /// </summary>
+    public const int AdapterIpcLoopbackPort = 58232;
 }
