@@ -33,11 +33,16 @@ void InvokeContained(const Callback &callback, Args &&...args) {
 AdapterIpcConnection::AdapterIpcConnection(
     IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
     AdapterIpcConnectionCallbacks callbacks)
-    : socket_(socket), codec_(codec), callbacks_(std::move(callbacks)) {
-  worker_ = std::thread([this] { RunLoop(); });
-}
+    : socket_(socket), codec_(codec), callbacks_(std::move(callbacks)) {}
 
 AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
+
+void AdapterIpcConnection::Start() {
+  if (worker_.joinable()) {
+    return;
+  }
+  worker_ = std::thread([this] { RunLoop(); });
+}
 
 bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
   std::lock_guard<std::mutex> stopLock(stopMutex_);
@@ -83,6 +88,11 @@ void AdapterIpcConnection::RunLoop() {
 
     ServeConnection();
 
+    //  Best-effort final flush: a handler invoked from ServeConnection (for
+    //  example a decode-failure response) may have queued one last message
+    //  that no read poll will run again to drain.
+    DrainOutbound();
+
     socket_.Close();
     InvokeContained(callbacks_.onDisconnected);
 
@@ -110,7 +120,20 @@ void AdapterIpcConnection::ServeConnection() {
       return;
     }
 
-    InvokeContained(callbacks_.onMessageReceived, *message);
+    bool keepServing = true;
+    if (callbacks_.onMessageReceived) {
+      try {
+        keepServing = callbacks_.onMessageReceived(*message);
+      } catch (...) {
+        //  Contained, per ai/context/skse/cpp-style.md's worker-thread
+        //  boundary rule; an unexpected handler failure is not itself a
+        //  reason to end an otherwise healthy connection.
+        keepServing = true;
+      }
+    }
+    if (!keepServing) {
+      return;
+    }
   }
 }
 

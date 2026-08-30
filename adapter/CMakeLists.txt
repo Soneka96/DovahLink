@@ -21,6 +21,8 @@ add_library(dovahlink_adapter_core STATIC
     ipc/ipc_frame_codec.cpp
     ipc/winsock_adapter_ipc_socket.cpp
     ipc/adapter_ipc_connection.cpp
+    ipc/adapter_ipc_peer_proof_provider.cpp
+    ipc/adapter_ipc_session.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
@@ -50,6 +52,7 @@ add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
     tests/ipc/adapter_ipc_connection_test.cpp
+    tests/ipc/adapter_ipc_session_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp

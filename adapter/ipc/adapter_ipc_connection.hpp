@@ -26,6 +26,13 @@ class IAdapterIpcConnection {
 public:
   virtual ~IAdapterIpcConnection() = default;
 
+  ///  Starts the connection's background connect/serve thread. Callers must
+  ///  finish wiring every callback consumer (for example attaching this
+  ///  connection to the session that will handle its callbacks) before
+  ///  calling this, since callbacks may begin firing immediately afterward.
+  ///  Idempotent: a call after the thread is already running is a no-op.
+  virtual void Start() = 0;
+
   ///  Attempts to enqueue a message for the next write. Never blocks.
   ///  @return `true` when the message was accepted onto the bounded outbound
   ///  queue; `false` at capacity or once `Stop()` has been called.
@@ -39,8 +46,9 @@ public:
 ///  @copydoc IAdapterIpcConnection
 class AdapterIpcConnection final : public IAdapterIpcConnection {
 public:
-  ///  Creates a connection over an injected socket and codec, and starts its
-  ///  background connect/serve thread immediately.
+  ///  Creates a connection over an injected socket and codec. Does not start
+  ///  the background thread; call `Start()` once callback wiring is
+  ///  complete.
   ///  @param socket The transport this connection connects and reads/writes
   ///  through, for its own lifetime.
   ///  @param codec Encodes outbound messages and decodes inbound frames.
@@ -53,6 +61,9 @@ public:
 
   AdapterIpcConnection(const AdapterIpcConnection &) = delete;
   AdapterIpcConnection &operator=(const AdapterIpcConnection &) = delete;
+
+  ///  @copydoc IAdapterIpcConnection::Start
+  void Start() override;
 
   ///  @copydoc IAdapterIpcConnection::TrySend
   bool TrySend(const IpcMessage &message) override;
@@ -107,7 +118,7 @@ private:
   std::mutex outboundMutex_;
   ///  The bounded FIFO of messages queued for the next write.
   std::deque<IpcMessage> outbound_;
-  ///  The background connect/serve thread, started at construction.
+  ///  The background connect/serve thread, started by `Start()`.
   std::thread worker_;
 };
 

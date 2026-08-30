@@ -15,7 +15,10 @@ struct AdapterIpcConnectionCallbacks {
   ///  Invoked once per successful connect, before frames are served.
   std::function<void()> onConnected;
   ///  Invoked for each successfully decoded inbound message.
-  std::function<void(const IpcMessage &)> onMessageReceived;
+  ///  @return `true` to keep serving the connection; `false` to end it (for
+  ///  example after a received `IpcCloseMessage` or an unexpected message
+  ///  kind). An unset callback defaults to `true`.
+  std::function<bool(const IpcMessage &)> onMessageReceived;
   ///  Invoked when an inbound frame could not be decoded.
   std::function<void()> onDecodeFailure;
   ///  Invoked once a connected session ends, before a reconnect attempt or
