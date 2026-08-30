@@ -252,11 +252,68 @@ public class AdapterIpcConnectionTests
         var fakeSession = new FakeAdapterIpcSession();
         var connection = new AdapterIpcConnection(new WriteFaultingStream(server), codec, fakeSession);
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
-        client.Dispose(); // nothing more will arrive; lets the read loop end once the handshake completes
 
         await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Single(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that a reader I/O failure ends the connection without escaping to the caller.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ReadTransportFailure_EndsWithoutThrowing(bool disposedException)
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var session = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(
+            new ReadFaultingStream(server, disposedException),
+            new IpcFrameCodec(),
+            session);
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, session.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that cancellation closes a transport before awaiting a writer blocked in I/O.</summary>
+    [Fact]
+    public async Task RunAsync_CancellationStopsBlockedWriterAndNotifiesDisconnect()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession);
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+        using var cancellation = new CancellationTokenSource();
+
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            blockingStream.Release();
+            client.Dispose();
+            try
+            {
+                await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (OperationCanceledException)
+            {
+                // The caller cancellation is the expected result of this test.
+            }
+        }
+
         Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
@@ -350,6 +407,167 @@ public class AdapterIpcConnectionTests
             int read = await stream.ReadAsync(buffer.AsMemory(totalRead)).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(read > 0, "Unexpected end of stream while reading a test frame.");
             totalRead += read;
+        }
+    }
+
+    /// <summary>A stream whose first asynchronous write waits until cancellation, release, or disposal.</summary>
+    private sealed class BlockingWriteStream : Stream
+    {
+        /// <summary>The stream whose reads and synchronous operations are delegated.</summary>
+        private readonly Stream inner;
+
+        /// <summary>Completes when an asynchronous write begins.</summary>
+        private readonly TaskCompletionSource writeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Completes the blocked write when the stream is released or disposed.</summary>
+        private readonly TaskCompletionSource writeRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Creates a wrapper around the connected server stream.</summary>
+        /// <param name="inner">The connected stream whose reads are delegated.</param>
+        public BlockingWriteStream(Stream inner)
+        {
+            this.inner = inner;
+        }
+
+        /// <summary>Gets a task that completes when the first write begins.</summary>
+        public Task WriteStarted => writeStarted.Task;
+
+        /// <inheritdoc/>
+        public override bool CanRead => inner.CanRead;
+
+        /// <inheritdoc/>
+        public override bool CanSeek => false;
+
+        /// <inheritdoc/>
+        public override bool CanWrite => true;
+
+        /// <inheritdoc/>
+        public override long Length => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        /// <inheritdoc/>
+        public override void Flush() => inner.Flush();
+
+        /// <inheritdoc/>
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+        /// <inheritdoc/>
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+
+        /// <inheritdoc/>
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        /// <inheritdoc/>
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            writeStarted.TrySetResult();
+            return new ValueTask(writeRelease.Task);
+        }
+
+        /// <summary>Releases the blocked write so a failed test can clean up safely.</summary>
+        public void Release() => writeRelease.TrySetResult();
+
+        /// <inheritdoc/>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Release();
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
+    /// <summary>A stream that fails every asynchronous read with a selected transport exception.</summary>
+    private sealed class ReadFaultingStream : Stream
+    {
+        /// <summary>The stream whose disposal is owned by this wrapper.</summary>
+        private readonly Stream inner;
+
+        /// <summary>Whether reads should throw <see cref="ObjectDisposedException"/> instead of <see cref="IOException"/>.</summary>
+        private readonly bool disposedException;
+
+        /// <summary>Creates a wrapper that fails asynchronous reads.</summary>
+        /// <param name="inner">The connected stream whose lifetime is owned by this wrapper.</param>
+        /// <param name="disposedException">Whether to throw <see cref="ObjectDisposedException"/>.</param>
+        public ReadFaultingStream(Stream inner, bool disposedException)
+        {
+            this.inner = inner;
+            this.disposedException = disposedException;
+        }
+
+        /// <inheritdoc/>
+        public override bool CanRead => true;
+
+        /// <inheritdoc/>
+        public override bool CanSeek => false;
+
+        /// <inheritdoc/>
+        public override bool CanWrite => inner.CanWrite;
+
+        /// <inheritdoc/>
+        public override long Length => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        /// <inheritdoc/>
+        public override void Flush() => inner.Flush();
+
+        /// <inheritdoc/>
+        public override int Read(byte[] buffer, int offset, int count) => throw CreateReadException();
+
+        /// <inheritdoc/>
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<int>(CreateReadException());
+
+        /// <inheritdoc/>
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        /// <inheritdoc/>
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        /// <inheritdoc/>
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.WriteAsync(buffer, cancellationToken);
+
+        /// <summary>Creates the configured reader failure.</summary>
+        /// <returns>The exception to raise from a read operation.</returns>
+        private Exception CreateReadException() => disposedException
+            ? new ObjectDisposedException(nameof(ReadFaultingStream))
+            : new IOException("Simulated read fault.");
+
+        /// <inheritdoc/>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
         }
     }
 }

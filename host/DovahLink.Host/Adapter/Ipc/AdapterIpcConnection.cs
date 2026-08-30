@@ -67,22 +67,37 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <inheritdoc/>
     public async Task RunAsync(CancellationToken cancellationToken)
     {
-        Task writerTask = WriterLoopAsync();
+        using var ioCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task writerTask = WriterLoopAsync(ioCancellation);
         try
         {
-            bool handshakeAccepted = await HandshakeAsync(cancellationToken).ConfigureAwait(false);
+            bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
             if (handshakeAccepted)
             {
                 outbound.Writer.TryWrite(codec.Encode(session.PrepareResynchronizeRequest()));
-                await ReadLoopAsync(cancellationToken).ConfigureAwait(false);
+                await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // A transport failure in the writer cancels the reader so both halves leave together.
         }
         finally
         {
             session.HandleDisconnected();
             outbound.Writer.TryComplete();
+            bool forceClose = cancellationToken.IsCancellationRequested || ioCancellation.IsCancellationRequested;
+            if (forceClose)
+            {
+                ioCancellation.Cancel();
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
+
             await writerTask.ConfigureAwait(false);
-            await stream.DisposeAsync().ConfigureAwait(false);
+            if (!forceClose)
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 
@@ -243,18 +258,29 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// completed. Tolerates transport faults by ending the loop rather than throwing, so a broken
     /// peer connection cannot leave this task running or crash the caller awaiting it.
     /// </summary>
-    private async Task WriterLoopAsync()
+    private async Task WriterLoopAsync(CancellationTokenSource ioCancellation)
     {
-        await foreach (byte[] frame in outbound.Reader.ReadAllAsync().ConfigureAwait(false))
+        try
         {
-            try
+            await foreach (byte[] frame in outbound.Reader.ReadAllAsync(ioCancellation.Token).ConfigureAwait(false))
             {
-                await stream.WriteAsync(frame).ConfigureAwait(false);
+                try
+                {
+                    await stream.WriteAsync(frame, ioCancellation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+                {
+                    ioCancellation.Cancel();
+                    return;
+                }
             }
-            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
-            {
-                return;
-            }
+        }
+        catch (OperationCanceledException) when (ioCancellation.IsCancellationRequested)
+        {
         }
     }
 }
