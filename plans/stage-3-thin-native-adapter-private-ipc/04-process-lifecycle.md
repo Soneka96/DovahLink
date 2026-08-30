@@ -37,6 +37,10 @@ requests, and forced cleanup when the owner disappears.
   matching executable or PID alone is insufficient.
 - Startup retry runs outside game-thread callbacks and has explicit bounds and
   cancellation.
+- The adapter does not dispatch host-directed event or sample intents into
+  Skyrim until the host-authentication result is accepted. This authentication
+  gate is intentionally deferred from Concept 03 and is a mandatory Concept 04
+  handoff requirement.
 - A Papyrus or native connection request only triggers the same bounded,
   non-blocking lifecycle path; it does not add a second retry or policy layer.
 - Orderly Skyrim close asks the host to perform deterministic teardown first.
@@ -48,7 +52,12 @@ requests, and forced cleanup when the owner disappears.
 Concept 03 intentionally leaves the plugin's port and proof-token values
 provisional. This concept must replace those placeholders with the packaged-host
 startup rendezvous and must not leave a production composition path connecting
-to port `0` or using an empty proof token.
+to port `0` or using an empty proof token. Concept 03 also intentionally leaves
+adapter-side authentication gating for host-directed intents incomplete: its
+development handlers may marshal `ListenEvent` and `ReadSample` requests without
+an accepted host-authentication result. Concept 04 must establish the host proof
+and gate both request types before any request can reach game-thread dispatch,
+with tests covering pre-handshake and rejected-peer requests.
 
 ## Invariants
 
@@ -80,6 +89,8 @@ to port `0` or using an empty proof token.
 - Graceful close requests host teardown and handles an already-dead host.
 - Forced owner termination is covered by supervision/cleanup tests.
 - The host remains valid without an adapter and reports controlled unavailability.
+- Pre-handshake and rejected-peer event/sample intents cannot reach the adapter's
+  game-thread dispatcher.
 - Papyrus-facing connection/status behavior reports host readiness or “host not
   ready” without blocking Skyrim or inventing a local fallback state.
 

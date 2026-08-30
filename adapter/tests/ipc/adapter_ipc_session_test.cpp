@@ -360,6 +360,61 @@ TEST_CASE("AdapterIpcSession drops a pending resynchronization result after "
   CHECK(connection.Sent().empty());
 }
 
+TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
+          "disconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  fixture.session.HandleConnected();
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.session.HandleDisconnected();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
+          "disconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  fixture.session.HandleConnected();
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 8}});
+  fixture.session.HandleDisconnected();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
+          "generation after reconnect") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  fixture.session.HandleConnected();
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
+  fixture.session.HandleDisconnected();
+  fixture.session.HandleConnected();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{

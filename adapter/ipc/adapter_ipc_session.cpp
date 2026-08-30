@@ -145,51 +145,75 @@ void AdapterIpcSession::HandleResynchronizeRequest(
 void AdapterIpcSession::HandleListenEvent(
     const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
+  std::uint64_t connectionGeneration;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    connectionGeneration = connectionGeneration_;
+  }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread(
-      [this, callbackMutex = std::move(callbackMutex),
-       lifetimeToken = std::move(lifetimeToken), eventKey] {
-        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
-        if (!lifetimeToken->load()) {
+  taskMarshaller_.RunOnGameThread([this,
+                                   callbackMutex = std::move(callbackMutex),
+                                   lifetimeToken = std::move(lifetimeToken),
+                                   eventKey, connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        if (connectionGeneration != connectionGeneration_) {
           return;
         }
-        try {
-          std::optional<std::vector<std::byte>> captured =
-              dispatcher_.TryDispatch(eventKey);
-          if (captured.has_value()) {
-            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                .intentKey = eventKey, .capturedValue = *captured});
-          }
-        } catch (...) {
-          //  Contained; see HandleResynchronizeRequest's task for why.
-        }
-      });
+      }
+      std::optional<std::vector<std::byte>> captured =
+          dispatcher_.TryDispatch(eventKey);
+      if (captured.has_value()) {
+        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+            .intentKey = eventKey, .capturedValue = *captured});
+      }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
 }
 
 void AdapterIpcSession::HandleReadSample(
     const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
+  std::uint64_t connectionGeneration;
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    connectionGeneration = connectionGeneration_;
+  }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
-  taskMarshaller_.RunOnGameThread(
-      [this, callbackMutex = std::move(callbackMutex),
-       lifetimeToken = std::move(lifetimeToken), sampleToken] {
-        std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
-        if (!lifetimeToken->load()) {
+  taskMarshaller_.RunOnGameThread([this,
+                                   callbackMutex = std::move(callbackMutex),
+                                   lifetimeToken = std::move(lifetimeToken),
+                                   sampleToken, connectionGeneration] {
+    std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+    if (!lifetimeToken->load()) {
+      return;
+    }
+    try {
+      {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        if (connectionGeneration != connectionGeneration_) {
           return;
         }
-        try {
-          std::optional<std::vector<std::byte>> captured =
-              dispatcher_.TryDispatch(sampleToken);
-          if (captured.has_value()) {
-            captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
-                .intentKey = sampleToken, .capturedValue = *captured});
-          }
-        } catch (...) {
-          //  Contained; see HandleResynchronizeRequest's task for why.
-        }
-      });
+      }
+      std::optional<std::vector<std::byte>> captured =
+          dispatcher_.TryDispatch(sampleToken);
+      if (captured.has_value()) {
+        captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+            .intentKey = sampleToken, .capturedValue = *captured});
+      }
+    } catch (...) {
+      //  Contained; see HandleResynchronizeRequest's task for why.
+    }
+  });
 }
 
 std::uint64_t AdapterIpcSession::NextCorrelationId() {
