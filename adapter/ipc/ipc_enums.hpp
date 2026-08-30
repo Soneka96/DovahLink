@@ -28,6 +28,10 @@ enum class IpcMessageKind : std::uint8_t {
   ///  Sent by either side to cancel a previously sent request. See
   ///  `IpcCancelMessage`.
   kCancel = 7,
+  ///  Sent by the host to ask the adapter to register one opaque event key.
+  kListenEvent = 8,
+  ///  Sent by the host to ask the adapter to perform one opaque sample token.
+  kReadSample = 9,
 };
 
 ///  Why a private IPC channel is being closed.

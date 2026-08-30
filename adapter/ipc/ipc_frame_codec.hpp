@@ -64,8 +64,7 @@ private:
   ///  `kMaxIpcPeerProofTokenBytes`.
   static std::vector<std::byte> EncodeHello(const IpcHelloMessage &hello);
 
-  ///  Encodes an `IpcHelloAckMessage` payload: accepted, negotiated version,
-  ///  reject reason.
+  ///  Encodes an `IpcHelloAckMessage` payload: accepted and reject reason.
   static std::vector<std::byte>
   EncodeHelloAck(const IpcHelloAckMessage &helloAck);
 
@@ -93,6 +92,24 @@ private:
   ///  Decodes an `IpcRejectMessage` payload, validating its reason enum.
   static std::expected<IpcMessage, IpcRejectReason>
   DecodeReject(std::uint64_t correlationId, std::span<const std::byte> payload);
+
+  ///  Encodes a host-owned event key payload.
+  static std::vector<std::byte>
+  EncodeListenEvent(const IpcListenEventMessage &listenEvent);
+
+  ///  Encodes a host-owned sample token payload.
+  static std::vector<std::byte>
+  EncodeReadSample(const IpcReadSampleMessage &readSample);
+
+  ///  Decodes a host-directed event-listening request.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodeListenEvent(std::uint64_t correlationId,
+                    std::span<const std::byte> payload);
+
+  ///  Decodes a host-directed sample-read request.
+  static std::expected<IpcMessage, IpcRejectReason>
+  DecodeReadSample(std::uint64_t correlationId,
+                   std::span<const std::byte> payload);
 };
 
 } //  namespace dovahlink::adapter::ipc

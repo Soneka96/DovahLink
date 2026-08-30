@@ -54,7 +54,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-  return value >= 1 && value <= 7;
+  return value >= 1 && value <= 9;
 }
 
 ///  Whether `value` is one of `IpcCloseReason`'s contiguous defined values.
@@ -101,6 +101,34 @@ IpcFrameCodec::EncodeHelloAck(const IpcHelloAckMessage &helloAck) {
   };
 }
 
+std::vector<std::byte>
+IpcFrameCodec::EncodeListenEvent(const IpcListenEventMessage &listenEvent) {
+  if (listenEvent.correlationId == 0 || listenEvent.eventKey == 0) {
+    throw std::invalid_argument(
+        "Capture intents require nonzero correlation and intent identifiers.");
+  }
+
+  std::vector<std::byte> payload(sizeof(std::uint32_t));
+  WriteUInt32LittleEndian(
+      std::span<std::byte, 4>(payload.data(), sizeof(std::uint32_t)),
+      listenEvent.eventKey);
+  return payload;
+}
+
+std::vector<std::byte>
+IpcFrameCodec::EncodeReadSample(const IpcReadSampleMessage &readSample) {
+  if (readSample.correlationId == 0 || readSample.sampleToken == 0) {
+    throw std::invalid_argument(
+        "Capture intents require nonzero correlation and intent identifiers.");
+  }
+
+  std::vector<std::byte> payload(sizeof(std::uint32_t));
+  WriteUInt32LittleEndian(
+      std::span<std::byte, 4>(payload.data(), sizeof(std::uint32_t)),
+      readSample.sampleToken);
+  return payload;
+}
+
 std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
   IpcMessageKind kind{};
   std::uint64_t correlationId = 0;
@@ -138,6 +166,12 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage &message) const {
                                         "nonzero request correlation id.");
           }
           kind = IpcMessageKind::kCancel;
+        } else if constexpr (std::is_same_v<T, IpcListenEventMessage>) {
+          kind = IpcMessageKind::kListenEvent;
+          payload = EncodeListenEvent(value);
+        } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
+          kind = IpcMessageKind::kReadSample;
+          payload = EncodeReadSample(value);
         }
       },
       message);
@@ -275,6 +309,40 @@ IpcFrameCodec::DecodeReject(std::uint64_t correlationId,
 }
 
 std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeListenEvent(std::uint64_t correlationId,
+                                 std::span<const std::byte> payload) {
+  if (correlationId == 0 || payload.size() != sizeof(std::uint32_t)) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  const std::uint32_t eventKey = ReadUInt32LittleEndian(
+      std::span<const std::byte, 4>(payload.data(), sizeof(std::uint32_t)));
+  if (eventKey == 0) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  return IpcMessage{IpcListenEventMessage{.correlationId = correlationId,
+                                          .eventKey = eventKey}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeReadSample(std::uint64_t correlationId,
+                                std::span<const std::byte> payload) {
+  if (correlationId == 0 || payload.size() != sizeof(std::uint32_t)) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  const std::uint32_t sampleToken = ReadUInt32LittleEndian(
+      std::span<const std::byte, 4>(payload.data(), sizeof(std::uint32_t)));
+  if (sampleToken == 0) {
+    return std::unexpected(IpcRejectReason::kMalformedPayload);
+  }
+
+  return IpcMessage{IpcReadSampleMessage{.correlationId = correlationId,
+                                         .sampleToken = sampleToken}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
   if (frame.size() < kIpcFrameHeaderBytes || frame.size() > kMaxIpcFrameBytes) {
     return std::unexpected(IpcRejectReason::kMalformedFrameLength);
@@ -312,6 +380,10 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
       return std::unexpected(IpcRejectReason::kMalformedPayload);
     }
     return IpcMessage{IpcCancelMessage{.correlationId = correlationId}};
+  case IpcMessageKind::kListenEvent:
+    return DecodeListenEvent(correlationId, payload);
+  case IpcMessageKind::kReadSample:
+    return DecodeReadSample(correlationId, payload);
   }
 
   return std::unexpected(IpcRejectReason::kUnknownMessageKind);

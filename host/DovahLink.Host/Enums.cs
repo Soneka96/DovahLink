@@ -192,6 +192,12 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by either side to cancel a previously sent request. See <see cref="Adapter.Ipc.IpcCancelMessage"/>.</summary>
     Cancel = 7,
+
+    /// <summary>Sent by the host to ask the adapter to register one opaque Skyrim event key.</summary>
+    ListenEvent = 8,
+
+    /// <summary>Sent by the host to ask the adapter to perform one opaque sample read token.</summary>
+    ReadSample = 9,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>

@@ -49,6 +49,8 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcCloseMessage close => (IpcMessageKind.Close, EncodeClose(close)),
             IpcRejectMessage reject => (IpcMessageKind.Reject, new byte[] { (byte)reject.Reason }),
             IpcCancelMessage cancel => (IpcMessageKind.Cancel, EncodeCancel(cancel)),
+            IpcListenEventMessage listenEvent => (IpcMessageKind.ListenEvent, EncodeListenEvent(listenEvent)),
+            IpcReadSampleMessage readSample => (IpcMessageKind.ReadSample, EncodeReadSample(readSample)),
             _ => throw new ArgumentOutOfRangeException(nameof(message), message, "Unrecognized IPC message type."),
         };
 
@@ -111,6 +113,8 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcMessageKind.Cancel => correlationId == 0 || !payload.IsEmpty
                 ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
                 : IpcDecodeResult.Success(new IpcCancelMessage(correlationId)),
+            IpcMessageKind.ListenEvent => DecodeListenEvent(correlationId, payload),
+            IpcMessageKind.ReadSample => DecodeReadSample(correlationId, payload),
             _ => IpcDecodeResult.Failure(IpcRejectReason.UnknownMessageKind),
         };
     }
@@ -174,6 +178,41 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         return Array.Empty<byte>();
+    }
+
+    /// <summary>Encodes a host-owned event key as one little-endian 32-bit value.</summary>
+    /// <param name="listenEvent">The event-listening request to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the request has no correlation or key.</exception>
+    private static byte[] EncodeListenEvent(IpcListenEventMessage listenEvent)
+    {
+        ValidateCaptureIntent(listenEvent.CorrelationId, listenEvent.EventKey, nameof(listenEvent));
+        byte[] payload = new byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(payload, listenEvent.EventKey);
+        return payload;
+    }
+
+    /// <summary>Encodes a host-owned sample token as one little-endian 32-bit value.</summary>
+    /// <param name="readSample">The sample-read request to encode.</param>
+    /// <exception cref="ArgumentException">Thrown when the request has no correlation or token.</exception>
+    private static byte[] EncodeReadSample(IpcReadSampleMessage readSample)
+    {
+        ValidateCaptureIntent(readSample.CorrelationId, readSample.SampleToken, nameof(readSample));
+        byte[] payload = new byte[sizeof(uint)];
+        BinaryPrimitives.WriteUInt32LittleEndian(payload, readSample.SampleToken);
+        return payload;
+    }
+
+    /// <summary>Validates the common identity rules for host-directed capture intents.</summary>
+    /// <param name="correlationId">The request correlation id.</param>
+    /// <param name="intentId">The event key or sample token.</param>
+    /// <param name="parameterName">The message parameter name used in validation errors.</param>
+    /// <exception cref="ArgumentException">Thrown when either identifier is zero.</exception>
+    private static void ValidateCaptureIntent(ulong correlationId, uint intentId, string parameterName)
+    {
+        if (correlationId == 0 || intentId == 0)
+        {
+            throw new ArgumentException("Capture intents require nonzero correlation and intent identifiers.", parameterName);
+        }
     }
 
     /// <summary>Decodes an <see cref="IpcHelloMessage"/> payload, validating the bounded token length.</summary>
@@ -250,5 +289,37 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         }
 
         return IpcDecodeResult.Success(new IpcRejectMessage(correlationId, (IpcRejectReason)payload[0]));
+    }
+
+    /// <summary>Decodes a host-directed event-listening request.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed four-byte event key payload.</param>
+    private static IpcDecodeResult DecodeListenEvent(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != sizeof(uint))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint eventKey = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+        return eventKey == 0
+            ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
+            : IpcDecodeResult.Success(new IpcListenEventMessage(correlationId, eventKey));
+    }
+
+    /// <summary>Decodes a host-directed sample-read request.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The fixed four-byte sample token payload.</param>
+    private static IpcDecodeResult DecodeReadSample(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != sizeof(uint))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        uint sampleToken = BinaryPrimitives.ReadUInt32LittleEndian(payload);
+        return sampleToken == 0
+            ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
+            : IpcDecodeResult.Success(new IpcReadSampleMessage(correlationId, sampleToken));
     }
 }

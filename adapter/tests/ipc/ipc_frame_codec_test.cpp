@@ -16,6 +16,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -28,8 +29,10 @@ using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::IpcHelloAckMessage;
 using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
+using dovahlink::adapter::ipc::IpcListenEventMessage;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcMessageKind;
+using dovahlink::adapter::ipc::IpcReadSampleMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
@@ -266,6 +269,53 @@ TEST_CASE("cancel round-trips", "[ipc][ipc_frame_codec]") {
   CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("listen-event intent round-trips its opaque key",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::uint32_t eventKey :
+       {std::uint32_t{1}, std::numeric_limits<std::uint32_t>::max()}) {
+    IpcListenEventMessage original{.correlationId = 7, .eventKey = eventKey};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("read-sample intent round-trips its opaque token",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (std::uint32_t sampleToken :
+       {std::uint32_t{1}, std::numeric_limits<std::uint32_t>::max()}) {
+    IpcReadSampleMessage original{.correlationId = 7,
+                                  .sampleToken = sampleToken};
+
+    auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+    REQUIRE(result.has_value());
+    CHECK(*result == IpcMessage{original});
+  }
+}
+
+TEST_CASE("encoding capture intents with zero identifiers throws",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcListenEventMessage{
+                      .correlationId = 0, .eventKey = 1}}),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcListenEventMessage{
+                      .correlationId = 1, .eventKey = 0}}),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadSampleMessage{
+                      .correlationId = 0, .sampleToken = 1}}),
+                  std::invalid_argument);
+  CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadSampleMessage{
+                      .correlationId = 1, .sampleToken = 0}}),
+                  std::invalid_argument);
+}
+
 TEST_CASE("encoding a cancel with zero correlation id throws",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -370,7 +420,7 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (std::byte kindByte : {std::byte{0}, std::byte{8}, std::byte{250}}) {
+  for (std::byte kindByte : {std::byte{0}, std::byte{10}, std::byte{250}}) {
     std::vector<std::byte> frame =
         codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
     frame[4] = kindByte;
@@ -632,6 +682,92 @@ TEST_CASE("a cancel with zero correlation id fails closed",
 
   REQUIRE_FALSE(result.has_value());
   CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
+TEST_CASE("capture intents with zero identifiers fail closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  const auto one = std::byte{1};
+  const auto zero = std::byte{0};
+
+  for (const auto &[kind, correlationBytes, payload] :
+       {std::tuple{IpcMessageKind::kListenEvent,
+                   std::array<std::byte, 8>{zero, zero, zero, zero, zero, zero,
+                                            zero, zero},
+                   std::array<std::byte, 4>{one, zero, zero, zero}},
+        std::tuple{IpcMessageKind::kReadSample,
+                   std::array<std::byte, 8>{zero, zero, zero, zero, zero, zero,
+                                            zero, zero},
+                   std::array<std::byte, 4>{one, zero, zero, zero}}}) {
+    std::vector<std::byte> frame(kIpcFrameHeaderBytes + payload.size());
+    frame[0] = static_cast<std::byte>(std::to_underlying(kind));
+    std::ranges::copy(correlationBytes, frame.begin() + 1);
+    std::ranges::copy(payload, frame.begin() + static_cast<std::ptrdiff_t>(
+                                                   kIpcFrameHeaderBytes));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("capture intents with zero keys fail closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (IpcMessageKind kind :
+       {IpcMessageKind::kListenEvent, IpcMessageKind::kReadSample}) {
+    std::vector<std::byte> frame =
+        BuildFrame(kind, 1, std::vector<std::byte>(sizeof(std::uint32_t)));
+
+    auto result = codec.Decode(frame);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+  }
+}
+
+TEST_CASE("capture intents with wrong payload lengths fail closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  for (IpcMessageKind kind :
+       {IpcMessageKind::kListenEvent, IpcMessageKind::kReadSample}) {
+    for (std::size_t payloadSize : {std::size_t{0}, std::size_t{5}}) {
+      std::vector<std::byte> frame =
+          BuildFrame(kind, 1, std::vector<std::byte>(payloadSize));
+
+      auto result = codec.Decode(frame);
+
+      REQUIRE_FALSE(result.has_value());
+      CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+    }
+  }
+}
+
+TEST_CASE("capture intents preserve the maximum correlation id",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  constexpr std::uint64_t kMaxCorrelationId =
+      std::numeric_limits<std::uint64_t>::max();
+
+  for (IpcMessageKind kind :
+       {IpcMessageKind::kListenEvent, IpcMessageKind::kReadSample}) {
+    IpcMessage message =
+        kind == IpcMessageKind::kListenEvent
+            ? IpcMessage{IpcListenEventMessage{
+                  .correlationId = kMaxCorrelationId, .eventKey = 1}}
+            : IpcMessage{IpcReadSampleMessage{
+                  .correlationId = kMaxCorrelationId, .sampleToken = 1}};
+
+    auto result = EncodeThenDecode(codec, message);
+
+    REQUIRE(result.has_value());
+    CHECK(std::visit(
+        [](const auto &decoded) {
+          return decoded.correlationId == kMaxCorrelationId;
+        },
+        *result));
+  }
 }
 
 //  ---- Idempotence and robustness ----

@@ -6,6 +6,8 @@
 #include "ipc/ipc_close_message.hpp"
 #include "ipc/ipc_hello_ack_message.hpp"
 #include "ipc/ipc_hello_message.hpp"
+#include "ipc/ipc_listen_event_message.hpp"
+#include "ipc/ipc_read_sample_message.hpp"
 #include "ipc/ipc_reject_message.hpp"
 #include "ipc/ipc_resynchronize_request_message.hpp"
 #include "ipc/ipc_resynchronize_result_message.hpp"
@@ -18,6 +20,7 @@ namespace dovahlink::adapter::ipc {
 using IpcMessage =
     std::variant<IpcHelloMessage, IpcHelloAckMessage,
                  IpcResynchronizeRequestMessage, IpcResynchronizeResultMessage,
-                 IpcCloseMessage, IpcRejectMessage, IpcCancelMessage>;
+                 IpcCloseMessage, IpcRejectMessage, IpcCancelMessage,
+                 IpcListenEventMessage, IpcReadSampleMessage>;
 
 } //  namespace dovahlink::adapter::ipc

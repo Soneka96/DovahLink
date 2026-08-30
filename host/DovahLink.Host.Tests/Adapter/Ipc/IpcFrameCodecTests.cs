@@ -205,6 +205,72 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies that an event-listening intent round-trips its opaque key.</summary>
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(uint.MaxValue)]
+    public void RoundTrip_ListenEvent(uint eventKey)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcListenEventMessage(7, eventKey);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that a sample-read intent round-trips its opaque token.</summary>
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(uint.MaxValue)]
+    public void RoundTrip_ReadSample(uint sampleToken)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcReadSampleMessage(7, sampleToken);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies that capture intents preserve the maximum correlation id.</summary>
+    [Theory]
+    [InlineData(IpcMessageKind.ListenEvent)]
+    [InlineData(IpcMessageKind.ReadSample)]
+    public void RoundTrip_CaptureIntent_PreservesMaximumCorrelationId(IpcMessageKind kind)
+    {
+        var codec = new IpcFrameCodec();
+        IpcMessage original = kind == IpcMessageKind.ListenEvent
+            ? new IpcListenEventMessage(ulong.MaxValue, 1)
+            : new IpcReadSampleMessage(ulong.MaxValue, 1);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(ulong.MaxValue, result.Message!.CorrelationId);
+    }
+
+    /// <summary>Verifies that an event-listening intent requires nonzero identifiers.</summary>
+    [Theory]
+    [InlineData(0UL, 1u)]
+    [InlineData(1UL, 0u)]
+    public void Encode_ListenEvent_ZeroIdentifier_Throws(ulong correlationId, uint eventKey)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcListenEventMessage(correlationId, eventKey)));
+    }
+
+    /// <summary>Verifies that a sample-read intent requires nonzero identifiers.</summary>
+    [Theory]
+    [InlineData(0UL, 1u)]
+    [InlineData(1UL, 0u)]
+    public void Encode_ReadSample_ZeroIdentifier_Throws(ulong correlationId, uint sampleToken)
+    {
+        var codec = new IpcFrameCodec();
+
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcReadSampleMessage(correlationId, sampleToken)));
+    }
+
     /// <summary>Verifies that encoding a cancellation with zero correlation id fails closed.</summary>
     [Fact]
     public void Encode_Cancel_ZeroCorrelationId_Throws()
@@ -568,6 +634,70 @@ public class IpcFrameCodecTests
     {
         var codec = new IpcFrameCodec();
         byte[] frame = BuildFrame(IpcMessageKind.Cancel, correlationId: 0, Array.Empty<byte>());
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that an event-listening intent with zero correlation fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEvent_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEvent, correlationId: 0, BitConverter.GetBytes(1u));
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that an event-listening intent with zero key fails closed.</summary>
+    [Fact]
+    public void Decode_ListenEvent_ZeroKey_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ListenEvent, correlationId: 1, new byte[sizeof(uint)]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a sample-read intent with zero correlation fails closed.</summary>
+    [Fact]
+    public void Decode_ReadSample_ZeroCorrelationId_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ReadSample, correlationId: 0, BitConverter.GetBytes(1u));
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that a sample-read intent with zero token fails closed.</summary>
+    [Fact]
+    public void Decode_ReadSample_ZeroToken_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ReadSample, correlationId: 1, new byte[sizeof(uint)]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
+    /// <summary>Verifies that event-listening and sample-read intents require exactly four payload bytes.</summary>
+    [Theory]
+    [InlineData(IpcMessageKind.ListenEvent, 0)]
+    [InlineData(IpcMessageKind.ListenEvent, 5)]
+    [InlineData(IpcMessageKind.ReadSample, 0)]
+    [InlineData(IpcMessageKind.ReadSample, 5)]
+    public void Decode_CaptureIntent_WrongPayloadLength_FailsClosed(IpcMessageKind kind, int payloadLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(kind, correlationId: 1, new byte[payloadLength]);
 
         IpcDecodeResult result = codec.Decode(frame);
 
