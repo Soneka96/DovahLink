@@ -43,6 +43,13 @@ requests, and forced cleanup when the owner disappears.
   Parent-lifetime supervision remains the fallback for crash or forced exit.
 - Repeated startup/shutdown and host-already-gone paths are safe and idempotent.
 
+## Required handoff from Concept 03
+
+Concept 03 intentionally leaves the plugin's port and proof-token values
+provisional. This concept must replace those placeholders with the packaged-host
+startup rendezvous and must not leave a production composition path connecting
+to port `0` or using an empty proof token.
+
 ## Invariants
 
 - No orphaned host may remain after forced Skyrim termination within the
