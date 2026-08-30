@@ -1,6 +1,7 @@
 #include "ipc/ipc_frame_codec.hpp"
 
 #include "ipc/ipc_constants.hpp"
+#include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,11 +11,9 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <fstream>
 #include <initializer_list>
 #include <limits>
 #include <span>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -907,11 +906,8 @@ TEST_CASE("no ipc header includes a Skyrim or SKSE runtime header",
     }
     ++headerCount;
 
-    std::ifstream file(entry.path());
-    REQUIRE(file.is_open());
-    std::ostringstream contents;
-    contents << file.rdbuf();
-    std::string text = contents.str();
+    std::string text =
+        dovahlink::adapter::test_support::ReadSource(entry.path());
 
     INFO("checking " << entry.path().filename().string());
     CHECK(text.find("RE/") == std::string::npos);
