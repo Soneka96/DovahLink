@@ -192,12 +192,30 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         return message is not null && outbound.Writer.TryWrite(codec.Encode(message));
     }
 
-    /// <summary>Reads and evaluates the connecting adapter's first frame, which must be a Hello.</summary>
+    /// <summary>
+    /// Reads and evaluates the connecting adapter's first frame within
+    /// <see cref="Constants.AdapterIpcHandshakeTimeout"/>, which must be a Hello. A peer that
+    /// withholds its first frame past the deadline is treated the same as one that disconnects
+    /// before completing the handshake, so it cannot hold the listener's one served-connection slot
+    /// indefinitely.
+    /// </summary>
     /// <param name="cancellationToken">The token used to stop waiting for the frame.</param>
     /// <returns><see langword="true"/> when the handshake was accepted and the connection should proceed to serve frames.</returns>
     private async Task<bool> HandshakeAsync(CancellationToken cancellationToken)
     {
-        IpcDecodeResult? decodeResult = await ReadFrameAsync(cancellationToken).ConfigureAwait(false);
+        using CancellationTokenSource handshakeDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        handshakeDeadline.CancelAfter(Constants.AdapterIpcHandshakeTimeout);
+
+        IpcDecodeResult? decodeResult;
+        try
+        {
+            decodeResult = await ReadFrameAsync(handshakeDeadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (handshakeDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
         if (decodeResult is null)
         {
             return false;

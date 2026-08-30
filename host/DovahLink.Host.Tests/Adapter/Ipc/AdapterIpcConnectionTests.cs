@@ -248,6 +248,40 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
+    /// <summary>Verifies that a peer withholding its Hello past the handshake deadline is disconnected without ever reaching the session's handshake handling.</summary>
+    [Fact]
+    public async Task RunAsync_NoHelloBeforeHandshakeTimeout_DisconnectsWithoutAccepting()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, new IpcFrameCodec(), fakeSession, new SystemClock());
+
+        await connection.RunAsync(CancellationToken.None)
+            .WaitAsync(Constants.AdapterIpcHandshakeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Empty(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that the handshake deadline also bounds a Hello frame left incomplete partway through, not only a peer that never sends anything.</summary>
+    [Fact]
+    public async Task RunAsync_PartialHelloFrameBeforeHandshakeTimeout_DisconnectsWithoutAccepting()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var fakeSession = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(server, new IpcFrameCodec(), fakeSession, new SystemClock());
+        byte[] helloFrame = new IpcFrameCodec().Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), []));
+        await client.WriteAsync(helloFrame.AsMemory(0, sizeof(uint))); // length prefix only; payload withheld
+
+        await connection.RunAsync(CancellationToken.None)
+            .WaitAsync(Constants.AdapterIpcHandshakeTimeout + TimeSpan.FromSeconds(5));
+
+        Assert.Empty(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
     // ---- Host-directed intents ----
 
     /// <summary>Verifies that a queued event-listening intent is actually written to the peer once connected.</summary>

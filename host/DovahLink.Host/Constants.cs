@@ -131,4 +131,11 @@ public static class Constants
     /// cannot spin the loop without bound.
     /// </summary>
     public static readonly TimeSpan AdapterIpcAcceptRetryDelay = TimeSpan.FromMilliseconds(50);
+
+    /// <summary>
+    /// How long a newly accepted private IPC connection may take to send its Hello before the
+    /// connection is closed, so a peer that withholds its first frame cannot hold the listener's one
+    /// served-connection slot indefinitely.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcHandshakeTimeout = TimeSpan.FromSeconds(2);
 }
