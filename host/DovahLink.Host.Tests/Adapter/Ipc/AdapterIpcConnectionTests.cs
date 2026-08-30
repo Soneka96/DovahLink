@@ -261,6 +261,42 @@ public class AdapterIpcConnectionTests
         client.Dispose();
     }
 
+    /// <summary>Verifies that peer EOF closes a transport before awaiting a writer blocked in I/O.</summary>
+    [Fact]
+    public async Task RunAsync_PeerEofStopsBlockedWriterAndNotifiesDisconnect()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var session = new FakeAdapterIpcSession();
+        var connection = new AdapterIpcConnection(blockingStream, codec, session, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        client.Dispose();
+
+        try
+        {
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(blockingStream.IsDisposed);
+        }
+        finally
+        {
+            blockingStream.Release();
+            try
+            {
+                await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception) when (runTask.IsCompleted)
+            {
+                // Preserve the original assertion or timeout result from the main await.
+            }
+        }
+
+        Assert.Equal(1, session.DisconnectedCalls);
+    }
+
     /// <summary>Verifies that a reader I/O failure ends the connection without escaping to the caller.</summary>
     [Theory]
     [InlineData(false)]
@@ -596,6 +632,9 @@ public class AdapterIpcConnectionTests
         /// <summary>Completes when an asynchronous write begins.</summary>
         private readonly TaskCompletionSource writeStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>Whether the stream has been disposed.</summary>
+        private int disposed;
+
         /// <summary>Completes the blocked write when the stream is released or disposed.</summary>
         private readonly TaskCompletionSource writeRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -608,6 +647,9 @@ public class AdapterIpcConnectionTests
 
         /// <summary>Gets a task that completes when the first write begins.</summary>
         public Task WriteStarted => writeStarted.Task;
+
+        /// <summary>Gets whether this stream has been disposed.</summary>
+        public bool IsDisposed => Volatile.Read(ref disposed) != 0;
 
         /// <inheritdoc/>
         public override bool CanRead => inner.CanRead;
@@ -662,6 +704,7 @@ public class AdapterIpcConnectionTests
         {
             if (disposing)
             {
+                Interlocked.Exchange(ref disposed, 1);
                 Release();
                 inner.Dispose();
             }

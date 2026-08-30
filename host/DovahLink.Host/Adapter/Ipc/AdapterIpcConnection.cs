@@ -59,6 +59,9 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     /// <summary>Whether the connection ended because its inbound message rate was exceeded.</summary>
     private bool inboundRateLimitExceeded;
 
+    /// <summary>Whether the peer ended or faulted the inbound transport.</summary>
+    private bool peerDisconnected;
+
     /// <summary>The bounded outbound frame queue drained by <see cref="WriterLoopAsync"/>.</summary>
     private readonly Channel<byte[]> outbound = Channel.CreateBounded<byte[]>(
         new BoundedChannelOptions(Constants.MaxIpcQueuedMessages) { SingleReader = true, SingleWriter = false });
@@ -100,7 +103,8 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             outbound.Writer.TryComplete();
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
-                inboundRateLimitExceeded;
+                inboundRateLimitExceeded ||
+                peerDisconnected;
             if (forceClose)
             {
                 ioCancellation.Cancel();
@@ -227,6 +231,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         byte[] lengthPrefix = new byte[sizeof(uint)];
         if (!await ReadExactAsync(lengthPrefix, cancellationToken).ConfigureAwait(false))
         {
+            peerDisconnected = true;
             return null;
         }
 
@@ -238,6 +243,7 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         byte[] frame = new byte[frameLength];
         if (!await ReadExactAsync(frame, cancellationToken).ConfigureAwait(false))
         {
+            peerDisconnected = true;
             return null;
         }
 
