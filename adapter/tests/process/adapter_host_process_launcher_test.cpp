@@ -1,4 +1,5 @@
 #include "process/adapter_host_process_launcher.hpp"
+#include "test_support/source_text_test_support.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -20,6 +21,7 @@
 
 using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::Win32AdapterHostProcessLauncher;
+using dovahlink::adapter::test_support::ReadSource;
 
 namespace {
 
@@ -65,6 +67,36 @@ private:
 };
 
 } //  namespace
+
+TEST_CASE("Win32AdapterHostProcessLauncher associates the child with its Job "
+          "Object at process creation",
+          "[process][structural]") {
+  std::filesystem::path sourcePath =
+      std::filesystem::path(DOVAHLINK_ADAPTER_PROCESS_DIR) /
+      "adapter_host_process_launcher.cpp";
+  std::string source = ReadSource(sourcePath);
+
+  std::size_t createProcess = source.find("CreateProcessW(");
+  REQUIRE(createProcess != std::string::npos);
+
+  CHECK(source.find("STARTUPINFOEXW") != std::string::npos);
+  CHECK(source.find("CreateJobObjectW") < createProcess);
+  CHECK(source.find("SetInformationJobObject") < createProcess);
+  CHECK(source.find("PROC_THREAD_ATTRIBUTE_JOB_LIST") < createProcess);
+  CHECK(source.find("UpdateProcThreadAttribute") < createProcess);
+  CHECK(source.find("EXTENDED_STARTUPINFO_PRESENT", createProcess) !=
+        std::string::npos);
+  CHECK(source.find("startupInfoEx.lpAttributeList = attributeList") !=
+        std::string::npos);
+  CHECK(source.find("&startupInfoEx.StartupInfo", createProcess) !=
+        std::string::npos);
+  CHECK(source.find("bInheritHandles=*/TRUE") != std::string::npos);
+  CHECK(source.find("DeleteProcThreadAttributeList") != std::string::npos);
+  CHECK(source.find("CREATE_SUSPENDED") == std::string::npos);
+  CHECK(source.find("AssignProcessToJobObject") == std::string::npos);
+  CHECK(source.find("ScopedHandle") != std::string::npos);
+  CHECK(source.find("ScopedProcThreadAttributeList") != std::string::npos);
+}
 
 TEST_CASE("Win32AdapterHostProcessLauncher::Launch starts the packaged host "
           "hidden and returns the endpoint it reported") {
