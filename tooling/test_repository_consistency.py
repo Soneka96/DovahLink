@@ -111,6 +111,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "          persist-credentials: false",
         )
 
+    def test_commonlibsse_port_is_repository_owned_and_pinned(self) -> None:
+        """Keep the shared CommonLib port local and aligned with the frozen source recipe."""
+        expected_overlay = {"overlay-ports": ["../tooling/vcpkg-ports"]}
+        for configuration_path in (
+            "bridge/vcpkg-configuration.json",
+            "adapter/vcpkg-configuration.json",
+        ):
+            self.assertEqual(
+                json.loads(self._read(configuration_path)),
+                expected_overlay,
+                configuration_path,
+            )
+
+        for manifest_path in ("bridge/vcpkg.json", "adapter/vcpkg.json"):
+            manifest = json.loads(self._read(manifest_path))
+            self.assertIn("commonlibsse-ng-flatrim", manifest["dependencies"])
+
+        port = json.loads(
+            self._read("tooling/vcpkg-ports/commonlibsse-ng-flatrim/vcpkg.json")
+        )
+        self.assertEqual(port["name"], "commonlibsse-ng-flatrim")
+        self.assertEqual(port["version-semver"], "3.7.0")
+        self.assertEqual(port["port-version"], 0)
+        dependencies = {
+            dependency["name"] if isinstance(dependency, dict) else dependency
+            for dependency in port["dependencies"]
+        }
+        self.assertIn("vcpkg-cmake-config", dependencies)
+
+        portfile = self._read(
+            "tooling/vcpkg-ports/commonlibsse-ng-flatrim/portfile.cmake"
+        )
+        for required_fragment in (
+            "REPO CharmedBaryon/CommonLibSSE",
+            "REF c4ab853d095e81e3390b282d7ba01ab2f24ebf25",
+            "SHA512 fd615c16f8f2c637cad5ed9d139c776d21314664f4084a62231645114d03ee74e720c1ecf09b4e5daa5d56d418374ad6d587806788d95af8ac08ce3de930015b",
+            "-DENABLE_SKYRIM_VR=off",
+            "-DSKSE_SUPPORT_XBYAK=on",
+        ):
+            self.assertIn(required_fragment, portfile)
+
     def test_bridge_clang_format_uses_the_established_source_style(self) -> None:
         """Keep Bridge formatting explicit instead of relying on clang-format defaults."""
         style = self._read("bridge/.clang-format")
@@ -195,9 +236,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Expand-Archive -Path"),
             "the CMake archive must be hash-verified before extraction",
         )
-        self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
+        self.assertIn(
+            "      - name: Verify pinned Ninja is available in the build environment",
+            workflow,
+        )
         self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
         self.assertIn("ninja --version", workflow)
+        self.assertLess(
+            workflow.index("Set up the MSVC 2022 developer environment"),
+            workflow.index("Verify pinned Ninja is available in the build environment"),
+        )
         self.assertLess(
             workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
             workflow.index("Prepare vcpkg binary cache"),
@@ -218,7 +266,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("path: ${{ runner.temp }}\\vcpkg-binary-cache", workflow)
         self.assertIn("key: ${{ runner.os }}-vcpkg-", workflow)
         self.assertIn(
-            "hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json')",
+            "hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json', "
+            "'tooling/vcpkg-ports/**')",
             workflow,
         )
 
@@ -494,9 +543,16 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "the CMake archive must be hash-verified before extraction",
         )
         self.assertIn("      - name: Install pinned CMake", workflow)
-        self.assertIn("      - name: Verify pinned Ninja is preinstalled", workflow)
+        self.assertIn(
+            "      - name: Verify pinned Ninja is available in the build environment",
+            workflow,
+        )
         self.assertIn('if ($ninjaVersion -ne "1.13.2") {', workflow)
         self.assertIn("ninja --version", workflow)
+        self.assertLess(
+            workflow.index("Set up the MSVC 2022 developer environment"),
+            workflow.index("Verify pinned Ninja is available in the build environment"),
+        )
         self.assertLess(
             workflow.index("Set VCPKG_DEFAULT_BINARY_CACHE"),
             workflow.index("Prepare vcpkg binary cache"),
@@ -866,7 +922,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"-disableMetrics"',
             "$env:VCPKG_ROOT = $vcpkgRoot",
             "$env:VCPKG_DEFAULT_BINARY_CACHE = $cacheRoot",
-            "$env:X_VCPKG_REGISTRIES_CACHE = $registriesCacheRoot",
             '$vcpkgExePath = Join-Path $vcpkgRoot "vcpkg.exe"',
             "$currentVcpkgCommit = (& git -C $vcpkgRoot rev-parse HEAD)",
             "$vcpkgAlreadyBootstrapped = $false",
@@ -903,6 +958,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         for fragment in required_fragments:
             self.assertIn(fragment, script)
+        self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", script)
+        self.assertNotIn("vcpkg-registries-cache", script)
 
         # dovahlink_bridge_harness has no EXCLUDE_FROM_ALL, so bridge-ci's plain Debug build above
         # already builds it into the same tree this sequential script later reuses for
@@ -2039,16 +2096,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertLess(try_create_session_index, revalidation_index)
         self.assertLess(revalidation_index, success_index)
 
-    def test_bridge_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(
+    def test_bridge_ci_caches_vcpkg_tooling_without_external_registry(
         self,
     ) -> None:
-        """Require cached vcpkg tooling and a cached colorglass registry checkout.
-
-        Re-fetching the pinned, immutable colorglass registry from GitLab on every run is what
-        caused repeated HTTP 403s from GitLab's abuse detection on shared CI IPs; caching its
-        checkout (and the vcpkg tooling checkout, also pinned and immutable) removes the repeated
-        fetch instead of only retrying it.
-        """
+        """Require cached vcpkg tooling without a live third-party registry dependency."""
         workflow = self._read(".github/workflows/bridge-ci.yml")
 
         # The pinned commit is defined exactly once, at job level, and referenced everywhere else
@@ -2093,47 +2144,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn(
             "          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-"
-            "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json') }}",
+            "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json', "
+            "'tooling/vcpkg-ports/**') }}",
             binary_cache,
         )
 
-        registries_env = self._yaml_block(
-            workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE"
-        )
-        self.assertIn(
-            'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
-            ">> $env:GITHUB_ENV",
-            registries_env,
-        )
-        self.assertIn("      - name: Prepare vcpkg registries cache", workflow)
-        self.assertIn(
-            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-registries-cache"',
-            workflow,
-        )
-
-        registries_cache = self._yaml_block(
-            workflow, "      - name: Restore vcpkg registries cache"
-        )
-        self.assertIn(
-            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
-            registries_cache,
-        )
-        self.assertIn(
-            "          path: ${{ runner.temp }}\\vcpkg-registries-cache",
-            registries_cache,
-        )
-        self.assertIn(
-            "          key: ${{ runner.os }}-vcpkg-registries-"
-            "${{ hashFiles('bridge/vcpkg-configuration.json') }}",
-            registries_cache,
-        )
+        self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", workflow)
+        self.assertNotIn("vcpkg-registries-cache", workflow)
+        self.assertNotIn("gitlab.com/colorglass/vcpkg-colorglass", workflow)
 
         self.assertLess(
             workflow.index("Restore cached vcpkg tooling"),
-            workflow.index("Configure Debug"),
-        )
-        self.assertLess(
-            workflow.index("Restore vcpkg registries cache"),
             workflow.index("Configure Debug"),
         )
         self.assertLess(
@@ -2141,15 +2162,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow.index("Configure Debug"),
         )
 
-    def test_integration_ci_caches_vcpkg_tooling_and_registries_to_avoid_gitlab_403(
+    def test_integration_ci_caches_vcpkg_tooling_without_external_registry(
         self,
     ) -> None:
-        """Require the same vcpkg tooling/registry caching as bridge-ci.yml.
-
-        This job runs on its own fresh runner with no bridge-ci filesystem state to reuse, so it
-        needs this caching independently rather than relying on bridge-ci.yml's job having run
-        first.
-        """
+        """Require cached vcpkg tooling without a live third-party registry dependency."""
         workflow = self._read(".github/workflows/integration-ci.yml")
 
         self.assertIn(
@@ -2186,43 +2202,22 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("checkout $env:VCPKG_BASELINE_COMMIT", checkout_step)
 
-        registries_env = self._yaml_block(
-            workflow, "      - name: Set X_VCPKG_REGISTRIES_CACHE"
+        binary_cache = self._yaml_block(
+            workflow, "      - name: Restore vcpkg binary cache"
         )
         self.assertIn(
-            'run: echo "X_VCPKG_REGISTRIES_CACHE=$env:RUNNER_TEMP\\vcpkg-registries-cache" '
-            ">> $env:GITHUB_ENV",
-            registries_env,
-        )
-        self.assertIn("      - name: Prepare vcpkg registries cache", workflow)
-        self.assertIn(
-            'New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\\vcpkg-registries-cache"',
-            workflow,
+            "          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-"
+            "${{ hashFiles('bridge/vcpkg.json', 'bridge/vcpkg-configuration.json', "
+            "'tooling/vcpkg-ports/**') }}",
+            binary_cache,
         )
 
-        registries_cache = self._yaml_block(
-            workflow, "      - name: Restore vcpkg registries cache"
-        )
-        self.assertIn(
-            "        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5",
-            registries_cache,
-        )
-        self.assertIn(
-            "          path: ${{ runner.temp }}\\vcpkg-registries-cache",
-            registries_cache,
-        )
-        self.assertIn(
-            "          key: ${{ runner.os }}-vcpkg-registries-"
-            "${{ hashFiles('bridge/vcpkg-configuration.json') }}",
-            registries_cache,
-        )
+        self.assertNotIn("X_VCPKG_REGISTRIES_CACHE", workflow)
+        self.assertNotIn("vcpkg-registries-cache", workflow)
+        self.assertNotIn("gitlab.com/colorglass/vcpkg-colorglass", workflow)
 
         self.assertLess(
             workflow.index("Restore cached vcpkg tooling"),
-            workflow.index("Configure bridge debug harness"),
-        )
-        self.assertLess(
-            workflow.index("Restore vcpkg registries cache"),
             workflow.index("Configure bridge debug harness"),
         )
 

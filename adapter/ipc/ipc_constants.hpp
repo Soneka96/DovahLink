@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -29,5 +30,16 @@ inline constexpr std::size_t kMaxIpcQueuedMessages = 256;
 ///  The maximum inbound private IPC message rate later concepts must enforce,
 ///  per connected peer. Not itself enforced by this contract's codec.
 inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
+
+//  ---- Connection ----
+
+///  The fixed delay `AdapterIpcConnection` waits before retrying a failed
+///  connect attempt or reconnecting after a disconnect, per
+///  `ai/context/host/architecture.md`'s "adapter reconnect is bounded and
+///  performed outside game-thread work". A fixed delay, not exponential
+///  backoff, matching the host listener's own `AdapterIpcAcceptRetryDelay`
+///  precedent. Approved as a provisional value; a later concept may revise it
+///  with the same documented approval this file's other limits require.
+inline constexpr std::chrono::milliseconds kAdapterIpcReconnectDelay{200};
 
 } //  namespace dovahlink::adapter::ipc
