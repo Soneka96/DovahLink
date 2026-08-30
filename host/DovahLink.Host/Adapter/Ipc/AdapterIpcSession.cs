@@ -67,7 +67,7 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>
     /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
     /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
-    /// before <see cref="HostProof"/> is ever computed for it.
+    /// before <see cref="IpcHelloAckMessage.HostProof"/> is ever computed for it.
     /// </summary>
     private readonly OwnerLifetimeId expectedOwnerLifetimeId;
 
