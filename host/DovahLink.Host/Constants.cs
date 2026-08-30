@@ -124,4 +124,11 @@ public static class Constants
     /// transport's own endpoint.
     /// </summary>
     public const int AdapterIpcLoopbackPort = 0;
+
+    /// <summary>
+    /// How long the private IPC listener's accept loop waits before retrying after a failed accept
+    /// caused by something other than the listening socket being disposed, so a persistent failure
+    /// cannot spin the loop without bound.
+    /// </summary>
+    public static readonly TimeSpan AdapterIpcAcceptRetryDelay = TimeSpan.FromMilliseconds(50);
 }

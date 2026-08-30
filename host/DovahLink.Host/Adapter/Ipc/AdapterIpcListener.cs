@@ -108,7 +108,18 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
             }
             catch (Exception)
             {
-                // A failed accept must not end the loop for the rest of the host process's life.
+                // A failed accept must not end the loop for the rest of the host process's life, but
+                // retrying instantly would busy-spin a thread if the failure is persistent (for
+                // example handle exhaustion) rather than transient.
+                try
+                {
+                    await Task.Delay(Constants.AdapterIpcAcceptRetryDelay, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 continue;
             }
 
