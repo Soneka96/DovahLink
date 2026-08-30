@@ -9,9 +9,12 @@ Status: active
 ## Active concept
 
 - File: `04-process-lifecycle.md`
-- Status: pending
+- Status: pending (revised before implementation; see "Decisions and approved
+  deviations" below and D2 in `DIVERGENCES.md`)
 - Prerequisites: Stage 1, Stage 2, and Concepts 01-03 complete; feature branch active
-- Next action: Implement packaged host launch, endpoint rendezvous, supervision, and deterministic lifecycle handling in Concept 04.
+- Next action: Implement packaged host launch, endpoint rendezvous, mutual
+  authentication, persistent supervision, and deterministic lifecycle handling
+  per the revised Concept 04.
 
 ## Completed concepts
 
@@ -31,6 +34,52 @@ Status: active
 - Host and adapter are shipped as one atomic package, so private IPC has no
   negotiated protocol-version field; same-package peer/lifetime proof remains
   required. See `DIVERGENCES.md`.
+- Concept 04's Hello/HelloAck handshake is mutually authenticated (D2 in
+  `DIVERGENCES.md`): the host proves it holds `peerProofToken` via an
+  `HMAC-SHA256` `hostProof` bound to a fresh adapter-generated challenge, the
+  correlation id, the adapter instance id, and `ownerLifetimeId`. The adapter
+  authenticates only on the exact conjunction `accepted && matching
+  correlationId && matching fresh challenge && matching ownerLifetimeId &&
+  constantTimeEqual(hostProof, expectedProof)` -- `accepted = true` and a
+  verifying `hostProof` are both required; neither substitutes for the other.
+  Exact byte layout and a shared C++/C# known-answer test vector are recorded
+  in `04-process-lifecycle.md`'s "Exact HMAC encoding".
+- `ownerLifetimeId` (the owning Skyrim process's PID plus its
+  `GetProcessTimes` creation timestamp, never PID alone) scopes the
+  rendezvous file, the shutdown-request named event, and the handshake's
+  lifetime check, so two Skyrim/adapter lifetimes running at the same time
+  can never discover, adopt, or signal each other's host. It is a
+  collision-avoidance value only, not a cryptographic ownership proof -- it
+  is not secret, and a malicious same-Windows-user process forging or
+  guessing it is explicitly out of scope, matching
+  `ai/context/protocol/security.md`'s existing "Local-OS-user threat
+  boundary". The rendezvous file is discovery only; adoption still requires
+  passing the full mutual handshake above.
+- The process-lifecycle supervisor is persistent for the adapter's whole
+  process lifetime (watches for host loss and rediscovers/reconnects on a new
+  dynamic port after a host restart), not a one-shot startup step. It never
+  stops and restarts the existing `AdapterIpcConnection`/`AdapterIpcSession`
+  pair to do this (that pair's `Stop()` permanently ends it and
+  `AttachConnection` is called exactly once); it instead updates that
+  connection's live target (port and presented proof) in place while it keeps
+  running its own retry loop. A failed discovery round always self-schedules
+  its own bounded retry rather than waiting on an external "connection lost"
+  signal that a round which never connected in the first place could never
+  produce.
+- Shutdown follows one fixed order: mark the supervisor stopping (no new
+  launch/reconnect may start), stop and join it (without releasing the
+  launched host's process handle/Job Object), request graceful host shutdown
+  and wait bounded for it to exit on its own, force-terminate via the Job
+  Object only if that bound elapses, then stop and join the connection and
+  destroy dependents. The Job Object is deliberately preserved through the
+  graceful attempt so a premature handle-close can never turn a graceful
+  request into an accidental forced kill. `DllMain`'s `DLL_PROCESS_DETACH`
+  fires only the non-blocking shutdown *signal* -- never the bounded wait,
+  never the forced-termination fallback, never a join. The full ordered
+  sequence is a directly testable method with no confirmed safe production
+  caller yet, since classic SKSE has no pre-exit main-thread hook -- recorded
+  as deferred runtime debt below and in `04-process-lifecycle.md`'s
+  "Shutdown ordering" and "Non-goals".
 
 ## Deferred debt
 
@@ -39,6 +88,14 @@ Status: active
   foundation tests.
 - Packaged host launch, endpoint rendezvous, and process lifecycle remain in
   Concept 04.
+- The full ordered shutdown sequence (supervisor stop/join, graceful-shutdown
+  wait, forced-termination fallback, connection stop/join, teardown) has no
+  confirmed safe production caller: classic SKSE exposes no pre-exit
+  main-thread hook, and `DllMain`'s `DLL_PROCESS_DETACH` may only fire the
+  non-blocking shutdown signal. The orchestration method itself is built and
+  directly unit-tested for its ordering contract; wiring it to a real caller
+  is deferred until a safe pre-exit hook is confirmed (for example a future
+  CommonLibSSE-NG addition).
 
 ## Changed files
 
