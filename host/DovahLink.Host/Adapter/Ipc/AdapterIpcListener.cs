@@ -42,15 +42,26 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
     /// <summary>The currently active connection, or <see langword="null"/> when no adapter is connected.</summary>
     private IAdapterIpcConnection? currentConnection;
 
-    /// <summary>Creates a listener and eagerly binds its loopback port.</summary>
+    /// <summary>
+    /// Creates a listener and eagerly binds its loopback port. Disposes the underlying socket before
+    /// throwing if binding or listening fails, so a failed construction never leaks the socket handle.
+    /// </summary>
     /// <param name="port">The loopback TCP port to bind, or zero to let the operating system assign one.</param>
     /// <param name="connectionFactory">Creates a connection over a newly accepted transport.</param>
     public AdapterIpcListener(int port, Func<Stream, IAdapterIpcConnection> connectionFactory)
     {
         this.connectionFactory = connectionFactory;
         listenerSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        listenerSocket.Bind(new IPEndPoint(IPAddress.Loopback, port));
-        listenerSocket.Listen(1);
+        try
+        {
+            listenerSocket.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            listenerSocket.Listen(1);
+        }
+        catch
+        {
+            listenerSocket.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Creates a listener using the configured private IPC loopback port.</summary>
