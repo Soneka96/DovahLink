@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using DovahLink.Host.Adapter.Ipc;
@@ -40,11 +42,11 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_AcceptedConnection_ReportsCurrentWhileRunningThenClears()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         using var listener = new AdapterIpcListener(0, stream =>
         {
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
@@ -54,7 +56,7 @@ public class AdapterIpcListenerTests
         await WaitUntilAsync(() => connections.Count == 1);
         Assert.NotNull(listener.CurrentConnection);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         await WaitUntilAsync(() => listener.CurrentConnection is null);
 
         cancellation.Cancel();
@@ -65,11 +67,11 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_AfterConnectionEnds_AcceptsAnotherConnection()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         using var listener = new AdapterIpcListener(0, stream =>
         {
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
@@ -77,12 +79,12 @@ public class AdapterIpcListenerTests
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
 
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 2);
 
-        connections[1].Complete();
+        connections.ElementAt(1).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -104,11 +106,11 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_CancelledWhileConnectionActive_EndsWithoutThrowing()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         using var listener = new AdapterIpcListener(0, stream =>
         {
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
@@ -126,27 +128,26 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_ConnectionThrows_StillAcceptsSubsequentConnection()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         ThrowingAdapterIpcConnection? failingConnection = null;
-        bool firstAccept = true;
+        int firstAccept = 1;
         using var listener = new AdapterIpcListener(0, stream =>
         {
-            if (firstAccept)
+            if (Interlocked.Exchange(ref firstAccept, 0) == 1)
             {
-                firstAccept = false;
                 failingConnection = new ThrowingAdapterIpcConnection(waitForRelease: true);
                 return failingConnection;
             }
 
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
-        await WaitUntilAsync(() => !firstAccept);
+        await WaitUntilAsync(() => Volatile.Read(ref firstAccept) == 0);
         await failingConnection!.RunStarted.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitUntilAsync(() => listener.CurrentConnection is not null);
         failingConnection.ReleaseFailure();
@@ -154,7 +155,7 @@ public class AdapterIpcListenerTests
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -163,29 +164,28 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_ConnectionFactoryThrows_StillAcceptsSubsequentConnection()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         int factoryCalls = 0;
         using var listener = new AdapterIpcListener(0, stream =>
         {
-            factoryCalls++;
-            if (factoryCalls == 1)
+            if (Interlocked.Increment(ref factoryCalls) == 1)
             {
                 throw new InvalidOperationException("Simulated factory failure.");
             }
 
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
-        await WaitUntilAsync(() => factoryCalls == 1);
+        await WaitUntilAsync(() => Volatile.Read(ref factoryCalls) == 1);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -194,29 +194,28 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_ConnectionFactoryObjectDisposedException_StillAcceptsSubsequentConnection()
     {
-        List<FakeAdapterIpcConnection> connections = [];
-        bool firstAccept = true;
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
+        int firstAccept = 1;
         using var listener = new AdapterIpcListener(0, stream =>
         {
-            if (firstAccept)
+            if (Interlocked.Exchange(ref firstAccept, 0) == 1)
             {
-                firstAccept = false;
                 throw new ObjectDisposedException("factory");
             }
 
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
-        await WaitUntilAsync(() => !firstAccept);
+        await WaitUntilAsync(() => Volatile.Read(ref firstAccept) == 0);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -225,29 +224,28 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task RunAsync_ConnectionObjectDisposedException_StillAcceptsSubsequentConnection()
     {
-        List<FakeAdapterIpcConnection> connections = [];
-        bool firstAccept = true;
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
+        int firstAccept = 1;
         using var listener = new AdapterIpcListener(0, stream =>
         {
-            if (firstAccept)
+            if (Interlocked.Exchange(ref firstAccept, 0) == 1)
             {
-                firstAccept = false;
                 return new ThrowingAdapterIpcConnection(new ObjectDisposedException("connection"));
             }
 
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort);
-        await WaitUntilAsync(() => !firstAccept);
+        await WaitUntilAsync(() => Volatile.Read(ref firstAccept) == 0);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort);
         await WaitUntilAsync(() => connections.Count == 1);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -277,11 +275,11 @@ public class AdapterIpcListenerTests
     [Fact]
     public async Task Dispose_WhileConnectionActive_LeavesConnectionRunningUntilItEnds()
     {
-        List<FakeAdapterIpcConnection> connections = [];
+        ConcurrentQueue<FakeAdapterIpcConnection> connections = new();
         var listener = new AdapterIpcListener(0, stream =>
         {
             var connection = new FakeAdapterIpcConnection(stream);
-            connections.Add(connection);
+            connections.Enqueue(connection);
             return connection;
         });
         using var cancellation = new CancellationTokenSource();
@@ -294,7 +292,7 @@ public class AdapterIpcListenerTests
         listener.Dispose();
         Assert.NotNull(listener.CurrentConnection);
 
-        connections[0].Complete();
+        connections.ElementAt(0).Complete();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Null(listener.CurrentConnection);
     }
