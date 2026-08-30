@@ -27,6 +27,12 @@ requests, and forced cleanup when the owner disappears.
 
 - Launch uses structured process arguments and a hidden window; no untrusted
   shell command text is built or executed.
+- The host creates the private listener from the configured loopback port. A
+  configured port of `0` means the operating system assigns an available
+  loopback port; the host then passes that actual bound port to the current
+  adapter through a bounded, authenticated startup rendezvous. The adapter
+  connects to the reported endpoint and never guesses or performs a
+  find-then-bind port race.
 - Adoption is allowed only after private-channel ownership/lifetime proof; a
   matching executable or PID alone is insufficient.
 - Startup retry runs outside game-thread callbacks and has explicit bounds and
@@ -58,6 +64,11 @@ requests, and forced cleanup when the owner disappears.
 ## Proof obligations
 
 - Hidden launch and safe adoption are tested with controllable process doubles.
+- Dynamic-port startup is tested with configuration `0`, including successful
+  host binding, exact adapter discovery of the assigned port, peer-proof
+  validation during rendezvous, and bounded failure when endpoint handoff is
+  unavailable. A configured nonzero port remains supported and fails clearly
+  when already occupied.
 - Startup retry is bounded, cancellable, and never runs on a game-thread path.
 - Graceful close requests host teardown and handles an already-dead host.
 - Forced owner termination is covered by supervision/cleanup tests.

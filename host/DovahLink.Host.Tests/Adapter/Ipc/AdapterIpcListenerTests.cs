@@ -17,6 +17,16 @@ public class AdapterIpcListenerTests
         Assert.NotEqual(0, listener.BoundPort);
     }
 
+    /// <summary>Verifies that the default listener configuration uses the operating system's assigned port.</summary>
+    [Fact]
+    public void Constructor_DefaultConfiguration_BindsAnAssignedPort()
+    {
+        using var listener = new AdapterIpcListener(stream => new FakeAdapterIpcConnection(stream));
+
+        Assert.Equal(0, Constants.AdapterIpcLoopbackPort);
+        Assert.NotEqual(0, listener.BoundPort);
+    }
+
     /// <summary>Verifies that a fresh listener reports no active connection.</summary>
     [Fact]
     public void CurrentConnection_BeforeAnyAccept_IsNull()

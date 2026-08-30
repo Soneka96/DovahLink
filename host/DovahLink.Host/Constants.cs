@@ -119,8 +119,9 @@ public static class Constants
     public static readonly TimeSpan IpcMessageRateWindow = TimeSpan.FromSeconds(1);
 
     /// <summary>
-    /// The default loopback TCP port the host's private adapter listener binds to. Distinct from the
-    /// public client transport's own default loopback port.
+    /// The configured loopback TCP port for the host's private adapter listener. Zero asks the
+    /// operating system to assign an available port. This is distinct from the public client
+    /// transport's own endpoint.
     /// </summary>
-    public const int AdapterIpcLoopbackPort = 58232;
+    public const int AdapterIpcLoopbackPort = 0;
 }

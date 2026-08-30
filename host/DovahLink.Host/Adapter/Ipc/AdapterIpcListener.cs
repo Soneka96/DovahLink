@@ -53,6 +53,13 @@ public sealed class AdapterIpcListener : IAdapterIpcListener
         listenerSocket.Listen(1);
     }
 
+    /// <summary>Creates a listener using the configured private IPC loopback port.</summary>
+    /// <param name="connectionFactory">Creates a connection over a newly accepted transport.</param>
+    public AdapterIpcListener(Func<Stream, IAdapterIpcConnection> connectionFactory)
+        : this(Constants.AdapterIpcLoopbackPort, connectionFactory)
+    {
+    }
+
     /// <inheritdoc/>
     public int BoundPort => ((IPEndPoint)listenerSocket.LocalEndPoint!).Port;
 
