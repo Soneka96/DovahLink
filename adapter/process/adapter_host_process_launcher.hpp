@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <stop_token>
 
 namespace dovahlink::adapter::process {
 
@@ -32,7 +33,8 @@ public:
   ///  process could not be started, could not be placed under Job Object
   ///  supervision, or never reported a well-formed endpoint within the
   ///  configured bound.
-  virtual std::optional<AdapterHostEndpoint> Launch() = 0;
+  virtual std::optional<AdapterHostEndpoint>
+  Launch(std::stop_token cancellationToken = {}) = 0;
 
   ///  Waits, bounded by `timeout`, for the process this launcher most
   ///  recently launched to exit on its own; force-terminates it via its Job
@@ -79,7 +81,8 @@ public:
   operator=(const Win32AdapterHostProcessLauncher &) = delete;
 
   ///  @copydoc IAdapterHostProcessLauncher::Launch
-  std::optional<AdapterHostEndpoint> Launch() override;
+  std::optional<AdapterHostEndpoint>
+  Launch(std::stop_token cancellationToken = {}) override;
 
   ///  Returns the process id of the most recently launched host, or zero when
   ///  this launcher is not currently holding a launched process.

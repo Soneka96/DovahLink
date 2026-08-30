@@ -19,8 +19,12 @@ AdapterHostHandshakeVerifier::AdapterHostHandshakeVerifier(
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       socket_(socket), codec_(codec), verifyTimeout_(verifyTimeout) {}
 
-bool AdapterHostHandshakeVerifier::Verify(
-    const AdapterHostEndpoint &candidate) {
+bool AdapterHostHandshakeVerifier::Verify(const AdapterHostEndpoint &candidate,
+                                          std::stop_token cancellationToken) {
+  if (cancellationToken.stop_requested()) {
+    return false;
+  }
+
   bool connected = false;
   try {
     connected = socket_.Connect();
@@ -30,6 +34,9 @@ bool AdapterHostHandshakeVerifier::Verify(
   }
   if (!connected) {
     return false;
+  }
+  if (cancellationToken.stop_requested()) {
+    socket_.RequestStop();
   }
 
   bool authenticated = false;
@@ -51,8 +58,8 @@ bool AdapterHostHandshakeVerifier::Verify(
 
     if (socket_.WriteAll(frame)) {
       std::optional<ipc::IpcMessage> message =
-          ReadOneMessageWithDeadline(deadline);
-      if (message.has_value()) {
+          ReadOneMessageWithDeadline(deadline, cancellationToken);
+      if (message.has_value() && !cancellationToken.stop_requested()) {
         std::array<std::byte, ipc::kIpcHostProofBytes> expectedProof =
             ipc::ComputeIpcHmacSha256(candidate.proofToken,
                                       ipc::BuildHostProofMessage(
@@ -94,9 +101,10 @@ bool AdapterHostHandshakeVerifier::Verify(
 
 std::optional<ipc::IpcMessage>
 AdapterHostHandshakeVerifier::ReadOneMessageWithDeadline(
-    std::chrono::steady_clock::time_point deadline) {
+    std::chrono::steady_clock::time_point deadline,
+    std::stop_token cancellationToken) {
   std::array<std::byte, sizeof(std::uint32_t)> lengthPrefix{};
-  if (!ReadFullyWithDeadline(lengthPrefix, deadline)) {
+  if (!ReadFullyWithDeadline(lengthPrefix, deadline, cancellationToken)) {
     return std::nullopt;
   }
 
@@ -107,7 +115,7 @@ AdapterHostHandshakeVerifier::ReadOneMessageWithDeadline(
   }
 
   std::vector<std::byte> frame(*frameLength);
-  if (!ReadFullyWithDeadline(frame, deadline)) {
+  if (!ReadFullyWithDeadline(frame, deadline, cancellationToken)) {
     return std::nullopt;
   }
 
@@ -120,11 +128,12 @@ AdapterHostHandshakeVerifier::ReadOneMessageWithDeadline(
 }
 
 bool AdapterHostHandshakeVerifier::ReadFullyWithDeadline(
-    std::span<std::byte> buffer,
-    std::chrono::steady_clock::time_point deadline) {
+    std::span<std::byte> buffer, std::chrono::steady_clock::time_point deadline,
+    std::stop_token cancellationToken) {
   std::size_t totalRead = 0;
   while (totalRead < buffer.size()) {
-    if (std::chrono::steady_clock::now() >= deadline) {
+    if (cancellationToken.stop_requested() ||
+        std::chrono::steady_clock::now() >= deadline) {
       return false;
     }
 

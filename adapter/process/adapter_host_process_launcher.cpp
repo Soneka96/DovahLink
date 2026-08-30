@@ -41,10 +41,12 @@ BuildCommandLine(const std::filesystem::path &executablePath,
 ///  `\r`), or `std::nullopt` if the pipe ended or `deadline` elapsed first.
 std::optional<std::pair<std::string, std::string>>
 ReadTwoLinesWithDeadline(HANDLE pipeRead,
-                         std::chrono::steady_clock::time_point deadline) {
+                         std::chrono::steady_clock::time_point deadline,
+                         std::stop_token cancellationToken) {
   std::string buffer;
   while (true) {
-    if (std::chrono::steady_clock::now() >= deadline) {
+    if (cancellationToken.stop_requested() ||
+        std::chrono::steady_clock::now() >= deadline) {
       return std::nullopt;
     }
 
@@ -99,8 +101,12 @@ Win32AdapterHostProcessLauncher::~Win32AdapterHostProcessLauncher() {
   ReleaseCurrentProcess();
 }
 
-std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
+std::optional<AdapterHostEndpoint>
+Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
   ReleaseCurrentProcess();
+  if (cancellationToken.stop_requested()) {
+    return std::nullopt;
+  }
 
   SECURITY_ATTRIBUTES pipeAttributes{};
   pipeAttributes.nLength = sizeof(pipeAttributes);
@@ -138,6 +144,17 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
 
   CloseHandle(pipeWrite);
   if (!created) {
+    CloseHandle(pipeRead);
+    return std::nullopt;
+  }
+
+  if (cancellationToken.stop_requested()) {
+    TerminateProcess(processInfo.hProcess, 1);
+    WaitForSingleObject(
+        processInfo.hProcess,
+        static_cast<DWORD>(kAdapterHostForceTerminateGraceWait.count()));
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
     CloseHandle(pipeRead);
     return std::nullopt;
   }
@@ -184,6 +201,15 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
     return std::nullopt;
   }
 
+  if (cancellationToken.stop_requested()) {
+    TerminateJobObject(jobHandle, 1);
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    CloseHandle(jobHandle);
+    CloseHandle(pipeRead);
+    return std::nullopt;
+  }
+
   //  Resume only after the child is inside the kill-on-close Job Object.
   //  This closes the crash window in which Skyrim could disappear after
   //  CreateProcessW but before parent-lifetime supervision was established.
@@ -200,14 +226,14 @@ std::optional<AdapterHostEndpoint> Win32AdapterHostProcessLauncher::Launch() {
   std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + launchTimeout_;
   std::optional<std::pair<std::string, std::string>> lines =
-      ReadTwoLinesWithDeadline(pipeRead, deadline);
+      ReadTwoLinesWithDeadline(pipeRead, deadline, cancellationToken);
   CloseHandle(pipeRead);
 
   std::optional<AdapterHostEndpoint> endpoint;
   if (lines.has_value()) {
     endpoint = TryParseHostEndpointReport(lines->first, lines->second);
   }
-  if (!endpoint.has_value()) {
+  if (!endpoint.has_value() || cancellationToken.stop_requested()) {
     TerminateJobObject(jobHandle, 1);
     CloseHandle(processInfo.hProcess);
     CloseHandle(jobHandle);

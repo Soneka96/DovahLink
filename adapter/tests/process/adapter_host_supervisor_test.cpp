@@ -14,6 +14,7 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <stop_token>
 #include <thread>
 #include <vector>
 
@@ -33,6 +34,20 @@ public:
     std::unique_lock<std::mutex> lock(mutex_);
     hasWaiter_ = true;
     condition_.wait(lock, [this] { return released_; });
+  }
+
+  ///  Blocks until released or until the supplied cancellation request fires.
+  ///  @return `true` when the gate was released, or `false` when cancellation
+  ///  interrupted the wait.
+  bool WaitUntilReleasedOrStop(std::stop_token cancellationToken) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    hasWaiter_ = true;
+    std::stop_callback notifyOnStop(cancellationToken,
+                                    [this] { condition_.notify_all(); });
+    condition_.wait(lock, [this, cancellationToken] {
+      return released_ || cancellationToken.stop_requested();
+    });
+    return released_ && !cancellationToken.stop_requested();
   }
 
   void Release() {
@@ -166,6 +181,12 @@ public:
     throwOnce_ = true;
   }
 
+  ///  Makes the next `Verify` call wait for `gate` or supervisor cancellation.
+  void BlockNextCallUntilReleased(BlockingGate &gate) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    blockGate_ = &gate;
+  }
+
   ///  Invokes `callback` (if set) synchronously at the start of every
   ///  `Verify` call, before consulting the scripted result -- so a test can
   ///  act from inside a discovery round on the supervisor's own worker
@@ -175,7 +196,18 @@ public:
     onVerify_ = std::move(callback);
   }
 
-  bool Verify(const AdapterHostEndpoint &candidate) override {
+  bool Verify(const AdapterHostEndpoint &candidate,
+              std::stop_token cancellationToken) override {
+    BlockingGate *gate = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      gate = blockGate_;
+      blockGate_ = nullptr;
+    }
+    if (gate != nullptr && !gate->WaitUntilReleasedOrStop(cancellationToken)) {
+      return false;
+    }
+
     std::function<void()> callback;
     bool shouldThrow = false;
     {
@@ -210,6 +242,7 @@ private:
   std::vector<bool> results_;
   std::size_t callIndex_ = 0;
   std::vector<AdapterHostEndpoint> verifiedCandidates_;
+  BlockingGate *blockGate_ = nullptr;
 };
 
 ///  A deterministic, fully controllable `IAdapterHostProcessLauncher` test
@@ -226,13 +259,45 @@ public:
     results_ = std::move(results);
   }
 
+  ///  Makes the next `Launch` call wait for `gate` or supervisor cancellation.
+  void BlockNextCallUntilReleased(BlockingGate &gate) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    blockGate_ = &gate;
+  }
+
+  ///  Invokes `callback` at the start of the next `Launch` call.
+  void SetOnLaunchCallback(std::function<void()> callback) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    onLaunch_ = std::move(callback);
+  }
+
   ///  The number of times `Launch` has been called so far.
   int CallCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return callCount_;
   }
 
-  std::optional<AdapterHostEndpoint> Launch() override {
+  std::optional<AdapterHostEndpoint>
+  Launch(std::stop_token cancellationToken) override {
+    BlockingGate *gate = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      gate = blockGate_;
+      blockGate_ = nullptr;
+    }
+    if (gate != nullptr && !gate->WaitUntilReleasedOrStop(cancellationToken)) {
+      return std::nullopt;
+    }
+
+    std::function<void()> callback;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      callback = std::move(onLaunch_);
+    }
+    if (callback) {
+      callback();
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     ++callCount_;
     if (results_.empty()) {
@@ -254,6 +319,8 @@ private:
   std::vector<std::optional<AdapterHostEndpoint>> results_;
   std::size_t callIndex_ = 0;
   int callCount_ = 0;
+  BlockingGate *blockGate_ = nullptr;
+  std::function<void()> onLaunch_;
 };
 
 ///  A test-only connection that records when the supervisor starts the
@@ -426,6 +493,63 @@ TEST_CASE("AdapterHostSupervisor::RequestStop during an in-flight round "
   CHECK(fixture.reader.CallCount() == 1);
 }
 
+TEST_CASE("AdapterHostSupervisor cancels an in-flight launch without starting "
+          "or reconfiguring the connection") {
+  SupervisorFixture fixture;
+  BlockingGate gate;
+  fixture.launcher.SetResults({SampleEndpoint(4321)});
+  fixture.launcher.BlockNextCallUntilReleased(gate);
+
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil([&] { return gate.HasWaiter(); }));
+
+  fixture.supervisor.RequestStop();
+
+  CHECK(fixture.connection.StartCount() == 0);
+  CHECK(fixture.connectionSocket.Port() == 0);
+  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.verifier.VerifiedCandidates().empty());
+}
+
+TEST_CASE("AdapterHostSupervisor cancels an in-flight verification without "
+          "launching or starting the connection") {
+  SupervisorFixture fixture;
+  BlockingGate gate;
+  AdapterHostEndpoint endpoint = SampleEndpoint(5432);
+  fixture.reader.SetResults({endpoint});
+  fixture.verifier.SetResults({true});
+  fixture.verifier.BlockNextCallUntilReleased(gate);
+
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil([&] { return gate.HasWaiter(); }));
+
+  fixture.supervisor.RequestStop();
+
+  CHECK(fixture.launcher.CallCount() == 0);
+  CHECK(fixture.connection.StartCount() == 0);
+  CHECK(fixture.connectionSocket.Port() == 0);
+  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.verifier.VerifiedCandidates().empty());
+}
+
+TEST_CASE("AdapterHostSupervisor skips launched-candidate verification when "
+          "shutdown begins after launch") {
+  SupervisorFixture fixture;
+  AdapterHostEndpoint endpoint = SampleEndpoint(6543);
+  fixture.launcher.SetResults({endpoint});
+  fixture.launcher.SetOnLaunchCallback(
+      [&] { fixture.supervisor.RequestStop(); });
+
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil([&] { return fixture.launcher.CallCount() == 1; }));
+  fixture.supervisor.RequestStop();
+
+  CHECK(fixture.verifier.VerifiedCandidates().empty());
+  CHECK(fixture.connection.StartCount() == 0);
+  CHECK(fixture.connectionSocket.Port() == 0);
+  CHECK(fixture.connectionProofProvider.Token().empty());
+}
+
 TEST_CASE("AdapterHostSupervisor::RequestStop during a successful round's "
           "wait joins promptly and starts no further round") {
   SupervisorFixture fixture;
@@ -514,6 +638,11 @@ TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within a "
   //  call above had incorrectly joined its own thread, the worker would
   //  never have returned and this call would hang instead of completing.
   fixture.supervisor.RequestStop();
+
+  CHECK(fixture.connection.StartCount() == 0);
+  CHECK(fixture.connectionSocket.Port() == 0);
+  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.launcher.CallCount() == 0);
 }
 
 TEST_CASE("AdapterHostSupervisor contains a connection-start exception and "

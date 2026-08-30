@@ -82,7 +82,9 @@ class FakeLauncher final : public IAdapterHostProcessLauncher {
 public:
   explicit FakeLauncher(CallLog &log) : log_(log) {}
 
-  std::optional<AdapterHostEndpoint> Launch() override { return std::nullopt; }
+  std::optional<AdapterHostEndpoint> Launch(std::stop_token) override {
+    return std::nullopt;
+  }
 
   bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) override {
     log_.Record("launcher.AwaitExitOrTerminate");

@@ -32,6 +32,8 @@ void AdapterHostSupervisor::Start() {
 }
 
 void AdapterHostSupervisor::RequestStop() {
+  cancellationSource_.request_stop();
+  verifierSocket_.RequestStop();
   {
     std::lock_guard<std::mutex> lock(stateMutex_);
     stopping_ = true;
@@ -53,6 +55,7 @@ void AdapterHostSupervisor::NotifyConnectionLost() {
 }
 
 void AdapterHostSupervisor::RunLoop() {
+  std::stop_token cancellationToken = cancellationSource_.get_token();
   while (true) {
     {
       std::lock_guard<std::mutex> lock(stateMutex_);
@@ -63,8 +66,13 @@ void AdapterHostSupervisor::RunLoop() {
 
     bool succeeded = false;
     try {
-      std::optional<AdapterHostEndpoint> endpoint = RunOneDiscoveryRound();
+      std::optional<AdapterHostEndpoint> endpoint =
+          RunOneDiscoveryRound(cancellationToken);
       if (endpoint.has_value()) {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        if (stopping_ || cancellationToken.stop_requested()) {
+          return;
+        }
         ReconfigureLiveTarget(*endpoint);
         connection_.Start();
         succeeded = true;
@@ -90,9 +98,13 @@ void AdapterHostSupervisor::RunLoop() {
 }
 
 std::optional<AdapterHostEndpoint>
-AdapterHostSupervisor::RunOneDiscoveryRound() {
+AdapterHostSupervisor::RunOneDiscoveryRound(std::stop_token cancellationToken) {
   std::optional<AdapterHostEndpoint> candidate = reader_.TryRead();
-  if (candidate.has_value() && VerifyCandidate(*candidate)) {
+  if (cancellationToken.stop_requested()) {
+    return std::nullopt;
+  }
+  if (!cancellationToken.stop_requested() && candidate.has_value() &&
+      VerifyCandidate(*candidate, cancellationToken)) {
     return candidate;
   }
 
@@ -101,13 +113,17 @@ AdapterHostSupervisor::RunOneDiscoveryRound() {
     //  fresh launch: no host relaunch is ever initiated once shutdown has
     //  begun, even mid-round.
     std::lock_guard<std::mutex> lock(stateMutex_);
-    if (stopping_) {
+    if (stopping_ || cancellationToken.stop_requested()) {
       return std::nullopt;
     }
   }
 
-  candidate = launcher_.Launch();
-  if (candidate.has_value() && VerifyCandidate(*candidate)) {
+  candidate = launcher_.Launch(cancellationToken);
+  if (cancellationToken.stop_requested()) {
+    return std::nullopt;
+  }
+  if (!cancellationToken.stop_requested() && candidate.has_value() &&
+      VerifyCandidate(*candidate, cancellationToken)) {
     return candidate;
   }
 
@@ -115,9 +131,12 @@ AdapterHostSupervisor::RunOneDiscoveryRound() {
 }
 
 bool AdapterHostSupervisor::VerifyCandidate(
-    const AdapterHostEndpoint &candidate) {
+    const AdapterHostEndpoint &candidate, std::stop_token cancellationToken) {
+  if (cancellationToken.stop_requested()) {
+    return false;
+  }
   verifierSocket_.SetPort(candidate.port);
-  return verifier_.Verify(candidate);
+  return verifier_.Verify(candidate, cancellationToken);
 }
 
 void AdapterHostSupervisor::ReconfigureLiveTarget(

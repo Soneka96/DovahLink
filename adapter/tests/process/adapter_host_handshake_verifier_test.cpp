@@ -15,6 +15,7 @@
 #include <future>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -104,13 +105,15 @@ struct VerifierFixture {
 ///  before delivering a reply.
 std::pair<IpcHelloMessage, std::future<bool>>
 StartVerifyAndCaptureHello(VerifierFixture &fixture,
-                           const AdapterHostEndpoint &candidate) {
+                           const AdapterHostEndpoint &candidate,
+                           std::stop_token cancellationToken = {}) {
   std::promise<void> helloSent;
   fixture.socket.SetWriteCompletedSignal(helloSent);
   std::future<void> helloSentFuture = helloSent.get_future();
 
-  std::future<bool> result = std::async(
-      std::launch::async, [&] { return fixture.verifier.Verify(candidate); });
+  std::future<bool> result = std::async(std::launch::async, [&] {
+    return fixture.verifier.Verify(candidate, cancellationToken);
+  });
 
   REQUIRE(WaitReady(helloSentFuture));
   IpcMessage sent = DecodeOneWrittenFrame(fixture.socket, fixture.codec);
@@ -245,6 +248,22 @@ TEST_CASE("AdapterHostHandshakeVerifier::Verify returns false when the "
   //  Nothing is ever pushed to the socket, so every read poll returns zero
   //  bytes until the fixture's short verify timeout elapses.
   CHECK_FALSE(fixture.verifier.Verify(SampleCandidate()));
+  CHECK(fixture.socket.CloseCallCount() == 1);
+}
+
+TEST_CASE("AdapterHostHandshakeVerifier::Verify cancels an in-flight read") {
+  VerifierFixture fixture;
+  AdapterHostEndpoint candidate = SampleCandidate();
+  std::stop_source cancellation;
+
+  auto [hello, result] =
+      StartVerifyAndCaptureHello(fixture, candidate, cancellation.get_token());
+  static_cast<void>(hello);
+
+  cancellation.request_stop();
+
+  REQUIRE(WaitReady(result));
+  CHECK_FALSE(result.get());
   CHECK(fixture.socket.CloseCallCount() == 1);
 }
 

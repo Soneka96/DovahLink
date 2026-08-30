@@ -11,8 +11,11 @@
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <future>
 #include <optional>
+#include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 using dovahlink::adapter::process::AdapterHostEndpoint;
@@ -133,6 +136,36 @@ TEST_CASE("Win32AdapterHostProcessLauncher::Launch returns nullopt when the "
                                            std::chrono::milliseconds(200));
 
   CHECK_FALSE(launcher.Launch().has_value());
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Launch does not create a child "
+          "when already cancelled") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+  std::stop_source cancellation;
+  cancellation.request_stop();
+
+  CHECK_FALSE(launcher.Launch(cancellation.get_token()).has_value());
+  CHECK(launcher.ProcessId() == 0);
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Launch cancels an in-flight "
+          "endpoint wait and cleans up the child") {
+  ScopedEnvironmentVariable silent(L"DOVAHLINK_TEST_HOST_SILENT", L"1");
+  Win32AdapterHostProcessLauncher launcher(
+      FixtureExecutablePath(), SampleLifetimeId(), std::chrono::seconds(5));
+  std::stop_source cancellation;
+
+  std::future<std::optional<AdapterHostEndpoint>> result =
+      std::async(std::launch::async,
+                 [&] { return launcher.Launch(cancellation.get_token()); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  cancellation.request_stop();
+
+  REQUIRE(result.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  CHECK_FALSE(result.get().has_value());
+  CHECK(launcher.ProcessId() == 0);
 }
 
 TEST_CASE("Win32AdapterHostProcessLauncher::Launch returns nullopt when the "

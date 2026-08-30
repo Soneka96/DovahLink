@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <thread>
 
 namespace dovahlink::adapter::process {
@@ -112,10 +113,12 @@ private:
   ///  candidate, then launch-and-verify a fresh one if that fails.
   ///  @return The verified candidate, or `std::nullopt` if neither adoption
   ///  nor a fresh launch produced one.
-  std::optional<AdapterHostEndpoint> RunOneDiscoveryRound();
+  std::optional<AdapterHostEndpoint>
+  RunOneDiscoveryRound(std::stop_token cancellationToken);
 
   ///  Retargets `verifierSocket_` to `candidate`'s port, then verifies it.
-  bool VerifyCandidate(const AdapterHostEndpoint &candidate);
+  bool VerifyCandidate(const AdapterHostEndpoint &candidate,
+                       std::stop_token cancellationToken);
 
   ///  Retargets the live connection's socket and peer-proof provider to
   ///  `endpoint`.
@@ -165,6 +168,8 @@ private:
   ///  Set by `NotifyConnectionLost()`; consumed by
   ///  `WaitForConnectionLostOrStop()`.
   bool connectionLost_ = false;
+  ///  Cancels bounded discovery operations when shutdown begins.
+  std::stop_source cancellationSource_;
 };
 
 } //  namespace dovahlink::adapter::process

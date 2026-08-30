@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <stop_token>
 
 namespace dovahlink::adapter::ipc {
 class IAdapterIpcSocket;
@@ -36,7 +37,8 @@ public:
   ///  conjunction: accepted, matching correlation id, and a verifying
   ///  `hostProof`. `false` for a rejected, non-responding, unreachable, or
   ///  malformed peer; never throws.
-  virtual bool Verify(const AdapterHostEndpoint &candidate) = 0;
+  virtual bool Verify(const AdapterHostEndpoint &candidate,
+                      std::stop_token cancellationToken = {}) = 0;
 };
 
 ///  @copydoc IAdapterHostHandshakeVerifier
@@ -60,21 +62,24 @@ public:
           kDefaultAdapterHostHandshakeVerifyTimeout);
 
   ///  @copydoc IAdapterHostHandshakeVerifier::Verify
-  bool Verify(const AdapterHostEndpoint &candidate) override;
+  bool Verify(const AdapterHostEndpoint &candidate,
+              std::stop_token cancellationToken = {}) override;
 
 private:
   ///  Reads and decodes exactly one frame, bounded by `deadline`.
   ///  @return The decoded message, or `std::nullopt` if the connection ended,
   ///  the frame failed to decode, or `deadline` elapsed first.
   std::optional<ipc::IpcMessage>
-  ReadOneMessageWithDeadline(std::chrono::steady_clock::time_point deadline);
+  ReadOneMessageWithDeadline(std::chrono::steady_clock::time_point deadline,
+                             std::stop_token cancellationToken);
 
   ///  Fills `buffer` completely, polling `socket_` and checking `deadline`
   ///  between each poll.
   ///  @return `false` if the connection ended or `deadline` elapsed before
   ///  `buffer` was completely filled.
   bool ReadFullyWithDeadline(std::span<std::byte> buffer,
-                             std::chrono::steady_clock::time_point deadline);
+                             std::chrono::steady_clock::time_point deadline,
+                             std::stop_token cancellationToken);
 
   ///  Issues the next monotonic Hello correlation id for this verifier,
   ///  starting at 1.
