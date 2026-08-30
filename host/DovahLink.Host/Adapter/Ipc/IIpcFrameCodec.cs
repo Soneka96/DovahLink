@@ -122,16 +122,17 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
     /// <summary>Encodes an <see cref="IpcHelloMessage"/> payload: 16 identity bytes, a length byte, then the token.</summary>
     private static byte[] EncodeHello(IpcHelloMessage hello)
     {
-        if (hello.PeerProofToken.Length > Constants.MaxIpcPeerProofTokenBytes)
+        byte[] peerProofToken = hello.PeerProofToken;
+        if (peerProofToken.Length > Constants.MaxIpcPeerProofTokenBytes)
         {
             throw new ArgumentException(
                 $"The peer-proof token must be at most {Constants.MaxIpcPeerProofTokenBytes} bytes.", nameof(hello));
         }
 
-        var payload = new byte[17 + hello.PeerProofToken.Length];
+        var payload = new byte[17 + peerProofToken.Length];
         hello.AdapterInstanceId.Value.TryWriteBytes(payload.AsSpan(0, 16), bigEndian: true, out _);
-        payload[16] = (byte)hello.PeerProofToken.Length;
-        hello.PeerProofToken.CopyTo(payload.AsSpan(17));
+        payload[16] = (byte)peerProofToken.Length;
+        peerProofToken.CopyTo(payload.AsSpan(17));
         return payload;
     }
 

@@ -46,6 +46,31 @@ public class IpcFrameCodecTests
         Assert.Equal(new byte[] { 1, 2, 3 }, message.PeerProofToken);
     }
 
+    /// <summary>Verifies that mutating a previously read PeerProofToken cannot change the message's stored value.</summary>
+    [Fact]
+    public void Hello_PeerProofToken_MutatingReturnedArrayDoesNotAffectMessage()
+    {
+        var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), [1, 2, 3]);
+
+        byte[] returnedToken = message.PeerProofToken;
+        returnedToken[0] = 99;
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, message.PeerProofToken);
+    }
+
+    /// <summary>Verifies that each read of PeerProofToken returns an independent array, not a shared cached copy.</summary>
+    [Fact]
+    public void Hello_PeerProofToken_EachReadReturnsIndependentArray()
+    {
+        var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), [1, 2, 3]);
+
+        byte[] firstRead = message.PeerProofToken;
+        byte[] secondRead = message.PeerProofToken;
+        firstRead[0] = 99;
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, secondRead);
+    }
+
     /// <summary>Verifies that decoding a Hello copies identity and token bytes out of the source frame.</summary>
     [Fact]
     public void Decode_Hello_OwnsDecodedBytes()

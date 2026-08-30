@@ -13,8 +13,11 @@ public sealed record IpcHelloMessage : IpcMessage
     /// <summary>The connecting adapter's instance identity.</summary>
     public AdapterInstanceId AdapterInstanceId { get; }
 
-    /// <summary>An owned copy of the bounded peer-ownership proof.</summary>
-    public byte[] PeerProofToken { get; }
+    /// <summary>The owned bounded peer-ownership proof bytes.</summary>
+    private readonly byte[] peerProofToken;
+
+    /// <summary>A fresh copy of the bounded peer-ownership proof, safe for the caller to mutate.</summary>
+    public byte[] PeerProofToken => peerProofToken.ToArray();
 
     /// <summary>Creates a Hello message and copies the caller's proof token into owned storage.</summary>
     /// <param name="correlationId">Pairs this request with its response.</param>
@@ -25,6 +28,6 @@ public sealed record IpcHelloMessage : IpcMessage
     {
         ArgumentNullException.ThrowIfNull(peerProofToken);
         AdapterInstanceId = adapterInstanceId;
-        PeerProofToken = peerProofToken.ToArray();
+        this.peerProofToken = peerProofToken.ToArray();
     }
 }
