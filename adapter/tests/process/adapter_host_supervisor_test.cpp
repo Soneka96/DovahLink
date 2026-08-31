@@ -628,3 +628,42 @@ TEST_CASE("AdapterHostSupervisor applies a bounded recovery backoff after an "
 
   fixture.supervisor.RequestStop();
 }
+
+TEST_CASE("AdapterHostSupervisor resumes rendezvous discovery after a "
+          "preferred fresh launch produces no endpoint") {
+  SupervisorFixture fixture;
+  AdapterHostEndpoint firstEndpoint = SampleEndpoint(7001);
+  AdapterHostEndpoint recoveredEndpoint = SampleEndpoint(7002);
+  //  Round 1's reader call finds nothing, so the round falls through to the
+  //  launcher; round 2's reader call (skipped under the bug) would find
+  //  `recoveredEndpoint`.
+  fixture.reader.SetResults({std::nullopt, recoveredEndpoint});
+  //  Round 1's launch succeeds; round 2's preferred fresh launch -- and every
+  //  launch after it, under the bug -- finds nothing.
+  fixture.launcher.SetResults({firstEndpoint, std::nullopt});
+  fixture.connection.SetOnStartCallback([&] {
+    if (fixture.connection.StartCount() == 1) {
+      fixture.supervisor.NotifyConnectionLost(
+          1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kConnectFailed);
+    }
+  });
+
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == firstEndpoint.port;
+  }));
+  REQUIRE(WaitUntil([&] { return fixture.launcher.CallCount() >= 2; }));
+
+  //  Once round 2's preferred fresh launch fails, the preference must be
+  //  cleared for round 3 -- otherwise `recoveredEndpoint`, exposed only
+  //  through rendezvous, is never adopted and this call hangs until timeout.
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == recoveredEndpoint.port;
+  }));
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
+  //  Round 3 must have adopted the candidate through the reader, not by
+  //  calling the launcher a third time.
+  CHECK(fixture.launcher.CallCount() == 2);
+
+  fixture.supervisor.RequestStop();
+}

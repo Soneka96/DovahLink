@@ -89,7 +89,15 @@ void AdapterHostSupervisor::RunLoop() {
             return;
           }
         }
-        endpoint = RunOneDiscoveryRound(cancellationToken, preferFreshLaunch);
+        //  Captured for this round only: a round that runs with the
+        //  fresh-launch preference always clears the persistent flag before
+        //  discovery, so a fresh launch that produces no endpoint cannot
+        //  permanently suppress rendezvous discovery in every later round. A
+        //  later connect/authentication failure re-arms it normally below.
+        const bool roundPrefersFreshLaunch = preferFreshLaunch;
+        preferFreshLaunch = false;
+        endpoint =
+            RunOneDiscoveryRound(cancellationToken, roundPrefersFreshLaunch);
         if (endpoint.has_value()) {
           {
             std::lock_guard<std::mutex> lock(stateMutex_);
