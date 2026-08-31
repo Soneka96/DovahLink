@@ -75,7 +75,30 @@ public class AdapterIpcSessionTests
         AdapterHandshakeResult result = session.Handshake(hello);
 
         Assert.True(result.Accepted);
-        Assert.Equal(IndependentlyComputedHostProof(hello, verifier.ExpectedToken), result.AckMessage.HostProof);
+        Assert.Equal(IndependentlyComputedHostProof(hello, verifier.HostProofKey), result.AckMessage.HostProof);
+    }
+
+    /// <summary>
+    /// Verifies that a HostProof computed from the bearer ExpectedToken -- the value the Hello
+    /// itself carried on the wire -- instead of the independent HostProofKey does not match: the
+    /// domain-separation invariant this whole split exists to prove. An observer of the wire alone
+    /// can never forge a valid HostProof from what it saw.
+    /// </summary>
+    [Fact]
+    public void Handshake_ValidProof_HostProofDoesNotMatchIfKeyedByExpectedToken()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var ownerLifetimeId = new OwnerLifetimeId(1, 2);
+        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
+        byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
+        var hello = new IpcHelloMessage(
+            7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
+
+        AdapterHandshakeResult result = session.Handshake(hello);
+
+        Assert.NotEqual(IndependentlyComputedHostProof(hello, verifier.ExpectedToken), result.AckMessage.HostProof);
     }
 
     /// <summary>Verifies that a rejected handshake's HostProof is all-zero -- the host never computes a real proof for a peer it refuses.</summary>

@@ -167,16 +167,18 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     }
 
     /// <summary>
-    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = the host's own expected
-    /// peer-proof token, message = Challenge || CorrelationId || AdapterInstanceId ||
-    /// OwnerLifetimeId)</c>, proving to the adapter that this host holds the shared secret. Only
-    /// called once the Hello's own proof and lifetime id have already been verified.
+    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = this host's own
+    /// <see cref="IAdapterPeerProofVerifier.HostProofKey"/>, message = Challenge || CorrelationId ||
+    /// AdapterInstanceId || OwnerLifetimeId)</c>, proving to the adapter that this host holds a
+    /// secret independent of the bearer token the Hello itself carried -- so observing that Hello
+    /// alone can never let an untrusted observer forge this proof. Only called once the Hello's own
+    /// proof and lifetime id have already been verified.
     /// </summary>
     /// <param name="hello">The verified Hello to compute the proof for.</param>
     private byte[] ComputeHostProof(IpcHelloMessage hello)
     {
         byte[] message = BuildHostProofMessage(hello.Challenge, hello.CorrelationId, hello.AdapterInstanceId, hello.OwnerLifetimeId);
-        using var hmac = new HMACSHA256(peerProofVerifier.ExpectedToken);
+        using var hmac = new HMACSHA256(peerProofVerifier.HostProofKey);
         return hmac.ComputeHash(message);
     }
 
