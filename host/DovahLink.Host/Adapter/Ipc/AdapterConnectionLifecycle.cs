@@ -12,9 +12,12 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// mutation is meant to flow through this type, never directly through the tracker.
 /// </summary>
 /// <remarks>
-/// Every method here that touches the active lease is serialized under one internal lock held for
-/// the duration of the tracker publication it triggers. A subscriber to the tracker's availability
-/// event must never call back into <see cref="Activate"/>, <see cref="Deactivate"/>, or
+/// <see cref="Activate"/> and <see cref="Deactivate"/> hold their lease-eligibility lock across
+/// their entire tracker publication -- lease mutation through subscriber notification -- so
+/// <see cref="IsActive"/> can never observe a lease as eligible, or ineligible, while the tracker's
+/// committed availability still disagrees: any concurrent reader sees the whole transition or none
+/// of it, never a seam in between. A subscriber to the tracker's availability event must never call
+/// back into <see cref="Activate"/>, <see cref="Deactivate"/>, or
 /// <see cref="TryCompleteResynchronization"/> from inside its own handler: C# locks are reentrant
 /// per thread, so such a call would not be blocked -- it would instead re-enter this type's
 /// serialization mid-transition, which this type does not defend against. Subscribers are meant to
@@ -74,10 +77,14 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
     private readonly object transitionGate = new();
 
     /// <summary>
-    /// Guards <see cref="currentLease"/> for the fast read <see cref="IsActive"/> needs. Deliberately
-    /// separate from <see cref="transitionGate"/> and never held across a tracker publish, so
-    /// <see cref="IsActive"/> stays cheap for any thread even while a slow, contained subscriber is
-    /// still running inside an <see cref="Activate"/>/<see cref="Deactivate"/> call.
+    /// Guards <see cref="currentLease"/> for the fast read <see cref="IsActive"/> needs, and, in
+    /// <see cref="Activate"/>/<see cref="Deactivate"/>, is held across those methods' entire tracker
+    /// publication -- including subscriber notification -- so a lease's eligibility and the
+    /// tracker's committed availability always commit as one atomic transition: <see
+    /// cref="IsActive"/> blocks until an in-flight transition fully lands rather than observing it
+    /// mid-flight. Deliberately a separate lock from <see cref="transitionGate"/> so
+    /// <see cref="TryCompleteResynchronization"/>, which does not change lease eligibility, does not
+    /// also block <see cref="IsActive"/> for the duration of its own tracker call.
     /// </summary>
     private readonly object stateGate = new();
 
@@ -108,9 +115,9 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
                 lease.InstanceId = instanceId;
                 lease.Generation = generation;
                 currentLease = lease;
-            }
 
-            tracker.PublishConnected(instanceId, generation);
+                tracker.PublishConnected(instanceId, generation);
+            }
         }
     }
 
@@ -119,8 +126,6 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
     {
         lock (transitionGate)
         {
-            AdapterInstanceId instanceId;
-            long generation;
             lock (stateGate)
             {
                 if (!ReferenceEquals(currentLease, lease))
@@ -129,11 +134,8 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
                 }
 
                 currentLease = null;
-                instanceId = lease.InstanceId;
-                generation = lease.Generation;
+                tracker.PublishDisconnected(lease.InstanceId, lease.Generation);
             }
-
-            tracker.PublishDisconnected(instanceId, generation);
         }
     }
 
