@@ -18,7 +18,7 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// committed availability still disagrees: any concurrent reader sees the whole commit or none of
 /// it, never a seam in between, and is never blocked waiting on arbitrary subscriber code. Ordering
 /// across a complete transition -- commit, then publish -- is instead held by
-/// <see cref="transitionGate"/> for the whole method, so transitions still commit and publish in
+/// <c>transitionGate</c> for the whole method, so transitions still commit and publish in
 /// strict allocation order relative to one another. A subscriber to the tracker's availability event
 /// must never call back into <see cref="Activate"/>, <see cref="Deactivate"/>, or
 /// <see cref="TryCompleteResynchronization"/> from inside its own handler: C# locks are reentrant
