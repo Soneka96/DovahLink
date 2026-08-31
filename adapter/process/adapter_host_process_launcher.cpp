@@ -167,7 +167,12 @@ Win32AdapterHostProcessLauncher::~Win32AdapterHostProcessLauncher() {
 
 std::optional<AdapterHostEndpoint>
 Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
-  ReleaseCurrentProcess();
+  //  Deliberately does not release the currently retained host here: that
+  //  would destroy its kill-on-close Job Object before this attempt knows
+  //  whether a replacement will ever exist, terminating a still-wanted host
+  //  on a cancelled or failed replacement attempt. The retained host is only
+  //  released at the commit point below, once a replacement has actually
+  //  succeeded.
   if (cancellationToken.stop_requested()) {
     return std::nullopt;
   }
@@ -286,6 +291,10 @@ Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
     return std::nullopt;
   }
 
+  //  Commit point: the replacement is validated, so it is now safe to retire
+  //  whatever host this launcher previously retained. Do not move this call
+  //  earlier -- see the comment at the top of this function.
+  ReleaseCurrentProcess();
   processHandle_ = processHandle.Release();
   jobHandle_ = jobHandleGuard.Release();
   return endpoint;

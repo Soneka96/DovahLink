@@ -346,3 +346,78 @@ TEST_CASE("Win32AdapterHostProcessLauncher::Release is a no-op when nothing "
 
   REQUIRE_NOTHROW(launcher.Release());
 }
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Launch does not destroy the "
+          "retained host when a replacement attempt is already cancelled") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+  REQUIRE(launcher.Launch().has_value());
+  std::uint32_t retainedProcessId = launcher.ProcessId();
+  REQUIRE(retainedProcessId != 0);
+  //  Opened independently of the launcher so this test can prove liveness
+  //  without going through AwaitExitOrTerminate, which would force-terminate
+  //  a still-running process merely by checking it.
+  HANDLE retainedProcessHandle =
+      OpenProcess(SYNCHRONIZE, /*bInheritHandle=*/FALSE, retainedProcessId);
+  REQUIRE(retainedProcessHandle != nullptr);
+  std::stop_source cancellation;
+  cancellation.request_stop();
+
+  std::optional<AdapterHostEndpoint> replacement =
+      launcher.Launch(cancellation.get_token());
+
+  CHECK_FALSE(replacement.has_value());
+  CHECK(launcher.ProcessId() == retainedProcessId);
+  CHECK(WaitForSingleObject(retainedProcessHandle, 0) == WAIT_TIMEOUT);
+  CloseHandle(retainedProcessHandle);
+  launcher.AwaitExitOrTerminate(std::chrono::milliseconds(200));
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Launch preserves the retained "
+          "host when cancellation arrives while a replacement is still "
+          "being validated") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+  REQUIRE(launcher.Launch().has_value());
+  std::uint32_t retainedProcessId = launcher.ProcessId();
+  ScopedEnvironmentVariable silent(L"DOVAHLINK_TEST_HOST_SILENT", L"1");
+  std::stop_source cancellation;
+
+  std::future<std::optional<AdapterHostEndpoint>> replacement =
+      std::async(std::launch::async,
+                 [&] { return launcher.Launch(cancellation.get_token()); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  cancellation.request_stop();
+
+  REQUIRE(replacement.wait_for(std::chrono::seconds(2)) ==
+          std::future_status::ready);
+  CHECK_FALSE(replacement.get().has_value());
+  //  Checked only after the replacement attempt has fully returned: the
+  //  launcher has no internal synchronization of its own and relies on its
+  //  caller (normally the supervisor's operationMutex_) to serialize access,
+  //  so reading ProcessId() while Launch() is still in flight would itself
+  //  be a race.
+  CHECK(launcher.ProcessId() == retainedProcessId);
+  launcher.AwaitExitOrTerminate(std::chrono::milliseconds(200));
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher::Launch preserves the retained "
+          "host when a replacement attempt fails for a reason other than "
+          "cancellation") {
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId(),
+                                           std::chrono::milliseconds(200));
+  REQUIRE(launcher.Launch().has_value());
+  std::uint32_t retainedProcessId = launcher.ProcessId();
+
+  //  No cancellation at all here: the replacement fails only because it
+  //  never reports its endpoint within the bound, proving the fix protects
+  //  the retained host against any failed replacement, not merely a
+  //  cancelled one.
+  ScopedEnvironmentVariable silent(L"DOVAHLINK_TEST_HOST_SILENT", L"1");
+  std::optional<AdapterHostEndpoint> replacement = launcher.Launch();
+
+  CHECK_FALSE(replacement.has_value());
+  CHECK(launcher.ProcessId() == retainedProcessId);
+  launcher.AwaitExitOrTerminate(std::chrono::milliseconds(200));
+}
