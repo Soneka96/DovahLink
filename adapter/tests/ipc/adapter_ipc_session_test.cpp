@@ -392,8 +392,8 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable when an accepted "
   CHECK_FALSE(fixture.session.IsHostAvailable());
 }
 
-TEST_CASE("AdapterIpcSession returns to unavailable after a rejected "
-          "HelloAck follows an authenticated one") {
+TEST_CASE("AdapterIpcSession closes on a duplicate rejected HelloAck and "
+          "waits for disconnect to become unavailable") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -406,6 +406,8 @@ TEST_CASE("AdapterIpcSession returns to unavailable after a rejected "
             .rejectReason = IpcHelloRejectReason::kInvalidProof}}) ==
         AdapterIpcMessageDisposition::kClose);
 
+  CHECK(fixture.session.IsHostAvailable());
+  fixture.session.HandleDisconnected();
   CHECK_FALSE(fixture.session.IsHostAvailable());
 }
 
@@ -427,6 +429,7 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
 
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
             .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
@@ -447,13 +450,13 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
   CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
-TEST_CASE("AdapterIpcSession's marshaled resynchronize reply does nothing "
-          "without an attached connection") {
+TEST_CASE("AdapterIpcSession closes for a pre-authentication resynchronize "
+          "request without an attached connection") {
   SessionFixture fixture;
 
-  fixture.session.HandleMessage(
-      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}});
-  fixture.marshaller.RunAllPending();
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kClose);
+  CHECK(fixture.marshaller.PendingCount() == 0);
 }
 
 TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
@@ -556,6 +559,23 @@ TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
   CHECK(fixture.captureQueue.Enqueued().empty());
 }
 
+TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  REQUIRE(fixture.session.IsHostAvailable());
+
+  fixture.session.HandleDisconnected();
+  REQUIRE_FALSE(fixture.session.IsHostAvailable());
+  fixture.session.HandleConnected();
+  connection.Clear();
+
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+
+  CHECK(fixture.session.IsHostAvailable());
+}
+
 TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
@@ -602,8 +622,8 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
   destructionThread.join();
 }
 
-TEST_CASE("AdapterIpcSession rejects and ends serving on a received "
-          "ResynchronizeResult, since it is adapter-outbound only") {
+TEST_CASE("AdapterIpcSession closes on a pre-authentication "
+          "ResynchronizeResult without sending a response") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -613,11 +633,7 @@ TEST_CASE("AdapterIpcSession rejects and ends serving on a received "
           IpcResynchronizeResultMessage{.correlationId = 7, .accepted = true}});
 
   CHECK(disposition == AdapterIpcMessageDisposition::kClose);
-  REQUIRE(connection.Sent().size() == 1);
-  auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
-  REQUIRE(reject != nullptr);
-  CHECK(reject->correlationId == 7);
-  CHECK(reject->reason == IpcRejectReason::kUnknownMessageKind);
+  CHECK(connection.Sent().empty());
 }
 
 TEST_CASE("AdapterIpcSession handles a listen-event request by dispatching "
@@ -732,19 +748,22 @@ TEST_CASE("AdapterIpcSession never dispatches a listen-event marshaled "
   Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
   fixture.dispatcher.SetResult(7, {std::byte{1}});
 
-  //  Enqueued while authenticated (available_ == true), so it passes the
-  //  enqueue-time gate and is marshaled.
+  //  Enqueued while authenticated, so it passes the enqueue-time gate and is
+  //  marshaled.
   fixture.session.HandleMessage(
       IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
   REQUIRE(fixture.marshaller.PendingCount() == 1);
 
-  //  A second HelloAck on the *same* connection (no disconnect, so the
-  //  connection generation does not change) rejects the peer before the
-  //  marshaled task runs.
-  fixture.session.HandleMessage(IpcMessage{
-      IpcHelloAckMessage{.correlationId = 999,
-                         .accepted = false,
-                         .rejectReason = IpcHelloRejectReason::kInvalidProof}});
+  //  A second HelloAck on the *same* connection is a protocol violation. It
+  //  must close the transport rather than changing the authenticated state
+  //  directly; the connection reports the physical teardown separately.
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+            .correlationId = 999,
+            .accepted = false,
+            .rejectReason = IpcHelloRejectReason::kInvalidProof}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  REQUIRE(fixture.session.IsHostAvailable());
+  fixture.session.HandleDisconnected();
   REQUIRE_FALSE(fixture.session.IsHostAvailable());
 
   fixture.marshaller.RunAllPending();
@@ -788,8 +807,12 @@ TEST_CASE("AdapterIpcSession ends serving on a received Close, without "
   CHECK(connection.Sent().empty());
 }
 
-TEST_CASE("AdapterIpcSession keeps serving on a received Reject or Cancel") {
+TEST_CASE("AdapterIpcSession keeps serving on a received Reject or Cancel "
+          "after authentication") {
   SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
 
   CHECK(
       fixture.session.HandleMessage(IpcMessage{IpcRejectMessage{
@@ -799,8 +822,8 @@ TEST_CASE("AdapterIpcSession keeps serving on a received Reject or Cancel") {
             .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
 }
 
-TEST_CASE("AdapterIpcSession rejects and ends serving on an unexpected "
-          "adapter-outbound-only message kind") {
+TEST_CASE("AdapterIpcSession closes on an unexpected message kind before "
+          "authentication without sending a response") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
@@ -813,11 +836,92 @@ TEST_CASE("AdapterIpcSession rejects and ends serving on an unexpected "
                                  .peerProofToken = {}}});
 
   CHECK(disposition == AdapterIpcMessageDisposition::kClose);
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession rejects and closes an unexpected message kind "
+          "after authentication") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+
+  AdapterIpcMessageDisposition disposition =
+      fixture.session.HandleMessage(IpcMessage{
+          IpcResynchronizeResultMessage{.correlationId = 5, .accepted = true}});
+
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
   REQUIRE(connection.Sent().size() == 1);
   auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
   REQUIRE(reject != nullptr);
   CHECK(reject->correlationId == 5);
   CHECK(reject->reason == IpcRejectReason::kUnknownMessageKind);
+}
+
+TEST_CASE("AdapterIpcSession closes for every non-HelloAck message before "
+          "authentication") {
+  SessionFixture fixture;
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kClose);
+  CHECK(fixture.marshaller.PendingCount() == 0);
+
+  SessionFixture listenFixture;
+  CHECK(listenFixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 2, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  CHECK(listenFixture.marshaller.PendingCount() == 0);
+
+  SessionFixture readFixture;
+  CHECK(readFixture.session.HandleMessage(IpcMessage{
+            IpcReadSampleMessage{.correlationId = 3, .sampleToken = 8}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  CHECK(readFixture.marshaller.PendingCount() == 0);
+
+  SessionFixture rejectFixture;
+  CHECK(
+      rejectFixture.session.HandleMessage(IpcMessage{IpcRejectMessage{
+          .correlationId = 4, .reason = IpcRejectReason::kMalformedPayload}}) ==
+      AdapterIpcMessageDisposition::kClose);
+
+  SessionFixture cancelFixture;
+  CHECK(cancelFixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 5}}) == AdapterIpcMessageDisposition::kClose);
+}
+
+TEST_CASE("AdapterIpcSession rejects an accepted HelloAck before a transport "
+          "has connected") {
+  SessionFixture fixture;
+  auto proof = ComputeIpcHmacSha256(
+      fixture.peerProofProvider.Token(),
+      BuildHostProofMessage({}, 0, SampleInstanceId().value,
+                            SampleOwnerLifetimeId()));
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+            .correlationId = 0,
+            .accepted = true,
+            .rejectReason = IpcHelloRejectReason::kNone,
+            .hostProof = proof}}) == AdapterIpcMessageDisposition::kClose);
+  CHECK_FALSE(fixture.session.IsHostAvailable());
+}
+
+TEST_CASE("AdapterIpcSession closes every subsequent message after the "
+          "transport disconnects") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  fixture.session.HandleDisconnected();
+
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcHelloAckMessage{.correlationId = 2,
+                               .accepted = true,
+                               .rejectReason = IpcHelloRejectReason::kNone}}) ==
+        AdapterIpcMessageDisposition::kClose);
+  CHECK(fixture.marshaller.PendingCount() == 0);
 }
 
 TEST_CASE("AdapterIpcSession::HandleDecodeFailure sends a best-effort Close "

@@ -52,7 +52,8 @@ public:
 
   ///  Handles one successfully decoded inbound message.
   ///  @return The disposition for the current transport generation. A valid
-  ///  HelloAck returns `kAuthenticated`; a rejected or invalid HelloAck,
+  ///  HelloAck returns `kAuthenticated`; every non-HelloAck received before
+  ///  authentication, a rejected or invalid HelloAck, a duplicate HelloAck,
   ///  received close, or unexpected message kind returns `kClose`.
   virtual AdapterIpcMessageDisposition
   HandleMessage(const IpcMessage &message) = 0;
@@ -119,6 +120,17 @@ public:
   [[nodiscard]] bool IsHostAvailable() const override;
 
 private:
+  ///  The lifecycle phase that controls which inbound messages are legal.
+  enum class AuthenticationState {
+    ///  A transport is waiting for its matching HelloAck.
+    kAwaitingHelloAck,
+    ///  The transport completed mutual authentication and may serve requests.
+    kAuthenticated,
+    ///  No transport is active, or the current transport must close and cannot
+    ///  accept further messages.
+    kClosed,
+  };
+
   ///  Marshals the resynchronization decision onto the game thread and replies
   ///  that no baseline is available until an approved domain is registered.
   void
@@ -163,7 +175,7 @@ private:
   ///  called from `HandleConnected`, and compared against in `HandleMessage`,
   ///  both reached only through that thread in production), so it needs no
   ///  additional synchronization beyond `availableMutex_`'s existing coverage
-  ///  of `available_` itself.
+  ///  of the authentication state.
   std::uint64_t pendingHelloCorrelationId_ = 0;
   ///  The fresh random challenge sent with the most recently prepared Hello,
   ///  bound into the expected `hostProof` recomputation. Same single-thread
@@ -174,10 +186,10 @@ private:
   ///  Lets deferred tasks reject themselves after session destruction begins.
   std::shared_ptr<std::atomic_bool> lifetimeToken_ =
       std::make_shared<std::atomic_bool>(true);
-  ///  Guards `available_`.
+  ///  Guards `authenticationState_`.
   mutable std::mutex availableMutex_;
-  ///  Whether the host is currently available.
-  bool available_ = false;
+  ///  The current transport's authentication lifecycle phase.
+  AuthenticationState authenticationState_ = AuthenticationState::kClosed;
 };
 
 } //  namespace dovahlink::adapter::ipc
