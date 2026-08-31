@@ -1,5 +1,6 @@
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
+using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Tests.Adapter;
@@ -34,7 +35,7 @@ public class AdapterAvailabilityTrackerTests
     /// <summary>
     /// Verifies that the tracker commits exactly the generation it is given rather than deriving one
     /// of its own -- connection-generation numbering belongs solely to
-    /// <see cref="Ipc.IAdapterConnectionLifecycle"/>, the tracker's sole intended caller.
+    /// <see cref="IAdapterConnectionLifecycle"/>, the tracker's sole intended caller.
     /// </summary>
     [Fact]
     public void PublishConnected_CommitsSuppliedGeneration()

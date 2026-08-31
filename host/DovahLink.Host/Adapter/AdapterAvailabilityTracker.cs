@@ -1,3 +1,4 @@
+using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Adapter;
