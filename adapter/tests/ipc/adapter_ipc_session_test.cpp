@@ -472,6 +472,21 @@ TEST_CASE("AdapterIpcSession closes for a pre-authentication resynchronize "
   CHECK(fixture.marshaller.PendingCount() == 0);
 }
 
+TEST_CASE("AdapterIpcSession::HandleClosing is a harmless no-op on a session "
+          "that never connected") {
+  SessionFixture fixture;
+
+  REQUIRE_NOTHROW(fixture.session.HandleClosing());
+
+  CHECK_FALSE(fixture.session.IsHostAvailable());
+  //  A subsequent, legitimate connection must still authenticate normally:
+  //  the no-op call must not have left the session in some closed-forever
+  //  state.
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+}
+
 TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
           "destruction") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
@@ -548,6 +563,94 @@ TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
 
   CHECK(fixture.dispatcher.DispatchedKeys().empty());
   CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending resynchronization result after "
+          "logical closing, even before the physical disconnect notifies "
+          "the session") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
+  //  HandleClosing alone, deliberately never followed by HandleDisconnected
+  //  in this test: the transport's physical teardown (drain/socket close)
+  //  can take a while after serving has already irreversibly ended, and a
+  //  task marshaled before that point must not wait for the later physical
+  //  disconnect to be rejected.
+  fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(connection.Sent().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
+          "logical closing, even before the physical disconnect notifies "
+          "the session") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
+          "logical closing, even before the physical disconnect notifies "
+          "the session") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 8}});
+  fixture.session.HandleClosing();
+  fixture.marshaller.RunAllPending();
+
+  CHECK(fixture.dispatcher.DispatchedKeys().empty());
+  CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
+          "cooperate safely regardless of order, leaving reconnection "
+          "unaffected") {
+  SessionFixture fixture;
+  FakeAdapterIpcConnection connection;
+  fixture.session.AttachConnection(connection);
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  fixture.dispatcher.SetResult(7, {std::byte{1}});
+
+  fixture.session.HandleMessage(
+      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
+  //  Both fire for the same generation, as production does: onClosing then
+  //  onDisconnected. Neither may re-open eligibility for the other, and the
+  //  pair together must still leave the session able to authenticate a
+  //  fresh generation afterward.
+  fixture.session.HandleClosing();
+  fixture.session.HandleDisconnected();
+  REQUIRE_FALSE(fixture.session.IsHostAvailable());
+
+  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  fixture.dispatcher.SetResult(8, {std::byte{2}});
+  fixture.session.HandleMessage(
+      IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
+  fixture.marshaller.RunAllPending();
+
+  //  The listen-event queued against the closed generation stayed dropped;
+  //  only the read-sample queued against the new generation dispatched.
+  CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{8});
+  CHECK(fixture.captureQueue.Enqueued().size() == 1);
 }
 
 TEST_CASE("AdapterIpcSession drops pending intent requests from an older "

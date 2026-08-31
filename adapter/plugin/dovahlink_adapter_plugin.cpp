@@ -215,6 +215,7 @@ SKSEPluginInfo(
                  dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
                 supervisor->NotifyConnectionLost(targetGeneration, outcome);
               },
+          .onClosing = [] { session->HandleClosing(); },
       });
   if (supervisor == nullptr) {
     supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(

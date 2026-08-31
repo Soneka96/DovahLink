@@ -270,6 +270,12 @@ void AdapterIpcConnection::RunAttempt() {
   }
 
   if (connected) {
+    //  Fired before the drain/close below, and reached for both a normal
+    //  ServeConnection return and the exception-caught path above: serving
+    //  has irreversibly ended for this generation the moment either happens,
+    //  regardless of which one it was, so deferred game-thread work must be
+    //  invalidated here rather than waiting for onDisconnected further down.
+    InvokeContained(callbacks_.onClosing);
     try {
       //  A handler invoked from ServeConnection may have queued one last
       //  response that no later read poll will drain.

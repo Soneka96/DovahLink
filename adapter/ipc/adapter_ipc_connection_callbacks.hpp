@@ -62,6 +62,13 @@ struct AdapterIpcConnectionCallbacks {
   ///  The generation is zero when the attempt had no configured target.
   std::function<void(std::uint64_t, AdapterIpcAttemptOutcome)>
       onAttemptFinished;
+  ///  Invoked once serving has irreversibly ended for a connected session --
+  ///  before the outbound queue's final drain and the transport's physical
+  ///  close, and therefore strictly before `onDisconnected`. Lets the owner
+  ///  invalidate deferred work for this generation at the moment serving
+  ///  actually stops, rather than only once the socket later finishes
+  ///  closing.
+  std::function<void()> onClosing;
 };
 
 } //  namespace dovahlink::adapter::ipc

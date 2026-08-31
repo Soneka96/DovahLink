@@ -159,14 +159,17 @@ void AdapterIpcSession::HandleDecodeFailure() {
 
 void AdapterIpcSession::HandleDisconnected() {
   std::lock_guard<std::mutex> lock(availableMutex_);
-  authenticationState_ = AuthenticationState::kClosed;
-  activeTarget_.reset();
-  ++connectionGeneration_;
+  CloseCurrentGenerationLocked();
 }
 
 bool AdapterIpcSession::IsHostAvailable() const {
   std::lock_guard<std::mutex> lock(availableMutex_);
   return authenticationState_ == AuthenticationState::kAuthenticated;
+}
+
+void AdapterIpcSession::HandleClosing() {
+  std::lock_guard<std::mutex> lock(availableMutex_);
+  CloseCurrentGenerationLocked();
 }
 
 void AdapterIpcSession::HandleResynchronizeRequest(
@@ -190,7 +193,14 @@ void AdapterIpcSession::HandleResynchronizeRequest(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: logical
+        //  closing (AdapterIpcConnectionCallbacks::onClosing) invalidates
+        //  authentication for this generation immediately, before the
+        //  physical disconnect that would otherwise be the only thing
+        //  bumping connectionGeneration_ -- so the generation guard alone is
+        //  not enough to reject a task queued just before that happened.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated) {
           return;
         }
       }
@@ -312,6 +322,15 @@ void AdapterIpcSession::HandleReadSample(
 
 std::uint64_t AdapterIpcSession::NextCorrelationId() {
   return nextCorrelationId_.fetch_add(1) + 1;
+}
+
+void AdapterIpcSession::CloseCurrentGenerationLocked() {
+  if (authenticationState_ == AuthenticationState::kClosed) {
+    return;
+  }
+  authenticationState_ = AuthenticationState::kClosed;
+  activeTarget_.reset();
+  ++connectionGeneration_;
 }
 
 } //  namespace dovahlink::adapter::ipc

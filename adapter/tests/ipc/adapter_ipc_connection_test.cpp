@@ -107,7 +107,10 @@ BuildRawFrameOfDeclaredLength(std::uint32_t declaredLength) {
 ///  out-of-memory path without any production-code seam. Every allocation of
 ///  any other size, on any thread, is unaffected; only one
 ///  `ScopedAllocationFailure` instance is armed at a time in this test
-///  binary.
+///  binary. Keep the chosen size below MSVC's STL "big allocation" threshold
+///  (a few KB): above it, `std::vector`'s allocator requests a rounded-up
+///  size distinct from the exact byte count constructed, so a large target
+///  size silently never matches and the trap never fires.
 class ScopedAllocationFailure {
 public:
   ///  Arms the trap for the next allocation of exactly `failingSize` bytes.
@@ -1556,6 +1559,80 @@ TEST_CASE("AdapterIpcConnection ends serving without an autonomous retry when "
   connection.Stop();
 }
 
+TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected on "
+          "a normal protocol close") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::vector<std::string> callOrder;
+  std::promise<void> disconnectedPromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kClose;
+          },
+      .onDisconnected =
+          [&] {
+            callOrder.push_back("onDisconnected");
+            disconnectedPromise.set_value();
+          },
+      .onClosing = [&] { callOrder.push_back("onClosing"); },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+  socket.PushReadableBytes(codec.Encode(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}}));
+
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  REQUIRE(WaitReady(disconnectedFuture));
+  REQUIRE(callOrder.size() == 2);
+  CHECK(callOrder[0] == "onClosing");
+  CHECK(callOrder[1] == "onDisconnected");
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected "
+          "even when ServeConnection ends via an exception") {
+  //  Proves onClosing is reached from the shared cleanup path even on the
+  //  exception-caught branch of RunAttempt, not only a normal
+  //  ServeConnection return -- a decode/allocation/transport exception must
+  //  invalidate deferred session work exactly as promptly as a clean close.
+  constexpr std::uint32_t kFailingFrameLength = 1234;
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::vector<std::string> callOrder;
+  bool decodeFailureInvoked = false;
+  std::promise<void> disconnectedPromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onDecodeFailure = [&] { decodeFailureInvoked = true; },
+      .onDisconnected =
+          [&] {
+            callOrder.push_back("onDisconnected");
+            disconnectedPromise.set_value();
+          },
+      .onClosing = [&] { callOrder.push_back("onClosing"); },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  socket.PushReadableBytes(BuildRawFrameOfDeclaredLength(kFailingFrameLength));
+
+  ScopedAllocationFailure failFirstFrameAllocation(kFailingFrameLength);
+  connection.Start();
+
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  REQUIRE(WaitReady(disconnectedFuture));
+  REQUIRE(callOrder.size() == 2);
+  CHECK(callOrder[0] == "onClosing");
+  CHECK(callOrder[1] == "onDisconnected");
+  //  Confirms the allocation actually threw rather than the frame merely
+  //  failing to decode normally (a different, non-exception path this
+  //  connection already handles via onDecodeFailure and a plain `return;`):
+  //  only the exception path never reaches decoding at all.
+  CHECK_FALSE(decodeFailureInvoked);
+
+  connection.Stop();
+}
+
 TEST_CASE("AdapterIpcConnection reports the configured target generation "
           "when acquiring the target snapshot throws") {
   //  A distinctive, unlikely-to-collide allocation size: the proof token
@@ -1619,17 +1696,20 @@ TEST_CASE("AdapterIpcConnection classifies a post-authentication allocation "
   //  fresh one, per AdapterHostSupervisor::RunLoop's `preferFreshLaunch`.
   //  A distinctive size for the second frame's payload buffer, well clear
   //  of the small HelloAck frame's own size so only the post-auth read is
-  //  affected.
-  constexpr std::uint32_t kPostAuthFrameLength = 54321;
+  //  affected, and comfortably below ScopedAllocationFailure's documented
+  //  big-allocation ceiling so the exact byte count actually matches.
+  constexpr std::uint32_t kPostAuthFrameLength = 3210;
 
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
+  bool decodeFailureInvoked = false;
   std::promise<AdapterIpcAttemptOutcome> outcomePromise;
   AdapterIpcConnectionCallbacks callbacks{
       .onMessageReceived =
           [](const IpcMessage &) {
             return AdapterIpcMessageDisposition::kAuthenticated;
           },
+      .onDecodeFailure = [&] { decodeFailureInvoked = true; },
       .onAttemptFinished =
           [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
             outcomePromise.set_value(outcome);
@@ -1648,6 +1728,10 @@ TEST_CASE("AdapterIpcConnection classifies a post-authentication allocation "
   auto outcomeFuture = outcomePromise.get_future();
   REQUIRE(WaitReady(outcomeFuture));
   CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+  //  Confirms the allocation actually threw rather than the frame merely
+  //  failing to decode normally, which would reach the same kDisconnected
+  //  outcome for an unrelated reason and not exercise this fix at all.
+  CHECK_FALSE(decodeFailureInvoked);
 
   connection.Stop();
 }
@@ -1660,16 +1744,20 @@ TEST_CASE("AdapterIpcConnection still classifies a pre-authentication "
   //  proves ServeConnection's authenticated reference is written exactly
   //  when disposition == kAuthenticated -- not, for example, defaulted to
   //  true by some unrelated effect of the fix above.
-  constexpr std::uint32_t kPreAuthFrameLength = 44444;
+  //  Comfortably below ScopedAllocationFailure's documented big-allocation
+  //  ceiling so the exact byte count actually matches.
+  constexpr std::uint32_t kPreAuthFrameLength = 2109;
 
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
+  bool decodeFailureInvoked = false;
   std::promise<AdapterIpcAttemptOutcome> outcomePromise;
   AdapterIpcConnectionCallbacks callbacks{
       .onMessageReceived =
           [](const IpcMessage &) {
             return AdapterIpcMessageDisposition::kAuthenticated;
           },
+      .onDecodeFailure = [&] { decodeFailureInvoked = true; },
       .onAttemptFinished =
           [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
             outcomePromise.set_value(outcome);
@@ -1684,6 +1772,7 @@ TEST_CASE("AdapterIpcConnection still classifies a pre-authentication "
   auto outcomeFuture = outcomePromise.get_future();
   REQUIRE(WaitReady(outcomeFuture));
   CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kAuthenticationFailed);
+  CHECK_FALSE(decodeFailureInvoked);
 
   connection.Stop();
 }

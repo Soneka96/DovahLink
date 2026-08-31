@@ -71,6 +71,18 @@ public:
   ///  Whether the host is currently available: the handshake has been
   ///  accepted and the connection has not since ended.
   [[nodiscard]] virtual bool IsHostAvailable() const = 0;
+
+  ///  Handles serving having irreversibly ended for the current generation,
+  ///  reached strictly before `HandleDisconnected` (see
+  ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
+  ///  generation's authentication and eligibility for deferred game-thread
+  ///  work immediately, rather than waiting for the later physical
+  ///  disconnect: a `ListenEvent`, `ReadSample`, or `ResynchronizeRequest`
+  ///  already marshaled onto the game thread before this call must reject
+  ///  itself once it runs. Idempotent with `HandleDisconnected` for the same
+  ///  generation; whichever of the two is called first performs the
+  ///  invalidation, and the other is then a no-op.
+  virtual void HandleClosing() = 0;
 };
 
 ///  @copydoc IAdapterIpcSession
@@ -120,6 +132,9 @@ public:
   ///  @copydoc IAdapterIpcSession::IsHostAvailable
   [[nodiscard]] bool IsHostAvailable() const override;
 
+  ///  @copydoc IAdapterIpcSession::HandleClosing
+  void HandleClosing() override;
+
 private:
   ///  The lifecycle phase that controls which inbound messages are legal.
   enum class AuthenticationState {
@@ -148,6 +163,13 @@ private:
 
   ///  Issues the next monotonic outbound correlation id, starting at 1.
   std::uint64_t NextCorrelationId();
+
+  ///  Invalidates the current generation for deferred work exactly once: a
+  ///  no-op if `authenticationState_` is already `kClosed`. Called by both
+  ///  `HandleClosing` and `HandleDisconnected` so the generation counter
+  ///  advances only once per logical close, regardless of which one runs
+  ///  first. Must be called while holding `availableMutex_`.
+  void CloseCurrentGenerationLocked();
 
   ///  This adapter process's own instance identity.
   identity::AdapterInstanceId instanceId_;
