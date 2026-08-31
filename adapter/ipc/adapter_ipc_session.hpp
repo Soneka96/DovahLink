@@ -3,6 +3,7 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "dispatch/adapter_native_dispatcher.hpp"
 #include "identity/adapter_instance_id.hpp"
+#include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
@@ -50,9 +51,11 @@ public:
   virtual void HandleConnected() = 0;
 
   ///  Handles one successfully decoded inbound message.
-  ///  @return `true` to keep serving the connection; `false` to end it (a
-  ///  received `IpcCloseMessage`, or an unexpected message kind).
-  virtual bool HandleMessage(const IpcMessage &message) = 0;
+  ///  @return The disposition for the current transport generation. A valid
+  ///  HelloAck returns `kAuthenticated`; a rejected or invalid HelloAck,
+  ///  received close, or unexpected message kind returns `kClose`.
+  virtual AdapterIpcMessageDisposition
+  HandleMessage(const IpcMessage &message) = 0;
 
   ///  Handles an inbound frame that could not be decoded: sends a
   ///  best-effort `IpcCloseMessage` (reason `kError`) through the attached
@@ -103,7 +106,8 @@ public:
   void HandleConnected() override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
-  bool HandleMessage(const IpcMessage &message) override;
+  AdapterIpcMessageDisposition
+  HandleMessage(const IpcMessage &message) override;
 
   ///  @copydoc IAdapterIpcSession::HandleDecodeFailure
   void HandleDecodeFailure() override;

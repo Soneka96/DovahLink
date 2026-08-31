@@ -18,11 +18,14 @@
 
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks;
+using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::IAdapterIpcSocket;
 using dovahlink::adapter::ipc::IpcCancelMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
 using dovahlink::adapter::ipc::IpcFrameCodec;
+using dovahlink::adapter::ipc::IpcHelloAckMessage;
+using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::kMaxIpcQueuedMessages;
@@ -51,7 +54,7 @@ TEST_CASE("AdapterIpcConnection connects, reports onConnected, and delivers "
       .onMessageReceived =
           [&](const IpcMessage &message) {
             receivedPromise.set_value(message);
-            return true;
+            return AdapterIpcMessageDisposition::kAuthenticated;
           },
       .onDecodeFailure = [] {},
       .onDisconnected = [&] { disconnectedPromise.set_value(); },
@@ -76,6 +79,221 @@ TEST_CASE("AdapterIpcConnection connects, reports onConnected, and delivers "
   connection.Stop();
 }
 
+TEST_CASE("AdapterIpcConnection disconnects when HelloAck establishment times "
+          "out") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true, false});
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::promise<void> disconnectedPromise;
+  std::atomic<int> disconnectedCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected =
+          [&] {
+            ++disconnectedCount;
+            disconnectedPromise.set_value();
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::milliseconds(40));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  auto timeoutStarted = std::chrono::steady_clock::now();
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  REQUIRE(WaitReady(disconnectedFuture));
+  CHECK(std::chrono::steady_clock::now() - timeoutStarted <
+        std::chrono::seconds(1));
+  CHECK(disconnectedCount.load() == 1);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection remains established after an authenticated "
+          "HelloAck") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::promise<void> authenticatedPromise;
+  std::atomic<int> disconnectedCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [&](const IpcMessage &message) {
+            if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+              authenticatedPromise.set_value();
+              return AdapterIpcMessageDisposition::kAuthenticated;
+            }
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [&] { ++disconnectedCount; },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::milliseconds(100));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  socket.PushReadableBytes(codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}}));
+
+  auto authenticatedFuture = authenticatedPromise.get_future();
+  REQUIRE(WaitReady(authenticatedFuture));
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  CHECK(disconnectedCount.load() == 0);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection closes after a rejected HelloAck") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true, false});
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::promise<void> disconnectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &message) {
+            if (std::holds_alternative<IpcHelloAckMessage>(message)) {
+              return AdapterIpcMessageDisposition::kClose;
+            }
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [&] { disconnectedPromise.set_value(); },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::milliseconds(100));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  socket.PushReadableBytes(codec.Encode(IpcMessage{IpcHelloAckMessage{
+      .correlationId = 1,
+      .accepted = false,
+      .rejectReason = IpcHelloRejectReason::kInvalidProof}}));
+
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  REQUIRE(WaitReady(disconnectedFuture));
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection does not extend establishment deadline for "
+          "partial inbound reads") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true, false});
+  socket.SetMaxReadBytes(1);
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::promise<void> disconnectedPromise;
+  std::atomic<int> receivedCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            ++receivedCount;
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [&] { disconnectedPromise.set_value(); },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::milliseconds(75));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  std::vector<std::byte> frame =
+      codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
+  std::thread partialWriter([&socket, frame = std::move(frame)] {
+    for (std::byte byte : frame) {
+      socket.PushReadableBytes({byte});
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+  });
+
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  auto timeoutStarted = std::chrono::steady_clock::now();
+  REQUIRE(WaitReady(disconnectedFuture));
+  partialWriter.join();
+  CHECK(std::chrono::steady_clock::now() - timeoutStarted <
+        std::chrono::seconds(1));
+  CHECK(receivedCount.load() == 0);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection Stop exits promptly during establishment") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::seconds(10));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  auto started = std::chrono::steady_clock::now();
+  connection.Stop();
+  CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(1));
+}
+
+TEST_CASE("AdapterIpcConnection starts establishment deadline at connect") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true, false});
+  IpcFrameCodec codec;
+  std::promise<void> connectedEnteredPromise;
+  std::promise<void> releaseConnectedPromise;
+  std::shared_future<void> releaseConnectedFuture =
+      releaseConnectedPromise.get_future().share();
+  std::promise<void> disconnectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected =
+          [&] {
+            connectedEnteredPromise.set_value();
+            releaseConnectedFuture.wait();
+          },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [&] { disconnectedPromise.set_value(); },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks),
+                                  std::chrono::milliseconds(50));
+  connection.Start();
+
+  auto connectedEnteredFuture = connectedEnteredPromise.get_future();
+  REQUIRE(WaitReady(connectedEnteredFuture));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  releaseConnectedPromise.set_value();
+
+  auto disconnectedFuture = disconnectedPromise.get_future();
+  REQUIRE(WaitReady(disconnectedFuture));
+  connection.Stop();
+}
+
 TEST_CASE("AdapterIpcConnection::TrySend is written even while no inbound "
           "message ever arrives") {
   FakeAdapterIpcSocket socket;
@@ -84,7 +302,10 @@ TEST_CASE("AdapterIpcConnection::TrySend is written even while no inbound "
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [&] { connectedPromise.set_value(); },
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kAuthenticated;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -117,7 +338,10 @@ TEST_CASE("AdapterIpcConnection reconnects after a failed connect attempt") {
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [&] { connectedPromise.set_value(); },
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kAuthenticated;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -223,7 +447,10 @@ TEST_CASE("AdapterIpcConnection::Stop completes after a failed connect "
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kAuthenticated;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -265,7 +492,7 @@ TEST_CASE("AdapterIpcConnection::Stop can be requested from an inbound "
               stopThrew = true;
             }
             stopReturnedPromise.set_value();
-            return true;
+            return AdapterIpcMessageDisposition::kContinue;
           },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
@@ -306,7 +533,10 @@ TEST_CASE("AdapterIpcConnection coordinates concurrent external Stop calls") {
   IpcFrameCodec codec;
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -350,7 +580,7 @@ TEST_CASE("AdapterIpcConnection Stop waits for an in-flight message callback") {
           [&](const IpcMessage &) {
             callbackEnteredPromise.set_value();
             releaseFuture.wait();
-            return true;
+            return AdapterIpcMessageDisposition::kContinue;
           },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
@@ -388,7 +618,10 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once the outbound queue is "
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -418,7 +651,7 @@ TEST_CASE("AdapterIpcConnection reports a decode failure and disconnects "
       .onMessageReceived =
           [&](const IpcMessage &) {
             unexpectedMessageReceived = true;
-            return true;
+            return AdapterIpcMessageDisposition::kContinue;
           },
       .onDecodeFailure = [&] { decodeFailurePromise.set_value(); },
       .onDisconnected = [] {},
@@ -445,7 +678,10 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once Stop has been called") {
   IpcFrameCodec codec;
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -464,7 +700,10 @@ TEST_CASE("AdapterIpcConnection::Stop is idempotent") {
   IpcFrameCodec codec;
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -484,7 +723,8 @@ TEST_CASE("AdapterIpcConnection contains an exception thrown by "
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [&] { connectedPromise.set_value(); },
-      .onMessageReceived = [&](const IpcMessage &) -> bool {
+      .onMessageReceived =
+          [&](const IpcMessage &) -> AdapterIpcMessageDisposition {
         receivedPromise.set_value();
         throw std::runtime_error("onMessageReceived failed");
       },
@@ -533,7 +773,10 @@ TEST_CASE("AdapterIpcConnection drains a burst of queued messages in order") {
 
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [&] { connectedPromise.set_value(); },
-      .onMessageReceived = [](const IpcMessage &) { return true; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [] {},
   };
@@ -583,7 +826,10 @@ TEST_CASE("AdapterIpcConnection ends serving and reconnects when "
               secondConnectedPromise.set_value();
             }
           },
-      .onMessageReceived = [](const IpcMessage &) { return false; },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kClose;
+          },
       .onDecodeFailure = [] {},
       .onDisconnected = [&] { disconnectedPromise.set_value(); },
   };

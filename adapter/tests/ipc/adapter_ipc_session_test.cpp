@@ -25,6 +25,7 @@ using dovahlink::adapter::capture::AdapterCaptureWorkItem;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::dispatch::IAdapterNativeDispatcher;
 using dovahlink::adapter::identity::AdapterInstanceId;
+using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::AdapterIpcSession;
 using dovahlink::adapter::ipc::BuildHostProofMessage;
 using dovahlink::adapter::ipc::ComputeIpcHmacSha256;
@@ -225,13 +226,14 @@ void Authenticate(AdapterIpcSession &session,
       BuildHostProofMessage(hello->challenge, hello->correlationId,
                             hello->adapterInstanceId, hello->ownerLifetimeId));
 
-  bool keepServing = session.HandleMessage(IpcMessage{IpcHelloAckMessage{
-      .correlationId = hello->correlationId,
-      .accepted = true,
-      .rejectReason = IpcHelloRejectReason::kNone,
-      .hostProof = expectedProof,
-  }});
-  REQUIRE(keepServing);
+  AdapterIpcMessageDisposition disposition =
+      session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+          .correlationId = hello->correlationId,
+          .accepted = true,
+          .rejectReason = IpcHelloRejectReason::kNone,
+          .hostProof = expectedProof,
+      }});
+  REQUIRE(disposition == AdapterIpcMessageDisposition::kAuthenticated);
   REQUIRE(session.IsHostAvailable());
   connection.Clear();
 }
@@ -296,9 +298,10 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable after a rejected "
   SessionFixture fixture;
 
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
-      .correlationId = 1,
-      .accepted = false,
-      .rejectReason = IpcHelloRejectReason::kInvalidProof}}));
+            .correlationId = 1,
+            .accepted = false,
+            .rejectReason = IpcHelloRejectReason::kInvalidProof}}) ==
+        AdapterIpcMessageDisposition::kClose);
 
   CHECK_FALSE(fixture.session.IsHostAvailable());
 }
@@ -397,10 +400,11 @@ TEST_CASE("AdapterIpcSession returns to unavailable after a rejected "
   Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
   REQUIRE(fixture.session.IsHostAvailable());
 
-  fixture.session.HandleMessage(IpcMessage{
-      IpcHelloAckMessage{.correlationId = 999,
-                         .accepted = false,
-                         .rejectReason = IpcHelloRejectReason::kInvalidProof}});
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
+            .correlationId = 999,
+            .accepted = false,
+            .rejectReason = IpcHelloRejectReason::kInvalidProof}}) ==
+        AdapterIpcMessageDisposition::kClose);
 
   CHECK_FALSE(fixture.session.IsHostAvailable());
 }
@@ -424,8 +428,8 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
 
-  CHECK(fixture.session.HandleMessage(
-      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}}));
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
+            .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
 
   //  Not sent synchronously: it must go through the game-thread marshaller.
   CHECK(connection.Sent().empty());
@@ -604,10 +608,11 @@ TEST_CASE("AdapterIpcSession rejects and ends serving on a received "
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
 
-  bool keepServing = fixture.session.HandleMessage(IpcMessage{
-      IpcResynchronizeResultMessage{.correlationId = 7, .accepted = true}});
+  AdapterIpcMessageDisposition disposition =
+      fixture.session.HandleMessage(IpcMessage{
+          IpcResynchronizeResultMessage{.correlationId = 7, .accepted = true}});
 
-  CHECK_FALSE(keepServing);
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
   REQUIRE(connection.Sent().size() == 1);
   auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
   REQUIRE(reject != nullptr);
@@ -623,8 +628,9 @@ TEST_CASE("AdapterIpcSession handles a listen-event request by dispatching "
   Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
   fixture.dispatcher.SetResult(7, {std::byte{1}, std::byte{2}});
 
-  CHECK(fixture.session.HandleMessage(
-      IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}));
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcListenEventMessage{.correlationId = 1, .eventKey = 7}}) ==
+        AdapterIpcMessageDisposition::kContinue);
 
   REQUIRE(fixture.captureQueue.Enqueued().empty());
   fixture.marshaller.RunAllPending();
@@ -692,8 +698,9 @@ TEST_CASE("AdapterIpcSession handles a read-sample request the same way as "
   Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
   fixture.dispatcher.SetResult(3, {std::byte{5}});
 
-  CHECK(fixture.session.HandleMessage(
-      IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}}));
+  CHECK(fixture.session.HandleMessage(IpcMessage{
+            IpcReadSampleMessage{.correlationId = 1, .sampleToken = 3}}) ==
+        AdapterIpcMessageDisposition::kContinue);
   fixture.marshaller.RunAllPending();
 
   REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
@@ -773,20 +780,23 @@ TEST_CASE("AdapterIpcSession ends serving on a received Close, without "
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
 
-  bool keepServing = fixture.session.HandleMessage(IpcMessage{
-      IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}});
+  AdapterIpcMessageDisposition disposition =
+      fixture.session.HandleMessage(IpcMessage{IpcCloseMessage{
+          .correlationId = 0, .reason = IpcCloseReason::kNormal}});
 
-  CHECK_FALSE(keepServing);
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
   CHECK(connection.Sent().empty());
 }
 
 TEST_CASE("AdapterIpcSession keeps serving on a received Reject or Cancel") {
   SessionFixture fixture;
 
-  CHECK(fixture.session.HandleMessage(IpcMessage{IpcRejectMessage{
-      .correlationId = 1, .reason = IpcRejectReason::kMalformedPayload}}));
-  CHECK(fixture.session.HandleMessage(
-      IpcMessage{IpcCancelMessage{.correlationId = 1}}));
+  CHECK(
+      fixture.session.HandleMessage(IpcMessage{IpcRejectMessage{
+          .correlationId = 1, .reason = IpcRejectReason::kMalformedPayload}}) ==
+      AdapterIpcMessageDisposition::kContinue);
+  CHECK(fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{
+            .correlationId = 1}}) == AdapterIpcMessageDisposition::kContinue);
 }
 
 TEST_CASE("AdapterIpcSession rejects and ends serving on an unexpected "
@@ -797,12 +807,12 @@ TEST_CASE("AdapterIpcSession rejects and ends serving on an unexpected "
 
   //  IpcHelloMessage is adapter-outbound only; the adapter should never
   //  receive one.
-  bool keepServing = fixture.session.HandleMessage(
+  AdapterIpcMessageDisposition disposition = fixture.session.HandleMessage(
       IpcMessage{IpcHelloMessage{.correlationId = 5,
                                  .adapterInstanceId = SampleInstanceId().value,
                                  .peerProofToken = {}}});
 
-  CHECK_FALSE(keepServing);
+  CHECK(disposition == AdapterIpcMessageDisposition::kClose);
   REQUIRE(connection.Sent().size() == 1);
   auto *reject = std::get_if<IpcRejectMessage>(&connection.Sent().front());
   REQUIRE(reject != nullptr);

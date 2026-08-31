@@ -32,8 +32,10 @@ void InvokeContained(const Callback &callback, Args &&...args) {
 
 AdapterIpcConnection::AdapterIpcConnection(
     IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
-    AdapterIpcConnectionCallbacks callbacks)
-    : socket_(socket), codec_(codec), callbacks_(std::move(callbacks)) {}
+    AdapterIpcConnectionCallbacks callbacks,
+    std::chrono::milliseconds establishmentTimeout)
+    : socket_(socket), codec_(codec), callbacks_(std::move(callbacks)),
+      establishmentTimeout_(establishmentTimeout) {}
 
 AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
 
@@ -131,10 +133,12 @@ void AdapterIpcConnection::RunLoop() {
         continue;
       }
       connected = true;
+      const auto establishmentDeadline =
+          std::chrono::steady_clock::now() + establishmentTimeout_;
 
       InvokeContained(callbacks_.onConnected);
 
-      ServeConnection();
+      ServeConnection(establishmentDeadline);
 
       //  Best-effort final flush: a handler invoked from ServeConnection (for
       //  example a decode-failure response) may have queued one last message
@@ -159,7 +163,10 @@ void AdapterIpcConnection::RunLoop() {
   }
 }
 
-void AdapterIpcConnection::ServeConnection() {
+void AdapterIpcConnection::ServeConnection(
+    std::chrono::steady_clock::time_point establishmentDeadline) {
+  bool authenticated = false;
+
   while (true) {
     {
       std::lock_guard<std::mutex> lock(stopMutex_);
@@ -168,8 +175,17 @@ void AdapterIpcConnection::ServeConnection() {
       }
     }
 
+    if (!authenticated &&
+        std::chrono::steady_clock::now() >= establishmentDeadline) {
+      return;
+    }
+
     bool decodeFailed = false;
-    std::optional<IpcMessage> message = ReadOneMessage(decodeFailed);
+    std::optional<IpcMessage> message = ReadOneMessage(
+        decodeFailed,
+        authenticated ? std::nullopt
+                      : std::optional<std::chrono::steady_clock::time_point>{
+                            establishmentDeadline});
     if (decodeFailed) {
       InvokeContained(callbacks_.onDecodeFailure);
       return;
@@ -179,29 +195,38 @@ void AdapterIpcConnection::ServeConnection() {
       return;
     }
 
-    bool keepServing = true;
-    if (callbacks_.onMessageReceived) {
-      try {
-        keepServing = callbacks_.onMessageReceived(*message);
-      } catch (...) {
-        //  Contained, per ai/context/skse/cpp-style.md's worker-thread
-        //  boundary rule; an unexpected handler failure is not itself a
-        //  reason to end an otherwise healthy connection.
-        keepServing = true;
-      }
-    }
-    if (!keepServing) {
+    AdapterIpcMessageDisposition disposition = DispatchInboundMessage(*message);
+    if (disposition == AdapterIpcMessageDisposition::kClose) {
       return;
+    }
+    if (disposition == AdapterIpcMessageDisposition::kAuthenticated) {
+      authenticated = true;
     }
   }
 }
 
-std::optional<IpcMessage>
-AdapterIpcConnection::ReadOneMessage(bool &decodeFailed) {
+AdapterIpcMessageDisposition
+AdapterIpcConnection::DispatchInboundMessage(const IpcMessage &message) {
+  if (!callbacks_.onMessageReceived) {
+    return AdapterIpcMessageDisposition::kContinue;
+  }
+  try {
+    return callbacks_.onMessageReceived(message);
+  } catch (...) {
+    //  Contained, per ai/context/skse/cpp-style.md's worker-thread boundary
+    //  rule; an unexpected handler failure is not itself a reason to end an
+    //  otherwise healthy connection.
+    return AdapterIpcMessageDisposition::kContinue;
+  }
+}
+
+std::optional<IpcMessage> AdapterIpcConnection::ReadOneMessage(
+    bool &decodeFailed,
+    std::optional<std::chrono::steady_clock::time_point> deadline) {
   decodeFailed = false;
 
   std::array<std::byte, sizeof(std::uint32_t)> lengthPrefix{};
-  if (!ReadFully(lengthPrefix)) {
+  if (!ReadFully(lengthPrefix, deadline)) {
     return std::nullopt;
   }
 
@@ -213,7 +238,7 @@ AdapterIpcConnection::ReadOneMessage(bool &decodeFailed) {
   }
 
   std::vector<std::byte> frame(*frameLength);
-  if (!ReadFully(frame)) {
+  if (!ReadFully(frame, deadline)) {
     return std::nullopt;
   }
 
@@ -226,7 +251,9 @@ AdapterIpcConnection::ReadOneMessage(bool &decodeFailed) {
   return *decoded;
 }
 
-bool AdapterIpcConnection::ReadFully(std::span<std::byte> buffer) {
+bool AdapterIpcConnection::ReadFully(
+    std::span<std::byte> buffer,
+    std::optional<std::chrono::steady_clock::time_point> deadline) {
   std::size_t totalRead = 0;
   while (totalRead < buffer.size()) {
     {
@@ -234,6 +261,10 @@ bool AdapterIpcConnection::ReadFully(std::span<std::byte> buffer) {
       if (stopping_) {
         return false;
       }
+    }
+
+    if (deadline.has_value() && std::chrono::steady_clock::now() >= *deadline) {
+      return false;
     }
 
     if (!DrainOutbound()) {
@@ -246,6 +277,10 @@ bool AdapterIpcConnection::ReadFully(std::span<std::byte> buffer) {
       return false;
     }
     totalRead += *bytesRead;
+
+    if (deadline.has_value() && std::chrono::steady_clock::now() >= *deadline) {
+      return false;
+    }
   }
   return true;
 }

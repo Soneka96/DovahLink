@@ -42,6 +42,13 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 ///  with the same documented approval this file's other limits require.
 inline constexpr std::chrono::milliseconds kAdapterIpcReconnectDelay{200};
 
+///  The absolute bound on one long-lived connection's pre-authentication
+///  Hello/HelloAck establishment phase. This is intentionally separate from
+///  post-authentication liveness and matches the candidate verifier's
+///  provisional two-second handshake policy.
+inline constexpr std::chrono::milliseconds kAdapterIpcEstablishmentTimeout{
+    2000};
+
 //  ---- Authentication ----
 
 ///  The byte length of the adapter-generated random challenge carried in

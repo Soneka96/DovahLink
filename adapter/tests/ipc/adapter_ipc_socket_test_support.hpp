@@ -52,6 +52,13 @@ public:
     writeCompletedPromise_ = &completed;
   }
 
+  ///  Limits each `TryReadSome` call to at most `bytes`, so tests can drive
+  ///  one frame through repeated partial reads.
+  void SetMaxReadBytes(std::size_t bytes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    maxReadBytes_ = bytes;
+  }
+
   ///  The number of times `Connect` has been called so far.
   int ConnectCallCount() const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -136,7 +143,8 @@ public:
       return std::nullopt;
     }
 
-    std::size_t count = std::min(buffer.size(), readableBytes_.size());
+    std::size_t count =
+        std::min({buffer.size(), readableBytes_.size(), maxReadBytes_});
     for (std::size_t i = 0; i < count; ++i) {
       buffer[i] = readableBytes_.front();
       readableBytes_.pop_front();
@@ -210,6 +218,8 @@ private:
   int closeCallCount_ = 0;
   ///  Every byte handed to `WriteAll` so far, in order.
   std::vector<std::byte> writtenBytes_;
+  ///  Maximum bytes returned by one `TryReadSome` call.
+  std::size_t maxReadBytes_ = static_cast<std::size_t>(-1);
 };
 
 } //  namespace dovahlink::adapter::ipc::test_support

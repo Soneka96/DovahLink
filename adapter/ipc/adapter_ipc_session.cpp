@@ -50,9 +50,10 @@ void AdapterIpcSession::HandleConnected() {
   }
 }
 
-bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
+AdapterIpcMessageDisposition
+AdapterIpcSession::HandleMessage(const IpcMessage &message) {
   return std::visit(
-      [this](const auto &value) -> bool {
+      [this](const auto &value) -> AdapterIpcMessageDisposition {
         using T = std::decay_t<decltype(value)>;
         if constexpr (std::is_same_v<T, IpcHelloAckMessage>) {
           //  accepted = true alone never proves the responder is the
@@ -70,25 +71,28 @@ bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
               value.accepted &&
               value.correlationId == pendingHelloCorrelationId_ &&
               ConstantTimeEqual(value.hostProof, expectedProof);
-          std::lock_guard<std::mutex> lock(availableMutex_);
-          available_ = authenticated;
-          return true;
+          {
+            std::lock_guard<std::mutex> lock(availableMutex_);
+            available_ = authenticated;
+          }
+          return authenticated ? AdapterIpcMessageDisposition::kAuthenticated
+                               : AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T,
                                             IpcResynchronizeRequestMessage>) {
           HandleResynchronizeRequest(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcListenEventMessage>) {
           HandleListenEvent(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
           HandleReadSample(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcCloseMessage>) {
-          return false;
+          return AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcCancelMessage>) {
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else {
           //  IpcHelloMessage and IpcResynchronizeResultMessage are
           //  adapter-outbound only; receiving either is a protocol
@@ -98,7 +102,7 @@ bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
                 .correlationId = value.correlationId,
                 .reason = IpcRejectReason::kUnknownMessageKind}});
           }
-          return false;
+          return AdapterIpcMessageDisposition::kClose;
         }
       },
       message);

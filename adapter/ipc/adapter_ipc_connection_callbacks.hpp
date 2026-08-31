@@ -6,6 +6,19 @@
 
 namespace dovahlink::adapter::ipc {
 
+///  The result of handing one decoded inbound message to the protocol/session
+///  owner. The connection uses this only to control its serving lifecycle;
+///  the owner remains responsible for deciding whether a message authenticates
+///  the peer.
+enum class AdapterIpcMessageDisposition {
+  ///  Keep serving, with authentication still pending when applicable.
+  kContinue,
+  ///  The current transport has completed the required authentication.
+  kAuthenticated,
+  ///  End the current transport generation.
+  kClose,
+};
+
 ///  The connection lifecycle event hooks `AdapterIpcConnection` invokes on
 ///  its owner. Every field belongs to the same contract: how the transport
 ///  reports what is happening on the channel, since it makes no protocol
@@ -15,10 +28,10 @@ struct AdapterIpcConnectionCallbacks {
   ///  Invoked once per successful connect, before frames are served.
   std::function<void()> onConnected;
   ///  Invoked for each successfully decoded inbound message.
-  ///  @return `true` to keep serving the connection; `false` to end it (for
-  ///  example after a received `IpcCloseMessage` or an unexpected message
-  ///  kind). An unset callback defaults to `true`.
-  std::function<bool(const IpcMessage &)> onMessageReceived;
+  ///  @return The owner's disposition for the current transport generation.
+  ///  An unset callback defaults to `kContinue`.
+  std::function<AdapterIpcMessageDisposition(const IpcMessage &)>
+      onMessageReceived;
   ///  Invoked when an inbound frame could not be decoded.
   std::function<void()> onDecodeFailure;
   ///  Invoked once a connected session ends, before a reconnect attempt or

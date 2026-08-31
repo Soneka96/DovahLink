@@ -1,8 +1,10 @@
 #pragma once
 
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
+#include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -53,8 +55,12 @@ public:
   ///  through, for its own lifetime.
   ///  @param codec Encodes outbound messages and decodes inbound frames.
   ///  @param callbacks The lifecycle event hooks this connection invokes.
+  ///  @param establishmentTimeout The absolute bound on waiting for the
+  ///  connection owner to report authenticated HelloAck completion.
   AdapterIpcConnection(IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
-                       AdapterIpcConnectionCallbacks callbacks);
+                       AdapterIpcConnectionCallbacks callbacks,
+                       std::chrono::milliseconds establishmentTimeout =
+                           kAdapterIpcEstablishmentTimeout);
 
   ///  Calls `Stop()` as a fallback so the background thread is never leaked.
   ~AdapterIpcConnection() override;
@@ -77,22 +83,38 @@ private:
   void RunLoop();
 
   ///  Serves one connected session until it ends: reads and dispatches
-  ///  inbound frames, and drains queued outbound messages between reads.
-  void ServeConnection();
+  ///  inbound frames, requires authentication within the absolute
+  ///  establishment deadline, and drains queued outbound messages between
+  ///  reads.
+  void
+  ServeConnection(std::chrono::steady_clock::time_point establishmentDeadline);
+
+  ///  Dispatches one decoded message to the owner while containing callback
+  ///  exceptions at the worker boundary.
+  AdapterIpcMessageDisposition
+  DispatchInboundMessage(const IpcMessage &message);
 
   ///  Reads and decodes exactly one frame.
   ///  @param decodeFailed Set to `true` if a frame was read but could not be
   ///  decoded; otherwise left `false`.
+  ///  @param deadline The optional absolute deadline for completing the whole
+  ///  frame, including its prefix and payload.
   ///  @return The decoded message, or `std::nullopt` if the connection ended,
-  ///  a stop was requested while waiting, or the frame failed to decode.
-  std::optional<IpcMessage> ReadOneMessage(bool &decodeFailed);
+  ///  a stop was requested, the deadline elapsed, or the frame failed to
+  ///  decode.
+  std::optional<IpcMessage>
+  ReadOneMessage(bool &decodeFailed,
+                 std::optional<std::chrono::steady_clock::time_point> deadline);
 
   ///  Fills `buffer` completely, polling `socket_` in short bounded steps
   ///  and draining the outbound queue between each poll so a long wait for
   ///  inbound data never starves a pending outbound write.
-  ///  @return `false` if the connection ended or a stop was requested before
-  ///  `buffer` was completely filled.
-  bool ReadFully(std::span<std::byte> buffer);
+  ///  @param deadline The optional absolute deadline for completing the
+  ///  buffer.
+  ///  @return `false` if the connection ended, a stop was requested, or the
+  ///  deadline elapsed before `buffer` was completely filled.
+  bool ReadFully(std::span<std::byte> buffer,
+                 std::optional<std::chrono::steady_clock::time_point> deadline);
 
   ///  Writes every message currently queued, oldest first.
   ///  @return `false` if a write failed and the connection should end.
@@ -108,6 +130,8 @@ private:
   const IIpcFrameCodec &codec_;
   ///  The lifecycle event hooks this connection invokes.
   AdapterIpcConnectionCallbacks callbacks_;
+  ///  The absolute bound for the pre-authentication establishment phase.
+  std::chrono::milliseconds establishmentTimeout_;
   ///  Guards access to the worker thread object and coordinates joins.
   std::mutex lifecycleMutex_;
   ///  Wakes concurrent shutdown callers after the worker join completes.

@@ -339,6 +339,17 @@ with tests covering pre-handshake and rejected-peer requests.
   authenticated host, and a verifying `hostProof` never overrides
   `accepted = false`; both are required, per "Mutual authentication"'s exact
   conjunction.
+- A connected long-lived adapter transport has a bounded absolute
+  pre-authentication Hello/HelloAck establishment phase. A timeout, rejected
+  or invalid acknowledgement, malformed frame, or transport failure closes
+  that generation and reaches the existing disconnect/supervisor recovery
+  path; unrelated frames and partial reads never extend the deadline.
+- Inbound and outbound work is scoped to the transport generation: pending
+  outbound frames from a failed generation cannot be emitted before the fresh
+  Hello of the next generation.
+- A transport `Connect()` exception is a contained failed attempt, not a
+  terminal worker failure; the same long-lived connection worker remains in
+  its bounded retry loop.
 - `ownerLifetimeId` is never described or relied on as a cryptographic
   ownership proof; it only scopes discovery/signaling namespaces. See
   "Lifetime-scoped rendezvous and shutdown identity."
