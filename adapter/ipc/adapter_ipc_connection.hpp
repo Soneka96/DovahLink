@@ -103,8 +103,15 @@ private:
   ///  inbound frames, requires authentication within the absolute
   ///  establishment deadline, and drains queued outbound messages between
   ///  reads.
-  bool
-  ServeConnection(std::chrono::steady_clock::time_point establishmentDeadline);
+  ///  @param establishmentDeadline The absolute bound on completing
+  ///  authentication.
+  ///  @param authenticated The caller's own authentication flag, set to
+  ///  `true` the instant authentication succeeds rather than only on return,
+  ///  so it stays correct even if this function later exits via an
+  ///  exception.
+  void
+  ServeConnection(std::chrono::steady_clock::time_point establishmentDeadline,
+                  bool &authenticated);
 
   ///  Dispatches one decoded message to the owner while containing callback
   ///  exceptions at the worker boundary.

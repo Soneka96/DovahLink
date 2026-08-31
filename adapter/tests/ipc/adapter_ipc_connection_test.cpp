@@ -87,6 +87,21 @@ std::size_t ReadPrivateIpcLimit(std::string_view key) {
   return value;
 }
 
+///  Builds a raw frame -- a little-endian length prefix declaring
+///  `declaredLength`, followed by that many zero-filled payload bytes -- that
+///  never needs to decode successfully: it exists only to drive
+///  `AdapterIpcConnection::ReadOneMessage`'s frame-buffer allocation to an
+///  exact, chosen size.
+std::vector<std::byte>
+BuildRawFrameOfDeclaredLength(std::uint32_t declaredLength) {
+  std::vector<std::byte> frame(sizeof(std::uint32_t) + declaredLength);
+  frame[0] = static_cast<std::byte>(declaredLength & 0xFF);
+  frame[1] = static_cast<std::byte>((declaredLength >> 8) & 0xFF);
+  frame[2] = static_cast<std::byte>((declaredLength >> 16) & 0xFF);
+  frame[3] = static_cast<std::byte>((declaredLength >> 24) & 0xFF);
+  return frame;
+}
+
 ///  Arms the global allocator override below to fail exactly one allocation
 ///  of a chosen size with `std::bad_alloc`, deterministically exercising an
 ///  out-of-memory path without any production-code seam. Every allocation of
@@ -1587,6 +1602,88 @@ TEST_CASE("AdapterIpcConnection reports the configured target generation "
   //  transport at all -- proving this is `RunLoop`'s outer boundary, not the
   //  inner one that already wraps `Connect()`.
   CHECK(socket.ConnectCallCount() == 0);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection classifies a post-authentication allocation "
+          "failure as a disconnect, not an authentication failure") {
+  //  Proves ServeConnection's authenticated flag survives an exception
+  //  thrown after authentication already succeeded: an allocation failure
+  //  is forced while reading the second (post-HelloAck) frame, well after
+  //  the first frame already granted authentication. Before this fix,
+  //  ServeConnection returned `authenticated` as a local that this
+  //  mid-function exception would have discarded entirely, misclassifying a
+  //  purely post-auth failure as an authentication failure -- which the
+  //  supervisor treats as a reason to discard the current host and launch a
+  //  fresh one, per AdapterHostSupervisor::RunLoop's `preferFreshLaunch`.
+  //  A distinctive size for the second frame's payload buffer, well clear
+  //  of the small HelloAck frame's own size so only the post-auth read is
+  //  affected.
+  constexpr std::uint32_t kPostAuthFrameLength = 54321;
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kAuthenticated;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            outcomePromise.set_value(outcome);
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  socket.PushReadableBytes(codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}}));
+  socket.PushReadableBytes(BuildRawFrameOfDeclaredLength(kPostAuthFrameLength));
+
+  ScopedAllocationFailure failSecondFrameAllocation(kPostAuthFrameLength);
+  connection.Start();
+
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection still classifies a pre-authentication "
+          "allocation failure as an authentication failure") {
+  //  The symmetric case for the test above: an exception thrown while
+  //  reading the very first frame, before any message has ever returned
+  //  kAuthenticated, must still classify as kAuthenticationFailed. This
+  //  proves ServeConnection's authenticated reference is written exactly
+  //  when disposition == kAuthenticated -- not, for example, defaulted to
+  //  true by some unrelated effect of the fix above.
+  constexpr std::uint32_t kPreAuthFrameLength = 44444;
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kAuthenticated;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            outcomePromise.set_value(outcome);
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  socket.PushReadableBytes(BuildRawFrameOfDeclaredLength(kPreAuthFrameLength));
+
+  ScopedAllocationFailure failFirstFrameAllocation(kPreAuthFrameLength);
+  connection.Start();
+
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kAuthenticationFailed);
 
   connection.Stop();
 }

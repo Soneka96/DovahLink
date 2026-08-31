@@ -244,7 +244,13 @@ void AdapterIpcConnection::RunAttempt() {
       InvokeContained(callbacks_.onTargetConnected, *attemptTarget);
     }
     InvokeContained(callbacks_.onConnected);
-    authenticated = ServeConnection(establishmentDeadline);
+    //  Written directly into this RunAttempt-owned local by ServeConnection,
+    //  the instant authentication actually succeeds, rather than returned
+    //  from it: a later exception thrown from deeper in ServeConnection must
+    //  not erase an authentication that already happened, which a
+    //  return-value assignment here would lose entirely if the call unwinds
+    //  before returning.
+    ServeConnection(establishmentDeadline, authenticated);
   } catch (...) {
     try {
       socket_.Close();
@@ -291,21 +297,20 @@ void AdapterIpcConnection::RunAttempt() {
                      : AdapterIpcAttemptOutcome::kConnectFailed);
 }
 
-bool AdapterIpcConnection::ServeConnection(
-    std::chrono::steady_clock::time_point establishmentDeadline) {
-  bool authenticated = false;
-
+void AdapterIpcConnection::ServeConnection(
+    std::chrono::steady_clock::time_point establishmentDeadline,
+    bool &authenticated) {
   while (true) {
     {
       std::lock_guard<std::mutex> lock(stopMutex_);
       if (stopping_) {
-        return authenticated;
+        return;
       }
     }
 
     if (!authenticated &&
         std::chrono::steady_clock::now() >= establishmentDeadline) {
-      return false;
+      return;
     }
 
     bool decodeFailed = false;
@@ -316,18 +321,21 @@ bool AdapterIpcConnection::ServeConnection(
                             establishmentDeadline});
     if (decodeFailed) {
       InvokeContained(callbacks_.onDecodeFailure);
-      return authenticated;
+      return;
     }
     if (!message.has_value()) {
       //  Disconnected, or a stop was requested while waiting for a frame.
-      return authenticated;
+      return;
     }
 
     AdapterIpcMessageDisposition disposition = DispatchInboundMessage(*message);
     if (disposition == AdapterIpcMessageDisposition::kClose) {
-      return authenticated;
+      return;
     }
     if (disposition == AdapterIpcMessageDisposition::kAuthenticated) {
+      //  Written directly to the caller's storage the instant authentication
+      //  succeeds: see the call site's comment for why this must not be a
+      //  local returned only at the end of this function.
       authenticated = true;
     }
   }
