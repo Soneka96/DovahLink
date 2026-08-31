@@ -12,6 +12,7 @@
 #include <array>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -98,15 +99,15 @@ BuildCommandLine(const std::filesystem::path &executablePath,
   return commandLine;
 }
 
-///  Reads from `pipeRead` until two `\n`-terminated lines have accumulated,
-///  or `deadline` elapses, polling in short intervals since anonymous pipes
-///  support no asynchronous read with a timeout.
-///  @return The two raw lines (each still possibly carrying a trailing
+///  Reads from `pipeRead` until three `\n`-terminated lines have
+///  accumulated, or `deadline` elapses, polling in short intervals since
+///  anonymous pipes support no asynchronous read with a timeout.
+///  @return The three raw lines (each still possibly carrying a trailing
 ///  `\r`), or `std::nullopt` if the pipe ended or `deadline` elapsed first.
-std::optional<std::pair<std::string, std::string>>
-ReadTwoLinesWithDeadline(HANDLE pipeRead,
-                         std::chrono::steady_clock::time_point deadline,
-                         std::stop_token cancellationToken) {
+std::optional<std::tuple<std::string, std::string, std::string>>
+ReadThreeLinesWithDeadline(HANDLE pipeRead,
+                           std::chrono::steady_clock::time_point deadline,
+                           std::stop_token cancellationToken) {
   std::string buffer;
   while (true) {
     if (cancellationToken.stop_requested() ||
@@ -145,10 +146,15 @@ ReadTwoLinesWithDeadline(HANDLE pipeRead,
     if (secondNewline == std::string::npos) {
       continue;
     }
+    std::size_t thirdNewline = buffer.find('\n', secondNewline + 1);
+    if (thirdNewline == std::string::npos) {
+      continue;
+    }
 
-    return std::make_pair(
+    return std::make_tuple(
         buffer.substr(0, firstNewline),
-        buffer.substr(firstNewline + 1, secondNewline - firstNewline - 1));
+        buffer.substr(firstNewline + 1, secondNewline - firstNewline - 1),
+        buffer.substr(secondNewline + 1, thirdNewline - secondNewline - 1));
   }
 }
 
@@ -278,13 +284,14 @@ Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
 
   std::chrono::steady_clock::time_point deadline =
       std::chrono::steady_clock::now() + launchTimeout_;
-  std::optional<std::pair<std::string, std::string>> lines =
-      ReadTwoLinesWithDeadline(pipeReadGuard.Get(), deadline,
-                               cancellationToken);
+  std::optional<std::tuple<std::string, std::string, std::string>> lines =
+      ReadThreeLinesWithDeadline(pipeReadGuard.Get(), deadline,
+                                 cancellationToken);
 
   std::optional<AdapterHostEndpoint> endpoint;
   if (lines.has_value()) {
-    endpoint = TryParseHostEndpointReport(lines->first, lines->second);
+    endpoint = TryParseHostEndpointReport(
+        std::get<0>(*lines), std::get<1>(*lines), std::get<2>(*lines));
   }
   if (!endpoint.has_value() || cancellationToken.stop_requested()) {
     TerminateJobObject(jobHandleGuard.Get(), 1);

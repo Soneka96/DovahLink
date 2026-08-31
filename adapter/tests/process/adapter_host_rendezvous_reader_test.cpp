@@ -50,7 +50,7 @@ TEST_CASE("FileAdapterHostRendezvousReader reads a well-formed file with "
           "Windows-style CRLF line endings",
           "[process][adapter_host_rendezvous_reader]") {
   std::filesystem::path path = UniqueTempFilePath();
-  WriteRawFile(path, "PORT 12345\r\nPROOF a0b1c2\r\n");
+  WriteRawFile(path, "PORT 12345\r\nPROOF a0b1c2\r\nHOSTPROOF d3e4\r\n");
   FileAdapterHostRendezvousReader reader(path);
 
   auto result = reader.TryRead();
@@ -61,13 +61,15 @@ TEST_CASE("FileAdapterHostRendezvousReader reads a well-formed file with "
   CHECK(result->proofToken == std::vector<std::byte>{std::byte{0xA0},
                                                      std::byte{0xB1},
                                                      std::byte{0xC2}});
+  CHECK(result->hostProofKey ==
+        std::vector<std::byte>{std::byte{0xD3}, std::byte{0xE4}});
 }
 
 TEST_CASE("FileAdapterHostRendezvousReader reads a well-formed file with "
           "plain LF line endings",
           "[process][adapter_host_rendezvous_reader]") {
   std::filesystem::path path = UniqueTempFilePath();
-  WriteRawFile(path, "PORT 1\nPROOF ff\n");
+  WriteRawFile(path, "PORT 1\nPROOF ff\nHOSTPROOF ee\n");
   FileAdapterHostRendezvousReader reader(path);
 
   auto result = reader.TryRead();
@@ -76,6 +78,7 @@ TEST_CASE("FileAdapterHostRendezvousReader reads a well-formed file with "
   REQUIRE(result.has_value());
   CHECK(result->port == 1);
   CHECK(result->proofToken == std::vector<std::byte>{std::byte{0xFF}});
+  CHECK(result->hostProofKey == std::vector<std::byte>{std::byte{0xEE}});
 }
 
 TEST_CASE("FileAdapterHostRendezvousReader accepts the port boundary "
@@ -83,7 +86,8 @@ TEST_CASE("FileAdapterHostRendezvousReader accepts the port boundary "
           "[process][adapter_host_rendezvous_reader]") {
   for (std::uint16_t port : {std::uint16_t{0}, std::uint16_t{65535}}) {
     std::filesystem::path path = UniqueTempFilePath();
-    WriteRawFile(path, "PORT " + std::to_string(port) + "\nPROOF a0\n");
+    WriteRawFile(path,
+                 "PORT " + std::to_string(port) + "\nPROOF a0\nHOSTPROOF b1\n");
     FileAdapterHostRendezvousReader reader(path);
 
     auto result = reader.TryRead();
@@ -94,10 +98,11 @@ TEST_CASE("FileAdapterHostRendezvousReader accepts the port boundary "
   }
 }
 
-TEST_CASE("FileAdapterHostRendezvousReader reads an empty proof token",
+TEST_CASE("FileAdapterHostRendezvousReader reads an empty proof token or "
+          "HostProof key",
           "[process][adapter_host_rendezvous_reader]") {
   std::filesystem::path path = UniqueTempFilePath();
-  WriteRawFile(path, "PORT 1\nPROOF \n");
+  WriteRawFile(path, "PORT 1\nPROOF \nHOSTPROOF \n");
   FileAdapterHostRendezvousReader reader(path);
 
   auto result = reader.TryRead();
@@ -105,6 +110,7 @@ TEST_CASE("FileAdapterHostRendezvousReader reads an empty proof token",
   std::filesystem::remove(path);
   REQUIRE(result.has_value());
   CHECK(result->proofToken.empty());
+  CHECK(result->hostProofKey.empty());
 }
 
 TEST_CASE("FileAdapterHostRendezvousReader returns nullopt for a missing "
@@ -119,16 +125,21 @@ TEST_CASE("FileAdapterHostRendezvousReader returns nullopt for malformed "
           "content",
           "[process][adapter_host_rendezvous_reader]") {
   for (const std::string &content :
-       {std::string("PORT 1\n"),                    // missing PROOF line
-        std::string("PORT abc\nPROOF a0\n"),        // non-numeric port
-        std::string("PORT 70000\nPROOF a0\n"),      // out-of-range port
-        std::string("PORT -1\nPROOF a0\n"),         // negative port
-        std::string("PORT 1\nPROOF a0g\n"),         // non-hex character
-        std::string("PORT 1\nPROOF A0\n"),          // uppercase hex
-        std::string("PORT 1\nPROOF a\n"),           // odd-length hex
-        std::string("NOPORT 1\nPROOF a0\n"),        // wrong prefix
-        std::string(""),                            // empty file
-        std::string("PORT 1 extra\nPROOF a0\n")}) { // trailing garbage
+       {std::string("PORT 1\n"),           // missing PROOF line
+        std::string("PORT 1\nPROOF a0\n"), // missing HOSTPROOF line
+        std::string("PORT abc\nPROOF a0\nHOSTPROOF b1\n"), // non-numeric port
+        std::string(
+            "PORT 70000\nPROOF a0\nHOSTPROOF b1\n"),       // out-of-range port
+        std::string("PORT -1\nPROOF a0\nHOSTPROOF b1\n"),  // negative port
+        std::string("PORT 1\nPROOF a0g\nHOSTPROOF b1\n"),  // non-hex character
+        std::string("PORT 1\nPROOF A0\nHOSTPROOF b1\n"),   // uppercase hex
+        std::string("PORT 1\nPROOF a\nHOSTPROOF b1\n"),    // odd-length hex
+        std::string("NOPORT 1\nPROOF a0\nHOSTPROOF b1\n"), // wrong prefix
+        std::string(
+            "PORT 1\nPROOF a0\nNOHOSTPROOF b1\n"), // wrong HostProof prefix
+        std::string(""),                           // empty file
+        std::string(
+            "PORT 1 extra\nPROOF a0\nHOSTPROOF b1\n")}) { // trailing garbage
     std::filesystem::path path = UniqueTempFilePath();
     WriteRawFile(path, content);
     FileAdapterHostRendezvousReader reader(path);
@@ -145,9 +156,11 @@ TEST_CASE("FileAdapterHostRendezvousReader rejects lines beyond the bounded "
   const std::size_t maximum =
       dovahlink::adapter::process::kMaxAdapterHostRendezvousLineBytes;
   for (const std::string &content :
-       {"PORT " + std::string(maximum, '1') + "\nPROOF a0\n",
-        "PORT 1\nPROOF " + std::string(maximum, 'a') + "\n",
-        "PORT " + std::string(maximum + 1, '1') + "\nPROOF a0\n"}) {
+       {"PORT " + std::string(maximum, '1') + "\nPROOF a0\nHOSTPROOF b1\n",
+        "PORT 1\nPROOF " + std::string(maximum, 'a') + "\nHOSTPROOF b1\n",
+        "PORT 1\nPROOF a0\nHOSTPROOF " + std::string(maximum, 'b') + "\n",
+        "PORT " + std::string(maximum + 1, '1') +
+            "\nPROOF a0\nHOSTPROOF b1\n"}) {
     std::filesystem::path path = UniqueTempFilePath();
     WriteRawFile(path, content);
     FileAdapterHostRendezvousReader reader(path);

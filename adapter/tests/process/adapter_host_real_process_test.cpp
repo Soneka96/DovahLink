@@ -629,7 +629,8 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
   {
     std::ofstream rendezvousFile(*rendezvousPath);
     REQUIRE(rendezvousFile.is_open());
-    rendezvousFile << "PORT " << staleListener.Port() << "\nPROOF aa\n";
+    rendezvousFile << "PORT " << staleListener.Port()
+                   << "\nPROOF aa\nHOSTPROOF bb\n";
   }
 
   FileAdapterHostRendezvousReader reader(*rendezvousPath);

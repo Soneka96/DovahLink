@@ -56,14 +56,18 @@ std::string_view TrimTrailingCarriageReturn(std::string_view line) {
 
 std::optional<AdapterHostEndpoint>
 TryParseHostEndpointReport(std::string_view portLine,
-                           std::string_view proofLine) {
+                           std::string_view proofLine,
+                           std::string_view hostProofLine) {
   portLine = TrimTrailingCarriageReturn(portLine);
   proofLine = TrimTrailingCarriageReturn(proofLine);
+  hostProofLine = TrimTrailingCarriageReturn(hostProofLine);
 
   constexpr std::string_view kPortPrefix = "PORT ";
   constexpr std::string_view kProofPrefix = "PROOF ";
+  constexpr std::string_view kHostProofPrefix = "HOSTPROOF ";
   if (!portLine.starts_with(kPortPrefix) ||
-      !proofLine.starts_with(kProofPrefix)) {
+      !proofLine.starts_with(kProofPrefix) ||
+      !hostProofLine.starts_with(kHostProofPrefix)) {
     return std::nullopt;
   }
 
@@ -83,8 +87,17 @@ TryParseHostEndpointReport(std::string_view portLine,
     return std::nullopt;
   }
 
+  std::string_view hostProofText =
+      hostProofLine.substr(kHostProofPrefix.size());
+  std::optional<std::vector<std::byte>> hostProofKey =
+      ParseHexBytes(hostProofText);
+  if (!hostProofKey.has_value()) {
+    return std::nullopt;
+  }
+
   return AdapterHostEndpoint{.port = static_cast<std::uint16_t>(portValue),
-                             .proofToken = *proofToken};
+                             .proofToken = *proofToken,
+                             .hostProofKey = *hostProofKey};
 }
 
 } //  namespace dovahlink::adapter::process

@@ -1,7 +1,7 @@
 //  A tiny standalone process used only by
 //  adapter_host_process_launcher_test.cpp, to exercise real Win32 process
 //  launch, stdout redirection, and Job Object termination without depending
-//  on the real packaged host executable. Reports a fixed PORT/PROOF
+//  on the real packaged host executable. Reports a fixed PORT/PROOF/HOSTPROOF
 //  endpoint over stdout, then sleeps before exiting cleanly -- long enough
 //  by default to prove force-termination, or for a bounded, test-controlled
 //  duration via the DOVAHLINK_TEST_HOST_SLEEP_MS environment variable, to
@@ -42,10 +42,11 @@ int main() {
       HANDLE handle = reinterpret_cast<HANDLE>(rawHandle);
       DWORD flags = 0;
       const bool inherited = GetHandleInformation(handle, &flags) != 0;
-      std::cout << "PORT 4242\nPROOF " << (inherited ? "00" : "ab") << "\n"
+      std::cout << "PORT 4242\nPROOF " << (inherited ? "00" : "ab")
+                << "\nHOSTPROOF cd\n"
                 << std::flush;
     } else {
-      std::cout << "PORT 4242\nPROOF ab\n" << std::flush;
+      std::cout << "PORT 4242\nPROOF ab\nHOSTPROOF cd\n" << std::flush;
     }
   }
 

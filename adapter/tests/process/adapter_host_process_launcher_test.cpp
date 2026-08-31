@@ -273,7 +273,7 @@ TEST_CASE("Win32AdapterHostProcessLauncher::Launch returns nullopt promptly "
 
 TEST_CASE("Win32AdapterHostProcessLauncher::Launch returns nullopt when the "
           "process writes past the bounded report buffer without ever "
-          "completing two lines") {
+          "completing three lines") {
   ScopedEnvironmentVariable spam(L"DOVAHLINK_TEST_HOST_SPAM", L"1");
   Win32AdapterHostProcessLauncher launcher(
       FixtureExecutablePath(), SampleLifetimeId(), std::chrono::seconds(5));

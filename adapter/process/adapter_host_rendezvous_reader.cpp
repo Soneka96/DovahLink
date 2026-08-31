@@ -74,11 +74,13 @@ std::optional<AdapterHostEndpoint> FileAdapterHostRendezvousReader::TryRead() {
 
   std::optional<std::string> portLine = ReadBoundedLine(file);
   std::optional<std::string> proofLine = ReadBoundedLine(file);
-  if (!portLine.has_value() || !proofLine.has_value()) {
+  std::optional<std::string> hostProofLine = ReadBoundedLine(file);
+  if (!portLine.has_value() || !proofLine.has_value() ||
+      !hostProofLine.has_value()) {
     return std::nullopt;
   }
 
-  return TryParseHostEndpointReport(*portLine, *proofLine);
+  return TryParseHostEndpointReport(*portLine, *proofLine, *hostProofLine);
 }
 
 } //  namespace dovahlink::adapter::process
