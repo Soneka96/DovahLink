@@ -118,7 +118,15 @@ void AdapterIpcConnection::RunLoop() {
         }
       }
 
-      if (!socket_.Connect()) {
+      bool connectedAttempt = false;
+      try {
+        connectedAttempt = socket_.Connect();
+      } catch (...) {
+        InvokeContained(callbacks_.onConnectionAttemptFailed);
+        throw;
+      }
+      if (!connectedAttempt) {
+        InvokeContained(callbacks_.onConnectionAttemptFailed);
         WaitBoundedBackoff();
         continue;
       }

@@ -208,6 +208,8 @@ SKSEPluginInfo(
                 session->HandleDisconnected();
                 supervisor->NotifyConnectionLost();
               },
+          .onConnectionAttemptFailed =
+              [] { supervisor->NotifyConnectionLost(); },
       });
   if (supervisor == nullptr) {
     supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(

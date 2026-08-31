@@ -131,6 +131,87 @@ TEST_CASE("AdapterIpcConnection reconnects after a failed connect attempt") {
   connection.Stop();
 }
 
+TEST_CASE("AdapterIpcConnection reports each failed connect attempt before it "
+          "reconnects") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false, false, true});
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::atomic<int> failedAttemptCount{0};
+  std::atomic<int> disconnectedCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onDisconnected = [&] { ++disconnectedCount; },
+      .onConnectionAttemptFailed = [&] { ++failedAttemptCount; },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  CHECK(failedAttemptCount.load() == 2);
+  CHECK(disconnectedCount.load() == 0);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection reports a throwing connect attempt before the "
+          "worker exits") {
+  FakeAdapterIpcSocket socket;
+  std::promise<void> connectAttemptedPromise;
+  socket.SetThrowOnConnect(connectAttemptedPromise);
+  IpcFrameCodec codec;
+  std::promise<void> failedAttemptPromise;
+  std::atomic<int> failedAttemptCount{0};
+  std::atomic<int> disconnectedCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onDisconnected = [&] { ++disconnectedCount; },
+      .onConnectionAttemptFailed =
+          [&] {
+            ++failedAttemptCount;
+            failedAttemptPromise.set_value();
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  auto failedAttemptFuture = failedAttemptPromise.get_future();
+  REQUIRE(WaitReady(failedAttemptFuture));
+  connection.Stop();
+  CHECK(failedAttemptCount.load() == 1);
+  CHECK(socket.ConnectCallCount() == 1);
+  CHECK(disconnectedCount.load() == 0);
+}
+
+TEST_CASE("AdapterIpcConnection contains an exception from the failed-connect "
+          "callback and continues its retry loop") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false, true});
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  std::atomic<int> failedAttemptCount{0};
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onConnectionAttemptFailed =
+          [&] {
+            ++failedAttemptCount;
+            throw std::runtime_error("failed-connect callback failed");
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  CHECK(failedAttemptCount.load() == 1);
+  CHECK(socket.ConnectCallCount() == 2);
+
+  connection.Stop();
+}
+
 TEST_CASE("AdapterIpcConnection::Stop completes after a failed connect "
           "attempt") {
   FakeAdapterIpcSocket socket;

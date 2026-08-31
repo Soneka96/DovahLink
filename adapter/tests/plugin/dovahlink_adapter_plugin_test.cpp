@@ -197,6 +197,20 @@ TEST_CASE("the adapter plugin notifies the supervisor when the connection "
   CHECK(handleDisconnected < notifyConnectionLost);
 }
 
+TEST_CASE("the adapter plugin notifies the supervisor when a connection "
+          "attempt fails",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t failedAttempt = source.find(".onConnectionAttemptFailed =");
+  REQUIRE(failedAttempt != std::string::npos);
+  std::size_t notifyConnectionLost =
+      source.find("supervisor->NotifyConnectionLost();", failedAttempt);
+
+  REQUIRE(notifyConnectionLost != std::string::npos);
+  CHECK(failedAttempt < notifyConnectionLost);
+}
+
 TEST_CASE("DllMain signals shutdown without calling the blocking ordered "
           "shutdown sequence, joining a thread, or waiting on a handle",
           "[plugin][structural]") {

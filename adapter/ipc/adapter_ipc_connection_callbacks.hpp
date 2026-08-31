@@ -24,6 +24,10 @@ struct AdapterIpcConnectionCallbacks {
   ///  Invoked once a connected session ends, before a reconnect attempt or
   ///  the connection stopping entirely.
   std::function<void()> onDisconnected;
+  ///  Invoked when a connect attempt fails before a session is established.
+  ///  This may occur repeatedly while the connection's bounded retry loop is
+  ///  running, and may be invoked from the connection's background thread.
+  std::function<void()> onConnectionAttemptFailed;
 };
 
 } //  namespace dovahlink::adapter::ipc
