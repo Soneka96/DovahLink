@@ -19,7 +19,4 @@ public sealed class AdapterConnectionLease
 
     /// <summary>The connection generation assigned by <see cref="IAdapterConnectionLifecycle.Activate"/>.</summary>
     public long Generation { get; internal set; }
-
-    /// <summary>Whether this lease is currently the lifecycle's active connection.</summary>
-    public bool Active { get; internal set; }
 }

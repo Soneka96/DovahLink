@@ -107,7 +107,6 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
             {
                 lease.InstanceId = instanceId;
                 lease.Generation = generation;
-                lease.Active = true;
                 currentLease = lease;
             }
 
@@ -129,7 +128,6 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
                     return;
                 }
 
-                lease.Active = false;
                 currentLease = null;
                 instanceId = lease.InstanceId;
                 generation = lease.Generation;
@@ -144,7 +142,7 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
     {
         lock (stateGate)
         {
-            return ReferenceEquals(currentLease, lease) && lease.Active;
+            return ReferenceEquals(currentLease, lease);
         }
     }
 
@@ -157,7 +155,7 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
             long generation;
             lock (stateGate)
             {
-                if (!ReferenceEquals(currentLease, lease) || !lease.Active)
+                if (!ReferenceEquals(currentLease, lease))
                 {
                     return false;
                 }

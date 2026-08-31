@@ -194,4 +194,53 @@ public class AdapterConnectionLifecycleTests
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
+
+    /// <summary>Verifies that activating a second lease for a different adapter instance still unambiguously supersedes the first: only one lease is ever active regardless of instance identity.</summary>
+    [Fact]
+    public void Activate_SecondLeaseDifferentAdapterInstanceId_SupersedesFirstLease()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        AdapterConnectionLease firstLease = lifecycle.CreateLease();
+        lifecycle.Activate(firstLease, AdapterInstanceId.NewId());
+
+        AdapterConnectionLease secondLease = lifecycle.CreateLease();
+        lifecycle.Activate(secondLease, AdapterInstanceId.NewId());
+
+        Assert.False(lifecycle.IsActive(firstLease));
+        Assert.True(lifecycle.IsActive(secondLease));
+    }
+
+    /// <summary>Verifies that deactivating a lease already superseded by a later activation (never explicitly deactivated itself) is a harmless no-op and does not disturb the tracker's view of the still-active lease.</summary>
+    [Fact]
+    public void Deactivate_LeaseAlreadySuperseded_DoesNotThrowAndDoesNotDisturbCurrentLease()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        AdapterConnectionLease firstLease = lifecycle.CreateLease();
+        lifecycle.Activate(firstLease, AdapterInstanceId.NewId());
+        AdapterConnectionLease secondLease = lifecycle.CreateLease();
+        lifecycle.Activate(secondLease, AdapterInstanceId.NewId());
+
+        lifecycle.Deactivate(firstLease);
+
+        Assert.True(lifecycle.IsActive(secondLease));
+        Assert.Equal(AdapterAvailability.Available, tracker.Current);
+    }
+
+    /// <summary>Verifies that a lease already superseded by a later activation (never explicitly deactivated itself) can no longer complete resynchronization, purely on reference identity.</summary>
+    [Fact]
+    public void TryCompleteResynchronization_LeaseAlreadySuperseded_ReturnsFalse()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        AdapterConnectionLease firstLease = lifecycle.CreateLease();
+        lifecycle.Activate(firstLease, AdapterInstanceId.NewId());
+        AdapterConnectionLease secondLease = lifecycle.CreateLease();
+        lifecycle.Activate(secondLease, AdapterInstanceId.NewId());
+
+        bool completed = lifecycle.TryCompleteResynchronization(firstLease);
+
+        Assert.False(completed);
+    }
 }
