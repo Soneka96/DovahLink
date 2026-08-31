@@ -427,6 +427,22 @@ bool WaitForProcessExit(std::uint32_t processId) {
   return exited;
 }
 
+///  Checks whether a process id is still running, through an independent
+///  SYNCHRONIZE handle -- unlike
+///  `Win32AdapterHostProcessLauncher::AwaitExitOrTerminate`, which
+///  force-terminates the process it checks once its timeout elapses, this
+///  never affects the process's lifetime.
+bool IsProcessStillRunning(std::uint32_t processId) {
+  HANDLE process =
+      OpenProcess(SYNCHRONIZE, /*bInheritHandle=*/FALSE, processId);
+  if (process == nullptr) {
+    return false;
+  }
+  const bool stillRunning = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+  CloseHandle(process);
+  return stillRunning;
+}
+
 } //  namespace
 
 TEST_CASE("Job Object supervision terminates the real host when its owner "
@@ -482,8 +498,7 @@ TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
   WindowsEventAdapterHostShutdownRequester firstShutdown(firstOwner);
   firstShutdown.RequestShutdown();
   REQUIRE(firstLauncher.AwaitExitOrTerminate(std::chrono::seconds(5)));
-  CHECK_FALSE(
-      secondLauncher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
+  CHECK(IsProcessStillRunning(secondLauncher.ProcessId()));
 
   WindowsEventAdapterHostShutdownRequester secondShutdown(secondOwner);
   secondShutdown.RequestShutdown();
@@ -563,6 +578,12 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
       [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
       std::chrono::seconds(5)));
 
+  CHECK(IsProcessStillRunning(launcher.ProcessId()));
+
+  //  Force the host down now, as an explicit step distinct from the liveness
+  //  check above: this is what drives the supervisor to observe the loss and
+  //  launch a replacement, proving the "after a host restart" rediscovery
+  //  this test exists to cover.
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));
 
   std::optional<AdapterHostEndpoint> secondEndpoint;
