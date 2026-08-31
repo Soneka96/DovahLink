@@ -52,6 +52,14 @@ public:
     writeCompletedPromise_ = &completed;
   }
 
+  ///  Configures the sequence of `WriteAll` results; the last entry repeats
+  ///  once exhausted. An empty sequence makes every write succeed.
+  void SetWriteResults(std::vector<bool> results) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    writeResults_ = std::move(results);
+    writeCallIndex_ = 0;
+  }
+
   ///  Limits each `TryReadSome` call to at most `bytes`, so tests can drive
   ///  one frame through repeated partial reads.
   void SetMaxReadBytes(std::size_t bytes) {
@@ -88,6 +96,13 @@ public:
   std::vector<std::byte> WrittenBytes() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return writtenBytes_;
+  }
+
+  ///  Every write payload handed to `WriteAll`, including failed attempts, in
+  ///  order.
+  std::vector<std::vector<std::byte>> AttemptedWrites() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return attemptedWrites_;
   }
 
   ///  Discards every byte recorded by `WrittenBytes` so far, so a test
@@ -158,6 +173,20 @@ public:
     if (stopRequested_) {
       return false;
     }
+    attemptedWrites_.emplace_back(data.begin(), data.end());
+    bool result = true;
+    if (!writeResults_.empty()) {
+      std::size_t index = writeCallIndex_ < writeResults_.size()
+                              ? writeCallIndex_
+                              : writeResults_.size() - 1;
+      result = writeResults_[index];
+      if (writeCallIndex_ + 1 < writeResults_.size()) {
+        ++writeCallIndex_;
+      }
+    }
+    if (!result) {
+      return false;
+    }
     writtenBytes_.insert(writtenBytes_.end(), data.begin(), data.end());
     if (writeCompletedPromise_ != nullptr) {
       writeCompletedPromise_->set_value();
@@ -208,6 +237,11 @@ private:
   std::promise<void> *connectAttemptedPromise_ = nullptr;
   ///  Signaled, then cleared, the next time `Connect` returns `false`.
   std::promise<void> *connectFailurePromise_ = nullptr;
+  ///  The configured `WriteAll` result sequence; empty means every write
+  ///  succeeds.
+  std::vector<bool> writeResults_;
+  ///  The index into `writeResults_` the next `WriteAll` call will consume.
+  std::size_t writeCallIndex_ = 0;
   ///  Signaled, then cleared, the next time `WriteAll` succeeds.
   std::promise<void> *writeCompletedPromise_ = nullptr;
   ///  The index into `connectResults_` the next `Connect` call will consume.
@@ -218,6 +252,8 @@ private:
   int closeCallCount_ = 0;
   ///  Every byte handed to `WriteAll` so far, in order.
   std::vector<std::byte> writtenBytes_;
+  ///  Every payload handed to `WriteAll`, including failed attempts.
+  std::vector<std::vector<std::byte>> attemptedWrites_;
   ///  Maximum bytes returned by one `TryReadSome` call.
   std::size_t maxReadBytes_ = static_cast<std::size_t>(-1);
 };

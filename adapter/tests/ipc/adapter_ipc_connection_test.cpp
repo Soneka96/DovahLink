@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -25,6 +26,7 @@ using dovahlink::adapter::ipc::IpcCloseMessage;
 using dovahlink::adapter::ipc::IpcCloseReason;
 using dovahlink::adapter::ipc::IpcFrameCodec;
 using dovahlink::adapter::ipc::IpcHelloAckMessage;
+using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
@@ -626,7 +628,6 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once the outbound queue is "
       .onDisconnected = [] {},
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
-  connection.Start();
 
   IpcMessage message{
       IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}};
@@ -635,6 +636,7 @@ TEST_CASE("AdapterIpcConnection::TrySend rejects once the outbound queue is "
   }
   CHECK_FALSE(connection.TrySend(message));
 
+  connection.Start();
   connection.Stop();
 }
 
@@ -805,6 +807,135 @@ TEST_CASE("AdapterIpcConnection drains a burst of queued messages in order") {
   }
   CHECK(socket.WrittenBytes() == expectedBytes);
 
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection discards pending outbound work between "
+          "transport generations") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true, true, false});
+  //  A fails, the final same-generation flush of B fails, and the fresh
+  //  Hello on generation 2 succeeds.
+  socket.SetWriteResults({false, false, true});
+  IpcFrameCodec codec;
+  std::promise<void> firstConnectedPromise;
+  std::promise<void> secondConnectedPromise;
+  std::atomic<int> connectedCount{0};
+
+  IpcMessage messageA{IpcCancelMessage{.correlationId = 1}};
+  IpcMessage messageB{IpcCancelMessage{.correlationId = 2}};
+  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
+  IpcMessage postGenerationMessage{IpcCancelMessage{.correlationId = 3}};
+
+  AdapterIpcConnection *connectionPointer = nullptr;
+  std::atomic<bool> enqueueSucceeded{true};
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected =
+          [&] {
+            if (connectedCount.fetch_add(1) == 0) {
+              bool firstEnqueued = connectionPointer->TrySend(messageA);
+              bool secondEnqueued = connectionPointer->TrySend(messageB);
+              enqueueSucceeded = firstEnqueued && secondEnqueued;
+              firstConnectedPromise.set_value();
+            } else {
+              enqueueSucceeded = enqueueSucceeded.load() &&
+                                 connectionPointer->TrySend(freshHello);
+              secondConnectedPromise.set_value();
+            }
+          },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  connection.Start();
+
+  auto firstConnectedFuture = firstConnectedPromise.get_future();
+  REQUIRE(WaitReady(firstConnectedFuture));
+  auto secondConnectedFuture = secondConnectedPromise.get_future();
+  REQUIRE(WaitReady(secondConnectedFuture));
+  CHECK(enqueueSucceeded.load());
+
+  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
+  std::vector<std::vector<std::byte>> expectedAttempts{
+      codec.Encode(messageA), codec.Encode(messageB), codec.Encode(freshHello)};
+  auto writeDeadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (socket.WrittenBytes() != expectedBytes &&
+         std::chrono::steady_clock::now() < writeDeadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  REQUIRE(socket.WrittenBytes() == expectedBytes);
+  auto attempts = socket.AttemptedWrites();
+  REQUIRE(attempts.size() >= expectedAttempts.size());
+  CHECK(std::equal(expectedAttempts.begin(), expectedAttempts.end(),
+                   attempts.begin()));
+
+  REQUIRE(connection.TrySend(postGenerationMessage));
+  std::vector<std::byte> postGenerationBytes =
+      codec.Encode(postGenerationMessage);
+  expectedBytes.insert(expectedBytes.end(), postGenerationBytes.begin(),
+                       postGenerationBytes.end());
+  while (socket.WrittenBytes() != expectedBytes &&
+         std::chrono::steady_clock::now() < writeDeadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  CHECK(socket.WrittenBytes() == expectedBytes);
+  expectedAttempts.push_back(postGenerationBytes);
+  attempts = socket.AttemptedWrites();
+  REQUIRE(attempts.size() >= expectedAttempts.size());
+  CHECK(std::equal(expectedAttempts.begin(), expectedAttempts.end(),
+                   attempts.begin()));
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection clears outbound work after a failed connect "
+          "attempt") {
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false, true, false});
+  IpcFrameCodec codec;
+  std::promise<void> connectedPromise;
+  IpcMessage staleMessage{IpcCancelMessage{.correlationId = 1}};
+  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
+
+  AdapterIpcConnection *connectionPointer = nullptr;
+  std::atomic<bool> enqueueSucceeded{true};
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected =
+          [&] {
+            bool freshEnqueued = connectionPointer->TrySend(freshHello);
+            enqueueSucceeded = enqueueSucceeded.load() && freshEnqueued;
+            connectedPromise.set_value();
+          },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  REQUIRE(connection.TrySend(staleMessage));
+  connection.Start();
+
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  CHECK(enqueueSucceeded.load());
+  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
+  auto writeDeadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (socket.WrittenBytes() != expectedBytes &&
+         std::chrono::steady_clock::now() < writeDeadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  CHECK(socket.WrittenBytes() == expectedBytes);
+  CHECK(socket.AttemptedWrites() ==
+        std::vector<std::vector<std::byte>>{expectedBytes});
   connection.Stop();
 }
 

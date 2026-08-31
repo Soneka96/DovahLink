@@ -35,7 +35,9 @@ public:
   ///  Idempotent: a call after the thread is already running is a no-op.
   virtual void Start() = 0;
 
-  ///  Attempts to enqueue a message for the next write. Never blocks.
+  ///  Attempts to enqueue a message for the current transport generation's
+  ///  next write. Pending messages may be discarded when that generation ends.
+  ///  Never blocks.
   ///  @return `true` when the message was accepted onto the bounded outbound
   ///  queue; `false` at capacity or once `Stop()` has been called.
   virtual bool TrySend(const IpcMessage &message) = 0;
@@ -119,6 +121,10 @@ private:
   ///  Writes every message currently queued, oldest first.
   ///  @return `false` if a write failed and the connection should end.
   bool DrainOutbound();
+
+  ///  Discards outbound work that belongs to a transport generation that has
+  ///  ended or has not yet successfully started.
+  void ClearOutbound();
 
   ///  Waits out `kAdapterIpcReconnectDelay`, or returns immediately once
   ///  `Stop()` is called.

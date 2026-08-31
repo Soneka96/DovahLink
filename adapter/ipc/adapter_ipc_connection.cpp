@@ -128,10 +128,16 @@ void AdapterIpcConnection::RunLoop() {
         throw;
       }
       if (!connectedAttempt) {
+        ClearOutbound();
         InvokeContained(callbacks_.onConnectionAttemptFailed);
         WaitBoundedBackoff();
         continue;
       }
+      //  A successful connect begins a fresh transport generation. Any work
+      //  left from the prior generation, including work queued while no
+      //  transport was connected, must be gone before onConnected queues the
+      //  fresh Hello.
+      ClearOutbound();
       connected = true;
       const auto establishmentDeadline =
           std::chrono::steady_clock::now() + establishmentTimeout_;
@@ -146,6 +152,7 @@ void AdapterIpcConnection::RunLoop() {
       DrainOutbound();
 
       socket_.Close();
+      ClearOutbound();
       InvokeContained(callbacks_.onDisconnected);
       connected = false;
 
@@ -157,6 +164,7 @@ void AdapterIpcConnection::RunLoop() {
       socket_.Close();
     } catch (...) {
     }
+    ClearOutbound();
     if (connected) {
       InvokeContained(callbacks_.onDisconnected);
     }
@@ -302,6 +310,11 @@ bool AdapterIpcConnection::DrainOutbound() {
       return false;
     }
   }
+}
+
+void AdapterIpcConnection::ClearOutbound() {
+  std::lock_guard<std::mutex> lock(outboundMutex_);
+  outbound_.clear();
 }
 
 void AdapterIpcConnection::WaitBoundedBackoff() {
