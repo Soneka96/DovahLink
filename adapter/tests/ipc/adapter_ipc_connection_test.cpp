@@ -13,7 +13,9 @@
 #include <charconv>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <future>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -85,7 +87,73 @@ std::size_t ReadPrivateIpcLimit(std::string_view key) {
   return value;
 }
 
+///  Arms the global allocator override below to fail exactly one allocation
+///  of a chosen size with `std::bad_alloc`, deterministically exercising an
+///  out-of-memory path without any production-code seam. Every allocation of
+///  any other size, on any thread, is unaffected; only one
+///  `ScopedAllocationFailure` instance is armed at a time in this test
+///  binary.
+class ScopedAllocationFailure {
+public:
+  ///  Arms the trap for the next allocation of exactly `failingSize` bytes.
+  explicit ScopedAllocationFailure(std::size_t failingSize) {
+    TargetSize() = failingSize;
+    Armed() = true;
+  }
+
+  ///  Disarms the trap, whether or not it was ever consumed.
+  ~ScopedAllocationFailure() { Armed() = false; }
+
+  ScopedAllocationFailure(const ScopedAllocationFailure &) = delete;
+  ScopedAllocationFailure &operator=(const ScopedAllocationFailure &) = delete;
+
+  ///  Called from the overridden `operator new`. Consumes the trap the first
+  ///  time `size` matches while armed; every other call is unaffected.
+  static bool ShouldFail(std::size_t size) {
+    if (Armed() && size == TargetSize()) {
+      Armed() = false;
+      return true;
+    }
+    return false;
+  }
+
+private:
+  ///  Whether a matching allocation should currently fail.
+  static std::atomic<bool> &Armed() {
+    static std::atomic<bool> armed{false};
+    return armed;
+  }
+  ///  The allocation size, in bytes, currently armed to fail.
+  static std::atomic<std::size_t> &TargetSize() {
+    static std::atomic<std::size_t> targetSize{0};
+    return targetSize;
+  }
+};
+
 } //  namespace
+
+///  Replaces the global allocator for this entire test binary so
+///  `ScopedAllocationFailure` can inject a deterministic `std::bad_alloc` at
+///  an exact allocation size. Every allocation not matched by an armed
+///  `ScopedAllocationFailure` behaves exactly like the default allocator.
+void *operator new(std::size_t size) {
+  if (ScopedAllocationFailure::ShouldFail(size)) {
+    throw std::bad_alloc();
+  }
+  void *pointer = std::malloc(size == 0 ? 1 : size);
+  if (pointer == nullptr) {
+    throw std::bad_alloc();
+  }
+  return pointer;
+}
+
+///  Frees memory obtained from the `operator new` override above.
+void operator delete(void *pointer) noexcept { std::free(pointer); }
+
+///  @copydoc operator delete(void*)
+void operator delete(void *pointer, std::size_t) noexcept {
+  std::free(pointer);
+}
 
 TEST_CASE("AdapterIpcConnection enforces the shared inbound message-rate "
           "limit before dispatch") {
@@ -1358,6 +1426,56 @@ TEST_CASE("AdapterIpcConnection ends serving without an autonomous retry when "
   REQUIRE(WaitReady(outcomeFuture));
   CHECK(outcome == AdapterIpcAttemptOutcome::kAuthenticationFailed);
   CHECK(socket.ConnectCallCount() == 1);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection reports the configured target generation "
+          "when acquiring the target snapshot throws") {
+  //  A distinctive, unlikely-to-collide allocation size: the proof token
+  //  copy inside AdapterIpcConnection::RunAttempt is the only allocation of
+  //  exactly this many bytes this test performs.
+  constexpr std::size_t kFailingAllocationSize = 257;
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> outcomePromise;
+  std::uint64_t generation = 0;
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onAttemptFinished =
+          [&](std::uint64_t attemptGeneration,
+              AdapterIpcAttemptOutcome result) {
+            generation = attemptGeneration;
+            outcome = result;
+            outcomePromise.set_value();
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.ConfigureTarget(AdapterIpcTarget{
+      .port = 4242,
+      .proofToken = std::vector<std::byte>(kFailingAllocationSize),
+      .targetGeneration = 99,
+  });
+
+  {
+    ScopedAllocationFailure failNextMatchingAllocation(kFailingAllocationSize);
+    connection.Start();
+
+    auto outcomeFuture = outcomePromise.get_future();
+    REQUIRE(WaitReady(outcomeFuture));
+  }
+
+  //  The generation must be the one actually configured, not the `0`
+  //  fallback RunLoop's outer failure boundary used before it captured the
+  //  generation ahead of the throwing snapshot copy.
+  CHECK(generation == 99);
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
+  //  The exception happened before the connection attempt reached the
+  //  transport at all -- proving this is `RunLoop`'s outer boundary, not the
+  //  inner one that already wraps `Connect()`.
+  CHECK(socket.ConnectCallCount() == 0);
 
   connection.Stop();
 }
