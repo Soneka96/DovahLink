@@ -17,8 +17,9 @@ public class AdapterIpcSessionTests
     public void Handshake_ValidProof_Accepts()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         var hello = new IpcHelloMessage(7, instanceId, verifier.ExpectedToken);
 
@@ -42,8 +43,9 @@ public class AdapterIpcSessionTests
     public void CommitHandshake_CalledTwice_PublishesOnce()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
 
         session.Handshake(new IpcHelloMessage(7, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
@@ -62,9 +64,10 @@ public class AdapterIpcSessionTests
     public void Handshake_ValidProof_ComputesExpectedHostProof()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(tracker, verifier, ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
         byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, challenge, ownerLifetimeId.ToBytes());
@@ -80,8 +83,9 @@ public class AdapterIpcSessionTests
     public void Handshake_WrongProof_HostProofStaysAllZero()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -97,8 +101,9 @@ public class AdapterIpcSessionTests
     public void Handshake_MatchingProofWrongLifetimeId_RejectsWithLifetimeMismatch()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier, new OwnerLifetimeId(1, 2));
+        var session = new AdapterIpcSession(lifecycle, verifier, new OwnerLifetimeId(1, 2));
         var hello = new IpcHelloMessage(
             7, AdapterInstanceId.NewId(), verifier.ExpectedToken, ownerLifetimeId: new OwnerLifetimeId(3, 4).ToBytes());
 
@@ -116,9 +121,10 @@ public class AdapterIpcSessionTests
     public void Handshake_MatchingLifetimeIdWrongProof_RejectsWithInvalidProof()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var ownerLifetimeId = new OwnerLifetimeId(1, 2);
-        var session = new AdapterIpcSession(tracker, verifier, ownerLifetimeId);
+        var session = new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3], ownerLifetimeId: ownerLifetimeId.ToBytes());
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -145,8 +151,9 @@ public class AdapterIpcSessionTests
     public void Handshake_WrongProof_RejectsWithInvalidProof()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         var hello = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2, 3]);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -162,8 +169,9 @@ public class AdapterIpcSessionTests
     public void Handshake_EmptyInstanceId_RejectsWithMalformed()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         var hello = new IpcHelloMessage(7, new AdapterInstanceId(Guid.Empty), verifier.ExpectedToken);
 
         AdapterHandshakeResult result = session.Handshake(hello);
@@ -181,8 +189,9 @@ public class AdapterIpcSessionTests
     public void Handshake_AckMessage_PreservesHelloCorrelationId(bool validProof)
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         byte[] token = validProof ? verifier.ExpectedToken : [9, 9, 9];
         var hello = new IpcHelloMessage(42, AdapterInstanceId.NewId(), token);
 
@@ -197,7 +206,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_MatchingCorrelationAccepted_NotifiesResynchronized()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
@@ -211,7 +220,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_MismatchedCorrelation_IsIgnored()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId + 1, Accepted: true));
@@ -224,7 +233,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_NotAccepted_DoesNotResynchronize()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
 
         session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
@@ -232,13 +241,14 @@ public class AdapterIpcSessionTests
         Assert.True(tracker.NeedsResynchronization);
     }
 
-    /// <summary>Verifies that an accepted result is ignored when the tracker has since moved to a different connection generation.</summary>
+    /// <summary>Verifies that an accepted result is ignored when a newer connection has since superseded this session's own lease.</summary>
     [Fact]
-    public void HandleFrame_ResynchronizeResult_StaleGeneration_DoesNotResynchronize()
+    public void HandleFrame_ResynchronizeResult_LeaseSuperseded_DoesNotResynchronize()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, AdapterConnectionLifecycle lifecycle) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
-        tracker.NotifyConnected(AdapterInstanceId.NewId());
+        AdapterConnectionLease anotherLease = lifecycle.CreateLease();
+        lifecycle.Activate(anotherLease, AdapterInstanceId.NewId());
 
         session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
 
@@ -249,7 +259,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_RepeatedForSameCorrelation_IsIgnored()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
         session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
         tracker.NeedsResynchronization = true;
@@ -264,7 +274,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareResynchronizeRequest_IssuesDistinctNonzeroCorrelationIds()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         IpcResynchronizeRequestMessage first = session.PrepareResynchronizeRequest();
         IpcResynchronizeRequestMessage second = session.PrepareResynchronizeRequest();
@@ -277,7 +287,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_ForSupersededEarlierRequest_IsIgnored()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage first = session.PrepareResynchronizeRequest();
         session.PrepareResynchronizeRequest();
 
@@ -290,7 +300,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_ZeroCorrelationWithNoPendingRequest_IsIgnored()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(0, Accepted: true));
 
@@ -302,7 +312,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_RepeatedAfterDeclined_IsIgnored()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
         IpcResynchronizeRequestMessage request = session.PrepareResynchronizeRequest();
         session.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: false));
 
@@ -316,8 +326,8 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_ResynchronizeResult_BeforeHandshake_IsIgnoredSafely()
     {
-        var tracker = new FakeAdapterAvailabilityTracker();
-        var session = new AdapterIpcSession(tracker, new AdapterPeerProofVerifier());
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcResynchronizeResultMessage(1, Accepted: true));
 
@@ -328,7 +338,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareListenEvent_ZeroKey_ReturnsNull()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         Assert.Null(session.PrepareListenEvent(0));
     }
@@ -337,7 +347,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareReadSample_ZeroToken_ReturnsNull()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         Assert.Null(session.PrepareReadSample(0));
     }
@@ -348,7 +358,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_Close_ReturnsCloseOutcome()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcCloseMessage(0, IpcCloseReason.Normal));
 
@@ -359,7 +369,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_Reject_ReturnsNoneOutcome()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcRejectMessage(3, IpcRejectReason.MalformedPayload));
 
@@ -370,7 +380,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleFrame_Cancel_ReturnsNoneOutcome()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         AdapterIpcOutcome outcome = session.HandleFrame(new IpcCancelMessage(3));
 
@@ -384,7 +394,7 @@ public class AdapterIpcSessionTests
     [InlineData(typeof(IpcHelloAckMessage))]
     public void HandleFrame_UnexpectedMessageKind_RejectsAndCloses(Type messageType)
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
         IpcMessage message = messageType == typeof(IpcListenEventMessage)
             ? new IpcListenEventMessage(5, 1)
             : messageType == typeof(IpcReadSampleMessage)
@@ -405,7 +415,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleDecodeFailure_ReturnsErrorCloseAndCloses()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         AdapterIpcOutcome outcome = session.HandleDecodeFailure();
 
@@ -420,7 +430,8 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareListenEvent_BeforeHandshake_ReturnsNull()
     {
-        var session = new AdapterIpcSession(new FakeAdapterAvailabilityTracker(), new AdapterPeerProofVerifier());
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
 
         Assert.Null(session.PrepareListenEvent(1));
     }
@@ -430,8 +441,9 @@ public class AdapterIpcSessionTests
     public void PrepareCaptureIntent_BeforeCommit_ReturnsNull()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        var session = new AdapterIpcSession(lifecycle, verifier);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
 
         Assert.Null(session.PrepareListenEvent(1));
@@ -444,7 +456,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareListenEvent_AfterHandshake_ReturnsMessage()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         IpcListenEventMessage? message = session.PrepareListenEvent(42);
 
@@ -457,7 +469,8 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareReadSample_BeforeHandshake_ReturnsNull()
     {
-        var session = new AdapterIpcSession(new FakeAdapterAvailabilityTracker(), new AdapterPeerProofVerifier());
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
 
         Assert.Null(session.PrepareReadSample(1));
     }
@@ -466,7 +479,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareReadSample_AfterHandshake_ReturnsMessage()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         IpcReadSampleMessage? message = session.PrepareReadSample(99);
 
@@ -479,7 +492,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareCaptureIntents_IssueDistinctCorrelationIds()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         IpcListenEventMessage? first = session.PrepareListenEvent(1);
         IpcReadSampleMessage? second = session.PrepareReadSample(1);
@@ -491,7 +504,8 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareCancel_BeforeHandshake_ReturnsNull()
     {
-        var session = new AdapterIpcSession(new FakeAdapterAvailabilityTracker(), new AdapterPeerProofVerifier());
+        var lifecycle = new AdapterConnectionLifecycle(new FakeAdapterAvailabilityTracker());
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
 
         Assert.Null(session.PrepareCancel(1));
     }
@@ -500,7 +514,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareCancel_ZeroCorrelationId_ReturnsNull()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         Assert.Null(session.PrepareCancel(0));
     }
@@ -509,7 +523,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void PrepareCancel_AfterHandshake_ReturnsMessage()
     {
-        (AdapterIpcSession session, _) = HandshakenSession();
+        (AdapterIpcSession session, _, _) = HandshakenSession();
 
         IpcCancelMessage? cancel = session.PrepareCancel(7);
 
@@ -523,7 +537,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleDisconnected_AfterHandshake_NotifiesTracker()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
 
         session.HandleDisconnected();
 
@@ -534,7 +548,7 @@ public class AdapterIpcSessionTests
     [Fact]
     public void HandleDisconnected_CalledTwice_DoesNotThrow()
     {
-        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker) = HandshakenSession();
+        (AdapterIpcSession session, FakeAdapterAvailabilityTracker tracker, _) = HandshakenSession();
 
         session.HandleDisconnected();
         session.HandleDisconnected();
@@ -547,21 +561,46 @@ public class AdapterIpcSessionTests
     public void HandleDisconnected_BeforeHandshake_DoesNotThrow()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
-        var session = new AdapterIpcSession(tracker, new AdapterPeerProofVerifier());
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var session = new AdapterIpcSession(lifecycle, new AdapterPeerProofVerifier());
 
         session.HandleDisconnected();
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
 
-    /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker.</summary>
-    private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker) HandshakenSession()
+    /// <summary>Verifies that a stale, already-superseded lease can no longer complete resynchronization -- eligibility is tied to the exact lease, not merely the adapter instance id.</summary>
+    [Fact]
+    public void HandleFrame_ResynchronizeResult_AfterReconnectSameInstanceId_OldSessionStaysRejected()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
-        var session = new AdapterIpcSession(tracker, verifier);
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        var firstSession = new AdapterIpcSession(lifecycle, verifier);
+        firstSession.Handshake(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken));
+        firstSession.CommitHandshake();
+        IpcResynchronizeRequestMessage request = firstSession.PrepareResynchronizeRequest();
+        firstSession.HandleDisconnected();
+
+        var secondSession = new AdapterIpcSession(lifecycle, verifier);
+        secondSession.Handshake(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken));
+        secondSession.CommitHandshake();
+
+        Assert.Null(firstSession.PrepareListenEvent(1));
+        firstSession.HandleFrame(new IpcResynchronizeResultMessage(request.CorrelationId, Accepted: true));
+        Assert.True(tracker.NeedsResynchronization);
+    }
+
+    /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker and lifecycle.</summary>
+    private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker, AdapterConnectionLifecycle Lifecycle) HandshakenSession()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        var verifier = new AdapterPeerProofVerifier();
+        var session = new AdapterIpcSession(lifecycle, verifier);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
         session.CommitHandshake();
-        return (session, tracker);
+        return (session, tracker, lifecycle);
     }
 }

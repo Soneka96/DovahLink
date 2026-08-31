@@ -57,15 +57,19 @@ public interface IAdapterIpcSession
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     IpcCancelMessage? PrepareCancel(ulong correlationId);
 
-    /// <summary>Records that the physical connection ended, notifying the availability tracker exactly once.</summary>
+    /// <summary>Records that the physical connection ended, deactivating this session's connection lease exactly once.</summary>
     void HandleDisconnected();
 }
 
 /// <inheritdoc cref="IAdapterIpcSession"/>
 public sealed class AdapterIpcSession : IAdapterIpcSession
 {
-    /// <summary>The availability tracker this session reports connection transitions to.</summary>
-    private readonly IAdapterAvailabilityTracker tracker;
+    /// <summary>
+    /// The sole gateway for this session's connection-lifecycle mutations: activation,
+    /// deactivation, and resynchronization completion. This session never reaches
+    /// <see cref="IAdapterAvailabilityTracker"/> directly.
+    /// </summary>
+    private readonly IAdapterConnectionLifecycle lifecycle;
 
     /// <summary>The verifier this session checks a connecting adapter's peer-ownership proof against.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
@@ -80,13 +84,18 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The connecting adapter's instance identity, set once the handshake passes validation.</summary>
     private AdapterInstanceId? instanceId;
 
-    /// <summary>The connection generation assigned once the accepted handshake is committed.</summary>
-    private long? connectionGeneration;
+    /// <summary>
+    /// This session's own connection lease, created once its handshake is committed. Identifies this
+    /// exact connection attempt to <see cref="lifecycle"/>, independently of <see cref="instanceId"/>
+    /// alone, so a superseded session can never be mistaken for a newer one that shares the same
+    /// adapter instance.
+    /// </summary>
+    private AdapterConnectionLease? lease;
 
     /// <summary>Whether this session's Hello passed validation and is waiting for commitment.</summary>
     private bool handshakeAccepted;
 
-    /// <summary>Whether the accepted handshake has already been committed to the availability tracker.</summary>
+    /// <summary>Whether the accepted handshake has already been committed by activating a connection lease.</summary>
     private bool handshakeCommitted;
 
     /// <summary>The correlation id of the resynchronization request currently awaiting a result, if any.</summary>
@@ -95,11 +104,11 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The most recently issued outbound correlation id.</summary>
     private long nextCorrelationId;
 
-    /// <summary>Guards <see cref="HandleDisconnected"/> so it notifies the tracker at most once.</summary>
+    /// <summary>Guards <see cref="HandleDisconnected"/> so it deactivates the lease at most once.</summary>
     private int disconnected;
 
     /// <summary>Creates a session for one connection attempt.</summary>
-    /// <param name="tracker">The availability tracker this session reports connection transitions to.</param>
+    /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
     /// <param name="expectedOwnerLifetimeId">
     /// The owning Skyrim process's lifetime identity this host process was launched with, or
@@ -107,17 +116,17 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <see cref="IpcHelloMessage"/>'s own all-zero default for its <see cref="IpcHelloMessage.OwnerLifetimeId"/>).
     /// </param>
     public AdapterIpcSession(
-        IAdapterAvailabilityTracker tracker,
+        IAdapterConnectionLifecycle lifecycle,
         IAdapterPeerProofVerifier peerProofVerifier,
         OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
-        this.tracker = tracker;
+        this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
         this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
     /// <inheritdoc/>
-    public long? ConnectionGeneration => connectionGeneration;
+    public long? ConnectionGeneration => lease?.Generation;
 
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
@@ -152,7 +161,8 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             return;
         }
 
-        connectionGeneration = tracker.NotifyConnected(instanceId.Value);
+        lease = lifecycle.CreateLease();
+        lifecycle.Activate(lease, instanceId.Value);
         handshakeCommitted = true;
     }
 
@@ -222,15 +232,15 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
 
     /// <inheritdoc/>
     public IpcListenEventMessage? PrepareListenEvent(uint eventKey) =>
-        connectionGeneration is null || eventKey == 0 ? null : new IpcListenEventMessage(NextCorrelationId(), eventKey);
+        lease is null || eventKey == 0 || !lifecycle.IsActive(lease) ? null : new IpcListenEventMessage(NextCorrelationId(), eventKey);
 
     /// <inheritdoc/>
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) =>
-        connectionGeneration is null || sampleToken == 0 ? null : new IpcReadSampleMessage(NextCorrelationId(), sampleToken);
+        lease is null || sampleToken == 0 || !lifecycle.IsActive(lease) ? null : new IpcReadSampleMessage(NextCorrelationId(), sampleToken);
 
     /// <inheritdoc/>
     public IpcCancelMessage? PrepareCancel(ulong correlationId) =>
-        connectionGeneration is null || correlationId == 0 ? null : new IpcCancelMessage(correlationId);
+        lease is null || correlationId == 0 || !lifecycle.IsActive(lease) ? null : new IpcCancelMessage(correlationId);
 
     /// <inheritdoc/>
     public void HandleDisconnected()
@@ -240,9 +250,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             return;
         }
 
-        if (instanceId is not null && connectionGeneration is not null)
+        if (lease is not null)
         {
-            tracker.NotifyDisconnected(instanceId.Value, connectionGeneration.Value);
+            lifecycle.Deactivate(lease);
         }
     }
 
@@ -256,13 +266,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         }
 
         pendingResynchronizeCorrelationId = null;
-        if (resynchronizeResult.Accepted &&
-            instanceId is not null &&
-            connectionGeneration is not null &&
-            tracker.CurrentInstanceId == instanceId &&
-            tracker.CurrentConnectionGeneration == connectionGeneration)
+        if (resynchronizeResult.Accepted && lease is not null)
         {
-            tracker.NotifyResynchronized(instanceId.Value, connectionGeneration.Value);
+            lifecycle.TryCompleteResynchronization(lease);
         }
     }
 

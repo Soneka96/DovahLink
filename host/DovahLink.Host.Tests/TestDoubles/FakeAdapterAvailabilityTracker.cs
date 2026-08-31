@@ -26,10 +26,10 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
     /// <inheritdoc/>
-    public long NotifyConnected(AdapterInstanceId instanceId)
+    public void PublishConnected(AdapterInstanceId instanceId, long generation)
     {
         AdapterAvailability previous = Current;
-        CurrentConnectionGeneration++;
+        CurrentConnectionGeneration = generation;
         Current = AdapterAvailability.Available;
         CurrentInstanceId = instanceId;
         NeedsResynchronization = true;
@@ -40,11 +40,10 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
             AvailabilityChanged?.Invoke(new AdapterAvailabilityTransition(
                 previous, Current, CurrentInstanceId, CurrentConnectionGeneration));
         }
-        return CurrentConnectionGeneration;
     }
 
     /// <inheritdoc/>
-    public void NotifyDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
+    public void PublishDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
     {
         if (CurrentInstanceId == instanceId && CurrentConnectionGeneration == connectionGeneration)
         {

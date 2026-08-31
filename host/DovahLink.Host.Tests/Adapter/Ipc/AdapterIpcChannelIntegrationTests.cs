@@ -162,10 +162,11 @@ public class AdapterIpcChannelIntegrationTests
     private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier) CreateRealStack()
     {
         var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier), new SystemClock()));
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier), new SystemClock()));
         return (listener, tracker, verifier);
     }
 

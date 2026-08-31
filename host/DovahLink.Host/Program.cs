@@ -53,12 +53,13 @@ internal static class Program
         CancellationTokenSource shutdown)
     {
         var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var clock = new SystemClock();
         using IAdapterIpcListener listener = new AdapterIpcListener(
             listenerPort,
-            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier, ownerLifetimeId), clock));
+            stream => new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier, ownerLifetimeId), clock));
 
         using var shutdownSignal = new NamedEventHostShutdownSignal(Constants.ShutdownEventName(ownerLifetimeId));
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
