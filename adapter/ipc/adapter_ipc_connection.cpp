@@ -33,9 +33,10 @@ void InvokeContained(const Callback &callback, Args &&...args) {
 AdapterIpcConnection::AdapterIpcConnection(
     IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
     AdapterIpcConnectionCallbacks callbacks,
-    std::chrono::milliseconds establishmentTimeout)
+    std::chrono::milliseconds establishmentTimeout, ClockNow clockNow)
     : socket_(socket), codec_(codec), callbacks_(std::move(callbacks)),
-      establishmentTimeout_(establishmentTimeout) {}
+      establishmentTimeout_(establishmentTimeout),
+      clockNow_(std::move(clockNow)) {}
 
 AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
 
@@ -63,6 +64,9 @@ void AdapterIpcConnection::Start() {
     }
     worker_.join();
   }
+  //  Each coordinator-requested attempt is a new peer/session generation;
+  //  rate-limit history must never carry across a reconnect.
+  inboundMessageTimes_.clear();
   workerFinished_ = false;
   worker_ = std::thread([this] { RunLoop(); });
 }
@@ -331,6 +335,10 @@ std::optional<IpcMessage> AdapterIpcConnection::ReadOneMessage(
     return std::nullopt;
   }
 
+  if (!TryAcceptInboundMessage()) {
+    return std::nullopt;
+  }
+
   std::expected<IpcMessage, IpcRejectReason> decoded = codec_.Decode(frame);
   if (!decoded.has_value()) {
     decodeFailed = true;
@@ -396,6 +404,21 @@ bool AdapterIpcConnection::DrainOutbound() {
 void AdapterIpcConnection::ClearOutbound() {
   std::lock_guard<std::mutex> lock(outboundMutex_);
   outbound_.clear();
+}
+
+bool AdapterIpcConnection::TryAcceptInboundMessage() {
+  const auto now = clockNow_();
+  const auto windowStart = now - std::chrono::seconds(1);
+  while (!inboundMessageTimes_.empty() &&
+         inboundMessageTimes_.front() < windowStart) {
+    inboundMessageTimes_.pop_front();
+  }
+
+  if (inboundMessageTimes_.size() >= kMaxIpcMessagesPerSecond) {
+    return false;
+  }
+  inboundMessageTimes_.push_back(now);
+  return true;
 }
 
 void AdapterIpcConnection::MarkWorkerFinished() {

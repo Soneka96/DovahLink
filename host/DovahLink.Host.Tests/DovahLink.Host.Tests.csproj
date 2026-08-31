@@ -21,4 +21,10 @@
     <ProjectReference Include="..\DovahLink.Host\DovahLink.Host.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\integration\private-ipc-limits.json"
+          Link="integration\private-ipc-limits.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

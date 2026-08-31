@@ -1,0 +1,4 @@
+{
+  "maxMessagesPerSecond": 200,
+  "messageRateWindowMilliseconds": 1000
+}

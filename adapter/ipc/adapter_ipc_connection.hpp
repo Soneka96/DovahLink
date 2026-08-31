@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <span>
@@ -52,6 +53,10 @@ public:
 ///  @copydoc IAdapterIpcConnection
 class AdapterIpcConnection final : public IAdapterIpcConnection {
 public:
+  ///  Supplies the monotonic time used by the per-connection inbound rate
+  ///  window. Tests inject a deterministic clock; production uses steady time.
+  using ClockNow = std::function<std::chrono::steady_clock::time_point()>;
+
   ///  Creates a connection over an injected socket and codec. Does not start
   ///  the background thread; call `Start()` once callback wiring is
   ///  complete.
@@ -61,10 +66,12 @@ public:
   ///  @param callbacks The lifecycle event hooks this connection invokes.
   ///  @param establishmentTimeout The absolute bound on waiting for the
   ///  connection owner to report authenticated HelloAck completion.
-  AdapterIpcConnection(IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
-                       AdapterIpcConnectionCallbacks callbacks,
-                       std::chrono::milliseconds establishmentTimeout =
-                           kAdapterIpcEstablishmentTimeout);
+  AdapterIpcConnection(
+      IAdapterIpcSocket &socket, const IIpcFrameCodec &codec,
+      AdapterIpcConnectionCallbacks callbacks,
+      std::chrono::milliseconds establishmentTimeout =
+          kAdapterIpcEstablishmentTimeout,
+      ClockNow clockNow = [] { return std::chrono::steady_clock::now(); });
 
   ///  Calls `Stop()` as a fallback so the background thread is never leaked.
   ~AdapterIpcConnection() override;
@@ -133,6 +140,10 @@ private:
   ///  ended or has not yet successfully started.
   void ClearOutbound();
 
+  ///  Accepts one inbound frame if the rolling per-connection rate window has
+  ///  not reached its shared private-IPC limit.
+  bool TryAcceptInboundMessage();
+
   ///  Marks the one-shot worker finished so a later `Start()` can join and
   ///  replace it.
   void MarkWorkerFinished();
@@ -145,6 +156,8 @@ private:
   AdapterIpcConnectionCallbacks callbacks_;
   ///  The absolute bound for the pre-authentication establishment phase.
   std::chrono::milliseconds establishmentTimeout_;
+  ///  The monotonic clock used by the inbound rate limiter.
+  ClockNow clockNow_;
   ///  Guards access to the worker thread object and coordinates joins.
   std::mutex lifecycleMutex_;
   ///  Wakes concurrent shutdown callers after the worker join completes.
@@ -161,6 +174,9 @@ private:
   std::mutex outboundMutex_;
   ///  The bounded FIFO of messages queued for the next write.
   std::deque<IpcMessage> outbound_;
+  ///  Timestamps of inbound frames still inside the current attempt's rolling
+  ///  rate window.
+  std::deque<std::chrono::steady_clock::time_point> inboundMessageTimes_;
   ///  Guards the currently configured target snapshot.
   std::mutex targetMutex_;
   ///  The target snapshot used by the next connection attempt, if configured.

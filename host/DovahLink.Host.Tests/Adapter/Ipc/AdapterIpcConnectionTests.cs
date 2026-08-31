@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Time;
@@ -10,6 +11,26 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests for <see cref="AdapterIpcConnection"/>.</summary>
 public class AdapterIpcConnectionTests
 {
+    /// <summary>Reads the shared native/host private-IPC rate-limit fixture.</summary>
+    private static (int MaxMessagesPerSecond, TimeSpan MessageRateWindow) ReadPrivateIpcLimitsFixture()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "integration", "private-ipc-limits.json");
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+        int maxMessages = document.RootElement.GetProperty("maxMessagesPerSecond").GetInt32();
+        int windowMilliseconds = document.RootElement.GetProperty("messageRateWindowMilliseconds").GetInt32();
+        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds));
+    }
+
+    /// <summary>Verifies that the host constants remain synchronized with the shared contract fixture.</summary>
+    [Fact]
+    public void InboundRateLimit_MatchesSharedPrivateIpcFixture()
+    {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+
+        Assert.Equal(Constants.MaxIpcMessagesPerSecond, maxMessages);
+        Assert.Equal(Constants.IpcMessageRateWindow, window);
+    }
+
     // ---- Handshake and resynchronization, over a real connected stream pair ----
 
     /// <summary>Verifies that a successful handshake sends the acknowledgement then the resynchronization request, and that disconnecting after notifies the session.</summary>
@@ -508,6 +529,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ClosesAfterLimit()
     {
+        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -520,7 +542,7 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages + 1; i++)
         {
             await client.WriteAsync(frame);
@@ -537,6 +559,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ForceClosesBlockedWriter()
     {
+        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var blockingStream = new BlockingWriteStream(server);
         var session = new FakeAdapterIpcSession();
@@ -548,14 +571,14 @@ public class AdapterIpcConnectionTests
         await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        for (int i = 0; i < Constants.MaxIpcMessagesPerSecond; i++)
+        for (int i = 0; i < maxMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(Constants.MaxIpcMessagesPerSecond - 1, session.HandledFrames.Count);
+        Assert.Equal(maxMessages - 1, session.HandledFrames.Count);
         Assert.Equal(1, session.DisconnectedCalls);
         client.Dispose();
     }
@@ -564,6 +587,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_AllowsMessagesAfterWindowExpires()
     {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -576,16 +600,16 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await WaitUntilAsync(() => session.HandledFrames.Count == acceptedPostHandshakeMessages, runTask);
-        clock.Advance(Constants.IpcMessageRateWindow + TimeSpan.FromTicks(1));
+        clock.Advance(window + TimeSpan.FromTicks(1));
         await client.WriteAsync(frame);
-        await WaitUntilAsync(() => session.HandledFrames.Count == Constants.MaxIpcMessagesPerSecond, runTask);
+        await WaitUntilAsync(() => session.HandledFrames.Count == maxMessages, runTask);
 
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -595,6 +619,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ExactWindowBoundaryRemainsLimited()
     {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -607,14 +632,14 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await WaitUntilAsync(() => session.HandledFrames.Count == acceptedPostHandshakeMessages, runTask);
-        clock.Advance(Constants.IpcMessageRateWindow);
+        clock.Advance(window);
         await client.WriteAsync(frame);
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 

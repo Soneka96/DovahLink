@@ -4,16 +4,20 @@
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
+#include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <future>
 #include <optional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -32,8 +36,10 @@ using dovahlink::adapter::ipc::IpcHelloMessage;
 using dovahlink::adapter::ipc::IpcHelloRejectReason;
 using dovahlink::adapter::ipc::IpcMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
+using dovahlink::adapter::ipc::kMaxIpcMessagesPerSecond;
 using dovahlink::adapter::ipc::kMaxIpcQueuedMessages;
 using dovahlink::adapter::ipc::test_support::FakeAdapterIpcSocket;
+using dovahlink::adapter::test_support::ReadSource;
 
 namespace {
 
@@ -43,7 +49,262 @@ template <typename T> bool WaitReady(std::future<T> &future) {
   return future.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
 }
 
+///  Waits for an asynchronous test condition without allowing a regression to
+///  hang the test process indefinitely.
+template <typename Predicate>
+bool WaitUntil(Predicate predicate,
+               std::chrono::milliseconds timeout = std::chrono::seconds(5)) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (predicate()) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  return predicate();
+}
+
+///  Reads one integer field from the checked-in host/adapter private-IPC
+///  contract fixture.
+std::size_t ReadPrivateIpcLimit(std::string_view key) {
+  const std::string source = ReadSource(DOVAHLINK_PRIVATE_IPC_LIMIT_FIXTURE);
+  const std::string marker = "\"" + std::string(key) + "\"";
+  const std::size_t keyPosition = source.find(marker);
+  REQUIRE(keyPosition != std::string::npos);
+  const std::size_t colon = source.find(':', keyPosition + marker.size());
+  REQUIRE(colon != std::string::npos);
+  const std::size_t valuePosition =
+      source.find_first_not_of(" \t\r\n", colon + 1);
+  REQUIRE(valuePosition != std::string::npos);
+
+  std::size_t value = 0;
+  const auto [end, error] = std::from_chars(
+      source.data() + valuePosition, source.data() + source.size(), value);
+  REQUIRE(error == std::errc{});
+  REQUIRE(end != source.data() + valuePosition);
+  return value;
+}
+
 } //  namespace
+
+TEST_CASE("AdapterIpcConnection enforces the shared inbound message-rate "
+          "limit before dispatch") {
+  const std::size_t maxMessages = ReadPrivateIpcLimit("maxMessagesPerSecond");
+  CHECK(maxMessages == kMaxIpcMessagesPerSecond);
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::atomic<std::size_t> delivered = 0;
+  std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            const std::size_t messageNumber = delivered.fetch_add(1) + 1;
+            return messageNumber == 1
+                       ? AdapterIpcMessageDisposition::kAuthenticated
+                       : AdapterIpcMessageDisposition::kContinue;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            outcomePromise.set_value(outcome);
+          },
+  };
+  std::atomic<std::int64_t> nowMilliseconds = 0;
+  AdapterIpcConnection connection(
+      socket, codec, std::move(callbacks), std::chrono::seconds(5), [&] {
+        return std::chrono::steady_clock::time_point{
+            std::chrono::milliseconds(nowMilliseconds.load())};
+      });
+  connection.Start();
+
+  const std::vector<std::byte> helloAck = codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}});
+  const std::vector<std::byte> message = codec.Encode(IpcMessage{
+      IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}});
+  std::vector<std::byte> inbound = helloAck;
+  for (std::size_t index = 1; index < maxMessages + 1; ++index) {
+    inbound.insert(inbound.end(), message.begin(), message.end());
+  }
+  socket.PushReadableBytes(inbound);
+
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+  CHECK(delivered.load() == maxMessages);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection resets inbound rate history for a reconnect") {
+  const std::size_t maxMessages = ReadPrivateIpcLimit("maxMessagesPerSecond");
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::atomic<std::size_t> delivered = 0;
+  std::atomic<int> finishedAttempts = 0;
+  std::promise<void> firstFinishedPromise;
+  std::promise<void> secondFinishedPromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [&](const IpcMessage &message) {
+            ++delivered;
+            return std::holds_alternative<IpcHelloAckMessage>(message)
+                       ? AdapterIpcMessageDisposition::kAuthenticated
+                       : AdapterIpcMessageDisposition::kContinue;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome) {
+            if (finishedAttempts.fetch_add(1) == 0) {
+              firstFinishedPromise.set_value();
+            } else {
+              secondFinishedPromise.set_value();
+            }
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.Start();
+
+  const std::vector<std::byte> helloAck = codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}});
+  const std::vector<std::byte> message = codec.Encode(IpcMessage{
+      IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}});
+  std::vector<std::byte> firstInbound = helloAck;
+  for (std::size_t index = 1; index < maxMessages; ++index) {
+    firstInbound.insert(firstInbound.end(), message.begin(), message.end());
+  }
+  socket.PushReadableBytes(firstInbound);
+  REQUIRE(WaitUntil([&] { return delivered.load() == maxMessages; }));
+
+  socket.SimulateDisconnect();
+  auto firstFinished = firstFinishedPromise.get_future();
+  REQUIRE(WaitReady(firstFinished));
+
+  connection.Start();
+  socket.PushReadableBytes(helloAck);
+  REQUIRE(WaitUntil([&] { return delivered.load() == maxMessages + 1; }));
+
+  socket.SimulateDisconnect();
+  auto secondFinished = secondFinishedPromise.get_future();
+  REQUIRE(WaitReady(secondFinished));
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection allows inbound messages after the shared rate "
+          "window expires") {
+  const std::size_t maxMessages = ReadPrivateIpcLimit("maxMessagesPerSecond");
+  const std::size_t windowMilliseconds =
+      ReadPrivateIpcLimit("messageRateWindowMilliseconds");
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::atomic<std::size_t> delivered = 0;
+  std::promise<void> limitReachedPromise;
+  std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            const std::size_t messageNumber = delivered.fetch_add(1) + 1;
+            if (messageNumber == maxMessages) {
+              limitReachedPromise.set_value();
+            }
+            return messageNumber == 1
+                       ? AdapterIpcMessageDisposition::kAuthenticated
+                       : AdapterIpcMessageDisposition::kContinue;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            outcomePromise.set_value(outcome);
+          },
+  };
+  std::atomic<std::int64_t> nowMilliseconds = 0;
+  AdapterIpcConnection connection(
+      socket, codec, std::move(callbacks), std::chrono::seconds(5), [&] {
+        return std::chrono::steady_clock::time_point{
+            std::chrono::milliseconds(nowMilliseconds.load())};
+      });
+  connection.Start();
+
+  const std::vector<std::byte> helloAck = codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}});
+  const std::vector<std::byte> message = codec.Encode(IpcMessage{
+      IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}});
+  std::vector<std::byte> inbound = helloAck;
+  for (std::size_t index = 1; index < maxMessages; ++index) {
+    inbound.insert(inbound.end(), message.begin(), message.end());
+  }
+  socket.PushReadableBytes(inbound);
+  auto limitReachedFuture = limitReachedPromise.get_future();
+  REQUIRE(WaitReady(limitReachedFuture));
+
+  nowMilliseconds.store(static_cast<std::int64_t>(windowMilliseconds + 1));
+  socket.PushReadableBytes(message);
+  REQUIRE(WaitUntil([&] { return delivered.load() == maxMessages + 1; }));
+
+  socket.SimulateDisconnect();
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection keeps the exact shared rate-window boundary "
+          "limited") {
+  const std::size_t maxMessages = ReadPrivateIpcLimit("maxMessagesPerSecond");
+  const std::size_t windowMilliseconds =
+      ReadPrivateIpcLimit("messageRateWindowMilliseconds");
+
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::atomic<std::size_t> delivered = 0;
+  std::promise<AdapterIpcAttemptOutcome> outcomePromise;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            const std::size_t messageNumber = delivered.fetch_add(1) + 1;
+            return messageNumber == 1
+                       ? AdapterIpcMessageDisposition::kAuthenticated
+                       : AdapterIpcMessageDisposition::kContinue;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            outcomePromise.set_value(outcome);
+          },
+  };
+  std::atomic<std::int64_t> nowMilliseconds = 0;
+  AdapterIpcConnection connection(
+      socket, codec, std::move(callbacks), std::chrono::seconds(5), [&] {
+        return std::chrono::steady_clock::time_point{
+            std::chrono::milliseconds(nowMilliseconds.load())};
+      });
+  connection.Start();
+
+  const std::vector<std::byte> helloAck = codec.Encode(IpcMessage{
+      IpcHelloAckMessage{.correlationId = 1,
+                         .accepted = true,
+                         .rejectReason = IpcHelloRejectReason::kNone}});
+  const std::vector<std::byte> message = codec.Encode(IpcMessage{
+      IpcCloseMessage{.correlationId = 0, .reason = IpcCloseReason::kNormal}});
+  std::vector<std::byte> inbound = helloAck;
+  for (std::size_t index = 1; index < maxMessages; ++index) {
+    inbound.insert(inbound.end(), message.begin(), message.end());
+  }
+  socket.PushReadableBytes(inbound);
+  REQUIRE(WaitUntil([&] { return delivered.load() == maxMessages; }));
+
+  nowMilliseconds.store(static_cast<std::int64_t>(windowMilliseconds));
+  socket.PushReadableBytes(message);
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcomeFuture.get() == AdapterIpcAttemptOutcome::kDisconnected);
+  CHECK(delivered.load() == maxMessages);
+  connection.Stop();
+}
 
 TEST_CASE("AdapterIpcConnection passes the configured target snapshot to the "
           "target-connected callback and socket") {
