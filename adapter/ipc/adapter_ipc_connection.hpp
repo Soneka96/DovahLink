@@ -75,6 +75,9 @@ public:
       ClockNow clockNow = [] { return std::chrono::steady_clock::now(); });
 
   ///  Calls `Stop()` as a fallback so the background thread is never leaked.
+  ///  Contains any exception `Stop()` rethrows from a failed worker join, so
+  ///  it can never escape this implicitly `noexcept` destructor and call
+  ///  `std::terminate`.
   ~AdapterIpcConnection() override;
 
   AdapterIpcConnection(const AdapterIpcConnection &) = delete;

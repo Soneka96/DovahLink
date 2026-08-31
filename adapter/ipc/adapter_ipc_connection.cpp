@@ -38,7 +38,15 @@ AdapterIpcConnection::AdapterIpcConnection(
       establishmentTimeout_(establishmentTimeout),
       clockNow_(std::move(clockNow)) {}
 
-AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
+AdapterIpcConnection::~AdapterIpcConnection() {
+  //  Stop() rethrows a std::thread::join failure; a destructor is implicitly
+  //  noexcept, so an escaping exception here would call std::terminate and
+  //  kill the whole Skyrim process instead of unwinding one connection.
+  try {
+    Stop();
+  } catch (...) {
+  }
+}
 
 void AdapterIpcConnection::Start() {
   {

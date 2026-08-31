@@ -1791,3 +1791,30 @@ TEST_CASE("AdapterIpcConnection still classifies a pre-authentication "
 
   connection.Stop();
 }
+
+TEST_CASE("AdapterIpcConnection's destructor does not propagate an exception "
+          "from Stop") {
+  //  The destructor calls Stop(), which can rethrow a std::thread::join
+  //  failure; a destructor is implicitly noexcept, so that exception must be
+  //  contained here rather than escaping and calling std::terminate. This
+  //  covers the normal Start()+Stop()+destroy path; deterministically forcing
+  //  join() itself to throw would need a thread-abstraction seam this class
+  //  does not have.
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [] {},
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+
+  REQUIRE_NOTHROW([&] {
+    AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+    connection.Start();
+    connection.Stop();
+  }());
+}
