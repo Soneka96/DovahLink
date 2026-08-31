@@ -59,12 +59,13 @@ public:
 
 private:
   ///  Encodes an `IpcHelloMessage` payload: 16 identity bytes, a length byte,
-  ///  then the token.
+  ///  the token, then the fixed-size challenge and owner-lifetime-id fields.
   ///  @throws std::invalid_argument The peer-proof token exceeds
   ///  `kMaxIpcPeerProofTokenBytes`.
   static std::vector<std::byte> EncodeHello(const IpcHelloMessage &hello);
 
-  ///  Encodes an `IpcHelloAckMessage` payload: accepted and reject reason.
+  ///  Encodes an `IpcHelloAckMessage` payload: accepted, reject reason, then
+  ///  the fixed-size host proof.
   static std::vector<std::byte>
   EncodeHelloAck(const IpcHelloAckMessage &helloAck);
 

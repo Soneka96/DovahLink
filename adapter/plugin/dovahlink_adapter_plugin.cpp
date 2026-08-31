@@ -11,20 +11,32 @@
 #include "identity/adapter_instance_id_generator.hpp"
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
-#include "ipc/adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/adapter_ipc_session.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
+#include "process/adapter_host_constants.hpp"
+#include "process/adapter_host_process_launcher.hpp"
+#include "process/adapter_host_rendezvous_reader.hpp"
+#include "process/adapter_host_shutdown_requester.hpp"
+#include "process/adapter_host_supervisor.hpp"
+#include "process/adapter_owner_lifetime_id.hpp"
 #include "runtime/commonlib_adapter_task_marshaller.hpp"
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 #include <spdlog/async.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <array>
 #include <cstddef>
-#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
 #include <utility>
-#include <vector>
 
 namespace {
 
@@ -47,17 +59,42 @@ void SetupLogging() {
   spdlog::set_default_logger(std::move(logger));
 }
 
-///  Provisional private-IPC target port and peer-proof token. The host
-///  binds an OS-assigned ephemeral port and generates its own random proof
-///  value at startup; handing the adapter the real values it needs to reach
-///  that specific host process is process-launch work this concept's
-///  non-goals explicitly defer to Concept 04 ("Host process launch...
-///  belong to concept 04"). These placeholders let the connect/reconnect
-///  mechanism itself be exercised safely today -- proven never to block or
-///  crash Skyrim capture when nothing is listening -- without pretending to
-///  solve port/token discovery here.
-constexpr std::uint16_t kProvisionalHostIpcPort = 0;
-const std::vector<std::byte> kProvisionalPeerProofToken{};
+///  Resolves the packaged host executable's path relative to this adapter
+///  plugin DLL's own installed directory -- only the loaded plugin binary
+///  itself can discover where that is.
+///  @return The resolved path, or `std::nullopt` if this module's own file
+///  path could not be determined.
+std::optional<std::filesystem::path> ResolveAdapterHostExecutablePath() {
+  HMODULE moduleHandle = nullptr;
+  if (!GetModuleHandleExW(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCWSTR>(&ResolveAdapterHostExecutablePath),
+          &moduleHandle)) {
+    return std::nullopt;
+  }
+
+  constexpr DWORD kMaxPathChars = 32768;
+  std::wstring buffer(kMaxPathChars, L'\0');
+  DWORD written =
+      GetModuleFileNameW(moduleHandle, buffer.data(), kMaxPathChars);
+  if (written == 0 || written >= kMaxPathChars) {
+    return std::nullopt;
+  }
+  buffer.resize(written);
+
+  std::filesystem::path pluginDirectory =
+      std::filesystem::path(buffer).parent_path();
+  return pluginDirectory /
+         dovahlink::adapter::process::kAdapterHostExecutableRelativePath;
+}
+
+///  The one owner-lifetime identity accepted by this plugin instance. It is
+///  populated during `SKSEPluginLoad` and reused by DLL-detach shutdown so
+///  every lifecycle participant names the same Skyrim process lifetime.
+std::optional<
+    std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>>
+    gOwnerLifetimeId;
 
 } //  namespace
 
@@ -72,55 +109,38 @@ SKSEPluginInfo(
     ///  Initializes the adapter plugin and schedules the private IPC connection
     ///  to start after game data loads.
     SKSEPluginLoad(const SKSE::LoadInterface *skse) {
-  SetupLogging();
-
   //  SKSE-QUIRK: see
   //  ai/context/skse/runtime-quirks.md#skseinit-must-run-before-any-interface-registration
   //  Must run before any SKSE::Get*Interface()-based registration below.
   SKSE::Init(skse);
 
-  //  Plugin-lifetime adapter state, declared as function-local statics in
-  //  the exact order they depend on each other, mirroring
-  //  bridge/plugin/dovahlink_bridge_plugin.cpp's composition-root pattern.
-  static dovahlink::adapter::capture::AdapterCaptureHandoffQueue captureQueue(
-      [](const dovahlink::adapter::capture::AdapterCaptureWorkItem &item) {
-        SKSE::log::info("Adapter capture drained for intent key {}.",
-                        item.intentKey);
-      },
-      [](const dovahlink::adapter::capture::AdapterCaptureWorkItem &item) {
-        SKSE::log::warn("Adapter capture queue rejected intent key {}.",
-                        item.intentKey);
-      });
-  static dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller
-      taskMarshaller;
-  static dovahlink::adapter::dispatch::AdapterNativeDispatcher dispatcher;
+  //  Resolve every failure-prone startup dependency before constructing any
+  //  process-lifetime worker. If SKSE rejects this load and immediately
+  //  unloads the DLL, there must be no thread-owning object whose destructor
+  //  could run under the loader lock.
+  auto ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
+  if (!ownerLifetimeId.has_value()) {
+    SKSE::log::error("Unable to derive the current Skyrim process lifetime "
+                     "identity; refusing to start the adapter.");
+    return false;
+  }
+  gOwnerLifetimeId = *ownerLifetimeId;
 
-  dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
-  static dovahlink::adapter::identity::AdapterInstanceId instanceId =
-      idGenerator.Generate();
-  static dovahlink::adapter::ipc::FixedAdapterIpcPeerProofProvider
-      peerProofProvider(kProvisionalPeerProofToken);
-  static dovahlink::adapter::ipc::AdapterIpcSession session(
-      instanceId, peerProofProvider, taskMarshaller, dispatcher, captureQueue);
-
-  static dovahlink::adapter::ipc::WinsockAdapterIpcSocket socket(
-      kProvisionalHostIpcPort);
-  static dovahlink::adapter::ipc::IpcFrameCodec codec;
-  static dovahlink::adapter::ipc::AdapterIpcConnection connection(
-      socket, codec,
-      dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
-          .onConnected = [] { session.HandleConnected(); },
-          .onMessageReceived =
-              [](const dovahlink::adapter::ipc::IpcMessage &message) {
-                return session.HandleMessage(message);
-              },
-          .onDecodeFailure = [] { session.HandleDecodeFailure(); },
-          .onDisconnected = [] { session.HandleDisconnected(); },
-      });
-  session.AttachConnection(connection);
-
-  dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(session);
-
+  auto rendezvousPath =
+      dovahlink::adapter::process::ResolveDefaultRendezvousFilePath(
+          *gOwnerLifetimeId);
+  if (!rendezvousPath.has_value()) {
+    SKSE::log::error("Unable to resolve the host rendezvous file path; the "
+                     "current Windows user has no local application-data "
+                     "directory.");
+    return false;
+  }
+  auto hostExecutablePath = ResolveAdapterHostExecutablePath();
+  if (!hostExecutablePath.has_value()) {
+    SKSE::log::error(
+        "Unable to resolve this adapter plugin's own installed directory.");
+    return false;
+  }
   auto *messaging = static_cast<SKSE::MessagingInterface *>(
       skse->QueryInterface(SKSE::LoadInterface::kMessaging));
   if (!messaging) {
@@ -128,6 +148,84 @@ SKSEPluginInfo(
                      "defer startup to kDataLoaded.");
     return false;
   }
+
+  //  Configure asynchronous diagnostics only after every fatal startup guard
+  //  has passed. A rejected load can then be unloaded without first creating
+  //  the logger's background infrastructure.
+  SetupLogging();
+
+  //  Plugin-lifetime adapter state, declared as function-local statics in
+  //  the exact order they depend on each other. The pointed-to objects are
+  //  intentionally process-lifetime allocations: 1B does not support live
+  //  DLL unload/reload, and allowing their destructors to join under DLL
+  //  detach would violate the loader-lock boundary. Windows reclaims these
+  //  objects, threads, sockets, and handles when Skyrim exits.
+  static auto *captureQueue =
+      new dovahlink::adapter::capture::AdapterCaptureHandoffQueue(
+          [](const dovahlink::adapter::capture::AdapterCaptureWorkItem &item) {
+            SKSE::log::info("Adapter capture drained for intent key {}.",
+                            item.intentKey);
+          },
+          [](const dovahlink::adapter::capture::AdapterCaptureWorkItem &item) {
+            SKSE::log::warn("Adapter capture queue rejected intent key {}.",
+                            item.intentKey);
+          });
+  static auto *taskMarshaller =
+      new dovahlink::adapter::runtime::CommonLibAdapterTaskMarshaller;
+  static auto *dispatcher =
+      new dovahlink::adapter::dispatch::AdapterNativeDispatcher;
+
+  dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
+  static dovahlink::adapter::identity::AdapterInstanceId instanceId =
+      idGenerator.Generate();
+  const auto &stableOwnerLifetimeId = *gOwnerLifetimeId;
+  static auto *session = new dovahlink::adapter::ipc::AdapterIpcSession(
+      instanceId, stableOwnerLifetimeId, *taskMarshaller, *dispatcher,
+      *captureQueue);
+
+  static auto *socket = new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
+  static auto *codec = new dovahlink::adapter::ipc::IpcFrameCodec;
+
+  //  Process-lifecycle discovery: an adopt-from-rendezvous-or-launch-fresh
+  //  supervisor keeps the connection's complete target snapshot pointed at a
+  //  authenticated target for this plugin's whole lifetime.
+  static auto *reader =
+      new dovahlink::adapter::process::FileAdapterHostRendezvousReader(
+          *rendezvousPath);
+  static auto *launcher =
+      new dovahlink::adapter::process::Win32AdapterHostProcessLauncher(
+          *hostExecutablePath, stableOwnerLifetimeId);
+  static auto *supervisor =
+      static_cast<dovahlink::adapter::process::AdapterHostSupervisor *>(
+          nullptr);
+  static auto *connection = new dovahlink::adapter::ipc::AdapterIpcConnection(
+      *socket, *codec,
+      dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
+          .onTargetConnected =
+              [](const dovahlink::adapter::ipc::AdapterIpcTarget &target) {
+                session->HandleConnected(target);
+              },
+          .onMessageReceived =
+              [](const dovahlink::adapter::ipc::IpcMessage &message) {
+                return session->HandleMessage(message);
+              },
+          .onDecodeFailure = [] { session->HandleDecodeFailure(); },
+          .onDisconnected = [] { session->HandleDisconnected(); },
+          .onAttemptFinished =
+              [](std::uint64_t targetGeneration,
+                 dovahlink::adapter::ipc::AdapterIpcAttemptOutcome outcome) {
+                supervisor->NotifyConnectionLost(targetGeneration, outcome);
+              },
+          .onClosing = [] { session->HandleClosing(); },
+      });
+  if (supervisor == nullptr) {
+    supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
+        *reader, *launcher, *connection);
+  }
+  session->AttachConnection(*connection);
+
+  dovahlink::adapter::papyrus::InstallAdapterStatusPapyrusAdapter(*session);
+
   //  SKSE-QUIRK: see
   //  ai/context/skse/runtime-quirks.md#one-messaginginterfaceregisterlistener-call-per-plugin
   //  SKSE allows exactly one MessagingInterface::RegisterListener call per
@@ -135,11 +233,28 @@ SKSEPluginInfo(
   //  it fails if a second RegisterListener call is ever added to this file.
   messaging->RegisterListener([](SKSE::MessagingInterface::Message *message) {
     if (message->type == SKSE::MessagingInterface::kDataLoaded) {
-      connection.Start();
+      supervisor->Start();
       SKSE::log::info(
           "DovahLink Adapter connecting to the private host IPC channel.");
     }
   });
 
   return true;
+}
+
+///  Signals the launched host's shutdown-request event, and nothing else:
+///  `DLL_PROCESS_DETACH` runs under the loader lock, where a join or wait
+///  can deadlock or hang past the operating system's own patience for
+///  process exit. This never calls the full ordered shutdown sequence (see
+///  `dovahlink::adapter::process::AdapterShutdownOrchestrator`) -- there is
+///  currently no confirmed safe hook to call that sequence from before the
+///  process disappears; `ExitProcess`-driven teardown reclaims every
+///  adapter-side thread, socket, and handle regardless of whether it ran.
+BOOL APIENTRY DllMain(HMODULE, DWORD reason, LPVOID) {
+  if (reason == DLL_PROCESS_DETACH && gOwnerLifetimeId.has_value()) {
+    dovahlink::adapter::process::WindowsEventAdapterHostShutdownRequester(
+        *gOwnerLifetimeId)
+        .RequestShutdown();
+  }
+  return TRUE;
 }

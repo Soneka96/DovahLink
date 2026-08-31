@@ -37,17 +37,17 @@ TEST_CASE("the adapter plugin registers exactly one SKSE messaging listener",
   CHECK(CountOccurrences(source, "RegisterListener(") == 1);
 }
 
-TEST_CASE("the adapter plugin defers connection startup to kDataLoaded",
+TEST_CASE("the adapter plugin defers host discovery startup to kDataLoaded",
           "[plugin][structural]") {
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
   std::size_t dataLoadedCheck =
       source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
-  std::size_t connectionStart = source.find("connection.Start();");
+  std::size_t supervisorStart = source.find("supervisor->Start();");
 
   REQUIRE(dataLoadedCheck != std::string::npos);
-  REQUIRE(connectionStart != std::string::npos);
-  CHECK(dataLoadedCheck < connectionStart);
+  REQUIRE(supervisorStart != std::string::npos);
+  CHECK(dataLoadedCheck < supervisorStart);
 }
 
 TEST_CASE("the adapter plugin calls SKSE::Init before registering the "
@@ -72,9 +72,9 @@ TEST_CASE("the adapter plugin attaches the connection to the session and "
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
   std::size_t attachConnection =
-      source.find("session.AttachConnection(connection);");
+      source.find("session->AttachConnection(*connection);");
   std::size_t installPapyrus =
-      source.find("InstallAdapterStatusPapyrusAdapter(session);");
+      source.find("InstallAdapterStatusPapyrusAdapter(*session);");
   std::size_t registerListener = source.find("messaging->RegisterListener(");
 
   REQUIRE(attachConnection != std::string::npos);
@@ -92,15 +92,37 @@ TEST_CASE("the adapter plugin fails load cleanly when SKSE's messaging "
   std::size_t messagingCheck = source.find("if (!messaging)");
   std::size_t returnFalse = source.find("return false;", messagingCheck);
   std::size_t registerListener = source.find("messaging->RegisterListener(");
+  std::size_t setupLogging = source.find("SetupLogging();");
   std::size_t returnTrue = source.find("return true;");
 
   REQUIRE(messagingCheck != std::string::npos);
   REQUIRE(returnFalse != std::string::npos);
   REQUIRE(returnTrue != std::string::npos);
+  REQUIRE(setupLogging != std::string::npos);
   //  The failure return belongs to the null-interface guard, before the
-  //  listener is ever registered; the success return comes after it.
+  //  listener is ever registered. Asynchronous logging is also configured
+  //  only after every fatal startup guard has passed.
   CHECK(returnFalse < registerListener);
+  CHECK(returnFalse < setupLogging);
+  CHECK(setupLogging < registerListener);
   CHECK(returnTrue > registerListener);
+}
+
+TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(CountOccurrences(source, "DeriveOwnerLifetimeId(") == 1);
+  CHECK(source.find("gOwnerLifetimeId = *ownerLifetimeId;") !=
+        std::string::npos);
+  CHECK(
+      source.find(
+          "ResolveDefaultRendezvousFilePath(\n          *gOwnerLifetimeId)") !=
+      std::string::npos);
+  CHECK(source.find("*hostExecutablePath, stableOwnerLifetimeId") !=
+        std::string::npos);
+  CHECK(source.find("*gOwnerLifetimeId)\n        .RequestShutdown();") !=
+        std::string::npos);
 }
 
 TEST_CASE("adapter/CMakeLists.txt never links or builds a bridge/ target",
@@ -128,7 +150,7 @@ TEST_CASE("no adapter production source file includes a bridge/ header",
   int fileCount = 0;
   for (const char *subdirectory :
        std::array{"capture", "dispatch", "identity", "ipc", "papyrus", "plugin",
-                  "runtime"}) {
+                  "process", "runtime"}) {
     std::filesystem::path directory = root / subdirectory;
     REQUIRE(std::filesystem::exists(directory));
 
@@ -147,4 +169,178 @@ TEST_CASE("no adapter production source file includes a bridge/ header",
   }
 
   CHECK(fileCount > 0);
+}
+
+TEST_CASE("the adapter plugin starts the host-discovery supervisor on "
+          "kDataLoaded",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t dataLoadedCheck =
+      source.find("message->type == SKSE::MessagingInterface::kDataLoaded");
+  std::size_t supervisorStart = source.find("supervisor->Start();");
+
+  REQUIRE(dataLoadedCheck != std::string::npos);
+  REQUIRE(supervisorStart != std::string::npos);
+  CHECK(dataLoadedCheck < supervisorStart);
+}
+
+TEST_CASE("the adapter plugin does not start IPC before supervisor discovery",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(source.find("connection->Start();") == std::string::npos);
+  CHECK(source.find(".onTargetConnected") != std::string::npos);
+  CHECK(source.find("*launcher, *connection") != std::string::npos);
+}
+
+TEST_CASE("the adapter plugin notifies the supervisor when the connection "
+          "reports the host lost",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t onDisconnected = source.find(".onDisconnected =");
+  REQUIRE(onDisconnected != std::string::npos);
+  std::size_t handleDisconnected =
+      source.find("session->HandleDisconnected();", onDisconnected);
+  std::size_t attemptFinished = source.find(".onAttemptFinished =");
+  std::size_t notifyConnectionLost = source.find(
+      "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
+      attemptFinished);
+
+  REQUIRE(handleDisconnected != std::string::npos);
+  REQUIRE(attemptFinished != std::string::npos);
+  REQUIRE(notifyConnectionLost != std::string::npos);
+  //  The session observes the physical disconnect before the completed
+  //  attempt notifies the supervisor. The latter runs after the worker has
+  //  marked itself restartable.
+  CHECK(onDisconnected < handleDisconnected);
+  CHECK(handleDisconnected < attemptFinished);
+  CHECK(attemptFinished < notifyConnectionLost);
+}
+
+TEST_CASE("the adapter plugin notifies the supervisor when a connection "
+          "attempt fails",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t attemptFinished = source.find(".onAttemptFinished =");
+  REQUIRE(attemptFinished != std::string::npos);
+  std::size_t notifyConnectionLost = source.find(
+      "supervisor->NotifyConnectionLost(targetGeneration, outcome);",
+      attemptFinished);
+
+  REQUIRE(notifyConnectionLost != std::string::npos);
+  CHECK(attemptFinished < notifyConnectionLost);
+}
+
+TEST_CASE("the adapter plugin has no throwaway discovery verifier path",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(source.find("AdapterHostHandshakeVerifier") == std::string::npos);
+  CHECK(source.find("verifierSocket") == std::string::npos);
+  CHECK(source.find("NotifyConnectionLost();") == std::string::npos);
+  CHECK(source.find("NotifyConnectionLost(targetGeneration, outcome);") !=
+        std::string::npos);
+}
+
+TEST_CASE("DllMain signals shutdown without calling the blocking ordered "
+          "shutdown sequence, joining a thread, or waiting on a handle",
+          "[plugin][structural]") {
+  //  DLL_PROCESS_DETACH runs under the loader lock; only the non-blocking
+  //  RequestShutdown() signal is safe there. This structural check pins
+  //  that DllMain's own body never grows a call to the blocking orchestrator
+  //  method or any thread join/handle wait.
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t dllMain = source.find("DllMain(");
+  REQUIRE(dllMain != std::string::npos);
+  std::string dllMainOnward = source.substr(dllMain);
+
+  std::size_t reasonCheck = dllMainOnward.find("reason == DLL_PROCESS_DETACH");
+  std::size_t requestShutdown = dllMainOnward.find("RequestShutdown()");
+  REQUIRE(reasonCheck != std::string::npos);
+  REQUIRE(requestShutdown != std::string::npos);
+  //  The signal is gated on DLL_PROCESS_DETACH specifically, not fired
+  //  unconditionally for every DllMain reason (attach, thread attach/detach).
+  CHECK(reasonCheck < requestShutdown);
+  std::size_t bodyStart = dllMainOnward.find('{');
+  std::size_t bodyEnd = dllMainOnward.find('}', bodyStart);
+  REQUIRE(bodyStart != std::string::npos);
+  REQUIRE(bodyEnd != std::string::npos);
+  std::string body = dllMainOnward.substr(bodyStart, bodyEnd - bodyStart + 1);
+  CHECK(body.find("RequestShutdown()") != std::string::npos);
+  for (const char *loaderUnsafeOperation :
+       {"RunOrderedShutdown", ".join(", "WaitForSingleObject", ".Stop(",
+        "AwaitExitOrTerminate", "RequestStop(", "Release(", "std::thread",
+        "CreateThread", "Sleep(", "CloseHandle", "TerminateProcess",
+        "SetupLogging", "new ", "delete "}) {
+    INFO("checking " << loaderUnsafeOperation);
+    CHECK(body.find(loaderUnsafeOperation) == std::string::npos);
+  }
+}
+
+TEST_CASE("the adapter plugin fails load cleanly when the rendezvous file "
+          "path or the host executable path cannot be resolved",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  std::size_t rendezvousCheck = source.find("!rendezvousPath.has_value()");
+  std::size_t rendezvousReturnFalse =
+      source.find("return false;", rendezvousCheck);
+  std::size_t executableCheck = source.find("!hostExecutablePath.has_value()");
+  std::size_t executableReturnFalse =
+      source.find("return false;", executableCheck);
+  std::size_t messagingCheck = source.find("if (!messaging)");
+  std::size_t messagingReturnFalse =
+      source.find("return false;", messagingCheck);
+  std::size_t workerConstruction = source.find(
+      "new dovahlink::adapter::capture::AdapterCaptureHandoffQueue");
+
+  REQUIRE(rendezvousCheck != std::string::npos);
+  REQUIRE(rendezvousReturnFalse != std::string::npos);
+  REQUIRE(executableCheck != std::string::npos);
+  REQUIRE(executableReturnFalse != std::string::npos);
+  REQUIRE(messagingCheck != std::string::npos);
+  REQUIRE(messagingReturnFalse != std::string::npos);
+  REQUIRE(workerConstruction != std::string::npos);
+  //  Every failure guard runs before any thread-owning process-lifetime
+  //  object is constructed, so a rejected load can safely unload the DLL.
+  CHECK(rendezvousCheck < rendezvousReturnFalse);
+  CHECK(rendezvousReturnFalse < workerConstruction);
+  CHECK(executableCheck < executableReturnFalse);
+  CHECK(executableReturnFalse < workerConstruction);
+  CHECK(messagingCheck < messagingReturnFalse);
+  CHECK(messagingReturnFalse < workerConstruction);
+}
+
+TEST_CASE("the adapter plugin keeps worker-owning runtime objects out of DLL "
+          "detach destruction",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  //  1B intentionally keeps these objects alive until Skyrim exits. A
+  //  function-local static object would be destroyed during DLL detach and
+  //  could join its worker under the loader lock.
+  for (const char *automaticWorkerType :
+       {"static dovahlink::adapter::capture::AdapterCaptureHandoffQueue",
+        "static dovahlink::adapter::ipc::AdapterIpcConnection",
+        "static dovahlink::adapter::process::AdapterHostSupervisor"}) {
+    INFO("checking " << automaticWorkerType);
+    CHECK(source.find(automaticWorkerType) == std::string::npos);
+  }
+
+  CHECK(
+      source.find("static auto *captureQueue =\n      new "
+                  "dovahlink::adapter::capture::AdapterCaptureHandoffQueue") !=
+      std::string::npos);
+  CHECK(source.find("static auto *connection = new dovahlink::adapter::ipc::"
+                    "AdapterIpcConnection") != std::string::npos);
+  CHECK(source.find("static auto *supervisor =\n      static_cast<"
+                    "dovahlink::adapter::process::AdapterHostSupervisor *>") !=
+        std::string::npos);
+  CHECK(source.find("supervisor = new "
+                    "dovahlink::adapter::process::AdapterHostSupervisor") !=
+        std::string::npos);
 }

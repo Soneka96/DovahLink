@@ -8,6 +8,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The Hello messages passed to <see cref="Handshake"/>, in call order.</summary>
     public List<IpcHelloMessage> HandshakeCalls { get; } = [];
 
+    /// <summary>The lifecycle operations observed by this fake, in call order.</summary>
+    public List<string> LifecycleCalls { get; } = [];
+
     /// <summary>The frames passed to <see cref="HandleFrame"/>, in call order.</summary>
     public List<IpcMessage> HandledFrames { get; } = [];
 
@@ -16,6 +19,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
 
     /// <summary>The number of times <see cref="HandleDisconnected"/> was called.</summary>
     public int DisconnectedCalls { get; private set; }
+
+    /// <summary>The number of times <see cref="CommitHandshake"/> was called.</summary>
+    public int CommitHandshakeCalls { get; private set; }
 
     /// <inheritdoc/>
     public long? ConnectionGeneration { get; set; }
@@ -42,15 +48,30 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareCancel"/> returns.</summary>
     public IpcCancelMessage? CancelResult { get; set; }
 
+    /// <summary>An optional callback invoked synchronously at the end of <see cref="HandleDisconnected"/>, letting a test observe collaborator state exactly as it stood when the connection notified this session of disconnection.</summary>
+    public Action? OnDisconnected { get; set; }
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
+        LifecycleCalls.Add(nameof(Handshake));
         HandshakeCalls.Add(hello);
         return HandshakeResult;
     }
 
     /// <inheritdoc/>
-    public IpcResynchronizeRequestMessage PrepareResynchronizeRequest() => ResynchronizeRequest;
+    public void CommitHandshake()
+    {
+        LifecycleCalls.Add(nameof(CommitHandshake));
+        CommitHandshakeCalls++;
+    }
+
+    /// <inheritdoc/>
+    public IpcResynchronizeRequestMessage PrepareResynchronizeRequest()
+    {
+        LifecycleCalls.Add(nameof(PrepareResynchronizeRequest));
+        return ResynchronizeRequest;
+    }
 
     /// <inheritdoc/>
     public AdapterIpcOutcome HandleFrame(IpcMessage message)
@@ -76,5 +97,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public IpcCancelMessage? PrepareCancel(ulong correlationId) => CancelResult;
 
     /// <inheritdoc/>
-    public void HandleDisconnected() => DisconnectedCalls++;
+    public void HandleDisconnected()
+    {
+        DisconnectedCalls++;
+        OnDisconnected?.Invoke();
+    }
 }

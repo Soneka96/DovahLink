@@ -88,6 +88,74 @@ public class IpcFrameCodecTests
         Assert.Equal(new byte[] { 1, 2, 3 }, decoded.PeerProofToken);
     }
 
+    /// <summary>Verifies that mutating a previously read Challenge cannot change the message's stored value.</summary>
+    [Fact]
+    public void Hello_Challenge_MutatingReturnedArrayDoesNotAffectMessage()
+    {
+        byte[] challenge = new byte[Constants.IpcChallengeBytes];
+        var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), [], challenge);
+
+        byte[] returned = message.Challenge;
+        returned[0] = 99;
+
+        Assert.Equal(new byte[Constants.IpcChallengeBytes], message.Challenge);
+    }
+
+    /// <summary>Verifies that mutating a previously read OwnerLifetimeId cannot change the message's stored value.</summary>
+    [Fact]
+    public void Hello_OwnerLifetimeId_MutatingReturnedArrayDoesNotAffectMessage()
+    {
+        byte[] ownerLifetimeId = new byte[Constants.IpcOwnerLifetimeIdBytes];
+        var message = new IpcHelloMessage(1, AdapterInstanceId.NewId(), [], ownerLifetimeId: ownerLifetimeId);
+
+        byte[] returned = message.OwnerLifetimeId;
+        returned[0] = 99;
+
+        Assert.Equal(new byte[Constants.IpcOwnerLifetimeIdBytes], message.OwnerLifetimeId);
+    }
+
+    /// <summary>Verifies that a Hello round-trips its challenge and owner-lifetime-id exactly.</summary>
+    [Fact]
+    public void RoundTrip_Hello_ChallengeAndOwnerLifetimeId()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] challenge = Enumerable.Range(1, Constants.IpcChallengeBytes).Select(index => (byte)index).ToArray();
+        byte[] ownerLifetimeId = Enumerable.Range(200, Constants.IpcOwnerLifetimeIdBytes).Select(index => (byte)index).ToArray();
+        var original = new IpcHelloMessage(7, AdapterInstanceId.NewId(), [1, 2], challenge, ownerLifetimeId);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcHelloMessage>(result.Message);
+        Assert.Equal(challenge, decoded.Challenge);
+        Assert.Equal(ownerLifetimeId, decoded.OwnerLifetimeId);
+    }
+
+    /// <summary>Verifies that constructing a Hello rejects a challenge or owner-lifetime-id of the wrong length.</summary>
+    [Fact]
+    public void Construct_Hello_WrongLengthChallengeOrOwnerLifetimeId_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new IpcHelloMessage(1, AdapterInstanceId.NewId(), [], challenge: new byte[Constants.IpcChallengeBytes - 1]));
+        Assert.Throws<ArgumentException>(() =>
+            new IpcHelloMessage(1, AdapterInstanceId.NewId(), [], ownerLifetimeId: new byte[Constants.IpcOwnerLifetimeIdBytes + 1]));
+    }
+
+    /// <summary>Verifies that a Hello payload missing the challenge and owner-lifetime-id tail fails closed.</summary>
+    [Fact]
+    public void Decode_Hello_MissingChallengeAndOwnerLifetimeIdTail_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        // The pre-D2 payload shape: 17 identity/length bytes plus a 2-byte token, with none of the
+        // new fixed-size fields appended.
+        byte[] payload = new byte[19];
+        payload[16] = 2;
+        byte[] frame = BuildFrame(IpcMessageKind.Hello, correlationId: 1, payload);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that a Hello with an empty peer-proof token round-trips.</summary>
     [Fact]
     public void RoundTrip_Hello_EmptyToken()
@@ -120,11 +188,63 @@ public class IpcFrameCodecTests
     public void RoundTrip_HelloAck_Accepted()
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloAckMessage(1, Accepted: true, IpcHelloRejectReason.None);
+        var original = new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
-        Assert.Equal(original, result.Message);
+        var decoded = Assert.IsType<IpcHelloAckMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Accepted, decoded.Accepted);
+        Assert.Equal(original.RejectReason, decoded.RejectReason);
+        Assert.Equal(original.HostProof, decoded.HostProof);
+    }
+
+    /// <summary>Verifies that mutating a previously read HostProof cannot change the message's stored value.</summary>
+    [Fact]
+    public void HelloAck_HostProof_MutatingReturnedArrayDoesNotAffectMessage()
+    {
+        byte[] hostProof = new byte[Constants.IpcHostProofBytes];
+        var message = new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None, hostProof);
+
+        byte[] returned = message.HostProof;
+        returned[0] = 99;
+
+        Assert.Equal(new byte[Constants.IpcHostProofBytes], message.HostProof);
+    }
+
+    /// <summary>Verifies that an accepted HelloAck round-trips its host proof exactly.</summary>
+    [Fact]
+    public void RoundTrip_HelloAck_HostProof()
+    {
+        var codec = new IpcFrameCodec();
+        byte[] hostProof = Enumerable.Range(1, Constants.IpcHostProofBytes).Select(index => (byte)index).ToArray();
+        var original = new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None, hostProof);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        var decoded = Assert.IsType<IpcHelloAckMessage>(result.Message);
+        Assert.Equal(hostProof, decoded.HostProof);
+    }
+
+    /// <summary>Verifies that constructing a HelloAck rejects a host proof of the wrong length.</summary>
+    [Fact]
+    public void Construct_HelloAck_WrongLengthHostProof_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None, new byte[Constants.IpcHostProofBytes - 1]));
+    }
+
+    /// <summary>Verifies that a HelloAck payload missing the host-proof tail fails closed.</summary>
+    [Fact]
+    public void Decode_HelloAck_MissingHostProofTail_FailsClosed()
+    {
+        var codec = new IpcFrameCodec();
+        // The pre-D2 2-byte payload shape, with no hostProof appended.
+        byte[] frame = BuildFrame(IpcMessageKind.HelloAck, correlationId: 1, [1, 0]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
     /// <summary>Verifies that encoding an accepted HelloAck with a rejection reason fails closed.</summary>
@@ -132,7 +252,7 @@ public class IpcFrameCodecTests
     public void Encode_HelloAck_AcceptedWithRejectReason_Throws()
     {
         var codec = new IpcFrameCodec();
-        var message = new IpcHelloAckMessage(1, Accepted: true, IpcHelloRejectReason.InvalidProof);
+        var message = new IpcHelloAckMessage(1, true, IpcHelloRejectReason.InvalidProof);
 
         Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
@@ -142,7 +262,7 @@ public class IpcFrameCodecTests
     public void Encode_HelloAck_RejectedWithoutRejectReason_Throws()
     {
         var codec = new IpcFrameCodec();
-        var message = new IpcHelloAckMessage(1, Accepted: false, IpcHelloRejectReason.None);
+        var message = new IpcHelloAckMessage(1, false, IpcHelloRejectReason.None);
 
         Assert.Throws<ArgumentException>(() => codec.Encode(message));
     }
@@ -151,14 +271,19 @@ public class IpcFrameCodecTests
     [Theory]
     [InlineData(IpcHelloRejectReason.InvalidProof)]
     [InlineData(IpcHelloRejectReason.Malformed)]
+    [InlineData(IpcHelloRejectReason.LifetimeMismatch)]
     public void RoundTrip_HelloAck_Rejected(IpcHelloRejectReason reason)
     {
         var codec = new IpcFrameCodec();
-        var original = new IpcHelloAckMessage(1, Accepted: false, reason);
+        var original = new IpcHelloAckMessage(1, false, reason);
 
         (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
 
-        Assert.Equal(original, result.Message);
+        var decoded = Assert.IsType<IpcHelloAckMessage>(result.Message);
+        Assert.Equal(original.CorrelationId, decoded.CorrelationId);
+        Assert.Equal(original.Accepted, decoded.Accepted);
+        Assert.Equal(original.RejectReason, decoded.RejectReason);
+        Assert.Equal(original.HostProof, decoded.HostProof);
     }
 
     /// <summary>Verifies that a ResynchronizeRequest round-trips.</summary>
@@ -553,6 +678,21 @@ public class IpcFrameCodecTests
         Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
     }
 
+    /// <summary>Verifies that a HelloAck payload one byte short or one byte long of the fixed 34-byte shape fails closed.</summary>
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(1)]
+    public void Decode_HelloAck_PayloadOffByOneFromHostProofBoundary_FailsClosed(int bytesBeyondCorrectLength)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(
+            IpcMessageKind.HelloAck, correlationId: 1, new byte[2 + Constants.IpcHostProofBytes + bytesBeyondCorrectLength]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that a ResynchronizeRequest carrying an unexpected payload fails closed.</summary>
     [Fact]
     public void Decode_ResynchronizeRequest_NonEmptyPayload_FailsClosed()
@@ -737,9 +877,16 @@ public class IpcFrameCodecTests
         var adapterInstanceId = new AdapterInstanceId(new Guid("00112233-4455-6677-8899-aabbccddeeff"));
         var vectors = new (IpcMessage Message, string Hex)[]
         {
+            // 64-byte Hello payload: 16 identity + 1 token-length + 3 token + 32 zero-filled challenge +
+            // 12 zero-filled ownerLifetimeId (this vector's IpcHelloMessage does not set either field).
             (new IpcHelloMessage(1, adapterInstanceId, [0xA0, 0xB1, 0xC2]),
-                "1D00000001010000000000000000112233445566778899AABBCCDDEEFF03A0B1C2"),
-            (new IpcHelloAckMessage(2, Accepted: true, IpcHelloRejectReason.None), "0B0000000202000000000000000100"),
+                "4900000001010000000000000000112233445566778899AABBCCDDEEFF03A0B1C2" +
+                "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"),
+            // 34-byte HelloAck payload: accepted + rejectReason + 32 zero-filled hostProof (this
+            // vector's IpcHelloAckMessage does not set hostProof).
+            (new IpcHelloAckMessage(2, true, IpcHelloRejectReason.None),
+                "2B0000000202000000000000000100" +
+                "0000000000000000000000000000000000000000000000000000000000000000"),
             (new IpcResynchronizeRequestMessage(4), "09000000030400000000000000"),
             (new IpcResynchronizeResultMessage(5, Accepted: true), "0A00000004050000000000000001"),
             (new IpcCloseMessage(0, IpcCloseReason.Normal), "0A00000005000000000000000000"),

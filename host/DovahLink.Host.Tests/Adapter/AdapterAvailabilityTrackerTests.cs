@@ -1,5 +1,6 @@
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
+using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Tests.Adapter;
@@ -19,31 +20,34 @@ public class AdapterAvailabilityTrackerTests
 
     /// <summary>Verifies that connecting reports available, records the instance, and requires resynchronization.</summary>
     [Fact]
-    public void NotifyConnected_ReportsAvailableAndNeedsResynchronization()
+    public void PublishConnected_ReportsAvailableAndNeedsResynchronization()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
 
-        tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
         Assert.True(tracker.NeedsResynchronization);
     }
 
-    /// <summary>Verifies that each connected adapter channel receives a new monotonic generation.</summary>
+    /// <summary>
+    /// Verifies that the tracker commits exactly the generation it is given rather than deriving one
+    /// of its own -- connection-generation numbering belongs solely to
+    /// <see cref="IAdapterConnectionLifecycle"/>, the tracker's sole intended caller.
+    /// </summary>
     [Fact]
-    public void NotifyConnected_IncrementsAndReturnsConnectionGeneration()
+    public void PublishConnected_CommitsSuppliedGeneration()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
 
-        long first = tracker.NotifyConnected(instanceId);
-        long second = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 5);
+        Assert.Equal(5, tracker.CurrentConnectionGeneration);
 
-        Assert.Equal(1, first);
-        Assert.Equal(2, second);
-        Assert.Equal(2, tracker.CurrentConnectionGeneration);
+        PublishConnected(tracker, instanceId, 9);
+        Assert.Equal(9, tracker.CurrentConnectionGeneration);
     }
 
     /// <summary>Verifies that NotifyResynchronized clears the resynchronization requirement.</summary>
@@ -52,23 +56,23 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyResynchronized(instanceId, connectionGeneration);
+        tracker.NotifyResynchronized(instanceId, 1);
 
         Assert.False(tracker.NeedsResynchronization);
     }
 
     /// <summary>Verifies that disconnecting reports unavailable and requires resynchronization on the next connection.</summary>
     [Fact]
-    public void NotifyDisconnected_ReportsUnavailableAndNeedsResynchronization()
+    public void PublishDisconnected_ReportsUnavailableAndNeedsResynchronization()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
-        tracker.NotifyResynchronized(instanceId, connectionGeneration);
+        PublishConnected(tracker, instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1);
 
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
+        PublishDisconnected(tracker, instanceId, 1);
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
         Assert.True(tracker.NeedsResynchronization);
@@ -76,29 +80,29 @@ public class AdapterAvailabilityTrackerTests
 
     /// <summary>Verifies that disconnecting does not erase the last known adapter instance identity.</summary>
     [Fact]
-    public void NotifyDisconnected_RetainsLastKnownInstanceId()
+    public void PublishDisconnected_RetainsLastKnownInstanceId()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
+        PublishDisconnected(tracker, instanceId, 1);
 
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
     }
 
     /// <summary>Verifies that a reconnection with a new instance identity replaces the previous one.</summary>
     [Fact]
-    public void NotifyConnected_AfterDisconnect_ReplacesInstanceIdAndRequiresResyncAgain()
+    public void PublishConnected_AfterDisconnect_ReplacesInstanceIdAndRequiresResyncAgain()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId oldInstanceId = AdapterInstanceId.NewId();
-        long oldConnectionGeneration = tracker.NotifyConnected(oldInstanceId);
-        tracker.NotifyResynchronized(oldInstanceId, oldConnectionGeneration);
-        tracker.NotifyDisconnected(oldInstanceId, oldConnectionGeneration);
+        PublishConnected(tracker, oldInstanceId, 1);
+        tracker.NotifyResynchronized(oldInstanceId, 1);
+        PublishDisconnected(tracker, oldInstanceId, 1);
         AdapterInstanceId newInstanceId = AdapterInstanceId.NewId();
 
-        tracker.NotifyConnected(newInstanceId);
+        PublishConnected(tracker, newInstanceId, 2);
 
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(newInstanceId, tracker.CurrentInstanceId);
@@ -110,7 +114,7 @@ public class AdapterAvailabilityTrackerTests
     public void NewTracker_AfterPriorTrackerConnected_StartsUnavailableWithNoInstance()
     {
         var priorTracker = new AdapterAvailabilityTracker();
-        priorTracker.NotifyConnected(AdapterInstanceId.NewId());
+        PublishConnected(priorTracker, AdapterInstanceId.NewId(), 1);
 
         var restartedTracker = new AdapterAvailabilityTracker();
 
@@ -133,15 +137,15 @@ public class AdapterAvailabilityTrackerTests
 
     /// <summary>Verifies that connecting again while already connected (a duplicate connect notification) still replaces the instance and requires resync.</summary>
     [Fact]
-    public void NotifyConnected_WhileAlreadyConnected_ReplacesInstanceAndRequiresResync()
+    public void PublishConnected_WhileAlreadyConnected_ReplacesInstanceAndRequiresResync()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId firstInstanceId = AdapterInstanceId.NewId();
-        long firstConnectionGeneration = tracker.NotifyConnected(firstInstanceId);
-        tracker.NotifyResynchronized(firstInstanceId, firstConnectionGeneration);
+        PublishConnected(tracker, firstInstanceId, 1);
+        tracker.NotifyResynchronized(firstInstanceId, 1);
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
 
-        tracker.NotifyConnected(secondInstanceId);
+        PublishConnected(tracker, secondInstanceId, 2);
 
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(secondInstanceId, tracker.CurrentInstanceId);
@@ -150,14 +154,14 @@ public class AdapterAvailabilityTrackerTests
 
     /// <summary>Verifies that disconnecting twice in a row is a harmless no-op.</summary>
     [Fact]
-    public void NotifyDisconnected_CalledTwice_StaysUnavailable()
+    public void PublishDisconnected_CalledTwice_StaysUnavailable()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
+        PublishDisconnected(tracker, instanceId, 1);
+        PublishDisconnected(tracker, instanceId, 1);
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
@@ -175,13 +179,13 @@ public class AdapterAvailabilityTrackerTests
 
     /// <summary>Verifies that disconnecting before ever resynchronizing leaves resynchronization still required, rather than resetting it.</summary>
     [Fact]
-    public void NotifyDisconnected_BeforeEverResynchronizing_StillNeedsResynchronization()
+    public void PublishDisconnected_BeforeEverResynchronizing_StillNeedsResynchronization()
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
+        PublishDisconnected(tracker, instanceId, 1);
 
         Assert.True(tracker.NeedsResynchronization);
     }
@@ -192,7 +196,7 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
 
@@ -211,16 +215,16 @@ public class AdapterAvailabilityTrackerTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId oldInstanceId = AdapterInstanceId.NewId();
         AdapterInstanceId currentInstanceId = AdapterInstanceId.NewId();
-        long oldConnectionGeneration = tracker.NotifyConnected(oldInstanceId);
-        long currentConnectionGeneration = tracker.NotifyConnected(currentInstanceId);
+        PublishConnected(tracker, oldInstanceId, 1);
+        PublishConnected(tracker, currentInstanceId, 2);
 
-        tracker.NotifyDisconnected(oldInstanceId, oldConnectionGeneration);
-        tracker.NotifyResynchronized(oldInstanceId, oldConnectionGeneration);
+        PublishDisconnected(tracker, oldInstanceId, 1);
+        tracker.NotifyResynchronized(oldInstanceId, 1);
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Available, snapshot.Current);
         Assert.Equal(currentInstanceId, snapshot.CurrentInstanceId);
-        Assert.Equal(currentConnectionGeneration, snapshot.ConnectionGeneration);
+        Assert.Equal(2, snapshot.ConnectionGeneration);
         Assert.True(snapshot.NeedsResynchronization);
     }
 
@@ -230,15 +234,15 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long oldGeneration = tracker.NotifyConnected(instanceId);
-        long currentGeneration = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
+        PublishConnected(tracker, instanceId, 2);
 
-        tracker.NotifyDisconnected(instanceId, oldGeneration);
-        tracker.NotifyResynchronized(instanceId, oldGeneration);
+        PublishDisconnected(tracker, instanceId, 1);
+        tracker.NotifyResynchronized(instanceId, 1);
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Available, snapshot.Current);
-        Assert.Equal(currentGeneration, snapshot.ConnectionGeneration);
+        Assert.Equal(2, snapshot.ConnectionGeneration);
         Assert.True(snapshot.NeedsResynchronization);
     }
 
@@ -248,10 +252,10 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long connectionGeneration = tracker.NotifyConnected(instanceId);
-        tracker.NotifyDisconnected(instanceId, connectionGeneration);
+        PublishConnected(tracker, instanceId, 1);
+        PublishDisconnected(tracker, instanceId, 1);
 
-        tracker.NotifyResynchronized(instanceId, connectionGeneration);
+        tracker.NotifyResynchronized(instanceId, 1);
 
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Unavailable, snapshot.Current);
@@ -278,14 +282,14 @@ public class AdapterAvailabilityTrackerTests
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId oldInstanceId = AdapterInstanceId.NewId();
         AdapterInstanceId currentInstanceId = AdapterInstanceId.NewId();
-        long oldGeneration = tracker.NotifyConnected(oldInstanceId);
-        long currentGeneration = tracker.NotifyConnected(currentInstanceId);
+        PublishConnected(tracker, oldInstanceId, 1);
+        PublishConnected(tracker, currentInstanceId, 2);
 
         Task[] staleNotifications = Enumerable.Range(0, 32)
             .Select(index => Task.Run(() =>
             {
-                tracker.NotifyDisconnected(oldInstanceId, oldGeneration);
-                tracker.NotifyResynchronized(oldInstanceId, oldGeneration);
+                PublishDisconnected(tracker, oldInstanceId, 1);
+                tracker.NotifyResynchronized(oldInstanceId, 1);
             }))
             .ToArray();
 
@@ -294,13 +298,20 @@ public class AdapterAvailabilityTrackerTests
         AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
         Assert.Equal(AdapterAvailability.Available, snapshot.Current);
         Assert.Equal(currentInstanceId, snapshot.CurrentInstanceId);
-        Assert.Equal(currentGeneration, snapshot.ConnectionGeneration);
+        Assert.Equal(2, snapshot.ConnectionGeneration);
         Assert.True(snapshot.NeedsResynchronization);
     }
 
-    /// <summary>Verifies that a delayed availability callback cannot be overtaken by a newer connection transition.</summary>
+    /// <summary>
+    /// Verifies that a delayed availability subscriber does not block a concurrent commit: unlike
+    /// the tracker's old combined publish operation, <see cref="AdapterAvailabilityTracker.CommitConnected"/>
+    /// only ever holds its own field-mutation lock, never the caller's publication step, so a second
+    /// commit is free to proceed and land while the first transition's subscriber is still running.
+    /// Serializing a complete commit-then-publish sequence relative to another is
+    /// <see cref="IAdapterConnectionLifecycle"/>'s responsibility now, proven by its own tests.
+    /// </summary>
     [Fact]
-    public async Task AvailabilityChanged_DelayedCallback_BlocksLaterTransitionPublication()
+    public async Task AvailabilityChanged_DelayedSubscriber_DoesNotBlockAConcurrentCommit()
     {
         var tracker = new AdapterAvailabilityTracker();
         using var firstCallbackEntered = new ManualResetEventSlim();
@@ -315,29 +326,64 @@ public class AdapterAvailabilityTrackerTests
             }
         };
 
-        AdapterInstanceId firstInstanceId = AdapterInstanceId.NewId();
-        AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
-        Task firstConnection = Task.Run(() => tracker.NotifyConnected(firstInstanceId));
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Task firstConnection = Task.Run(() => PublishConnected(tracker, instanceId, 1));
         Assert.True(firstCallbackEntered.Wait(TimeSpan.FromSeconds(5)));
-        using var secondConnectionStarted = new ManualResetEventSlim();
-        Task secondConnection = Task.Run(() =>
-        {
-            secondConnectionStarted.Set();
-            tracker.NotifyConnected(secondInstanceId);
-        });
-        Assert.True(secondConnectionStarted.Wait(TimeSpan.FromSeconds(5)));
 
-        Task completed = await Task.WhenAny(secondConnection, Task.Delay(100));
-        Assert.NotSame(secondConnection, completed);
+        //  The first subscriber is still blocked inside its callback here: committing (not
+        //  necessarily publishing) the disconnect must not wait for it.
+        AdapterAvailabilityTransition? disconnectTransition = tracker.CommitDisconnected(instanceId, 1);
+        Assert.NotNull(disconnectTransition);
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+
         releaseFirstCallback.Set();
-        await Task.WhenAll(firstConnection, secondConnection);
+        await firstConnection;
+        tracker.PublishTransition(disconnectTransition!);
 
-        AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
-        Assert.Equal(AdapterAvailability.Available, snapshot.Current);
-        Assert.Equal(secondInstanceId, snapshot.CurrentInstanceId);
-        Assert.Equal(2, snapshot.ConnectionGeneration);
-        Assert.Equal(1, callbackCount);
-        Assert.True(snapshot.NeedsResynchronization);
+        Assert.Equal(2, callbackCount);
+    }
+
+    /// <summary>Verifies that one throwing subscriber does not suppress a later subscriber, and that the transition it observes is still fully committed.</summary>
+    [Fact]
+    public void PublishConnected_OneSubscriberThrows_LaterSubscriberStillRunsAndStateIsCommitted()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        int laterSubscriberCallCount = 0;
+        tracker.AvailabilityChanged += _ => throw new InvalidOperationException("Simulated subscriber failure.");
+        tracker.AvailabilityChanged += transition =>
+        {
+            laterSubscriberCallCount++;
+            Assert.Equal(AdapterAvailability.Available, transition.Current);
+        };
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+
+        PublishConnected(tracker, instanceId, 1);
+
+        Assert.Equal(1, laterSubscriberCallCount);
+        Assert.Equal(AdapterAvailability.Available, tracker.Current);
+        Assert.Equal(instanceId, tracker.CurrentInstanceId);
+        Assert.Equal(1, tracker.CurrentConnectionGeneration);
+    }
+
+    /// <summary>Verifies that one throwing subscriber does not suppress a later subscriber, and that the disconnect transition it observes is still fully committed.</summary>
+    [Fact]
+    public void PublishDisconnected_OneSubscriberThrows_LaterSubscriberStillRunsAndStateIsCommitted()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        int laterSubscriberCallCount = 0;
+        tracker.AvailabilityChanged += _ => throw new InvalidOperationException("Simulated subscriber failure.");
+        tracker.AvailabilityChanged += transition =>
+        {
+            laterSubscriberCallCount++;
+            Assert.Equal(AdapterAvailability.Unavailable, transition.Current);
+        };
+
+        PublishDisconnected(tracker, instanceId, 1);
+
+        Assert.Equal(1, laterSubscriberCallCount);
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
 
     /// <summary>Verifies that concurrent claimers receive only one resynchronization authorization.</summary>
@@ -346,7 +392,7 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long generation = tracker.NotifyConnected(instanceId);
+        PublishConnected(tracker, instanceId, 1);
 
         IAdapterResynchronizationToken?[] claims = await Task.WhenAll(
             Enumerable.Range(0, 32)
@@ -356,7 +402,7 @@ public class AdapterAvailabilityTrackerTests
         Assert.Null(tracker.TryClaimResynchronizationToken());
         Assert.True(tracker.IsCurrentResynchronizationToken(token));
 
-        tracker.NotifyResynchronized(instanceId, generation);
+        tracker.NotifyResynchronized(instanceId, 1);
 
         Assert.False(tracker.IsCurrentResynchronizationToken(token));
         Assert.Null(tracker.TryClaimResynchronizationToken());
@@ -368,16 +414,16 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
         AdapterInstanceId initialInstanceId = AdapterInstanceId.NewId();
-        long initialGeneration = tracker.NotifyConnected(initialInstanceId);
+        PublishConnected(tracker, initialInstanceId, 1);
         AdapterInstanceId secondInstanceId = AdapterInstanceId.NewId();
         AdapterInstanceId thirdInstanceId = AdapterInstanceId.NewId();
 
         Task[] operations =
         [
-            Task.Run(() => tracker.NotifyConnected(secondInstanceId)),
-            Task.Run(() => tracker.NotifyDisconnected(initialInstanceId, initialGeneration)),
-            Task.Run(() => tracker.NotifyResynchronized(initialInstanceId, initialGeneration)),
-            Task.Run(() => tracker.NotifyConnected(thirdInstanceId)),
+            Task.Run(() => PublishConnected(tracker, secondInstanceId, 2)),
+            Task.Run(() => PublishDisconnected(tracker, initialInstanceId, 1)),
+            Task.Run(() => tracker.NotifyResynchronized(initialInstanceId, 1)),
+            Task.Run(() => PublishConnected(tracker, thirdInstanceId, 3)),
         ];
 
         await Task.WhenAll(operations);
@@ -388,5 +434,25 @@ public class AdapterAvailabilityTrackerTests
         Assert.Contains(snapshot.CurrentInstanceId.Value, new[] { secondInstanceId, thirdInstanceId });
         Assert.True(snapshot.ConnectionGeneration is 2 or 3);
         Assert.True(snapshot.NeedsResynchronization);
+    }
+
+    /// <summary>Commits and publishes a connected transition in one call, for tests that only care about the combined effect and not the two-step API split.</summary>
+    private static void PublishConnected(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long generation)
+    {
+        AdapterAvailabilityTransition? transition = tracker.CommitConnected(instanceId, generation);
+        if (transition is not null)
+        {
+            tracker.PublishTransition(transition);
+        }
+    }
+
+    /// <summary>Commits and publishes a disconnected transition in one call, for tests that only care about the combined effect and not the two-step API split.</summary>
+    private static void PublishDisconnected(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long connectionGeneration)
+    {
+        AdapterAvailabilityTransition? transition = tracker.CommitDisconnected(instanceId, connectionGeneration);
+        if (transition is not null)
+        {
+            tracker.PublishTransition(transition);
+        }
     }
 }

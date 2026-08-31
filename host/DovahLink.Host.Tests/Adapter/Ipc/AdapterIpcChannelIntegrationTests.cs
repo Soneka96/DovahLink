@@ -158,14 +158,223 @@ public class AdapterIpcChannelIntegrationTests
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Verifies that a subscriber reacting to <see cref="AdapterAvailability.Available"/> synchronously
+    /// can already send normal Host-directed work, and that the wire still carries it strictly after
+    /// the acknowledgement and the initial resynchronization request.
+    /// </summary>
+    [Fact]
+    public async Task Connect_AvailableSubscriber_CanImmediatelySendNormalWorkAfterEstablishmentFrames()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        bool? sendAccepted = null;
+        tracker.AvailabilityChanged += transition =>
+        {
+            if (transition.Current == AdapterAvailability.Available)
+            {
+                sendAccepted = listener.CurrentConnection!.TrySendListenEvent(42, out _);
+            }
+        };
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+
+        IpcMessage ack = await ReadOneFrameAsync(adapterStream, codec);
+        IpcMessage resync = await ReadOneFrameAsync(adapterStream, codec);
+        IpcMessage normalWork = await ReadOneFrameAsync(adapterStream, codec);
+
+        Assert.True(Assert.IsType<IpcHelloAckMessage>(ack).Accepted);
+        Assert.IsType<IpcResynchronizeRequestMessage>(resync);
+        var listenEvent = Assert.IsType<IpcListenEventMessage>(normalWork);
+        Assert.Equal(42u, listenEvent.EventKey);
+        Assert.True(sendAccepted);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a subscriber reacting to <see cref="AdapterAvailability.Unavailable"/>
+    /// synchronously cannot send any new Host-directed work, and that a protocol close's graceful
+    /// writer drain never delivers a frame that was rejected during that window.
+    /// </summary>
+    [Fact]
+    public async Task Disconnect_UnavailableSubscriber_CannotSendAndGracefulDrainWritesNoStaleFrame()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        IAdapterIpcConnection disconnectingConnection = listener.CurrentConnection!;
+        bool? listenEventAccepted = null;
+        bool? readSampleAccepted = null;
+        bool? cancelAccepted = null;
+        tracker.AvailabilityChanged += transition =>
+        {
+            if (transition.Current == AdapterAvailability.Unavailable)
+            {
+                listenEventAccepted = disconnectingConnection.TrySendListenEvent(1, out _);
+                readSampleAccepted = disconnectingConnection.TrySendReadSample(1, out _);
+                cancelAccepted = disconnectingConnection.TryCancel(1);
+            }
+        };
+
+        await adapterStream.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+
+        // The graceful writer drain runs after this; reading past it to EOF proves it never wrote a
+        // frame the subscriber's rejected sends above would have queued.
+        int trailingByte = await adapterStream.ReadAsync(new byte[1]).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, trailingByte);
+        Assert.False(listenEventAccepted);
+        Assert.False(readSampleAccepted);
+        Assert.False(cancelAccepted);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a subscriber which always throws does not desync the tracker from the
+    /// connection's lease: the connection still becomes available, and a later disconnect still
+    /// correctly reaches unavailable.
+    /// </summary>
+    [Fact]
+    public async Task Connect_ThrowingAvailableSubscriber_TrackerStillCoherentThroughConnectAndDisconnect()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        tracker.AvailabilityChanged += _ => throw new InvalidOperationException("Simulated subscriber failure.");
+
+        using Socket adapterSocket = await ConnectClientAsync(listener.BoundPort);
+        using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        await adapterStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        await ReadOneFrameAsync(adapterStream, codec); // acknowledgement
+        await ReadOneFrameAsync(adapterStream, codec); // resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+        Assert.Equal(1, tracker.CurrentConnectionGeneration);
+
+        await adapterStream.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a subscriber which always throws does not block connection teardown or the
+    /// listener's own recovery: the first connection still reaches unavailable, and the listener
+    /// still accepts and fully serves a second connection afterward.
+    /// </summary>
+    [Fact]
+    public async Task Disconnect_ThrowingUnavailableSubscriber_StillCompletesTeardownAndListenerAcceptsNextConnection()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        tracker.AvailabilityChanged += _ => throw new InvalidOperationException("Simulated subscriber failure.");
+
+        using (Socket firstSocket = await ConnectClientAsync(listener.BoundPort))
+        using (var firstStream = new NetworkStream(firstSocket, ownsSocket: false))
+        {
+            await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+            await ReadOneFrameAsync(firstStream, codec); // acknowledgement
+            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+        }
+
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        // The listener's own accept loop directly awaits one connection's RunAsync before accepting
+        // the next (it never fires connections off in parallel), so this second handshake succeeding
+        // at all is itself proof the first connection's full teardown -- including the throwing
+        // subscriber inside it -- already returned rather than hanging or leaving the accept loop stuck.
+        using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
+        using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
+        await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, AdapterInstanceId.NewId(), verifier.ExpectedToken)));
+        IpcMessage ack = await ReadOneFrameAsync(secondStream, codec);
+
+        Assert.True(Assert.IsType<IpcHelloAckMessage>(ack).Accepted);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a captured reference to an old connection cannot send after a newer connection
+    /// for the same adapter instance id has become active -- eligibility belongs to the exact
+    /// connection lease, not merely the adapter instance id. By this point the old connection's own
+    /// outbound channel is already completed from its prior teardown, which independently blocks the
+    /// write too; <see cref="AdapterIpcSessionTests"/>'s superseded-lease test isolates the lease
+    /// check itself, without any connection or channel involved.
+    /// </summary>
+    [Fact]
+    public async Task Reconnect_OldConnectionSameInstanceId_CannotSendAfterNewerGenerationActivates()
+    {
+        (IAdapterIpcListener listener, IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier verifier) = CreateRealStack();
+        using IAdapterIpcListener ownedListener = listener;
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        var codec = new IpcFrameCodec();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+
+        IAdapterIpcConnection firstConnection;
+        using (Socket firstSocket = await ConnectClientAsync(listener.BoundPort))
+        using (var firstStream = new NetworkStream(firstSocket, ownsSocket: false))
+        {
+            await firstStream.WriteAsync(codec.Encode(new IpcHelloMessage(1, instanceId, verifier.ExpectedToken)));
+            await ReadOneFrameAsync(firstStream, codec); // acknowledgement
+            await ReadOneFrameAsync(firstStream, codec); // resynchronize request
+            await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+            firstConnection = listener.CurrentConnection!;
+        }
+
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Unavailable, runTask);
+
+        using Socket secondSocket = await ConnectClientAsync(listener.BoundPort);
+        using var secondStream = new NetworkStream(secondSocket, ownsSocket: false);
+        await secondStream.WriteAsync(codec.Encode(new IpcHelloMessage(2, instanceId, verifier.ExpectedToken)));
+        await ReadOneFrameAsync(secondStream, codec); // acknowledgement
+        await ReadOneFrameAsync(secondStream, codec); // fresh resynchronize request
+        await WaitUntilAsync(() => tracker.Current == AdapterAvailability.Available, runTask);
+
+        Assert.False(firstConnection.TrySendListenEvent(1, out _));
+        Assert.False(firstConnection.TrySendReadSample(1, out _));
+        Assert.False(firstConnection.TryCancel(1));
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Composes the real production private-IPC graph over a listener bound to an OS-assigned loopback port.</summary>
     private static (IAdapterIpcListener Listener, IAdapterAvailabilityTracker Tracker, IAdapterPeerProofVerifier Verifier) CreateRealStack()
     {
         var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
         var verifier = new AdapterPeerProofVerifier();
         var codec = new IpcFrameCodec();
         var listener = new AdapterIpcListener(0, stream =>
-            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(tracker, verifier), new SystemClock()));
+            new AdapterIpcConnection(stream, codec, new AdapterIpcSession(lifecycle, verifier), new SystemClock()));
         return (listener, tracker, verifier);
     }
 

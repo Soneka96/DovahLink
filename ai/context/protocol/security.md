@@ -308,8 +308,21 @@ message shape. This phase is that phase; this section is the filled-in decision.
 - Persistent trust storage is scoped to the current Windows user, but loopback TCP itself is not
   proof of Windows-user identity. Per-user secure storage does not automatically make a loopback
   socket isolated from another simultaneously logged-in local account.
-- The six-digit pairing proof, persistent credential authentication, rate limits, and loopback
-  restriction remain the controls that apply to any connecting process on the same machine.
+- For public client connections, the six-digit pairing proof, persistent credential authentication,
+  rate limits, and loopback restriction remain the controls that apply to any connecting process on
+  the same machine. Private adapter IPC uses its separate peer-ownership and Skyrim-lifetime proof
+  instead and does not participate in client pairing.
+- The private adapter-IPC rendezvous follows the accepted 2A boundary: its per-user file may expose
+  both the adapter's peer-proof credential (`PROOF`) and the host's independent HostProof
+  verification key (`HOSTPROOF`) to another process running as the same Windows user. The
+  rendezvous remains discovery data; the mutually authenticated Hello/HelloAck exchange still
+  prevents stale endpoints, unrelated endpoints that never obtained the current credentials,
+  accidental endpoint confusion, and an arbitrary listener that receives `PROOF` through Hello but
+  does not possess the independently generated HostProof key from being adopted as the intended
+  host. A malicious same-user process that deliberately reads, replaces, or forges the rendezvous
+  and both of those values can therefore impersonate a private IPC peer; defending against that
+  attacker is outside the current threat model. Stronger same-user isolation requires a separately
+  approved security design with a trust anchor independent of the replaceable rendezvous record.
 - If strict isolation from another simultaneously logged-in local OS account becomes a required
   threat boundary, it must be solved deliberately, with its own approved design, rather than assumed
   from `127.0.0.1`. Do not silently introduce a second IPC architecture to solve this before the

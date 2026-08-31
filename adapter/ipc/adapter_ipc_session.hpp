@@ -3,14 +3,19 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "dispatch/adapter_native_dispatcher.hpp"
 #include "identity/adapter_instance_id.hpp"
-#include "ipc/adapter_ipc_peer_proof_provider.hpp"
+#include "ipc/adapter_ipc_connection_callbacks.hpp"
+#include "ipc/adapter_ipc_target.hpp"
+#include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace dovahlink::adapter::ipc {
 
@@ -40,16 +45,20 @@ public:
   virtual void AttachConnection(IAdapterIpcConnection &connection) = 0;
 
   ///  Builds this session's Hello message.
-  [[nodiscard]] virtual IpcMessage PrepareHello() = 0;
+  [[nodiscard]] virtual IpcMessage
+  PrepareHello(const AdapterIpcTarget &target) = 0;
 
   ///  Handles a successful connect: sends Hello through the attached
   ///  connection.
-  virtual void HandleConnected() = 0;
+  virtual void HandleConnected(const AdapterIpcTarget &target) = 0;
 
   ///  Handles one successfully decoded inbound message.
-  ///  @return `true` to keep serving the connection; `false` to end it (a
-  ///  received `IpcCloseMessage`, or an unexpected message kind).
-  virtual bool HandleMessage(const IpcMessage &message) = 0;
+  ///  @return The disposition for the current transport generation. A valid
+  ///  HelloAck returns `kAuthenticated`; every non-HelloAck received before
+  ///  authentication, a rejected or invalid HelloAck, a duplicate HelloAck,
+  ///  received close, or unexpected message kind returns `kClose`.
+  virtual AdapterIpcMessageDisposition
+  HandleMessage(const IpcMessage &message) = 0;
 
   ///  Handles an inbound frame that could not be decoded: sends a
   ///  best-effort `IpcCloseMessage` (reason `kError`) through the attached
@@ -62,6 +71,18 @@ public:
   ///  Whether the host is currently available: the handshake has been
   ///  accepted and the connection has not since ended.
   [[nodiscard]] virtual bool IsHostAvailable() const = 0;
+
+  ///  Handles serving having irreversibly ended for the current generation,
+  ///  reached strictly before `HandleDisconnected` (see
+  ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
+  ///  generation's authentication and eligibility for deferred game-thread
+  ///  work immediately, rather than waiting for the later physical
+  ///  disconnect: a `ListenEvent`, `ReadSample`, or `ResynchronizeRequest`
+  ///  already marshaled onto the game thread before this call must reject
+  ///  itself once it runs. Idempotent with `HandleDisconnected` for the same
+  ///  generation; whichever of the two is called first performs the
+  ///  invalidation, and the other is then a no-op.
+  virtual void HandleClosing() = 0;
 };
 
 ///  @copydoc IAdapterIpcSession
@@ -70,16 +91,19 @@ public:
   ///  Creates a session for the adapter's single, process-lifetime private
   ///  IPC connection.
   ///  @param instanceId This adapter process's own instance identity.
-  ///  @param peerProofProvider Supplies this adapter's Hello proof token.
+  ///  @param ownerLifetimeId The owning Skyrim process's lifetime identity,
+  ///  scoping this handshake to the intended Skyrim lifetime. Not itself a
+  ///  cryptographic ownership proof.
   ///  @param taskMarshaller Marshals capture work onto the Skyrim game
   ///  thread.
   ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
   ///  @param captureQueue Receives owned captured values for handoff.
-  AdapterIpcSession(identity::AdapterInstanceId instanceId,
-                    IAdapterIpcPeerProofProvider &peerProofProvider,
-                    runtime::IAdapterTaskMarshaller &taskMarshaller,
-                    dispatch::IAdapterNativeDispatcher &dispatcher,
-                    capture::IAdapterCaptureHandoffQueue &captureQueue);
+  AdapterIpcSession(
+      identity::AdapterInstanceId instanceId,
+      std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
+      runtime::IAdapterTaskMarshaller &taskMarshaller,
+      dispatch::IAdapterNativeDispatcher &dispatcher,
+      capture::IAdapterCaptureHandoffQueue &captureQueue);
 
   ///  Invalidates deferred game-thread tasks and waits for any task already
   ///  inside the session lifetime gate before the session is destroyed.
@@ -89,13 +113,15 @@ public:
   void AttachConnection(IAdapterIpcConnection &connection) override;
 
   ///  @copydoc IAdapterIpcSession::PrepareHello
-  [[nodiscard]] IpcMessage PrepareHello() override;
+  [[nodiscard]] IpcMessage
+  PrepareHello(const AdapterIpcTarget &target) override;
 
   ///  @copydoc IAdapterIpcSession::HandleConnected
-  void HandleConnected() override;
+  void HandleConnected(const AdapterIpcTarget &target) override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
-  bool HandleMessage(const IpcMessage &message) override;
+  AdapterIpcMessageDisposition
+  HandleMessage(const IpcMessage &message) override;
 
   ///  @copydoc IAdapterIpcSession::HandleDecodeFailure
   void HandleDecodeFailure() override;
@@ -106,7 +132,21 @@ public:
   ///  @copydoc IAdapterIpcSession::IsHostAvailable
   [[nodiscard]] bool IsHostAvailable() const override;
 
+  ///  @copydoc IAdapterIpcSession::HandleClosing
+  void HandleClosing() override;
+
 private:
+  ///  The lifecycle phase that controls which inbound messages are legal.
+  enum class AuthenticationState {
+    ///  A transport is waiting for its matching HelloAck.
+    kAwaitingHelloAck,
+    ///  The transport completed mutual authentication and may serve requests.
+    kAuthenticated,
+    ///  No transport is active, or the current transport must close and cannot
+    ///  accept further messages.
+    kClosed,
+  };
+
   ///  Marshals the resynchronization decision onto the game thread and replies
   ///  that no baseline is available until an approved domain is registered.
   void
@@ -124,10 +164,18 @@ private:
   ///  Issues the next monotonic outbound correlation id, starting at 1.
   std::uint64_t NextCorrelationId();
 
+  ///  Invalidates the current generation for deferred work exactly once: a
+  ///  no-op if `authenticationState_` is already `kClosed`. Called by both
+  ///  `HandleClosing` and `HandleDisconnected` so the generation counter
+  ///  advances only once per logical close, regardless of which one runs
+  ///  first. Must be called while holding `availableMutex_`.
+  void CloseCurrentGenerationLocked();
+
   ///  This adapter process's own instance identity.
   identity::AdapterInstanceId instanceId_;
-  ///  Supplies this adapter's Hello proof token.
-  IAdapterIpcPeerProofProvider &peerProofProvider_;
+  ///  The owning Skyrim process's lifetime identity. Not itself a
+  ///  cryptographic ownership proof.
+  std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId_;
   ///  Marshals capture work onto the Skyrim game thread.
   runtime::IAdapterTaskMarshaller &taskMarshaller_;
   ///  Performs the one generic key-to-Skyrim translation.
@@ -142,15 +190,29 @@ private:
   std::atomic<std::uint64_t> nextCorrelationId_{0};
   ///  Identifies the currently connected transport generation.
   std::uint64_t connectionGeneration_ = 0;
+  ///  The complete target snapshot authenticated by the current Hello.
+  std::optional<AdapterIpcTarget> activeTarget_;
+  ///  The correlation id of the most recently prepared Hello, verified
+  ///  against a received HelloAck's own correlation id. Touched only from
+  ///  the connection's single callback-invoking thread (`PrepareHello` is
+  ///  called from `HandleConnected`, and compared against in `HandleMessage`,
+  ///  both reached only through that thread in production), so it needs no
+  ///  additional synchronization beyond `availableMutex_`'s existing coverage
+  ///  of the authentication state.
+  std::uint64_t pendingHelloCorrelationId_ = 0;
+  ///  The fresh random challenge sent with the most recently prepared Hello,
+  ///  bound into the expected `hostProof` recomputation. Same single-thread
+  ///  access pattern as `pendingHelloCorrelationId_`.
+  std::array<std::byte, kIpcChallengeBytes> pendingHelloChallenge_{};
   ///  Serializes deferred task execution with session destruction.
   std::shared_ptr<std::mutex> callbackMutex_ = std::make_shared<std::mutex>();
   ///  Lets deferred tasks reject themselves after session destruction begins.
   std::shared_ptr<std::atomic_bool> lifetimeToken_ =
       std::make_shared<std::atomic_bool>(true);
-  ///  Guards `available_`.
+  ///  Guards `authenticationState_`.
   mutable std::mutex availableMutex_;
-  ///  Whether the host is currently available.
-  bool available_ = false;
+  ///  The current transport's authentication lifecycle phase.
+  AuthenticationState authenticationState_ = AuthenticationState::kClosed;
 };
 
 } //  namespace dovahlink::adapter::ipc

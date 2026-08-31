@@ -67,6 +67,9 @@ enum class IpcHelloRejectReason : std::uint8_t {
   kInvalidProof = 1,
   ///  The hello payload was structurally invalid.
   kMalformed = 2,
+  ///  The Hello's `ownerLifetimeId` did not match the value this host
+  ///  process was launched with.
+  kLifetimeMismatch = 3,
 };
 
 } //  namespace dovahlink::adapter::ipc

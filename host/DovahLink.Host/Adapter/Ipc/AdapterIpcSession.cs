@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
+using System.Security.Cryptography;
 using DovahLink.Host.Identity;
+using DovahLink.Host.Process;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
@@ -10,12 +13,18 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// </summary>
 public interface IAdapterIpcSession
 {
-    /// <summary>The connection generation assigned once the handshake succeeds, or <see langword="null"/> before then.</summary>
+    /// <summary>The connection generation assigned once the accepted handshake is committed, or <see langword="null"/> before then.</summary>
     long? ConnectionGeneration { get; }
 
-    /// <summary>Evaluates a connecting adapter's Hello and decides whether to accept the connection.</summary>
+    /// <summary>Evaluates a connecting adapter's Hello and decides whether to accept the connection without publishing availability.</summary>
     /// <param name="hello">The received Hello message.</param>
     AdapterHandshakeResult Handshake(IpcHelloMessage hello);
+
+    /// <summary>
+    /// Commits an accepted handshake after the acknowledgement has been queued ahead of all normal
+    /// host-side availability work.
+    /// </summary>
+    void CommitHandshake();
 
     /// <summary>Builds the resynchronization request to send immediately after a successful handshake.</summary>
     IpcResynchronizeRequestMessage PrepareResynchronizeRequest();
@@ -48,24 +57,46 @@ public interface IAdapterIpcSession
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     IpcCancelMessage? PrepareCancel(ulong correlationId);
 
-    /// <summary>Records that the physical connection ended, notifying the availability tracker exactly once.</summary>
+    /// <summary>Records that the physical connection ended, deactivating this session's connection lease exactly once.</summary>
     void HandleDisconnected();
 }
 
 /// <inheritdoc cref="IAdapterIpcSession"/>
 public sealed class AdapterIpcSession : IAdapterIpcSession
 {
-    /// <summary>The availability tracker this session reports connection transitions to.</summary>
-    private readonly IAdapterAvailabilityTracker tracker;
+    /// <summary>
+    /// The sole gateway for this session's connection-lifecycle mutations: activation,
+    /// deactivation, and resynchronization completion. This session never reaches
+    /// <see cref="IAdapterAvailabilityTracker"/> directly.
+    /// </summary>
+    private readonly IAdapterConnectionLifecycle lifecycle;
 
     /// <summary>The verifier this session checks a connecting adapter's peer-ownership proof against.</summary>
     private readonly IAdapterPeerProofVerifier peerProofVerifier;
 
-    /// <summary>The connecting adapter's instance identity, set once the handshake succeeds.</summary>
+    /// <summary>
+    /// The owning Skyrim process's lifetime identity this host process was launched with. A Hello
+    /// whose own <see cref="IpcHelloMessage.OwnerLifetimeId"/> does not match this value is rejected
+    /// before <see cref="IpcHelloAckMessage.HostProof"/> is ever computed for it.
+    /// </summary>
+    private readonly OwnerLifetimeId expectedOwnerLifetimeId;
+
+    /// <summary>The connecting adapter's instance identity, set once the handshake passes validation.</summary>
     private AdapterInstanceId? instanceId;
 
-    /// <summary>The connection generation assigned once the handshake succeeds.</summary>
-    private long? connectionGeneration;
+    /// <summary>
+    /// This session's own connection lease, created once its handshake is committed. Identifies this
+    /// exact connection attempt to <see cref="lifecycle"/>, independently of <see cref="instanceId"/>
+    /// alone, so a superseded session can never be mistaken for a newer one that shares the same
+    /// adapter instance.
+    /// </summary>
+    private AdapterConnectionLease? lease;
+
+    /// <summary>Whether this session's Hello passed validation and is waiting for commitment.</summary>
+    private bool handshakeAccepted;
+
+    /// <summary>Whether the accepted handshake has already been committed by activating a connection lease.</summary>
+    private bool handshakeCommitted;
 
     /// <summary>The correlation id of the resynchronization request currently awaiting a result, if any.</summary>
     private ulong? pendingResynchronizeCorrelationId;
@@ -73,20 +104,29 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <summary>The most recently issued outbound correlation id.</summary>
     private long nextCorrelationId;
 
-    /// <summary>Guards <see cref="HandleDisconnected"/> so it notifies the tracker at most once.</summary>
+    /// <summary>Guards <see cref="HandleDisconnected"/> so it deactivates the lease at most once.</summary>
     private int disconnected;
 
     /// <summary>Creates a session for one connection attempt.</summary>
-    /// <param name="tracker">The availability tracker this session reports connection transitions to.</param>
+    /// <param name="lifecycle">The sole gateway for this session's connection-lifecycle mutations.</param>
     /// <param name="peerProofVerifier">The verifier this session checks a connecting adapter's peer-ownership proof against.</param>
-    public AdapterIpcSession(IAdapterAvailabilityTracker tracker, IAdapterPeerProofVerifier peerProofVerifier)
+    /// <param name="expectedOwnerLifetimeId">
+    /// The owning Skyrim process's lifetime identity this host process was launched with, or
+    /// <see langword="default"/> when the caller does not care about lifetime scoping (matching
+    /// <see cref="IpcHelloMessage"/>'s own all-zero default for its <see cref="IpcHelloMessage.OwnerLifetimeId"/>).
+    /// </param>
+    public AdapterIpcSession(
+        IAdapterConnectionLifecycle lifecycle,
+        IAdapterPeerProofVerifier peerProofVerifier,
+        OwnerLifetimeId expectedOwnerLifetimeId = default)
     {
-        this.tracker = tracker;
+        this.lifecycle = lifecycle;
         this.peerProofVerifier = peerProofVerifier;
+        this.expectedOwnerLifetimeId = expectedOwnerLifetimeId;
     }
 
     /// <inheritdoc/>
-    public long? ConnectionGeneration => connectionGeneration;
+    public long? ConnectionGeneration => lease?.Generation;
 
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
@@ -101,9 +141,60 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             return new AdapterHandshakeResult(false, new IpcHelloAckMessage(hello.CorrelationId, false, IpcHelloRejectReason.InvalidProof));
         }
 
+        if (!hello.OwnerLifetimeId.AsSpan().SequenceEqual(expectedOwnerLifetimeId.ToBytes()))
+        {
+            return new AdapterHandshakeResult(
+                false, new IpcHelloAckMessage(hello.CorrelationId, false, IpcHelloRejectReason.LifetimeMismatch));
+        }
+
         instanceId = hello.AdapterInstanceId;
-        connectionGeneration = tracker.NotifyConnected(hello.AdapterInstanceId);
-        return new AdapterHandshakeResult(true, new IpcHelloAckMessage(hello.CorrelationId, true, IpcHelloRejectReason.None));
+        handshakeAccepted = true;
+        byte[] hostProof = ComputeHostProof(hello);
+        return new AdapterHandshakeResult(true, new IpcHelloAckMessage(hello.CorrelationId, true, IpcHelloRejectReason.None, hostProof));
+    }
+
+    /// <inheritdoc/>
+    public void CommitHandshake()
+    {
+        if (!handshakeAccepted || handshakeCommitted || instanceId is null)
+        {
+            return;
+        }
+
+        lease = lifecycle.CreateLease();
+        lifecycle.Activate(lease, instanceId.Value);
+        handshakeCommitted = true;
+    }
+
+    /// <summary>
+    /// Computes this handshake's <c>HostProof</c>: <c>HMAC-SHA256(key = this host's own
+    /// <see cref="IAdapterPeerProofVerifier.HostProofKey"/>, message = Challenge || CorrelationId ||
+    /// AdapterInstanceId || OwnerLifetimeId)</c>, proving to the adapter that this host holds a
+    /// secret independent of the bearer token the Hello itself carried -- so observing that Hello
+    /// alone can never let an untrusted observer forge this proof. Only called once the Hello's own
+    /// proof and lifetime id have already been verified.
+    /// </summary>
+    /// <param name="hello">The verified Hello to compute the proof for.</param>
+    private byte[] ComputeHostProof(IpcHelloMessage hello)
+    {
+        byte[] message = BuildHostProofMessage(hello.Challenge, hello.CorrelationId, hello.AdapterInstanceId, hello.OwnerLifetimeId);
+        using var hmac = new HMACSHA256(peerProofVerifier.HostProofKey);
+        return hmac.ComputeHash(message);
+    }
+
+    /// <summary>
+    /// Builds the fixed message a handshake's <c>HostProof</c> is computed over: <c>challenge ||
+    /// correlationId || adapterInstanceId || ownerLifetimeId</c>, in exactly this field order,
+    /// matching the wire's little-endian integer convention and the adapter's own construction.
+    /// </summary>
+    private static byte[] BuildHostProofMessage(byte[] challenge, ulong correlationId, AdapterInstanceId adapterInstanceId, byte[] ownerLifetimeId)
+    {
+        var message = new byte[Constants.IpcHostProofMessageBytes];
+        challenge.CopyTo(message, 0);
+        BinaryPrimitives.WriteUInt64LittleEndian(message.AsSpan(Constants.IpcChallengeBytes, 8), correlationId);
+        adapterInstanceId.Value.TryWriteBytes(message.AsSpan(Constants.IpcChallengeBytes + 8, 16), bigEndian: true, out _);
+        ownerLifetimeId.CopyTo(message, Constants.IpcChallengeBytes + 8 + 16);
+        return message;
     }
 
     /// <inheritdoc/>
@@ -143,15 +234,15 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
 
     /// <inheritdoc/>
     public IpcListenEventMessage? PrepareListenEvent(uint eventKey) =>
-        connectionGeneration is null || eventKey == 0 ? null : new IpcListenEventMessage(NextCorrelationId(), eventKey);
+        lease is null || eventKey == 0 || !lifecycle.IsActive(lease) ? null : new IpcListenEventMessage(NextCorrelationId(), eventKey);
 
     /// <inheritdoc/>
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) =>
-        connectionGeneration is null || sampleToken == 0 ? null : new IpcReadSampleMessage(NextCorrelationId(), sampleToken);
+        lease is null || sampleToken == 0 || !lifecycle.IsActive(lease) ? null : new IpcReadSampleMessage(NextCorrelationId(), sampleToken);
 
     /// <inheritdoc/>
     public IpcCancelMessage? PrepareCancel(ulong correlationId) =>
-        connectionGeneration is null || correlationId == 0 ? null : new IpcCancelMessage(correlationId);
+        lease is null || correlationId == 0 || !lifecycle.IsActive(lease) ? null : new IpcCancelMessage(correlationId);
 
     /// <inheritdoc/>
     public void HandleDisconnected()
@@ -161,9 +252,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
             return;
         }
 
-        if (instanceId is not null && connectionGeneration is not null)
+        if (lease is not null)
         {
-            tracker.NotifyDisconnected(instanceId.Value, connectionGeneration.Value);
+            lifecycle.Deactivate(lease);
         }
     }
 
@@ -177,13 +268,9 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         }
 
         pendingResynchronizeCorrelationId = null;
-        if (resynchronizeResult.Accepted &&
-            instanceId is not null &&
-            connectionGeneration is not null &&
-            tracker.CurrentInstanceId == instanceId &&
-            tracker.CurrentConnectionGeneration == connectionGeneration)
+        if (resynchronizeResult.Accepted && lease is not null)
         {
-            tracker.NotifyResynchronized(instanceId.Value, connectionGeneration.Value);
+            lifecycle.TryCompleteResynchronization(lease);
         }
     }
 

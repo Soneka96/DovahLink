@@ -240,4 +240,7 @@ public enum IpcHelloRejectReason : byte
 
     /// <summary>The hello payload was structurally invalid.</summary>
     Malformed = 2,
+
+    /// <summary>The Hello's owning-Skyrim-lifetime identity did not match the value this host process was launched with.</summary>
+    LifetimeMismatch = 3,
 }

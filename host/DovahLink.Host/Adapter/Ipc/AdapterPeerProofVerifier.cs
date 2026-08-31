@@ -16,6 +16,15 @@ public interface IAdapterPeerProofVerifier
     /// </summary>
     byte[] ExpectedToken { get; }
 
+    /// <summary>
+    /// This host process's own HMAC key for computing <see cref="IpcHelloAckMessage.HostProof"/>,
+    /// independent of <see cref="ExpectedToken"/>. Never transmitted or written to the rendezvous
+    /// wire format's bearer-credential field -- only the adapter-side field carrying the matching
+    /// value for local HMAC use reaches it -- so observing a Hello's presented token alone can never
+    /// yield this key.
+    /// </summary>
+    byte[] HostProofKey { get; }
+
     /// <summary>Checks a presented token against <see cref="ExpectedToken"/> in constant time.</summary>
     /// <param name="presentedToken">The peer-proof token presented in a connecting adapter's Hello.</param>
     /// <returns><see langword="true"/> when the presented token exactly matches the expected value.</returns>
@@ -28,14 +37,24 @@ public sealed class AdapterPeerProofVerifier : IAdapterPeerProofVerifier
     /// <summary>The owned proof value generated for this host process's lifetime.</summary>
     private readonly byte[] expectedToken;
 
-    /// <summary>Creates a verifier and generates a fresh random proof value for this host process's lifetime.</summary>
+    /// <summary>The owned HostProof HMAC key generated for this host process's lifetime.</summary>
+    private readonly byte[] hostProofKey;
+
+    /// <summary>
+    /// Creates a verifier and generates fresh, independent random values for this host process's
+    /// lifetime: the peer-proof bearer token and the HostProof HMAC key.
+    /// </summary>
     public AdapterPeerProofVerifier()
     {
         expectedToken = RandomNumberGenerator.GetBytes(Constants.MaxIpcPeerProofTokenBytes);
+        hostProofKey = RandomNumberGenerator.GetBytes(Constants.MaxIpcPeerProofTokenBytes);
     }
 
     /// <inheritdoc/>
     public byte[] ExpectedToken => expectedToken.ToArray();
+
+    /// <inheritdoc/>
+    public byte[] HostProofKey => hostProofKey.ToArray();
 
     /// <inheritdoc/>
     public bool Matches(ReadOnlySpan<byte> presentedToken) =>

@@ -92,7 +92,13 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
             bool handshakeAccepted = await HandshakeAsync(ioCancellation.Token).ConfigureAwait(false);
             if (handshakeAccepted)
             {
-                outbound.Writer.TryWrite(codec.Encode(session.PrepareResynchronizeRequest()));
+                bool resynchronizeQueued = outbound.Writer.TryWrite(codec.Encode(session.PrepareResynchronizeRequest()));
+                if (!resynchronizeQueued)
+                {
+                    return;
+                }
+
+                session.CommitHandshake();
                 await ReadLoopAsync(ioCancellation.Token).ConfigureAwait(false);
             }
         }
@@ -102,8 +108,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         finally
         {
-            session.HandleDisconnected();
+            // Completed before HandleDisconnected so the outbound channel is already closed to new
+            // writes by the time a subscriber can observe Unavailable(N): Channel<T> guarantees
+            // TryWrite fails once TryComplete has run, so no send authorized concurrently with
+            // teardown can land in the channel after this generation's unavailability is published.
             outbound.Writer.TryComplete();
+            session.HandleDisconnected();
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
@@ -230,7 +240,11 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         if (decodeResult.Message is IpcHelloMessage hello)
         {
             AdapterHandshakeResult result = session.Handshake(hello);
-            outbound.Writer.TryWrite(codec.Encode(result.AckMessage));
+            if (!outbound.Writer.TryWrite(codec.Encode(result.AckMessage)))
+            {
+                return false;
+            }
+
             return result.Accepted;
         }
 

@@ -37,7 +37,10 @@ using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
 using dovahlink::adapter::ipc::IpcResynchronizeResultMessage;
+using dovahlink::adapter::ipc::kIpcChallengeBytes;
 using dovahlink::adapter::ipc::kIpcFrameHeaderBytes;
+using dovahlink::adapter::ipc::kIpcHostProofBytes;
+using dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes;
 using dovahlink::adapter::ipc::kMaxIpcFrameBytes;
 using dovahlink::adapter::ipc::kMaxIpcPeerProofTokenBytes;
 
@@ -147,6 +150,45 @@ TEST_CASE("hello with an empty token round-trips", "[ipc][ipc_frame_codec]") {
   CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("hello round-trips its challenge and owner-lifetime-id exactly",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::array<std::byte, kIpcChallengeBytes> challenge{};
+  for (std::size_t index = 0; index < challenge.size(); ++index) {
+    challenge[index] = static_cast<std::byte>(index + 1);
+  }
+  std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId{};
+  for (std::size_t index = 0; index < ownerLifetimeId.size(); ++index) {
+    ownerLifetimeId[index] = static_cast<std::byte>(200 + index);
+  }
+  IpcHelloMessage original{.correlationId = 7,
+                           .adapterInstanceId = SampleInstanceId(),
+                           .peerProofToken = {std::byte{1}, std::byte{2}},
+                           .challenge = challenge,
+                           .ownerLifetimeId = ownerLifetimeId};
+
+  auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+  REQUIRE(result.has_value());
+  CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("a hello payload missing the challenge and owner-lifetime-id "
+          "tail fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  //  17 identity/length bytes plus a 2-byte token: the pre-D2 payload shape,
+  //  with none of the new fixed-size fields appended.
+  std::vector<std::byte> payload(19);
+  payload[16] = std::byte{2};
+  std::vector<std::byte> frame = BuildFrame(IpcMessageKind::kHello, 1, payload);
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("hello with the maximum token length round-trips",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -176,6 +218,37 @@ TEST_CASE("accepted hello-ack round-trips", "[ipc][ipc_frame_codec]") {
   CHECK(*result == IpcMessage{original});
 }
 
+TEST_CASE("accepted hello-ack round-trips its host proof exactly",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  std::array<std::byte, kIpcHostProofBytes> hostProof{};
+  for (std::size_t index = 0; index < hostProof.size(); ++index) {
+    hostProof[index] = static_cast<std::byte>(index + 1);
+  }
+  IpcHelloAckMessage original{.correlationId = 1,
+                              .accepted = true,
+                              .rejectReason = IpcHelloRejectReason::kNone,
+                              .hostProof = hostProof};
+
+  auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+  REQUIRE(result.has_value());
+  CHECK(*result == IpcMessage{original});
+}
+
+TEST_CASE("a hello-ack payload missing the host-proof tail fails closed",
+          "[ipc][ipc_frame_codec]") {
+  IpcFrameCodec codec;
+  //  The pre-D2 2-byte payload shape, with no hostProof appended.
+  std::vector<std::byte> frame =
+      BuildFrame(IpcMessageKind::kHelloAck, 1, {std::byte{1}, std::byte{0}});
+
+  auto result = codec.Decode(frame);
+
+  REQUIRE_FALSE(result.has_value());
+  CHECK(result.error() == IpcRejectReason::kMalformedPayload);
+}
+
 TEST_CASE("encoding an accepted hello-ack with a reject reason throws",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
@@ -200,8 +273,9 @@ TEST_CASE("encoding a rejected hello-ack without a reject reason throws",
 TEST_CASE("rejected hello-ack round-trips for every reject reason",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
-  for (IpcHelloRejectReason reason : {IpcHelloRejectReason::kInvalidProof,
-                                      IpcHelloRejectReason::kMalformed}) {
+  for (IpcHelloRejectReason reason :
+       {IpcHelloRejectReason::kInvalidProof, IpcHelloRejectReason::kMalformed,
+        IpcHelloRejectReason::kLifetimeMismatch}) {
     IpcHelloAckMessage original{
         .correlationId = 1, .accepted = false, .rejectReason = reason};
 
@@ -566,7 +640,8 @@ TEST_CASE("a hello-ack payload of the wrong length fails closed",
           "[ipc][ipc_frame_codec]") {
   IpcFrameCodec codec;
   for (std::size_t payloadSize :
-       {std::size_t{0}, std::size_t{1}, std::size_t{3}}) {
+       {std::size_t{0}, std::size_t{1}, std::size_t{3},
+        2 + kIpcHostProofBytes - 1, 2 + kIpcHostProofBytes + 1}) {
     std::vector<std::byte> frame = BuildFrame(
         IpcMessageKind::kHelloAck, 1, std::vector<std::byte>(payloadSize));
 
@@ -794,16 +869,28 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                            .adapterInstanceId = adapterInstanceId,
                            .peerProofToken = {std::byte{0xA0}, std::byte{0xB1},
                                               std::byte{0xC2}}}},
-       Bytes({0x1D, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44,
-              0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
-              0xEE, 0xFF, 0x03, 0xA0, 0xB1, 0xC2})},
+       //  64-byte payload: 16 identity + 1 token-length + 3 token + 32
+       //  zero-filled challenge + 12 zero-filled ownerLifetimeId (this
+       //  vector's IpcHelloMessage does not set either field).
+       Bytes({0x49, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+              0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x03,
+              0xA0, 0xB1, 0xC2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})},
       {IpcMessage{
            IpcHelloAckMessage{.correlationId = 2,
                               .accepted = true,
                               .rejectReason = IpcHelloRejectReason::kNone}},
-       Bytes({0x0B, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-              0x00, 0x00, 0x01, 0x00})},
+       //  34-byte payload: accepted + rejectReason + 32 zero-filled hostProof
+       //  (this vector's IpcHelloAckMessage does not set hostProof).
+       Bytes({0x2B, 0x00, 0x00, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})},
       {IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 4}},
        Bytes({0x09, 0x00, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00,
               0x00, 0x00})},

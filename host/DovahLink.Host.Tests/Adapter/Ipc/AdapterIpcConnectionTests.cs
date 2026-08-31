@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Time;
@@ -10,6 +11,26 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests for <see cref="AdapterIpcConnection"/>.</summary>
 public class AdapterIpcConnectionTests
 {
+    /// <summary>Reads the shared native/host private-IPC rate-limit fixture.</summary>
+    private static (int MaxMessagesPerSecond, TimeSpan MessageRateWindow) ReadPrivateIpcLimitsFixture()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "integration", "private-ipc-limits.json");
+        using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+        int maxMessages = document.RootElement.GetProperty("maxMessagesPerSecond").GetInt32();
+        int windowMilliseconds = document.RootElement.GetProperty("messageRateWindowMilliseconds").GetInt32();
+        return (maxMessages, TimeSpan.FromMilliseconds(windowMilliseconds));
+    }
+
+    /// <summary>Verifies that the host constants remain synchronized with the shared contract fixture.</summary>
+    [Fact]
+    public void InboundRateLimit_MatchesSharedPrivateIpcFixture()
+    {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
+
+        Assert.Equal(Constants.MaxIpcMessagesPerSecond, maxMessages);
+        Assert.Equal(Constants.IpcMessageRateWindow, window);
+    }
+
     // ---- Handshake and resynchronization, over a real connected stream pair ----
 
     /// <summary>Verifies that a successful handshake sends the acknowledgement then the resynchronization request, and that disconnecting after notifies the session.</summary>
@@ -35,6 +56,10 @@ public class AdapterIpcConnectionTests
         Assert.IsType<IpcHelloAckMessage>(ack);
         Assert.IsType<IpcResynchronizeRequestMessage>(resync);
         Assert.Single(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.CommitHandshakeCalls);
+        Assert.Equal(
+            new[] { nameof(FakeAdapterIpcSession.Handshake), nameof(FakeAdapterIpcSession.PrepareResynchronizeRequest), nameof(FakeAdapterIpcSession.CommitHandshake) },
+            fakeSession.LifecycleCalls);
         Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
@@ -59,6 +84,36 @@ public class AdapterIpcConnectionTests
         var helloAck = Assert.IsType<IpcHelloAckMessage>(ack);
         Assert.False(helloAck.Accepted);
         Assert.Equal(0, trailingByte);
+        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that a full outbound queue prevents handshake commitment when the acknowledgement cannot be queued.</summary>
+    [Fact]
+    public async Task RunAsync_FullOutboundQueue_SkipsHandshakeCommit()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+
+        for (int index = 0; index < Constants.MaxIpcQueuedMessages; index++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+        Task runTask = connection.RunAsync(CancellationToken.None);
+
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
         client.Dispose();
     }
 
@@ -474,6 +529,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ClosesAfterLimit()
     {
+        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -486,7 +542,7 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages + 1; i++)
         {
             await client.WriteAsync(frame);
@@ -503,6 +559,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ForceClosesBlockedWriter()
     {
+        (int maxMessages, _) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var blockingStream = new BlockingWriteStream(server);
         var session = new FakeAdapterIpcSession();
@@ -514,14 +571,14 @@ public class AdapterIpcConnectionTests
         await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        for (int i = 0; i < Constants.MaxIpcMessagesPerSecond; i++)
+        for (int i = 0; i < maxMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(Constants.MaxIpcMessagesPerSecond - 1, session.HandledFrames.Count);
+        Assert.Equal(maxMessages - 1, session.HandledFrames.Count);
         Assert.Equal(1, session.DisconnectedCalls);
         client.Dispose();
     }
@@ -530,6 +587,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_AllowsMessagesAfterWindowExpires()
     {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -542,16 +600,16 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await WaitUntilAsync(() => session.HandledFrames.Count == acceptedPostHandshakeMessages, runTask);
-        clock.Advance(Constants.IpcMessageRateWindow + TimeSpan.FromTicks(1));
+        clock.Advance(window + TimeSpan.FromTicks(1));
         await client.WriteAsync(frame);
-        await WaitUntilAsync(() => session.HandledFrames.Count == Constants.MaxIpcMessagesPerSecond, runTask);
+        await WaitUntilAsync(() => session.HandledFrames.Count == maxMessages, runTask);
 
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -561,6 +619,7 @@ public class AdapterIpcConnectionTests
     [Fact]
     public async Task RunAsync_InboundRateLimit_ExactWindowBoundaryRemainsLimited()
     {
+        (int maxMessages, TimeSpan window) = ReadPrivateIpcLimitsFixture();
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var clock = new FakeClock();
         var session = new FakeAdapterIpcSession();
@@ -573,14 +632,14 @@ public class AdapterIpcConnectionTests
         await ReadOneFrameAsync(client, codec); // resynchronize request
 
         byte[] frame = codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal));
-        int acceptedPostHandshakeMessages = Constants.MaxIpcMessagesPerSecond - 1;
+        int acceptedPostHandshakeMessages = maxMessages - 1;
         for (int i = 0; i < acceptedPostHandshakeMessages; i++)
         {
             await client.WriteAsync(frame);
         }
 
         await WaitUntilAsync(() => session.HandledFrames.Count == acceptedPostHandshakeMessages, runTask);
-        clock.Advance(Constants.IpcMessageRateWindow);
+        clock.Advance(window);
         await client.WriteAsync(frame);
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -714,6 +773,82 @@ public class AdapterIpcConnectionTests
         Assert.False(connection.TrySendReadSample(1, out ulong sampleCorrelationId));
         Assert.Equal(0UL, eventCorrelationId);
         Assert.Equal(0UL, sampleCorrelationId);
+    }
+
+    /// <summary>
+    /// Verifies that the outbound channel is already closed to new writes by the time the session is
+    /// notified of disconnection: a send prepared and attempted from inside the session's own
+    /// <c>HandleDisconnected</c> callback must fail rather than land in the channel after the
+    /// generation's unavailability could already be observed by an availability subscriber.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_Disconnecting_ClosesOutboundQueueBeforeSessionObservesDisconnect()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 42),
+            ReadSampleResult = new IpcReadSampleMessage(2, 42),
+            CancelResult = new IpcCancelMessage(3),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        bool listenAcceptedDuringDisconnect = true;
+        bool readSampleAcceptedDuringDisconnect = true;
+        bool cancelAcceptedDuringDisconnect = true;
+        fakeSession.OnDisconnected = () =>
+        {
+            listenAcceptedDuringDisconnect = connection.TrySendListenEvent(42, out _);
+            readSampleAcceptedDuringDisconnect = connection.TrySendReadSample(42, out _);
+            cancelAcceptedDuringDisconnect = connection.TryCancel(3);
+        };
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        Assert.False(listenAcceptedDuringDisconnect);
+        Assert.False(readSampleAcceptedDuringDisconnect);
+        Assert.False(cancelAcceptedDuringDisconnect);
+    }
+
+    /// <summary>
+    /// Verifies that closing the outbound channel before notifying the session of disconnection does
+    /// not turn the connection's graceful shutdown into a race that drops a frame legitimately
+    /// accepted just before teardown began: a send that succeeded while the connection was still
+    /// active must still reach the peer during the graceful drain that follows a protocol close.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_MessageAcceptedBeforeGracefulClose_IsStillDeliveredDuringDrain()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            FrameOutcome = AdapterIpcOutcome.Close,
+            ListenEventResult = new IpcListenEventMessage(9, 42),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendListenEvent(42, out ulong correlationId);
+        await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        var listenEvent = Assert.IsType<IpcListenEventMessage>(delivered);
+        Assert.Equal(9UL, correlationId);
+        Assert.Equal(42u, listenEvent.EventKey);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
     }
 
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>

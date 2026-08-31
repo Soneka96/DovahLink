@@ -33,13 +33,35 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 
 //  ---- Connection ----
 
-///  The fixed delay `AdapterIpcConnection` waits before retrying a failed
-///  connect attempt or reconnecting after a disconnect, per
-///  `ai/context/host/architecture.md`'s "adapter reconnect is bounded and
-///  performed outside game-thread work". A fixed delay, not exponential
-///  backoff, matching the host listener's own `AdapterIpcAcceptRetryDelay`
-///  precedent. Approved as a provisional value; a later concept may revise it
-///  with the same documented approval this file's other limits require.
-inline constexpr std::chrono::milliseconds kAdapterIpcReconnectDelay{200};
+///  The absolute bound on one long-lived connection's pre-authentication
+///  Hello/HelloAck establishment phase. This is intentionally separate from
+///  post-authentication liveness and matches the candidate verifier's
+///  provisional two-second handshake policy.
+inline constexpr std::chrono::milliseconds kAdapterIpcEstablishmentTimeout{
+    2000};
+
+//  ---- Authentication ----
+
+///  The byte length of the adapter-generated random challenge carried in
+///  `IpcHelloMessage`, and of the host's resulting HMAC-SHA256 `hostProof` in
+///  `IpcHelloAckMessage`.
+inline constexpr std::size_t kIpcChallengeBytes = 32;
+
+///  The byte length of the owning Skyrim process's lifetime identity
+///  (`ownerLifetimeId`) carried in `IpcHelloMessage`: a 4-byte process id and
+///  an 8-byte process creation timestamp.
+inline constexpr std::size_t kIpcOwnerLifetimeIdBytes = 12;
+
+///  The byte length of `IpcHelloAckMessage`'s HMAC-SHA256 `hostProof`. Equal
+///  to `kIpcChallengeBytes` because both are full, untruncated HMAC-SHA256
+///  outputs, but named separately since they serve different roles on the
+///  wire.
+inline constexpr std::size_t kIpcHostProofBytes = 32;
+
+///  The fixed byte length of the message `hostProof` is computed over:
+///  `challenge (kIpcChallengeBytes) || correlationId (8) ||
+///  adapterInstanceId (16) || ownerLifetimeId (kIpcOwnerLifetimeIdBytes)`.
+inline constexpr std::size_t kIpcHostProofMessageBytes =
+    kIpcChallengeBytes + 8 + 16 + kIpcOwnerLifetimeIdBytes;
 
 } //  namespace dovahlink::adapter::ipc

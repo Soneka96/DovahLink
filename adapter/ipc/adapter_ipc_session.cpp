@@ -1,6 +1,7 @@
 #include "ipc/adapter_ipc_session.hpp"
 
 #include "ipc/adapter_ipc_connection.hpp"
+#include "ipc/adapter_ipc_hmac.hpp"
 
 #include <type_traits>
 #include <variant>
@@ -9,11 +10,11 @@ namespace dovahlink::adapter::ipc {
 
 AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
-    IAdapterIpcPeerProofProvider &peerProofProvider,
+    std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
     runtime::IAdapterTaskMarshaller &taskMarshaller,
     dispatch::IAdapterNativeDispatcher &dispatcher,
     capture::IAdapterCaptureHandoffQueue &captureQueue)
-    : instanceId_(instanceId), peerProofProvider_(peerProofProvider),
+    : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
       taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
       captureQueue_(captureQueue) {}
 
@@ -26,48 +27,117 @@ void AdapterIpcSession::AttachConnection(IAdapterIpcConnection &connection) {
   connection_ = &connection;
 }
 
-IpcMessage AdapterIpcSession::PrepareHello() {
+IpcMessage AdapterIpcSession::PrepareHello(const AdapterIpcTarget &target) {
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    activeTarget_ = target;
+  }
+  pendingHelloCorrelationId_ = NextCorrelationId();
+  pendingHelloChallenge_ = GenerateIpcChallenge();
   return IpcMessage{IpcHelloMessage{
-      .correlationId = NextCorrelationId(),
+      .correlationId = pendingHelloCorrelationId_,
       .adapterInstanceId = instanceId_.value,
-      .peerProofToken = peerProofProvider_.Token(),
+      .peerProofToken = target.proofToken,
+      .challenge = pendingHelloChallenge_,
+      .ownerLifetimeId = ownerLifetimeId_,
   }};
 }
 
-void AdapterIpcSession::HandleConnected() {
+void AdapterIpcSession::HandleConnected(const AdapterIpcTarget &target) {
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     ++connectionGeneration_;
+    authenticationState_ = AuthenticationState::kAwaitingHelloAck;
+    activeTarget_ = target;
   }
   if (connection_ != nullptr) {
-    connection_->TrySend(PrepareHello());
+    connection_->TrySend(PrepareHello(target));
   }
 }
 
-bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
+AdapterIpcMessageDisposition
+AdapterIpcSession::HandleMessage(const IpcMessage &message) {
   return std::visit(
-      [this](const auto &value) -> bool {
+      [this](const auto &value) -> AdapterIpcMessageDisposition {
         using T = std::decay_t<decltype(value)>;
-        if constexpr (std::is_same_v<T, IpcHelloAckMessage>) {
+
+        AuthenticationState authenticationState;
+        {
           std::lock_guard<std::mutex> lock(availableMutex_);
-          available_ = value.accepted;
-          return true;
+          authenticationState = authenticationState_;
+        }
+
+        if (authenticationState == AuthenticationState::kClosed) {
+          return AdapterIpcMessageDisposition::kClose;
+        }
+
+        if (authenticationState == AuthenticationState::kAwaitingHelloAck &&
+            !std::is_same_v<T, IpcHelloAckMessage>) {
+          //  No host-directed request is legal until this transport has
+          // completed mutual authentication. Close the generation without
+          // invoking a game-thread or other message handler.
+          return AdapterIpcMessageDisposition::kClose;
+        }
+
+        if (authenticationState == AuthenticationState::kAuthenticated &&
+            std::is_same_v<T, IpcHelloAckMessage>) {
+          //  Authentication is a one-time transition for a transport
+          // generation. A second HelloAck is a protocol violation, not a new
+          // opportunity to change availability.
+          return AdapterIpcMessageDisposition::kClose;
+        }
+
+        if constexpr (std::is_same_v<T, IpcHelloAckMessage>) {
+          //  accepted = true alone never proves the responder is the
+          //  legitimate host -- it only proves the responder checked this
+          //  adapter's presented proof. The full conjunction (accepted,
+          //  matching correlation id, and a verifying hostProof recomputed
+          //  from the exact challenge/instance id/lifetime id this adapter
+          //  sent) is what authenticates the connection. Keyed by
+          //  hostProofKey, independent of the proofToken this adapter itself
+          //  presented in Hello, so observing that Hello alone can never let
+          //  an untrusted observer forge this proof.
+          std::vector<std::byte> hostProofKey;
+          {
+            std::lock_guard<std::mutex> lock(availableMutex_);
+            if (!activeTarget_.has_value()) {
+              return AdapterIpcMessageDisposition::kClose;
+            }
+            hostProofKey = activeTarget_->hostProofKey;
+          }
+          auto expectedProof = ComputeIpcHmacSha256(
+              hostProofKey,
+              BuildHostProofMessage(pendingHelloChallenge_,
+                                    pendingHelloCorrelationId_,
+                                    instanceId_.value, ownerLifetimeId_));
+          bool authenticated =
+              value.accepted &&
+              value.correlationId == pendingHelloCorrelationId_ &&
+              ConstantTimeEqual(value.hostProof, expectedProof);
+          {
+            std::lock_guard<std::mutex> lock(availableMutex_);
+            authenticationState_ = authenticated
+                                       ? AuthenticationState::kAuthenticated
+                                       : AuthenticationState::kClosed;
+          }
+          return authenticated ? AdapterIpcMessageDisposition::kAuthenticated
+                               : AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T,
                                             IpcResynchronizeRequestMessage>) {
           HandleResynchronizeRequest(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcListenEventMessage>) {
           HandleListenEvent(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
           HandleReadSample(value);
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcCloseMessage>) {
-          return false;
+          return AdapterIpcMessageDisposition::kClose;
         } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else if constexpr (std::is_same_v<T, IpcCancelMessage>) {
-          return true;
+          return AdapterIpcMessageDisposition::kContinue;
         } else {
           //  IpcHelloMessage and IpcResynchronizeResultMessage are
           //  adapter-outbound only; receiving either is a protocol
@@ -77,7 +147,7 @@ bool AdapterIpcSession::HandleMessage(const IpcMessage &message) {
                 .correlationId = value.correlationId,
                 .reason = IpcRejectReason::kUnknownMessageKind}});
           }
-          return false;
+          return AdapterIpcMessageDisposition::kClose;
         }
       },
       message);
@@ -92,13 +162,17 @@ void AdapterIpcSession::HandleDecodeFailure() {
 
 void AdapterIpcSession::HandleDisconnected() {
   std::lock_guard<std::mutex> lock(availableMutex_);
-  available_ = false;
-  ++connectionGeneration_;
+  CloseCurrentGenerationLocked();
 }
 
 bool AdapterIpcSession::IsHostAvailable() const {
   std::lock_guard<std::mutex> lock(availableMutex_);
-  return available_;
+  return authenticationState_ == AuthenticationState::kAuthenticated;
+}
+
+void AdapterIpcSession::HandleClosing() {
+  std::lock_guard<std::mutex> lock(availableMutex_);
+  CloseCurrentGenerationLocked();
 }
 
 void AdapterIpcSession::HandleResynchronizeRequest(
@@ -122,7 +196,14 @@ void AdapterIpcSession::HandleResynchronizeRequest(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: logical
+        //  closing (AdapterIpcConnectionCallbacks::onClosing) invalidates
+        //  authentication for this generation immediately, before the
+        //  physical disconnect that would otherwise be the only thing
+        //  bumping connectionGeneration_ -- so the generation guard alone is
+        //  not enough to reject a task queued just before that happened.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated) {
           return;
         }
       }
@@ -146,9 +227,17 @@ void AdapterIpcSession::HandleListenEvent(
     const IpcListenEventMessage &listenEvent) {
   std::uint32_t eventKey = listenEvent.eventKey;
   std::uint64_t connectionGeneration;
+  bool authenticated;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
+    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+  }
+  if (!authenticated) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -163,7 +252,12 @@ void AdapterIpcSession::HandleListenEvent(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: a later
+        //  authentication failure can close the same connection
+        //  generation, so the generation guard alone must not authorize this
+        //  deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated) {
           return;
         }
       }
@@ -183,9 +277,17 @@ void AdapterIpcSession::HandleReadSample(
     const IpcReadSampleMessage &readSample) {
   std::uint32_t sampleToken = readSample.sampleToken;
   std::uint64_t connectionGeneration;
+  bool authenticated;
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     connectionGeneration = connectionGeneration_;
+    authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+  }
+  if (!authenticated) {
+    //  The host-authentication result must be accepted before any
+    //  host-directed intent reaches game-thread dispatch, per the
+    //  mandatory Concept 03 handoff requirement.
+    return;
   }
   auto callbackMutex = callbackMutex_;
   auto lifetimeToken = lifetimeToken_;
@@ -200,7 +302,12 @@ void AdapterIpcSession::HandleReadSample(
     try {
       {
         std::lock_guard<std::mutex> lock(availableMutex_);
-        if (connectionGeneration != connectionGeneration_) {
+        //  Re-checked at execution time, not just at enqueue time: a later
+        //  authentication failure can close the same connection
+        //  generation, so the generation guard alone must not authorize this
+        //  deferred dispatch.
+        if (connectionGeneration != connectionGeneration_ ||
+            authenticationState_ != AuthenticationState::kAuthenticated) {
           return;
         }
       }
@@ -218,6 +325,15 @@ void AdapterIpcSession::HandleReadSample(
 
 std::uint64_t AdapterIpcSession::NextCorrelationId() {
   return nextCorrelationId_.fetch_add(1) + 1;
+}
+
+void AdapterIpcSession::CloseCurrentGenerationLocked() {
+  if (authenticationState_ == AuthenticationState::kClosed) {
+    return;
+  }
+  authenticationState_ = AuthenticationState::kClosed;
+  activeTarget_.reset();
+  ++connectionGeneration_;
 }
 
 } //  namespace dovahlink::adapter::ipc

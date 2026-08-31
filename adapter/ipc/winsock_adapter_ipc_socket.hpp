@@ -14,15 +14,30 @@
 
 namespace dovahlink::adapter::ipc {
 
+///  Caps `remainingMicroseconds` -- the time left until `Connect`'s absolute
+///  deadline -- to at most `pollTimeoutMilliseconds`, so one `select()` call
+///  inside `Connect` never blocks longer than one poll interval even when
+///  the deadline is still far off, letting a concurrent `RequestStop` be
+///  observed promptly. Pure and side-effect-free; exposed only for direct
+///  unit testing of this one bounded-poll computation, not as a
+///  general-purpose utility. `Connect` only ever calls this with a positive
+///  `remainingMicroseconds` (it already returns before this point once the
+///  deadline has passed) and the fixed, positive internal poll constant.
+long long CapConnectPollMicroseconds(long long remainingMicroseconds,
+                                     int pollTimeoutMilliseconds);
+
 ///  A blocking, internally-interruptible TCP client socket to the private
 ///  host-to-adapter IPC channel's loopback listener. Every blocking call
 ///  polls a short internal timeout so `RequestStop` (callable from any
 ///  thread) makes an in-progress or future call return promptly instead of
 ///  hanging indefinitely, per `ai/context/host/architecture.md`'s "adapter
-///  reconnect is bounded and performed outside game-thread work".
+///  connection work is bounded and performed outside game-thread work".
 class IAdapterIpcSocket {
 public:
   virtual ~IAdapterIpcSocket() = default;
+
+  ///  Changes the loopback port used by the next connection attempt.
+  virtual void SetPort(std::uint16_t port) = 0;
 
   ///  Attempts to establish the connection to the configured loopback
   ///  target. Blocking, bounded by short internal polls against a requested
@@ -53,7 +68,7 @@ public:
 
   ///  Requests that any in-progress or future blocking call return promptly.
   ///  Idempotent and safe to call from any thread, including while another
-  ///  thread is blocked inside `Connect`/`ReadExact`/`WriteAll`.
+  ///  thread is blocked inside `Connect`/`TryReadSome`/`WriteAll`.
   virtual void RequestStop() = 0;
 };
 
@@ -84,9 +99,21 @@ public:
   ///  @copydoc IAdapterIpcSocket::RequestStop
   void RequestStop() override;
 
+  ///  Reconfigures the loopback port a subsequent `Connect()` call targets.
+  ///  Safe to call concurrently with `Connect()` from another thread; a call
+  ///  already in progress uses whichever value it already read, and only the
+  ///  next `Connect()` call is guaranteed to see the update.
+  void SetPort(std::uint16_t port) override;
+
+  ///  The loopback port a subsequent `Connect()` call currently targets.
+  std::uint16_t Port() const;
+
 private:
+  ///  Whether the constructor successfully initialized Winsock for this
+  ///  instance.
+  bool winsockInitialized_ = false;
   ///  The loopback port to connect to.
-  std::uint16_t port_;
+  std::atomic<std::uint16_t> port_;
   ///  The underlying Winsock socket handle, or `INVALID_SOCKET` when closed.
   SOCKET socket_ = INVALID_SOCKET;
   ///  Set by `RequestStop`; polled by every blocking call.

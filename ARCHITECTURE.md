@@ -137,15 +137,18 @@ or connection.
 
 For historical compatibility, the old bridge behavior is recorded here.
 A bridge restart creates a new identity in the old bridge implementation; in
-the replacement this means an adapter restart creates a new `adapterInstanceId`.
+the replacement this means a Skyrim process restart creates a new
+`adapterInstanceId`.
 The target architecture distinguishes five
 identifiers across four lifetimes:
 the transport `ConnectionId` and authenticated `sessionId` share the per-socket
 lifetime.
 
-- `adapterInstanceId` identifies one running adapter/plugin lifetime. An adapter restart creates a
-  new identity. The host's OS process lifetime is separate and has no public identity. The historical
-  `bridgeInstanceId` name is retained only in frozen-reference compatibility records.
+- `adapterInstanceId` identifies one running adapter/plugin lifetime. Under the process-lifetime
+  adapter policy, an adapter restart means a new Skyrim process and creates a new identity; live
+  plugin unload/reload is not a supported lifecycle boundary. The host's OS process lifetime is
+  separate and has no public identity. The historical `bridgeInstanceId` name is retained only in
+  frozen-reference compatibility records.
 - `playContextId` identifies the currently loaded authoritative play context. It changes whenever
   state from the previous loaded game must no longer be accepted as current.
 - `clientId` identifies one paired client or device independently of any connection it opens.
@@ -164,8 +167,8 @@ presents to reconnect without repeating pairing — belongs to the Windows user 
 client and the host, and survives host, adapter, Skyrim, and Windows restarts. It does not change
 `adapterInstanceId`'s per-restart identity, `playContextId`'s per-load identity, or `sessionId`'s
 per-socket identity: a trusted client still authenticates into a fresh `sessionId` on every reconnect,
-and a bridge restart still creates a new `bridgeInstanceId` in the frozen Bridge reference; in the replacement an adapter restart
-creates a new `adapterInstanceId`. `ai/context/protocol/security.md` and
+and a bridge restart still creates a new `bridgeInstanceId` in the frozen Bridge reference; in the
+replacement a Skyrim process restart creates a new `adapterInstanceId`. `ai/context/protocol/security.md` and
 `roadmap/03-local-device-pairing-and-reconnection.md`'s Phase 3 owns the pairing, storage, and revocation design; this section only fixes where
 persistent trust sits relative to the four identifiers above.
 

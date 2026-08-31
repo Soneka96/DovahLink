@@ -23,9 +23,18 @@ add_library(dovahlink_adapter_core STATIC
     ipc/adapter_ipc_connection.cpp
     ipc/adapter_ipc_peer_proof_provider.cpp
     ipc/adapter_ipc_session.cpp
+    ipc/adapter_ipc_hmac.cpp
+    ipc/settable_adapter_ipc_peer_proof_provider.cpp
     capture/adapter_capture_handoff_queue.cpp
     dispatch/adapter_native_dispatcher.cpp
     identity/adapter_instance_id_generator.cpp
+    process/adapter_owner_lifetime_id.cpp
+    process/adapter_host_endpoint_report.cpp
+    process/adapter_host_rendezvous_reader.cpp
+    process/adapter_host_process_launcher.cpp
+    process/adapter_host_shutdown_requester.cpp
+    process/adapter_host_supervisor.cpp
+    process/adapter_shutdown_orchestrator.cpp
 )
 target_include_directories(dovahlink_adapter_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(dovahlink_adapter_core PUBLIC cxx_std_23)
@@ -33,7 +42,7 @@ if(MSVC)
     target_compile_options(dovahlink_adapter_core PUBLIC /EHsc)
 endif()
 if(WIN32)
-    target_link_libraries(dovahlink_adapter_core PUBLIC ws2_32)
+    target_link_libraries(dovahlink_adapter_core PUBLIC ws2_32 bcrypt)
 endif()
 
 # CommonLib-dependent runtime adapters. Kept in a separate target from
@@ -59,11 +68,71 @@ add_library(dovahlink_adapter_plugin SHARED plugin/dovahlink_adapter_plugin.cpp)
 target_compile_definitions(dovahlink_adapter_plugin PRIVATE __CMAKE_COMMONLIBSSE_PLUGIN=1)
 target_link_libraries(dovahlink_adapter_plugin PRIVATE dovahlink_adapter_runtime)
 
+# A tiny standalone process used only by
+# adapter_host_process_launcher_test.cpp to exercise real Win32 process
+# launch, stdout redirection, and Job Object termination: a real,
+# controllable child process referenced by its own built path, the same
+# shape the Bridge's own test-harness executable target uses for its
+# equivalent need.
+add_executable(dovahlink_adapter_launcher_test_fixture
+    tests/process/adapter_host_launcher_test_fixture_process.cpp
+)
+if(MSVC)
+    target_compile_options(dovahlink_adapter_launcher_test_fixture PRIVATE /EHsc)
+endif()
+
+# Both supported presets (windows-x64-debug, windows-x64-release) use the
+# single-config Ninja generator, so CMAKE_BUILD_TYPE is always set to exactly
+# one of these two values -- never "" the way it can be for a bare `cmake -B`
+# invocation with no preset. dotnet build/CI only ever produce a "Debug" or
+# "Release" host output folder (never "RelWithDebInfo"), so an unrecognized
+# value fails loudly here instead of silently pointing at a host binary that
+# was never built for that configuration.
+if(NOT DEFINED DOVAHLINK_HOST_BUILD_CONFIGURATION OR DOVAHLINK_HOST_BUILD_CONFIGURATION STREQUAL "")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Debug")
+    elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Release")
+    else()
+        message(FATAL_ERROR
+            "Unrecognized CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}'; configure with "
+            "the windows-x64-debug or windows-x64-release preset, or set "
+            "DOVAHLINK_HOST_BUILD_CONFIGURATION explicitly.")
+    endif()
+endif()
+set(DOVAHLINK_HOST_EXECUTABLE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net9.0-windows/DovahLink.Host.exe"
+    CACHE FILEPATH
+    "Built DovahLink.Host.exe used by the native cross-process lifecycle test")
+
+add_executable(dovahlink_adapter_owner_lifetime_test_fixture
+    tests/process/adapter_host_owner_lifetime_test_fixture.cpp
+)
+if(MSVC)
+    target_compile_options(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE /EHsc)
+endif()
+target_link_libraries(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE
+    dovahlink_adapter_core
+)
+target_compile_definitions(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE
+    DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
+)
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
+    tests/ipc/adapter_ipc_target_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
     tests/ipc/adapter_ipc_connection_test.cpp
     tests/ipc/adapter_ipc_session_test.cpp
+    tests/ipc/adapter_ipc_hmac_test.cpp
+    tests/ipc/settable_adapter_ipc_peer_proof_provider_test.cpp
+    tests/process/adapter_owner_lifetime_id_test.cpp
+    tests/process/adapter_host_endpoint_report_test.cpp
+    tests/process/adapter_host_rendezvous_reader_test.cpp
+    tests/process/adapter_host_process_launcher_test.cpp
+    tests/process/adapter_host_real_process_test.cpp
+    tests/process/adapter_host_shutdown_requester_test.cpp
+    tests/process/adapter_host_supervisor_test.cpp
+    tests/process/adapter_shutdown_orchestrator_test.cpp
     tests/capture/adapter_capture_handoff_queue_test.cpp
     tests/dispatch/adapter_native_dispatcher_test.cpp
     tests/identity/adapter_instance_id_generator_test.cpp
@@ -78,12 +147,17 @@ target_link_libraries(dovahlink_adapter_tests PRIVATE
 )
 target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_IPC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/ipc"
+    DOVAHLINK_ADAPTER_PROCESS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/process"
     DOVAHLINK_ADAPTER_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/runtime"
     DOVAHLINK_ADAPTER_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_task_marshaller.cpp"
     DOVAHLINK_ADAPTER_PAPYRUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/papyrus"
+    DOVAHLINK_PRIVATE_IPC_LIMIT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../integration/private-ipc-limits.json"
     DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/papyrus/commonlib_adapter_status_papyrus_adapter.cpp"
     DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/plugin/dovahlink_adapter_plugin.cpp"
     DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    DOVAHLINK_ADAPTER_LAUNCHER_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_launcher_test_fixture>"
+    DOVAHLINK_HOST_EXECUTABLE="${DOVAHLINK_HOST_EXECUTABLE}"
+    DOVAHLINK_ADAPTER_OWNER_LIFETIME_TEST_FIXTURE_EXE="$<TARGET_FILE:dovahlink_adapter_owner_lifetime_test_fixture>"
 )
 
 include(CTest)

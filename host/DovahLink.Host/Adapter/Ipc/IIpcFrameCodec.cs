@@ -119,7 +119,10 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         };
     }
 
-    /// <summary>Encodes an <see cref="IpcHelloMessage"/> payload: 16 identity bytes, a length byte, then the token.</summary>
+    /// <summary>
+    /// Encodes an <see cref="IpcHelloMessage"/> payload: 16 identity bytes, a length byte, the token,
+    /// then the fixed-size challenge and owner-lifetime-id fields.
+    /// </summary>
     private static byte[] EncodeHello(IpcHelloMessage hello)
     {
         byte[] peerProofToken = hello.PeerProofToken;
@@ -129,18 +132,26 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 $"The peer-proof token must be at most {Constants.MaxIpcPeerProofTokenBytes} bytes.", nameof(hello));
         }
 
-        var payload = new byte[17 + peerProofToken.Length];
+        int challengeOffset = 17 + peerProofToken.Length;
+        int ownerLifetimeIdOffset = challengeOffset + Constants.IpcChallengeBytes;
+        var payload = new byte[ownerLifetimeIdOffset + Constants.IpcOwnerLifetimeIdBytes];
         hello.AdapterInstanceId.Value.TryWriteBytes(payload.AsSpan(0, 16), bigEndian: true, out _);
         payload[16] = (byte)peerProofToken.Length;
         peerProofToken.CopyTo(payload.AsSpan(17));
+        hello.Challenge.CopyTo(payload.AsSpan(challengeOffset));
+        hello.OwnerLifetimeId.CopyTo(payload.AsSpan(ownerLifetimeIdOffset));
         return payload;
     }
 
-    /// <summary>Encodes an <see cref="IpcHelloAckMessage"/> payload: accepted and reject reason.</summary>
+    /// <summary>Encodes an <see cref="IpcHelloAckMessage"/> payload: accepted, reject reason, then the fixed-size host proof.</summary>
     private static byte[] EncodeHelloAck(IpcHelloAckMessage helloAck)
     {
         ValidateHelloAck(helloAck);
-        return [helloAck.Accepted ? (byte)1 : (byte)0, (byte)helloAck.RejectReason];
+        var payload = new byte[2 + Constants.IpcHostProofBytes];
+        payload[0] = helloAck.Accepted ? (byte)1 : (byte)0;
+        payload[1] = (byte)helloAck.RejectReason;
+        helloAck.HostProof.CopyTo(payload.AsSpan(2));
+        return payload;
     }
 
     /// <summary>Validates the semantic relationship between HelloAck fields.</summary>
@@ -230,20 +241,24 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             return IpcDecodeResult.Failure(IpcRejectReason.InvalidIdentity);
         }
 
-        if (payload.Length != 17 + tokenLength)
+        int challengeOffset = 17 + tokenLength;
+        int ownerLifetimeIdOffset = challengeOffset + Constants.IpcChallengeBytes;
+        if (payload.Length != ownerLifetimeIdOffset + Constants.IpcOwnerLifetimeIdBytes)
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
 
         var instanceId = new AdapterInstanceId(new Guid(payload[..16], bigEndian: true));
         byte[] token = payload.Slice(17, tokenLength).ToArray();
-        return IpcDecodeResult.Success(new IpcHelloMessage(correlationId, instanceId, token));
+        byte[] challenge = payload.Slice(challengeOffset, Constants.IpcChallengeBytes).ToArray();
+        byte[] ownerLifetimeId = payload.Slice(ownerLifetimeIdOffset, Constants.IpcOwnerLifetimeIdBytes).ToArray();
+        return IpcDecodeResult.Success(new IpcHelloMessage(correlationId, instanceId, token, challenge, ownerLifetimeId));
     }
 
     /// <summary>Decodes an <see cref="IpcHelloAckMessage"/> payload, validating its boolean and enum fields.</summary>
     private static IpcDecodeResult DecodeHelloAck(ulong correlationId, ReadOnlySpan<byte> payload)
     {
-        if (payload.Length != 2 || payload[0] > 1 || !Enum.IsDefined((IpcHelloRejectReason)payload[1]))
+        if (payload.Length != 2 + Constants.IpcHostProofBytes || payload[0] > 1 || !Enum.IsDefined((IpcHelloRejectReason)payload[1]))
         {
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
@@ -255,8 +270,9 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
         }
 
+        byte[] hostProof = payload.Slice(2, Constants.IpcHostProofBytes).ToArray();
         return IpcDecodeResult.Success(
-            new IpcHelloAckMessage(correlationId, accepted, (IpcHelloRejectReason)payload[1]));
+            new IpcHelloAckMessage(correlationId, accepted, (IpcHelloRejectReason)payload[1], hostProof));
     }
 
     /// <summary>Decodes an <see cref="IpcResynchronizeResultMessage"/> payload, validating its boolean field.</summary>

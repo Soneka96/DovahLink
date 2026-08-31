@@ -94,4 +94,61 @@ public class AdapterPeerProofVerifierTests
 
         Assert.False(verifier.Matches(longerToken));
     }
+
+    /// <summary>Verifies that a freshly constructed verifier issues a HostProofKey of the configured bounded length.</summary>
+    [Fact]
+    public void HostProofKey_HasConfiguredLength()
+    {
+        var verifier = new AdapterPeerProofVerifier();
+
+        Assert.Equal(Constants.MaxIpcPeerProofTokenBytes, verifier.HostProofKey.Length);
+    }
+
+    /// <summary>Verifies that two independently constructed verifiers do not generate the same HostProofKey.</summary>
+    [Fact]
+    public void HostProofKey_DiffersAcrossInstances()
+    {
+        var first = new AdapterPeerProofVerifier();
+        var second = new AdapterPeerProofVerifier();
+
+        Assert.False(first.HostProofKey.SequenceEqual(second.HostProofKey));
+    }
+
+    /// <summary>Verifies that each read of HostProofKey returns an independent array, not a shared cached copy.</summary>
+    [Fact]
+    public void HostProofKey_EachReadReturnsIndependentArray()
+    {
+        var verifier = new AdapterPeerProofVerifier();
+
+        byte[] firstRead = verifier.HostProofKey;
+        byte[] secondRead = verifier.HostProofKey;
+        firstRead[0] ^= 0xFF;
+
+        Assert.Equal(secondRead, verifier.HostProofKey);
+    }
+
+    /// <summary>
+    /// Verifies that HostProofKey is independent of ExpectedToken within the same instance -- the
+    /// invariant this whole domain-separation split exists to establish: observing the bearer token
+    /// a Hello carries on the wire must never yield the HMAC key HostProof is computed with.
+    /// </summary>
+    [Fact]
+    public void HostProofKey_DiffersFromExpectedToken()
+    {
+        var verifier = new AdapterPeerProofVerifier();
+
+        Assert.False(verifier.HostProofKey.SequenceEqual(verifier.ExpectedToken));
+    }
+
+    /// <summary>
+    /// Verifies that Matches rejects HostProofKey as a presented bearer token: it is never a valid
+    /// substitute for ExpectedToken, guarding against the two being accidentally swapped.
+    /// </summary>
+    [Fact]
+    public void Matches_HostProofKey_ReturnsFalse()
+    {
+        var verifier = new AdapterPeerProofVerifier();
+
+        Assert.False(verifier.Matches(verifier.HostProofKey));
+    }
 }

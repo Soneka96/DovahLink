@@ -22,16 +22,18 @@ not already running, then the adapter connects to the host's private IPC
 listener. The adapter may launch the external process, but it never embeds the
 CLR or loads host assemblies, Skyrim runtime objects, or CommonLib code into the
 other process. Adapter startup and IPC reconnect must not block game-thread work;
-the adapter retries through its bounded handoff/connection path if host startup
-takes time or the host is temporarily unavailable. A failed host start leaves
-the adapter safe to run without a connected host, while a failed adapter
-connection leaves the host in its valid adapter-unavailable state.
+the adapter supervisor coordinates one bounded connection attempt at a time when
+host startup takes time or the host is temporarily unavailable. A failed host
+start leaves the adapter safe to run without a connected host, while a failed
+adapter connection leaves the host in its valid adapter-unavailable state.
 
 The host process belongs to one adapter/Skyrim lifetime. The adapter must not
 blindly reuse a stale or duplicate host process: it starts the packaged host or
 adopts an already-running process only when that process proves it belongs to
-the current lifetime through the private channel. The exact ownership proof is
-private-IPC implementation work. The adapter supervises the host with an
+the current lifetime through the private channel. The normal adapter connection
+is the only proof path; there is no separate discovery probe that participates
+in the host session state machine. The exact ownership proof is private-IPC
+implementation work. The adapter supervises the host with an
 OS-backed parent-lifetime mechanism. On an orderly Skyrim shutdown, the adapter
 requests the host's deterministic graceful teardown first; the OS-backed
 mechanism is the fallback for crashes and forced termination. The host remains
@@ -64,7 +66,8 @@ The host is the sole new owner of:
 - Pairing, persistent trust, authentication, authorization, and revocation.
 - Subscriptions, authoritative published state, revisions, recovery, and per-session bounded
   queues.
-- Diagnostics, host availability, reconnect behavior, and host-side shutdown.
+- Diagnostics, host availability, and host-side shutdown. Adapter-side
+  discovery and reconnect coordination remain on the native adapter.
 
 ## Boundary against Skyrim
 

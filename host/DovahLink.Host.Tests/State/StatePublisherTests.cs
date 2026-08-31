@@ -333,13 +333,15 @@ public class StatePublisherTests
         var adapterTracker = new AdapterAvailabilityTracker();
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long firstGeneration = adapterTracker.NotifyConnected(instanceId);
+        long firstGeneration = 1;
+        PublishConnected(adapterTracker, instanceId, firstGeneration);
         IAdapterResynchronizationToken staleToken = adapterTracker.TryClaimResynchronizationToken()!;
         Assert.True(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 1));
         adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
         Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 2));
 
-        long secondGeneration = adapterTracker.NotifyConnected(instanceId);
+        long secondGeneration = 2;
+        PublishConnected(adapterTracker, instanceId, secondGeneration);
 
         Assert.False(publisher.ApplyResynchronizationBaseline(staleToken, AreaId, 2));
         Assert.False(publisher.ApplyResynchronizationBaseline(new ForeignResynchronizationToken(), AreaId, 2));
@@ -428,14 +430,15 @@ public class StatePublisherTests
         var adapterTracker = new AdapterAvailabilityTracker();
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long generation = adapterTracker.NotifyConnected(instanceId);
+        long generation = 1;
+        PublishConnected(adapterTracker, instanceId, generation);
         Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 1));
         adapterTracker.NotifyResynchronized(instanceId, generation);
 
         Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(secondContext));
         Assert.True(transitionEntered.Wait(TimeSpan.FromSeconds(5)));
 
-        adapterTracker.NotifyDisconnected(instanceId, generation);
+        PublishDisconnected(adapterTracker, instanceId, generation);
 
         Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(AreaId));
         releaseTransition.Set();
@@ -452,16 +455,18 @@ public class StatePublisherTests
         var adapterTracker = new AdapterAvailabilityTracker();
         var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
-        long firstGeneration = adapterTracker.NotifyConnected(instanceId);
+        long firstGeneration = 1;
+        PublishConnected(adapterTracker, instanceId, firstGeneration);
         Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
         adapterTracker.NotifyResynchronized(instanceId, firstGeneration);
         RevisionNumber synchronizedRevision = publisher.CurrentRevision(AreaId);
 
-        adapterTracker.NotifyDisconnected(instanceId, firstGeneration);
+        PublishDisconnected(adapterTracker, instanceId, firstGeneration);
         Assert.Equal(synchronizedRevision.Next(), publisher.CurrentRevision(AreaId));
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
 
-        long secondGeneration = adapterTracker.NotifyConnected(instanceId);
+        long secondGeneration = 2;
+        PublishConnected(adapterTracker, instanceId, secondGeneration);
         Assert.Equal(synchronizedRevision.Next().Next(), publisher.CurrentRevision(AreaId));
         Assert.False(publisher.TryGetCurrentValue(AreaId, out _));
         Assert.True(publisher.ApplyResynchronizationBaseline(adapterTracker.TryClaimResynchronizationToken()!, AreaId, 42));
@@ -474,5 +479,25 @@ public class StatePublisherTests
 
     private sealed class ForeignResynchronizationToken : IAdapterResynchronizationToken
     {
+    }
+
+    /// <summary>Commits and publishes a connected transition in one call, for tests that only care about the combined effect and not the two-step API split.</summary>
+    private static void PublishConnected(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long generation)
+    {
+        AdapterAvailabilityTransition? transition = tracker.CommitConnected(instanceId, generation);
+        if (transition is not null)
+        {
+            tracker.PublishTransition(transition);
+        }
+    }
+
+    /// <summary>Commits and publishes a disconnected transition in one call, for tests that only care about the combined effect and not the two-step API split.</summary>
+    private static void PublishDisconnected(IAdapterAvailabilityTracker tracker, AdapterInstanceId instanceId, long connectionGeneration)
+    {
+        AdapterAvailabilityTransition? transition = tracker.CommitDisconnected(instanceId, connectionGeneration);
+        if (transition is not null)
+        {
+            tracker.PublishTransition(transition);
+        }
     }
 }
