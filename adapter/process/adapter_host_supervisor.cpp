@@ -77,6 +77,7 @@ void AdapterHostSupervisor::RunLoop() {
     }
 
     bool succeeded = false;
+    bool needsRecoveryBackoff = false;
     try {
       std::optional<AdapterHostEndpoint> endpoint;
       std::uint64_t targetGeneration = 0;
@@ -109,6 +110,13 @@ void AdapterHostSupervisor::RunLoop() {
         preferFreshLaunch =
             *outcome == ipc::AdapterIpcAttemptOutcome::kConnectFailed ||
             *outcome == ipc::AdapterIpcAttemptOutcome::kAuthenticationFailed;
+        //  An authenticated connection that later disconnects still needs a
+        //  bounded recovery delay before the next round, the same as a
+        //  failed connect/authentication attempt: otherwise a peer that
+        //  keeps connecting and disconnecting (for example by repeatedly
+        //  tripping the inbound rate limit) causes a tight reconnect loop.
+        needsRecoveryBackoff =
+            *outcome == ipc::AdapterIpcAttemptOutcome::kDisconnected;
         succeeded = true;
       }
     } catch (...) {
@@ -118,7 +126,7 @@ void AdapterHostSupervisor::RunLoop() {
       preferFreshLaunch = true;
     }
 
-    if (!succeeded || preferFreshLaunch) {
+    if (!succeeded || preferFreshLaunch || needsRecoveryBackoff) {
       if (!WaitBackoffOrStop()) {
         return;
       }

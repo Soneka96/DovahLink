@@ -582,3 +582,36 @@ TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within the "
   CHECK(fixture.connection.ConfiguredProofToken().empty());
   CHECK(fixture.launcher.CallCount() == 1);
 }
+
+TEST_CASE("AdapterHostSupervisor applies a bounded recovery backoff after an "
+          "authenticated connection disconnects") {
+  SupervisorFixture fixture;
+  AdapterHostEndpoint firstEndpoint = SampleEndpoint(6001);
+  AdapterHostEndpoint secondEndpoint = SampleEndpoint(6002);
+  fixture.reader.SetResults({firstEndpoint, secondEndpoint});
+  fixture.supervisor.Start();
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == firstEndpoint.port;
+  }));
+
+  fixture.supervisor.NotifyConnectionLost(
+      1, dovahlink::adapter::ipc::AdapterIpcAttemptOutcome::kDisconnected);
+
+  //  The fixture's bounded recovery backoff is 30ms; well inside that
+  //  window, the supervisor must not yet have started a second discovery
+  //  round -- a tight reconnect loop is exactly what the backoff prevents.
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  CHECK(fixture.connection.StartCount() == 1);
+
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == secondEndpoint.port;
+  }));
+  CHECK(fixture.connection.StartCount() == 2);
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
+  //  A disconnect after successful authentication says nothing about the
+  //  rendezvous candidate's validity, so the next round must still prefer
+  //  rendezvous adoption over a fresh launch.
+  CHECK(fixture.launcher.CallCount() == 0);
+
+  fixture.supervisor.RequestStop();
+}
