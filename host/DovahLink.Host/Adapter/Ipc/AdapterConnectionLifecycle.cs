@@ -12,12 +12,15 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// mutation is meant to flow through this type, never directly through the tracker.
 /// </summary>
 /// <remarks>
-/// <see cref="Activate"/> and <see cref="Deactivate"/> hold their lease-eligibility lock across
-/// their entire tracker publication -- lease mutation through subscriber notification -- so
+/// <see cref="Activate"/> and <see cref="Deactivate"/> hold their lease-eligibility lock only across
+/// the lease mutation and the tracker's own commit -- never across subscriber notification -- so
 /// <see cref="IsActive"/> can never observe a lease as eligible, or ineligible, while the tracker's
-/// committed availability still disagrees: any concurrent reader sees the whole transition or none
-/// of it, never a seam in between. A subscriber to the tracker's availability event must never call
-/// back into <see cref="Activate"/>, <see cref="Deactivate"/>, or
+/// committed availability still disagrees: any concurrent reader sees the whole commit or none of
+/// it, never a seam in between, and is never blocked waiting on arbitrary subscriber code. Ordering
+/// across a complete transition -- commit, then publish -- is instead held by
+/// <see cref="transitionGate"/> for the whole method, so transitions still commit and publish in
+/// strict allocation order relative to one another. A subscriber to the tracker's availability event
+/// must never call back into <see cref="Activate"/>, <see cref="Deactivate"/>, or
 /// <see cref="TryCompleteResynchronization"/> from inside its own handler: C# locks are reentrant
 /// per thread, so such a call would not be blocked -- it would instead re-enter this type's
 /// serialization mid-transition, which this type does not defend against. Subscribers are meant to
@@ -31,7 +34,9 @@ public interface IAdapterConnectionLifecycle
     /// <summary>
     /// Allocates a new connection generation, activates <paramref name="lease"/> for it, and only
     /// then commits and publishes the tracker's available transition -- so a subscriber reacting to
-    /// that transition synchronously already sees <paramref name="lease"/> as active.
+    /// that transition synchronously already sees <paramref name="lease"/> as active. Publication
+    /// happens after the lease/tracker commit has already released its own lock, so a synchronous
+    /// subscriber can call back into <c>TrySend</c>/<see cref="IsActive"/> without blocking on it.
     /// </summary>
     /// <param name="lease">
     /// The lease to activate. Must not already be active; callers own preventing a duplicate
@@ -45,7 +50,9 @@ public interface IAdapterConnectionLifecycle
     /// Deactivates <paramref name="lease"/> if it is still the active connection, then commits and
     /// publishes the tracker's unavailable transition -- so a subscriber reacting to that transition
     /// synchronously already sees <paramref name="lease"/> as inactive. A no-op if
-    /// <paramref name="lease"/> has already been superseded or deactivated.
+    /// <paramref name="lease"/> has already been superseded or deactivated. Publication happens
+    /// after the lease/tracker commit has already released its own lock, so a synchronous subscriber
+    /// observing the now-inactive lease does not block a concurrent <see cref="IsActive"/> caller.
     /// </summary>
     /// <param name="lease">The lease to deactivate.</param>
     void Deactivate(AdapterConnectionLease lease);
@@ -78,11 +85,12 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
 
     /// <summary>
     /// Guards <see cref="currentLease"/> for the fast read <see cref="IsActive"/> needs, and, in
-    /// <see cref="Activate"/>/<see cref="Deactivate"/>, is held across those methods' entire tracker
-    /// publication -- including subscriber notification -- so a lease's eligibility and the
-    /// tracker's committed availability always commit as one atomic transition: <see
-    /// cref="IsActive"/> blocks until an in-flight transition fully lands rather than observing it
-    /// mid-flight. Deliberately a separate lock from <see cref="transitionGate"/> so
+    /// <see cref="Activate"/>/<see cref="Deactivate"/>, is held across those methods' lease mutation
+    /// and the tracker's commit call -- never across the tracker's subsequent publish call -- so a
+    /// lease's eligibility and the tracker's committed availability always commit as one atomic
+    /// transition: <see cref="IsActive"/> blocks until an in-flight commit fully lands rather than
+    /// observing it mid-flight, but is never blocked by arbitrary subscriber code running during
+    /// publication. Deliberately a separate lock from <see cref="transitionGate"/> so
     /// <see cref="TryCompleteResynchronization"/>, which does not change lease eligibility, does not
     /// also block <see cref="IsActive"/> for the duration of its own tracker call.
     /// </summary>
@@ -110,13 +118,19 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
         lock (transitionGate)
         {
             long generation = ++nextGeneration;
+            AdapterAvailabilityTransition? transition;
             lock (stateGate)
             {
                 lease.InstanceId = instanceId;
                 lease.Generation = generation;
                 currentLease = lease;
 
-                tracker.PublishConnected(instanceId, generation);
+                transition = tracker.CommitConnected(instanceId, generation);
+            }
+
+            if (transition is not null)
+            {
+                tracker.PublishTransition(transition);
             }
         }
     }
@@ -126,6 +140,7 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
     {
         lock (transitionGate)
         {
+            AdapterAvailabilityTransition? transition;
             lock (stateGate)
             {
                 if (!ReferenceEquals(currentLease, lease))
@@ -134,7 +149,12 @@ public sealed class AdapterConnectionLifecycle : IAdapterConnectionLifecycle
                 }
 
                 currentLease = null;
-                tracker.PublishDisconnected(lease.InstanceId, lease.Generation);
+                transition = tracker.CommitDisconnected(lease.InstanceId, lease.Generation);
+            }
+
+            if (transition is not null)
+            {
+                tracker.PublishTransition(transition);
             }
         }
     }

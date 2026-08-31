@@ -105,6 +105,39 @@ public class AdapterConnectionLifecycleTests
         Assert.True(lifecycle.IsActive(secondLease));
     }
 
+    /// <summary>Verifies that transitionGate still serializes a complete commit-then-publish sequence across two different kinds of operation, not only two of the same kind: a concurrent Activate cannot start allocating a new generation until a prior Deactivate's own (contained) subscriber has finished.</summary>
+    [Fact]
+    public async Task ConcurrentDeactivateThenActivate_SerializePublicationAcrossDifferentOperations()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        var lifecycle = new AdapterConnectionLifecycle(tracker);
+        AdapterConnectionLease firstLease = lifecycle.CreateLease();
+        lifecycle.Activate(firstLease, AdapterInstanceId.NewId());
+        using var deactivateCallbackEntered = new ManualResetEventSlim();
+        using var releaseDeactivateCallback = new ManualResetEventSlim();
+        tracker.AvailabilityChanged += transition =>
+        {
+            if (transition.Current == AdapterAvailability.Unavailable)
+            {
+                deactivateCallbackEntered.Set();
+                releaseDeactivateCallback.Wait();
+            }
+        };
+
+        Task deactivation = Task.Run(() => lifecycle.Deactivate(firstLease));
+        Assert.True(deactivateCallbackEntered.Wait(TimeSpan.FromSeconds(5)));
+        AdapterConnectionLease secondLease = lifecycle.CreateLease();
+        Task activation = Task.Run(() => lifecycle.Activate(secondLease, AdapterInstanceId.NewId()));
+
+        Task completed = await Task.WhenAny(activation, Task.Delay(100));
+        Assert.NotSame(activation, completed);
+        releaseDeactivateCallback.Set();
+        await Task.WhenAll(deactivation, activation);
+
+        Assert.Equal(2, secondLease.Generation);
+        Assert.True(lifecycle.IsActive(secondLease));
+    }
+
     /// <summary>Verifies that resynchronization completes while the lease is still active and clears the tracker's resynchronization requirement.</summary>
     [Fact]
     public void TryCompleteResynchronization_LeaseStillActive_CompletesAndClearsNeedsResynchronization()
@@ -244,9 +277,14 @@ public class AdapterConnectionLifecycleTests
         Assert.False(completed);
     }
 
-    /// <summary>Verifies that a concurrent <c>IsActive</c> call cannot observe the lease as eligible until Activate's tracker publication, including subscriber notification, has fully landed -- so it never disagrees with the tracker's committed availability.</summary>
+    /// <summary>
+    /// Verifies that a concurrent <c>IsActive</c> call is never blocked by an Available subscriber
+    /// still running -- unlike the tracker's old combined publish operation, publication happens
+    /// after <c>stateGate</c> has already been released -- and already reflects the lease/tracker
+    /// commit, which lands before the subscriber ever runs.
+    /// </summary>
     [Fact]
-    public async Task ConcurrentIsActive_DuringActivate_CannotObserveEligibilityBeforeTrackerCommitsAvailable()
+    public async Task ConcurrentIsActive_DuringActivateSubscriber_ReturnsCommittedStateWithoutBlocking()
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -266,18 +304,24 @@ public class AdapterConnectionLifecycleTests
         Assert.True(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
         Task<bool> concurrentIsActive = Task.Run(() => lifecycle.IsActive(lease));
 
-        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(100));
-        Assert.NotSame(concurrentIsActive, completed);
-        releaseCallback.Set();
-        await Task.WhenAll(activation, concurrentIsActive);
-
+        //  The subscriber is still blocked here: concurrentIsActive must still complete well before
+        //  the long delay below, rather than waiting for releaseCallback.Set() further down.
+        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(concurrentIsActive, completed);
         Assert.True(await concurrentIsActive);
+
+        releaseCallback.Set();
+        await activation;
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
     }
 
-    /// <summary>Verifies that a concurrent <c>IsActive</c> call cannot observe the lease as ineligible until Deactivate's tracker publication, including subscriber notification, has fully landed -- so it never disagrees with the tracker's committed availability.</summary>
+    /// <summary>
+    /// Verifies that a concurrent <c>IsActive</c> call is never blocked by an Unavailable subscriber
+    /// still running, and already reflects the lease/tracker commit, which lands before the
+    /// subscriber ever runs.
+    /// </summary>
     [Fact]
-    public async Task ConcurrentIsActive_DuringDeactivate_CannotObserveEligibilityBeforeTrackerCommitsUnavailable()
+    public async Task ConcurrentIsActive_DuringDeactivateSubscriber_ReturnsCommittedStateWithoutBlocking()
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -298,18 +342,18 @@ public class AdapterConnectionLifecycleTests
         Assert.True(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
         Task<bool> concurrentIsActive = Task.Run(() => lifecycle.IsActive(lease));
 
-        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(100));
-        Assert.NotSame(concurrentIsActive, completed);
-        releaseCallback.Set();
-        await Task.WhenAll(deactivation, concurrentIsActive);
-
+        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(concurrentIsActive, completed);
         Assert.False(await concurrentIsActive);
+
+        releaseCallback.Set();
+        await deactivation;
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
 
-    /// <summary>Verifies that a throwing Available subscriber still releases the lock a concurrent <c>IsActive</c> call is waiting on, and that call observes the fully-committed post-transition state once it does.</summary>
+    /// <summary>Verifies that a concurrent <c>IsActive</c> call is unaffected by an Available subscriber that ultimately throws: it is neither blocked by the still-running subscriber nor corrupted by its eventual exception.</summary>
     [Fact]
-    public async Task ConcurrentIsActive_DuringActivateWithThrowingSubscriber_UnblocksOnceTransitionCompletes()
+    public async Task ConcurrentIsActive_DuringActivateWithThrowingSubscriber_ReturnsCommittedStateWithoutBlocking()
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -330,18 +374,18 @@ public class AdapterConnectionLifecycleTests
         Assert.True(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
         Task<bool> concurrentIsActive = Task.Run(() => lifecycle.IsActive(lease));
 
-        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(100));
-        Assert.NotSame(concurrentIsActive, completed);
-        releaseCallback.Set();
-        await Task.WhenAll(activation, concurrentIsActive);
-
+        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(concurrentIsActive, completed);
         Assert.True(await concurrentIsActive);
+
+        releaseCallback.Set();
+        await activation;
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
     }
 
-    /// <summary>Verifies that a throwing Unavailable subscriber still releases the lock a concurrent <c>IsActive</c> call is waiting on, and that call observes the fully-committed post-transition state once it does.</summary>
+    /// <summary>Verifies that a concurrent <c>IsActive</c> call is unaffected by an Unavailable subscriber that ultimately throws: it is neither blocked by the still-running subscriber nor corrupted by its eventual exception.</summary>
     [Fact]
-    public async Task ConcurrentIsActive_DuringDeactivateWithThrowingSubscriber_UnblocksOnceTransitionCompletes()
+    public async Task ConcurrentIsActive_DuringDeactivateWithThrowingSubscriber_ReturnsCommittedStateWithoutBlocking()
     {
         var tracker = new AdapterAvailabilityTracker();
         var lifecycle = new AdapterConnectionLifecycle(tracker);
@@ -363,12 +407,12 @@ public class AdapterConnectionLifecycleTests
         Assert.True(callbackEntered.Wait(TimeSpan.FromSeconds(5)));
         Task<bool> concurrentIsActive = Task.Run(() => lifecycle.IsActive(lease));
 
-        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(100));
-        Assert.NotSame(concurrentIsActive, completed);
-        releaseCallback.Set();
-        await Task.WhenAll(deactivation, concurrentIsActive);
-
+        Task completed = await Task.WhenAny(concurrentIsActive, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(concurrentIsActive, completed);
         Assert.False(await concurrentIsActive);
+
+        releaseCallback.Set();
+        await deactivation;
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
 }

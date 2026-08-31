@@ -33,20 +33,39 @@ public interface IAdapterAvailabilityTracker
     bool IsCurrentResynchronizationToken(IAdapterResynchronizationToken token);
 
     /// <summary>
-    /// Commits an adapter instance as connected at the given generation and publishes the resulting
-    /// transition. The generation is supplied by the caller rather than allocated here:
-    /// <see cref="IAdapterConnectionLifecycle"/> is the sole intended caller and the sole authority
-    /// for connection-generation numbering, so this method trusts the value it is given rather than
-    /// re-deriving or validating it.
+    /// Commits an adapter instance as connected at the given generation, under the same lock
+    /// <see cref="Current"/> and the other getters read, and returns the resulting transition
+    /// without publishing it -- publishing is a separate step via <see cref="PublishTransition"/>,
+    /// deliberately outside this method so a caller can release its own lease-eligibility lock
+    /// before running arbitrary subscriber code. The generation is supplied by the caller rather
+    /// than allocated here: <see cref="IAdapterConnectionLifecycle"/> is the sole intended caller
+    /// and the sole authority for connection-generation numbering, so this method trusts the value
+    /// it is given rather than re-deriving or validating it.
     /// </summary>
     /// <param name="instanceId">The connecting adapter's instance identity.</param>
     /// <param name="generation">The connection generation to commit as current.</param>
-    void PublishConnected(AdapterInstanceId instanceId, long generation);
+    /// <returns>The committed transition, or <see langword="null"/> when availability did not actually change.</returns>
+    AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation);
 
-    /// <summary>Records that the specified connected adapter has disconnected and publishes the resulting transition.</summary>
+    /// <summary>
+    /// Records that the specified connected adapter has disconnected and returns the resulting
+    /// transition without publishing it; see <see cref="CommitConnected"/> for why commit and
+    /// publish are separate steps.
+    /// </summary>
     /// <param name="instanceId">The adapter instance whose connection ended.</param>
     /// <param name="connectionGeneration">The connection generation that ended.</param>
-    void PublishDisconnected(AdapterInstanceId instanceId, long connectionGeneration);
+    /// <returns>The committed transition, or <see langword="null"/> when <paramref name="instanceId"/>/<paramref name="connectionGeneration"/> no longer match the current connection, or availability did not actually change.</returns>
+    AdapterAvailabilityTransition? CommitDisconnected(AdapterInstanceId instanceId, long connectionGeneration);
+
+    /// <summary>
+    /// Publishes an already-committed transition to every <see cref="AvailabilityChanged"/>
+    /// subscriber, containing any subscriber exception individually so one failing subscriber can
+    /// never suppress a later one. <see cref="IAdapterConnectionLifecycle"/> is the sole intended
+    /// caller, and calls this only after releasing its own lease-eligibility lock, so subscriber
+    /// code never runs while a concurrent <c>IsActive</c> caller is blocked on that lock.
+    /// </summary>
+    /// <param name="transition">The transition returned by <see cref="CommitConnected"/> or <see cref="CommitDisconnected"/>.</param>
+    void PublishTransition(AdapterAvailabilityTransition transition);
 
     /// <summary>Records that the specified adapter's resynchronization handshake has completed.</summary>
     /// <param name="instanceId">The adapter instance that completed resynchronization.</param>
@@ -66,9 +85,6 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
 {
     /// <summary>Guards every field below against concurrent access.</summary>
     private readonly object gate = new();
-
-    /// <summary>Serializes availability updates with ordered transition callback publication.</summary>
-    private readonly object publicationGate = new();
 
     /// <summary>Whether an adapter is currently connected.</summary>
     private AdapterAvailability current = AdapterAvailability.Unavailable;
@@ -142,63 +158,41 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     /// until a real reconnection replaces it here, matching Current separately reporting
     /// unavailability in the meantime.
     /// </remarks>
-    public void PublishConnected(AdapterInstanceId instanceId, long generation)
+    public AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation)
     {
-        lock (publicationGate)
+        lock (gate)
         {
-            AdapterAvailabilityTransition? transition = null;
-            lock (gate)
-            {
-                currentConnectionGeneration = generation;
-                AdapterAvailability previous = current;
-                current = AdapterAvailability.Available;
-                currentInstanceId = instanceId;
-                needsResynchronization = true;
-                currentResynchronizationToken = new AdapterResynchronizationToken();
-                resynchronizationTokenClaimed = false;
-                if (previous != current)
-                {
-                    transition = new AdapterAvailabilityTransition(
-                        previous, current, currentInstanceId, currentConnectionGeneration);
-                }
-            }
-
-            if (transition is not null)
-            {
-                PublishSafely(transition);
-            }
+            currentConnectionGeneration = generation;
+            AdapterAvailability previous = current;
+            current = AdapterAvailability.Available;
+            currentInstanceId = instanceId;
+            needsResynchronization = true;
+            currentResynchronizationToken = new AdapterResynchronizationToken();
+            resynchronizationTokenClaimed = false;
+            return previous != current
+                ? new AdapterAvailabilityTransition(previous, current, currentInstanceId, currentConnectionGeneration)
+                : null;
         }
     }
 
     /// <inheritdoc/>
-    public void PublishDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
+    public AdapterAvailabilityTransition? CommitDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
     {
-        lock (publicationGate)
+        lock (gate)
         {
-            AdapterAvailabilityTransition? transition = null;
-            lock (gate)
+            if (currentInstanceId != instanceId || currentConnectionGeneration != connectionGeneration)
             {
-                if (currentInstanceId != instanceId || currentConnectionGeneration != connectionGeneration)
-                {
-                    return;
-                }
-
-                AdapterAvailability previous = current;
-                current = AdapterAvailability.Unavailable;
-                needsResynchronization = true;
-                currentResynchronizationToken = null;
-                resynchronizationTokenClaimed = false;
-                if (previous != current)
-                {
-                    transition = new AdapterAvailabilityTransition(
-                        previous, current, currentInstanceId, currentConnectionGeneration);
-                }
+                return null;
             }
 
-            if (transition is not null)
-            {
-                PublishSafely(transition);
-            }
+            AdapterAvailability previous = current;
+            current = AdapterAvailability.Unavailable;
+            needsResynchronization = true;
+            currentResynchronizationToken = null;
+            resynchronizationTokenClaimed = false;
+            return previous != current
+                ? new AdapterAvailabilityTransition(previous, current, currentInstanceId, currentConnectionGeneration)
+                : null;
         }
     }
 
@@ -257,14 +251,8 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     /// <inheritdoc/>
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
-    /// <summary>
-    /// Invokes every <see cref="AvailabilityChanged"/> subscriber individually, containing an
-    /// exception from one so it can never suppress a later subscriber, unwind out of the caller
-    /// (which has already committed this transition's state under <c>gate</c>), or leave a
-    /// connection/session lifecycle transition incomplete.
-    /// </summary>
-    /// <param name="transition">The already-committed transition to publish.</param>
-    private void PublishSafely(AdapterAvailabilityTransition transition)
+    /// <inheritdoc/>
+    public void PublishTransition(AdapterAvailabilityTransition transition)
     {
         Delegate[]? subscribers = AvailabilityChanged?.GetInvocationList();
         if (subscribers is null)

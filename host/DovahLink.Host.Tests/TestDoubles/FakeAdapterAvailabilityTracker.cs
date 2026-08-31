@@ -26,7 +26,7 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
     /// <inheritdoc/>
-    public void PublishConnected(AdapterInstanceId instanceId, long generation)
+    public AdapterAvailabilityTransition? CommitConnected(AdapterInstanceId instanceId, long generation)
     {
         AdapterAvailability previous = Current;
         CurrentConnectionGeneration = generation;
@@ -35,27 +35,48 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
         NeedsResynchronization = true;
         currentResynchronizationToken = new FakeAdapterResynchronizationToken();
         resynchronizationTokenClaimed = false;
-        if (previous != Current)
-        {
-            AvailabilityChanged?.Invoke(new AdapterAvailabilityTransition(
-                previous, Current, CurrentInstanceId, CurrentConnectionGeneration));
-        }
+        return previous != Current
+            ? new AdapterAvailabilityTransition(previous, Current, CurrentInstanceId, CurrentConnectionGeneration)
+            : null;
     }
 
     /// <inheritdoc/>
-    public void PublishDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
+    public AdapterAvailabilityTransition? CommitDisconnected(AdapterInstanceId instanceId, long connectionGeneration)
     {
-        if (CurrentInstanceId == instanceId && CurrentConnectionGeneration == connectionGeneration)
+        if (CurrentInstanceId != instanceId || CurrentConnectionGeneration != connectionGeneration)
         {
-            AdapterAvailability previous = Current;
-            Current = AdapterAvailability.Unavailable;
-            NeedsResynchronization = true;
-            currentResynchronizationToken = null;
-            resynchronizationTokenClaimed = false;
-            if (previous != Current)
+            return null;
+        }
+
+        AdapterAvailability previous = Current;
+        Current = AdapterAvailability.Unavailable;
+        NeedsResynchronization = true;
+        currentResynchronizationToken = null;
+        resynchronizationTokenClaimed = false;
+        return previous != Current
+            ? new AdapterAvailabilityTransition(previous, Current, CurrentInstanceId, CurrentConnectionGeneration)
+            : null;
+    }
+
+    /// <inheritdoc/>
+    public void PublishTransition(AdapterAvailabilityTransition transition)
+    {
+        Delegate[]? subscribers = AvailabilityChanged?.GetInvocationList();
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        foreach (Delegate subscriber in subscribers)
+        {
+            try
             {
-                AvailabilityChanged?.Invoke(new AdapterAvailabilityTransition(
-                    previous, Current, CurrentInstanceId, CurrentConnectionGeneration));
+                ((Action<AdapterAvailabilityTransition>)subscriber).Invoke(transition);
+            }
+            catch (Exception)
+            {
+                // Matches AdapterAvailabilityTracker's own contained-per-subscriber behavior, so a
+                // test against this fake sees the same exception-isolation contract as the real type.
             }
         }
     }
