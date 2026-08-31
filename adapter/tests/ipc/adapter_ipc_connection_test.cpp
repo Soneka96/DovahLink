@@ -1000,6 +1000,71 @@ TEST_CASE("AdapterIpcConnection::Stop can be requested from an inbound "
   CHECK_FALSE(stopThrew.load());
 }
 
+TEST_CASE("AdapterIpcConnection::Start can be requested from its own worker "
+          "without deadlocking against a concurrent external Stop") {
+  //  Recognizing the connection's own worker thread must not depend on
+  //  reading the shared worker_ object itself: an external Stop() is made
+  //  to become the join owner and genuinely block waiting for this worker
+  //  to return before the worker's own callback calls Start() reentrantly,
+  //  which is exactly the shape that would deadlock -- the external Stop()
+  //  waiting for the worker to return, the reentrant Start() waiting on
+  //  joinInProgress_, which only the external Stop() could ever clear --
+  //  if the self-thread check were missing or itself raced worker_.
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
+  std::atomic<bool> startThrew{false};
+  std::promise<void> reentrantStartReturnedPromise;
+  std::future<void> reentrantStartReturnedFuture =
+      reentrantStartReturnedPromise.get_future();
+  AdapterIpcConnection *connectionPointer = nullptr;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onConnected = [] {},
+      .onMessageReceived =
+          [&](const IpcMessage &) {
+            callbackEnteredPromise.set_value();
+            releaseFuture.wait();
+            try {
+              connectionPointer->Start();
+            } catch (...) {
+              startThrew = true;
+            }
+            reentrantStartReturnedPromise.set_value();
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onDecodeFailure = [] {},
+      .onDisconnected = [] {},
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  connection.Start();
+  socket.PushReadableBytes(codec.Encode(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}}));
+  REQUIRE(WaitReady(callbackEnteredFuture));
+
+  std::promise<void> stopReturnedPromise;
+  std::future<void> stopReturnedFuture = stopReturnedPromise.get_future();
+  std::thread stopper([&] {
+    connection.Stop();
+    stopReturnedPromise.set_value();
+  });
+  //  Proves the external Stop() has become the join owner and is genuinely
+  //  blocked waiting for this worker to return, before letting the worker's
+  //  own callback call Start() reentrantly below.
+  REQUIRE(stopReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+          std::future_status::timeout);
+
+  releasePromise.set_value();
+  REQUIRE(WaitReady(reentrantStartReturnedFuture));
+  CHECK_FALSE(startThrew.load());
+  REQUIRE(WaitReady(stopReturnedFuture));
+  stopper.join();
+}
+
 TEST_CASE("AdapterIpcConnection contains an exception from the transport "
           "connect loop") {
   FakeAdapterIpcSocket socket;
@@ -1017,14 +1082,27 @@ TEST_CASE("AdapterIpcConnection contains an exception from the transport "
   REQUIRE_NOTHROW(connection.Stop());
 }
 
-TEST_CASE("AdapterIpcConnection coordinates concurrent external Stop calls") {
+TEST_CASE("AdapterIpcConnection coordinates concurrent external Stop calls "
+          "without letting the second caller inspect the worker thread "
+          "while the first is still joining it") {
+  //  The worker is deliberately kept genuinely running (blocked inside a
+  //  message callback, released only at the end of this test) rather than
+  //  merely started, so the first Stop() below is guaranteed to still be
+  //  joining it when the second Stop() begins -- this puts the second call
+  //  inside the exact join-in-progress window this fix protects, rather
+  //  than hoping the scheduler happens to interleave the two calls that way.
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({false});
   IpcFrameCodec codec;
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected = [] {},
       .onMessageReceived =
-          [](const IpcMessage &) {
+          [&](const IpcMessage &) {
+            callbackEnteredPromise.set_value();
+            releaseFuture.wait();
             return AdapterIpcMessageDisposition::kContinue;
           },
       .onDecodeFailure = [] {},
@@ -1032,28 +1110,61 @@ TEST_CASE("AdapterIpcConnection coordinates concurrent external Stop calls") {
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
+  socket.PushReadableBytes(codec.Encode(
+      IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 1}}));
+  REQUIRE(WaitReady(callbackEnteredFuture));
+  REQUIRE(socket.ConnectCallCount() == 1);
 
   std::atomic<bool> firstStopThrew{false};
-  std::atomic<bool> secondStopThrew{false};
+  std::promise<void> firstStopReturnedPromise;
+  std::future<void> firstStopReturnedFuture =
+      firstStopReturnedPromise.get_future();
   std::thread firstStopper([&] {
     try {
       connection.Stop();
     } catch (...) {
       firstStopThrew = true;
     }
+    firstStopReturnedPromise.set_value();
   });
+  //  Proves the first Stop() is still blocked joining the worker -- the same
+  //  still-blocked proof the "Stop waits for an in-flight message callback"
+  //  test above uses -- before racing the second Stop() against it.
+  REQUIRE(firstStopReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+          std::future_status::timeout);
+
+  std::atomic<bool> secondStopThrew{false};
+  std::promise<void> secondStopReturnedPromise;
+  std::future<void> secondStopReturnedFuture =
+      secondStopReturnedPromise.get_future();
   std::thread secondStopper([&] {
     try {
       connection.Stop();
     } catch (...) {
       secondStopThrew = true;
     }
+    secondStopReturnedPromise.set_value();
   });
+  //  The worker is still demonstrably blocked in its callback, so the
+  //  second Stop() must still be waiting on the first Stop()'s join rather
+  //  than having raced ahead to inspect or join the worker thread itself.
+  CHECK(secondStopReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+        std::future_status::timeout);
 
+  releasePromise.set_value();
+  REQUIRE(WaitReady(firstStopReturnedFuture));
+  REQUIRE(WaitReady(secondStopReturnedFuture));
   firstStopper.join();
   secondStopper.join();
   CHECK_FALSE(firstStopThrew.load());
   CHECK_FALSE(secondStopThrew.load());
+  CHECK(socket.ConnectCallCount() == 1);
+  //  Stop() is a terminal, one-way operation (`stopping_` never resets), so
+  //  the reusability property worth proving here is idempotence, not a
+  //  fresh reconnect: a third call, after two overlapping ones already
+  //  joined the worker, must not hang, throw, or attempt a second join on
+  //  the now-empty worker thread object.
+  REQUIRE_NOTHROW(connection.Stop());
 }
 
 TEST_CASE("AdapterIpcConnection Stop waits for an in-flight message callback") {

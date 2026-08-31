@@ -48,9 +48,20 @@ void AdapterIpcConnection::Start() {
     }
   }
 
-  std::lock_guard<std::mutex> lock(lifecycleMutex_);
-  if (worker_.joinable() && worker_.get_id() == std::this_thread::get_id()) {
+  std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
+  if (workerThreadId_ == std::this_thread::get_id()) {
+    //  A lifecycle callback may request a fresh attempt from the
+    //  connection's own worker. That worker is still running this call, so
+    //  there is nothing to join; it simply continues once the callback
+    //  returns.
     return;
+  }
+  //  Every other caller must wait for an in-flight join to fully finish
+  //  before it may inspect `worker_`: a join owner works on that same
+  //  `std::thread` object without holding this lock, so touching it any
+  //  earlier would race that unsynchronized `join()`.
+  while (joinInProgress_) {
+    lifecycleCondition_.wait(lifecycleLock);
   }
   {
     std::lock_guard<std::mutex> stopLock(stopMutex_);
@@ -69,6 +80,7 @@ void AdapterIpcConnection::Start() {
   inboundMessageTimes_.clear();
   workerFinished_ = false;
   worker_ = std::thread([this] { RunLoop(); });
+  workerThreadId_ = worker_.get_id();
 }
 
 void AdapterIpcConnection::ConfigureTarget(AdapterIpcTarget target) {
@@ -103,36 +115,50 @@ void AdapterIpcConnection::Stop() {
   }
 
   std::unique_lock<std::mutex> lifecycleLock(lifecycleMutex_);
-  while (worker_.joinable()) {
-    if (worker_.get_id() == std::this_thread::get_id()) {
-      //  A lifecycle callback may request shutdown from the connection's own
-      //  worker. The worker will return after the callback completes; joining
-      //  it here would deadlock or throw a self-join error.
-      return;
-    }
-    if (!joinInProgress_) {
-      joinInProgress_ = true;
-      break;
-    }
+  if (workerThreadId_ == std::this_thread::get_id()) {
+    //  A lifecycle callback may request shutdown from the connection's own
+    //  worker. The worker will return after the callback completes; joining
+    //  it here would deadlock or throw a self-join error. This check must
+    //  come before the wait below: a concurrent Stop() may already be
+    //  blocked joining this very worker, and waiting here first would
+    //  deadlock against that join.
+    return;
+  }
+  //  Every other caller -- including a second concurrent Stop() -- must wait
+  //  for an in-flight join to fully finish before touching `worker_`: its
+  //  owner works on that same `std::thread` object without holding this
+  //  lock, so reading `worker_.joinable()` any earlier would race that
+  //  unsynchronized `join()`.
+  while (joinInProgress_) {
     lifecycleCondition_.wait(lifecycleLock);
   }
-
+  if (!worker_.joinable()) {
+    return;
+  }
+  joinInProgress_ = true;
+  //  Moved into a local before releasing the lock so the shared `worker_`
+  //  member is never touched while this thread joins it: `worker_` becomes
+  //  safely empty for any other lock holder the moment this move completes,
+  //  rather than staying a live `std::thread` object some other caller could
+  //  race against during the actual (unsynchronized, potentially blocking)
+  //  join below.
+  std::thread ownedWorker = std::move(worker_);
   lifecycleLock.unlock();
 
-  if (worker_.joinable()) {
-    try {
-      worker_.join();
-    } catch (...) {
-      std::lock_guard<std::mutex> lock(lifecycleMutex_);
-      joinInProgress_ = false;
-      lifecycleCondition_.notify_all();
-      throw;
-    }
+  try {
+    ownedWorker.join();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    joinInProgress_ = false;
+    workerThreadId_ = std::thread::id{};
+    lifecycleCondition_.notify_all();
+    throw;
   }
 
   {
     std::lock_guard<std::mutex> lock(lifecycleMutex_);
     joinInProgress_ = false;
+    workerThreadId_ = std::thread::id{};
   }
   lifecycleCondition_.notify_all();
 }

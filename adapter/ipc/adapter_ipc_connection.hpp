@@ -190,6 +190,15 @@ private:
   ///  an exception escapes before `RunAttempt` can otherwise determine it.
   ///  Stays `0` when no target was ever configured.
   std::uint64_t inProgressAttemptTargetGeneration_ = 0;
+  ///  The id of the currently running worker thread, or the default
+  ///  `std::thread::id{}` when none is running. Guards every self-thread
+  ///  comparison in `Start()`/`Stop()` so neither ever calls `worker_.get_id()`
+  ///  while another caller's `joinInProgress_` may be joining that same
+  ///  `std::thread` object unsynchronized. Written only under
+  ///  `lifecycleMutex_`: `Start()` sets it immediately after constructing
+  ///  `worker_`, and `Stop()` resets it to the default once the join it owns
+  ///  has fully completed.
+  std::thread::id workerThreadId_;
 };
 
 } //  namespace dovahlink::adapter::ipc
