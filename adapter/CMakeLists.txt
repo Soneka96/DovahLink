@@ -81,10 +81,22 @@ if(MSVC)
     target_compile_options(dovahlink_adapter_launcher_test_fixture PRIVATE /EHsc)
 endif()
 
+# Both supported presets (windows-x64-debug, windows-x64-release) use the
+# single-config Ninja generator, so CMAKE_BUILD_TYPE is always set to exactly
+# one of these two values -- never "" the way it can be for a bare `cmake -B`
+# invocation with no preset. dotnet build/CI only ever produce a "Debug" or
+# "Release" host output folder (never "RelWithDebInfo"), so an unrecognized
+# value fails loudly here instead of silently pointing at a host binary that
+# was never built for that configuration.
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Debug")
-else()
+elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
     set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Release")
+else()
+    message(FATAL_ERROR
+        "Unrecognized CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}'; configure with "
+        "the windows-x64-debug or windows-x64-release preset, or set "
+        "DOVAHLINK_HOST_BUILD_CONFIGURATION explicitly.")
 endif()
 set(DOVAHLINK_HOST_EXECUTABLE
     "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net9.0-windows/DovahLink.Host.exe"
