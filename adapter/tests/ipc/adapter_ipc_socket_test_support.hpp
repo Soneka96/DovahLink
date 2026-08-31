@@ -118,7 +118,10 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     ++connectCallCount_;
     if (throwOnConnect_) {
-      connectAttemptedPromise_->set_value();
+      throwOnConnect_ = false;
+      std::promise<void> *attempted = connectAttemptedPromise_;
+      connectAttemptedPromise_ = nullptr;
+      attempted->set_value();
       throw std::runtime_error("Connect failed unexpectedly");
     }
     bool result = true;

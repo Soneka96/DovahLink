@@ -382,33 +382,64 @@ TEST_CASE("AdapterIpcConnection reports each failed connect attempt before it "
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection reports a throwing connect attempt before the "
-          "worker exits") {
+TEST_CASE("AdapterIpcConnection retries after a throwing connect attempt") {
   FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({true});
   std::promise<void> connectAttemptedPromise;
   socket.SetThrowOnConnect(connectAttemptedPromise);
   IpcFrameCodec codec;
   std::promise<void> failedAttemptPromise;
+  std::promise<void> connectedPromise;
   std::atomic<int> failedAttemptCount{0};
   std::atomic<int> disconnectedCount{0};
+  IpcMessage staleMessage{IpcCancelMessage{.correlationId = 1}};
+  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
+  AdapterIpcConnection *connectionPointer = nullptr;
+  std::atomic<bool> enqueueSucceeded{true};
 
   AdapterIpcConnectionCallbacks callbacks{
+      .onConnected =
+          [&] {
+            enqueueSucceeded = connectionPointer->TrySend(freshHello);
+            connectedPromise.set_value();
+          },
       .onDisconnected = [&] { ++disconnectedCount; },
       .onConnectionAttemptFailed =
           [&] {
             ++failedAttemptCount;
             failedAttemptPromise.set_value();
+            throw std::runtime_error("failed-connect callback failed");
           },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  REQUIRE(connection.TrySend(staleMessage));
   connection.Start();
 
+  auto connectAttemptedFuture = connectAttemptedPromise.get_future();
+  REQUIRE(WaitReady(connectAttemptedFuture));
   auto failedAttemptFuture = failedAttemptPromise.get_future();
   REQUIRE(WaitReady(failedAttemptFuture));
-  connection.Stop();
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  CHECK(enqueueSucceeded.load());
   CHECK(failedAttemptCount.load() == 1);
-  CHECK(socket.ConnectCallCount() == 1);
+  CHECK(socket.ConnectCallCount() == 2);
+  CHECK(socket.CloseCallCount() >= 1);
   CHECK(disconnectedCount.load() == 0);
+
+  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
+  auto writeDeadline =
+      std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (socket.WrittenBytes() != expectedBytes &&
+         std::chrono::steady_clock::now() < writeDeadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  CHECK(socket.WrittenBytes() == expectedBytes);
+  CHECK(socket.AttemptedWrites() ==
+        std::vector<std::vector<std::byte>>{expectedBytes});
+
+  connection.Stop();
 }
 
 TEST_CASE("AdapterIpcConnection contains an exception from the failed-connect "

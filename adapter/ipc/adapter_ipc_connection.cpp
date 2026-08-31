@@ -124,8 +124,18 @@ void AdapterIpcConnection::RunLoop() {
       try {
         connectedAttempt = socket_.Connect();
       } catch (...) {
+        //  A throwing connect attempt has the same recoverability semantics as
+        //  a false result. Reset the transport on this worker thread, notify
+        //  the existing failure path, then keep the long-lived worker alive
+        //  through its normal bounded retry loop.
+        try {
+          socket_.Close();
+        } catch (...) {
+        }
+        ClearOutbound();
         InvokeContained(callbacks_.onConnectionAttemptFailed);
-        throw;
+        WaitBoundedBackoff();
+        continue;
       }
       if (!connectedAttempt) {
         ClearOutbound();
