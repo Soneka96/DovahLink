@@ -8,16 +8,17 @@ public class HostRendezvousTests : IDisposable
     /// <summary>A temporary file path this test's publisher writes to, cleaned up after the test.</summary>
     private readonly string tempFilePath = Path.Combine(Path.GetTempPath(), $"dovahlink-rendezvous-test-{Guid.NewGuid():N}.dat");
 
-    /// <summary>Verifies that Publish writes the port and proof token in the expected text format.</summary>
+    /// <summary>Verifies that Publish writes the port, proof token, and HostProof key in the expected text format.</summary>
     [Fact]
     public void Publish_WritesPortAndProofTokenInExpectedFormat()
     {
         var publisher = new FileHostRendezvousPublisher(tempFilePath);
 
-        publisher.Publish(12345, [0xA0, 0xB1, 0xC2]);
+        publisher.Publish(12345, [0xA0, 0xB1, 0xC2], [0xD3, 0xE4]);
 
         string content = File.ReadAllText(tempFilePath);
-        Assert.Equal($"PORT 12345{Environment.NewLine}PROOF a0b1c2{Environment.NewLine}", content);
+        Assert.Equal(
+            $"PORT 12345{Environment.NewLine}PROOF a0b1c2{Environment.NewLine}HOSTPROOF d3e4{Environment.NewLine}", content);
     }
 
     /// <summary>Verifies that a second Publish overwrites the first, rather than appending.</summary>
@@ -25,12 +26,13 @@ public class HostRendezvousTests : IDisposable
     public void Publish_Repeated_OverwritesPreviousContent()
     {
         var publisher = new FileHostRendezvousPublisher(tempFilePath);
-        publisher.Publish(1111, [0x01, 0x02, 0x03]);
+        publisher.Publish(1111, [0x01, 0x02, 0x03], [0x04]);
 
-        publisher.Publish(2222, [0x02]);
+        publisher.Publish(2222, [0x02], [0x05]);
 
         string content = File.ReadAllText(tempFilePath);
-        Assert.Equal($"PORT 2222{Environment.NewLine}PROOF 02{Environment.NewLine}", content);
+        Assert.Equal(
+            $"PORT 2222{Environment.NewLine}PROOF 02{Environment.NewLine}HOSTPROOF 05{Environment.NewLine}", content);
     }
 
     /// <summary>Verifies that Publish creates its containing directory when it does not already exist.</summary>
@@ -42,7 +44,7 @@ public class HostRendezvousTests : IDisposable
 
         try
         {
-            publisher.Publish(1, [0xFF]);
+            publisher.Publish(1, [0xFF], [0xEE]);
 
             Assert.True(File.Exists(nestedPath));
         }
@@ -66,7 +68,7 @@ public class HostRendezvousTests : IDisposable
 
         try
         {
-            publisher.Publish(1234, [0xAB, 0xCD]);
+            publisher.Publish(1234, [0xAB, 0xCD], [0xEF]);
 
             Assert.Equal([targetPath], Directory.GetFiles(directory));
         }
@@ -90,7 +92,7 @@ public class HostRendezvousTests : IDisposable
 
         try
         {
-            Assert.Throws<UnauthorizedAccessException>(() => publisher.Publish(1234, [0xAB]));
+            Assert.Throws<UnauthorizedAccessException>(() => publisher.Publish(1234, [0xAB], [0xCD]));
 
             Assert.Empty(Directory.GetFiles(directory));
             Assert.True(Directory.Exists(targetPath));
@@ -110,7 +112,17 @@ public class HostRendezvousTests : IDisposable
     {
         var publisher = new FileHostRendezvousPublisher(tempFilePath);
 
-        Assert.Throws<ArgumentNullException>(() => publisher.Publish(1234, null!));
+        Assert.Throws<ArgumentNullException>(() => publisher.Publish(1234, null!, [0xAB]));
+        Assert.False(File.Exists(tempFilePath));
+    }
+
+    /// <summary>Verifies that a null HostProof key is rejected before any file is created.</summary>
+    [Fact]
+    public void Publish_NullHostProofKey_Throws()
+    {
+        var publisher = new FileHostRendezvousPublisher(tempFilePath);
+
+        Assert.Throws<ArgumentNullException>(() => publisher.Publish(1234, [0xAB], null!));
         Assert.False(File.Exists(tempFilePath));
     }
 

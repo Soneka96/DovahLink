@@ -9,10 +9,17 @@ namespace DovahLink.Host.Process;
 /// </summary>
 public interface IHostRendezvousPublisher
 {
-    /// <summary>Publishes the current port and peer-proof token, replacing any previous content.</summary>
+    /// <summary>
+    /// Publishes the current port, peer-proof token, and HostProof HMAC key, replacing any previous
+    /// content.
+    /// </summary>
     /// <param name="port">The host's currently bound private-IPC loopback port.</param>
     /// <param name="peerProofToken">The host's own peer-ownership proof token.</param>
-    void Publish(int port, byte[] peerProofToken);
+    /// <param name="hostProofKey">
+    /// The host's own HostProof HMAC key, independent of <paramref name="peerProofToken"/>. Never
+    /// echoed back on the wire by the adapter, unlike <paramref name="peerProofToken"/>.
+    /// </param>
+    void Publish(int port, byte[] peerProofToken, byte[] hostProofKey);
 }
 
 /// <inheritdoc cref="IHostRendezvousPublisher"/>
@@ -32,9 +39,10 @@ public sealed class FileHostRendezvousPublisher : IHostRendezvousPublisher
     }
 
     /// <inheritdoc/>
-    public void Publish(int port, byte[] peerProofToken)
+    public void Publish(int port, byte[] peerProofToken, byte[] hostProofKey)
     {
         ArgumentNullException.ThrowIfNull(peerProofToken);
+        ArgumentNullException.ThrowIfNull(hostProofKey);
 
         string? directory = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(directory))
@@ -42,7 +50,10 @@ public sealed class FileHostRendezvousPublisher : IHostRendezvousPublisher
             Directory.CreateDirectory(directory);
         }
 
-        string content = $"PORT {port}{Environment.NewLine}PROOF {Convert.ToHexStringLower(peerProofToken)}{Environment.NewLine}";
+        string content =
+            $"PORT {port}{Environment.NewLine}" +
+            $"PROOF {Convert.ToHexStringLower(peerProofToken)}{Environment.NewLine}" +
+            $"HOSTPROOF {Convert.ToHexStringLower(hostProofKey)}{Environment.NewLine}";
         string temporaryFilePath = $"{filePath}.{Path.GetRandomFileName()}.tmp";
         try
         {

@@ -36,7 +36,10 @@ public class ProgramCompositionTests
         Assert.Equal(expected, result);
     }
 
-    /// <summary>Verifies that composing and running reports the bound port and peer-proof token over the rendezvous output.</summary>
+    /// <summary>
+    /// Verifies that composing and running reports the bound port, peer-proof token, and HostProof
+    /// key over the rendezvous output.
+    /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_ReportsPortAndProofOverRendezvousOutput()
     {
@@ -54,9 +57,13 @@ public class ProgramCompositionTests
         string reported = output.ToString();
         Assert.Matches(@"PORT \d+", reported);
         Assert.Matches("PROOF [0-9a-f]+", reported);
+        Assert.Matches("HOSTPROOF [0-9a-f]+", reported);
     }
 
-    /// <summary>Verifies that composing and running publishes the rendezvous file for the given owner-lifetime-id.</summary>
+    /// <summary>
+    /// Verifies that composing and running publishes the rendezvous file for the given
+    /// owner-lifetime-id, including the HostProof key.
+    /// </summary>
     [Fact]
     public async Task ComposeAndRunAsync_PublishesRendezvousFile()
     {
@@ -74,6 +81,7 @@ public class ProgramCompositionTests
             string content = File.ReadAllText(rendezvousPath);
             Assert.Matches(@"PORT \d+", content);
             Assert.Matches("PROOF [0-9a-f]+", content);
+            Assert.Matches("HOSTPROOF [0-9a-f]+", content);
         }
         finally
         {

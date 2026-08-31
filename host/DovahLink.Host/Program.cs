@@ -37,7 +37,9 @@ internal static class Program
     /// </summary>
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
     /// <param name="listenerPort">The loopback port to bind, or zero to let the operating system assign one.</param>
-    /// <param name="rendezvousOutput">Where to report the bound port and peer-proof token, once bound.</param>
+    /// <param name="rendezvousOutput">
+    /// Where to report the bound port, peer-proof token, and HostProof HMAC key, once bound.
+    /// </param>
     /// <param name="lifetime">The host lifetime to run once composition completes.</param>
     /// <param name="shutdown">
     /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
@@ -65,10 +67,11 @@ internal static class Program
         Task shutdownWatchTask = WatchShutdownSignalAsync(shutdownSignal, shutdown);
 
         var rendezvousPublisher = new FileHostRendezvousPublisher(Constants.RendezvousFilePath(ownerLifetimeId));
-        rendezvousPublisher.Publish(listener.BoundPort, verifier.ExpectedToken);
+        rendezvousPublisher.Publish(listener.BoundPort, verifier.ExpectedToken, verifier.HostProofKey);
 
         await rendezvousOutput.WriteLineAsync($"PORT {listener.BoundPort}");
         await rendezvousOutput.WriteLineAsync($"PROOF {Convert.ToHexStringLower(verifier.ExpectedToken)}");
+        await rendezvousOutput.WriteLineAsync($"HOSTPROOF {Convert.ToHexStringLower(verifier.HostProofKey)}");
         await rendezvousOutput.FlushAsync();
 
         Task listenerTask = listener.RunAsync(shutdown.Token);
