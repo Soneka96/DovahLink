@@ -35,16 +35,13 @@ TEST_CASE("TryParseHostEndpointReport parses a well-formed report with "
   CHECK(result->hostProofKey == std::vector<std::byte>{std::byte{0xEE}});
 }
 
-TEST_CASE("TryParseHostEndpointReport accepts the port boundary values 0 "
-          "and 65535",
+TEST_CASE("TryParseHostEndpointReport accepts the maximum port value 65535",
           "[process][adapter_host_endpoint_report]") {
-  for (std::uint16_t port : {std::uint16_t{0}, std::uint16_t{65535}}) {
-    auto result = TryParseHostEndpointReport("PORT " + std::to_string(port),
-                                             "PROOF a0", "HOSTPROOF b1");
+  auto result =
+      TryParseHostEndpointReport("PORT 65535", "PROOF a0", "HOSTPROOF b1");
 
-    REQUIRE(result.has_value());
-    CHECK(result->port == port);
-  }
+  REQUIRE(result.has_value());
+  CHECK(result->port == 65535);
 }
 
 TEST_CASE("TryParseHostEndpointReport accepts an empty proof token or "
@@ -83,7 +80,8 @@ TEST_CASE("TryParseHostEndpointReport returns nullopt for malformed input",
              "HOSTPROOF b1g"}, // non-hex character in HostProof
         Case{"PORT 1", "PROOF a0", "HOSTPROOF b"}, // odd-length HostProof hex
         Case{"", "", ""},                          // empty lines
-        Case{"PORT 1 extra", "PROOF a0", "HOSTPROOF b1"}}) { // trailing garbage
+        Case{"PORT 1 extra", "PROOF a0", "HOSTPROOF b1"}, // trailing garbage
+        Case{"PORT 0", "PROOF a0", "HOSTPROOF b1"}}) {    // zero port
     INFO("portLine: " << testCase.portLine
                       << ", proofLine: " << testCase.proofLine
                       << ", hostProofLine: " << testCase.hostProofLine);

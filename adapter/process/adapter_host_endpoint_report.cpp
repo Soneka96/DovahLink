@@ -76,7 +76,7 @@ TryParseHostEndpointReport(std::string_view portLine,
   auto [portEnd, portError] = std::from_chars(
       portText.data(), portText.data() + portText.size(), portValue);
   if (portError != std::errc{} ||
-      portEnd != portText.data() + portText.size() || portValue < 0 ||
+      portEnd != portText.data() + portText.size() || portValue <= 0 ||
       portValue > 65535) {
     return std::nullopt;
   }

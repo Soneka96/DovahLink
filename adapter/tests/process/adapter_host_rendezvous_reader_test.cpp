@@ -81,21 +81,18 @@ TEST_CASE("FileAdapterHostRendezvousReader reads a well-formed file with "
   CHECK(result->hostProofKey == std::vector<std::byte>{std::byte{0xEE}});
 }
 
-TEST_CASE("FileAdapterHostRendezvousReader accepts the port boundary "
-          "values 0 and 65535",
+TEST_CASE("FileAdapterHostRendezvousReader accepts the maximum port value "
+          "65535",
           "[process][adapter_host_rendezvous_reader]") {
-  for (std::uint16_t port : {std::uint16_t{0}, std::uint16_t{65535}}) {
-    std::filesystem::path path = UniqueTempFilePath();
-    WriteRawFile(path,
-                 "PORT " + std::to_string(port) + "\nPROOF a0\nHOSTPROOF b1\n");
-    FileAdapterHostRendezvousReader reader(path);
+  std::filesystem::path path = UniqueTempFilePath();
+  WriteRawFile(path, "PORT 65535\nPROOF a0\nHOSTPROOF b1\n");
+  FileAdapterHostRendezvousReader reader(path);
 
-    auto result = reader.TryRead();
+  auto result = reader.TryRead();
 
-    std::filesystem::remove(path);
-    REQUIRE(result.has_value());
-    CHECK(result->port == port);
-  }
+  std::filesystem::remove(path);
+  REQUIRE(result.has_value());
+  CHECK(result->port == 65535);
 }
 
 TEST_CASE("FileAdapterHostRendezvousReader reads an empty proof token or "
@@ -139,7 +136,8 @@ TEST_CASE("FileAdapterHostRendezvousReader returns nullopt for malformed "
             "PORT 1\nPROOF a0\nNOHOSTPROOF b1\n"), // wrong HostProof prefix
         std::string(""),                           // empty file
         std::string(
-            "PORT 1 extra\nPROOF a0\nHOSTPROOF b1\n")}) { // trailing garbage
+            "PORT 1 extra\nPROOF a0\nHOSTPROOF b1\n"),      // trailing garbage
+        std::string("PORT 0\nPROOF a0\nHOSTPROOF b1\n")}) { // zero port
     std::filesystem::path path = UniqueTempFilePath();
     WriteRawFile(path, content);
     FileAdapterHostRendezvousReader reader(path);
