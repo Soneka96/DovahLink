@@ -17,8 +17,7 @@ public class HostRendezvousTests : IDisposable
         publisher.Publish(12345, [0xA0, 0xB1, 0xC2]);
 
         string content = File.ReadAllText(tempFilePath);
-        Assert.Contains("PORT 12345", content);
-        Assert.Contains("PROOF a0b1c2", content);
+        Assert.Equal($"PORT 12345{Environment.NewLine}PROOF a0b1c2{Environment.NewLine}", content);
     }
 
     /// <summary>Verifies that a second Publish overwrites the first, rather than appending.</summary>
@@ -26,15 +25,12 @@ public class HostRendezvousTests : IDisposable
     public void Publish_Repeated_OverwritesPreviousContent()
     {
         var publisher = new FileHostRendezvousPublisher(tempFilePath);
-        publisher.Publish(1111, [0x01]);
+        publisher.Publish(1111, [0x01, 0x02, 0x03]);
 
         publisher.Publish(2222, [0x02]);
 
         string content = File.ReadAllText(tempFilePath);
-        Assert.Contains("PORT 2222", content);
-        Assert.DoesNotContain("PORT 1111", content);
-        Assert.Contains("PROOF 02", content);
-        Assert.DoesNotContain("PROOF 01", content);
+        Assert.Equal($"PORT 2222{Environment.NewLine}PROOF 02{Environment.NewLine}", content);
     }
 
     /// <summary>Verifies that Publish creates its containing directory when it does not already exist.</summary>
@@ -58,6 +54,64 @@ public class HostRendezvousTests : IDisposable
                 Directory.Delete(directory, recursive: true);
             }
         }
+    }
+
+    /// <summary>Verifies that publishing leaves no temporary rendezvous artifact beside the target.</summary>
+    [Fact]
+    public void Publish_LeavesNoTemporaryArtifact()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"dovahlink-rendezvous-test-dir-{Guid.NewGuid():N}");
+        string targetPath = Path.Combine(directory, "rendezvous.dat");
+        var publisher = new FileHostRendezvousPublisher(targetPath);
+
+        try
+        {
+            publisher.Publish(1234, [0xAB, 0xCD]);
+
+            Assert.Equal([targetPath], Directory.GetFiles(directory));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>Verifies that a failed replacement propagates its error and removes the temporary record.</summary>
+    [Fact]
+    public void Publish_FailedReplacement_CleansTemporaryArtifact()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), $"dovahlink-rendezvous-test-dir-{Guid.NewGuid():N}");
+        string targetPath = Path.Combine(directory, "rendezvous.dat");
+        Directory.CreateDirectory(targetPath);
+        var publisher = new FileHostRendezvousPublisher(targetPath);
+
+        try
+        {
+            Assert.Throws<UnauthorizedAccessException>(() => publisher.Publish(1234, [0xAB]));
+
+            Assert.Empty(Directory.GetFiles(directory));
+            Assert.True(Directory.Exists(targetPath));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>Verifies that a null proof token is rejected before any file is created.</summary>
+    [Fact]
+    public void Publish_NullProofToken_Throws()
+    {
+        var publisher = new FileHostRendezvousPublisher(tempFilePath);
+
+        Assert.Throws<ArgumentNullException>(() => publisher.Publish(1234, null!));
+        Assert.False(File.Exists(tempFilePath));
     }
 
     /// <summary>Verifies that two different owner-lifetime-ids resolve to two different rendezvous file paths.</summary>

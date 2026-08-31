@@ -43,6 +43,19 @@ public sealed class FileHostRendezvousPublisher : IHostRendezvousPublisher
         }
 
         string content = $"PORT {port}{Environment.NewLine}PROOF {Convert.ToHexStringLower(peerProofToken)}{Environment.NewLine}";
-        File.WriteAllText(filePath, content);
+        string temporaryFilePath = $"{filePath}.{Path.GetRandomFileName()}.tmp";
+        try
+        {
+            // Write beside the target so replacing it is a same-volume rename: readers see either
+            // the previous complete record or this complete record, never a partially written one.
+            File.WriteAllText(temporaryFilePath, content);
+            File.Move(temporaryFilePath, filePath, overwrite: true);
+        }
+        finally
+        {
+            // Move removes the temporary path on success; this also cleans it up after a failed
+            // write or replacement attempt.
+            File.Delete(temporaryFilePath);
+        }
     }
 }
