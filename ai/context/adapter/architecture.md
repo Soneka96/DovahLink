@@ -55,7 +55,13 @@ process termination is the cleanup boundary rather than a blocking DLL-unload se
 Host loss while the adapter keeps running -- as opposed to the adapter's own restart -- is a
 property of the IPC channel between them, not of the adapter's own lifecycle: the adapter must
 remain safe (continue Skyrim capture, never block or crash) when the host is unavailable. That
-behavior is recorded in `ai/context/host/architecture.md`'s "Host-to-adapter IPC contract".
+behavior is recorded in `ai/context/host/architecture.md`'s "Host-to-adapter IPC contract". A
+failed connection attempt before a session is established is also a host-loss signal for the
+process-lifecycle supervisor, so discovery can re-run without waiting for a disconnect callback
+that an unconnected socket cannot produce. The adapter keeps the same long-lived IPC connection
+object and retargets it after a verified endpoint is found; the supervisor's discovery retry works
+ alongside the connection's existing bounded transport retry, without creating a second transport
+ connection object or restarting the connection lifecycle.
 
 ## Not in scope for Stage 1
 

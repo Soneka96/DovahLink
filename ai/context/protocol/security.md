@@ -308,8 +308,16 @@ message shape. This phase is that phase; this section is the filled-in decision.
 - Persistent trust storage is scoped to the current Windows user, but loopback TCP itself is not
   proof of Windows-user identity. Per-user secure storage does not automatically make a loopback
   socket isolated from another simultaneously logged-in local account.
-- The six-digit pairing proof, persistent credential authentication, rate limits, and loopback
-  restriction remain the controls that apply to any connecting process on the same machine.
+- For public client connections, the six-digit pairing proof, persistent credential authentication,
+  rate limits, and loopback restriction remain the controls that apply to any connecting process on
+  the same machine. Private adapter IPC uses its separate peer-ownership and Skyrim-lifetime proof
+  instead and does not participate in client pairing.
+- The private adapter-IPC rendezvous follows the accepted 2A boundary: its per-user file may expose
+  the host's peer-proof token to another process running as the same Windows user. The rendezvous
+  remains discovery data, while the mutually authenticated Hello/HelloAck exchange prevents stale
+  or unrelated endpoints that do not hold the current token from being adopted. Defending against a
+  malicious same-user process that deliberately forges both the rendezvous data and proof is outside
+  the current threat model; stronger isolation requires a separately approved security design.
 - If strict isolation from another simultaneously logged-in local OS account becomes a required
   threat boundary, it must be solved deliberately, with its own approved design, rather than assumed
   from `127.0.0.1`. Do not silently introduce a second IPC architecture to solve this before the
