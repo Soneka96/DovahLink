@@ -18,13 +18,11 @@ namespace dovahlink::adapter::ipc {
 
 class IAdapterIpcSocket;
 
-///  The adapter-side private IPC transport: connects to the host's loopback
-///  listener, serves inbound frames, drains a bounded outbound queue, and
-///  retries with a bounded fixed delay on disconnect -- never blocking the
-///  Skyrim game thread, per `ai/context/host/architecture.md`'s "adapter
-///  reconnect is bounded and performed outside game-thread work". Owns no
-///  protocol decisions of its own; every lifecycle event reaches its owner
-///  through the injected `AdapterIpcConnectionCallbacks`.
+///  The adapter-side private IPC transport: runs one coordinator-requested
+///  connect/serve attempt, drains a bounded outbound queue, and reports its
+///  terminal outcome without blocking the Skyrim game thread. Owns no protocol
+///  decisions of its own; every lifecycle event reaches its owner through the
+///  injected `AdapterIpcConnectionCallbacks`.
 class IAdapterIpcConnection {
 public:
   virtual ~IAdapterIpcConnection() = default;
@@ -33,11 +31,10 @@ public:
   ///  value is copied as one snapshot and never read piecemeal by callers.
   virtual void ConfigureTarget(AdapterIpcTarget target) = 0;
 
-  ///  Starts the connection's background connect/serve thread. Callers must
-  ///  finish wiring every callback consumer (for example attaching this
-  ///  connection to the session that will handle its callbacks) before
-  ///  calling this, since callbacks may begin firing immediately afterward.
-  ///  Idempotent: a call after the thread is already running is a no-op.
+  ///  Starts one background connect/serve attempt. Callers must finish wiring
+  ///  every callback consumer before calling this. A call while an attempt is
+  ///  active is a no-op; a later call may start a new attempt after the prior
+  ///  one has finished.
   virtual void Start() = 0;
 
   ///  Attempts to enqueue a message for the current transport generation's
@@ -88,15 +85,17 @@ public:
   void Stop() override;
 
 private:
-  ///  Runs on the background thread: connects, serves the connection, and
-  ///  retries with a bounded delay until stopped.
+  ///  Contains one worker-thread entry and records its terminal completion.
   void RunLoop();
+
+  ///  Runs one connect/serve attempt on the background thread.
+  void RunAttempt();
 
   ///  Serves one connected session until it ends: reads and dispatches
   ///  inbound frames, requires authentication within the absolute
   ///  establishment deadline, and drains queued outbound messages between
   ///  reads.
-  void
+  bool
   ServeConnection(std::chrono::steady_clock::time_point establishmentDeadline);
 
   ///  Dispatches one decoded message to the owner while containing callback
@@ -134,9 +133,9 @@ private:
   ///  ended or has not yet successfully started.
   void ClearOutbound();
 
-  ///  Waits out `kAdapterIpcReconnectDelay`, or returns immediately once
-  ///  `Stop()` is called.
-  void WaitBoundedBackoff();
+  ///  Marks the one-shot worker finished so a later `Start()` can join and
+  ///  replace it.
+  void MarkWorkerFinished();
 
   ///  The transport this connection reads and writes through.
   IAdapterIpcSocket &socket_;
@@ -152,11 +151,11 @@ private:
   std::condition_variable lifecycleCondition_;
   ///  Whether another caller currently owns the worker join operation.
   bool joinInProgress_ = false;
-  ///  Guards `stopping_` and backs `stopCondition_`.
+  ///  Whether the current worker has finished and may be joined by `Start()`.
+  bool workerFinished_ = false;
+  ///  Guards `stopping_`.
   std::mutex stopMutex_;
-  ///  Signaled when `Stop()` is called, to interrupt a reconnect wait.
-  std::condition_variable stopCondition_;
-  ///  Set by `Stop()`; checked between reconnect attempts and read cycles.
+  ///  Set by `Stop()`; checked before and during the current attempt.
   bool stopping_ = false;
   ///  Guards `outbound_`.
   std::mutex outboundMutex_;

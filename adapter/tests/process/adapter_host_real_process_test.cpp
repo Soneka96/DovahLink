@@ -625,9 +625,10 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
                 return session.HandleMessage(message);
               },
           .onDecodeFailure = [&] { session.HandleDecodeFailure(); },
-          .onDisconnected =
-              [&] {
-                session.HandleDisconnected();
+          .onDisconnected = [&] { session.HandleDisconnected(); },
+          .onAttemptFinished =
+              [&](std::uint64_t,
+                  dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {
                 supervisor->NotifyConnectionLost();
               },
       });

@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+using dovahlink::adapter::ipc::AdapterIpcAttemptOutcome;
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
@@ -106,6 +107,7 @@ TEST_CASE("AdapterIpcConnection uses the target snapshot captured at attempt "
 
   std::promise<AdapterIpcTarget> firstTargetPromise;
   std::promise<AdapterIpcTarget> secondTargetPromise;
+  std::promise<void> firstAttemptFinishedPromise;
   std::atomic<int> targetConnectedCount = 0;
   AdapterIpcConnectionCallbacks callbacks{
       .onTargetConnected =
@@ -119,6 +121,13 @@ TEST_CASE("AdapterIpcConnection uses the target snapshot captured at attempt "
       .onMessageReceived =
           [](const IpcMessage &) {
             return AdapterIpcMessageDisposition::kContinue;
+          },
+      .onAttemptFinished =
+          [&](std::uint64_t generation, AdapterIpcAttemptOutcome outcome) {
+            if (generation == firstTarget.targetGeneration &&
+                outcome != AdapterIpcAttemptOutcome::kStopped) {
+              firstAttemptFinishedPromise.set_value();
+            }
           },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
@@ -136,6 +145,9 @@ TEST_CASE("AdapterIpcConnection uses the target snapshot captured at attempt "
   CHECK(socket.Port() == firstTarget.port);
 
   socket.SimulateDisconnect();
+  auto firstAttemptFinishedFuture = firstAttemptFinishedPromise.get_future();
+  REQUIRE(WaitReady(firstAttemptFinishedFuture));
+  connection.Start();
   auto secondTargetFuture = secondTargetPromise.get_future();
   REQUIRE(WaitReady(secondTargetFuture));
   CHECK(secondTargetFuture.get() == secondTarget);
@@ -433,139 +445,154 @@ TEST_CASE("AdapterIpcConnection::TrySend is written even while no inbound "
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection reconnects after a failed connect attempt") {
+TEST_CASE("AdapterIpcConnection reports a failed connect attempt without "
+          "retrying") {
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({false, false, true});
+  socket.SetConnectResults({false, true});
   IpcFrameCodec codec;
-  std::promise<void> connectedPromise;
+  std::promise<void> outcomePromise;
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
+  std::promise<void> secondConnectedPromise;
+  std::promise<void> secondOutcomePromise;
+  std::atomic<int> outcomeCount{0};
 
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected = [&] { connectedPromise.set_value(); },
-      .onMessageReceived =
-          [](const IpcMessage &) {
-            return AdapterIpcMessageDisposition::kAuthenticated;
+      .onConnected = [&] { secondConnectedPromise.set_value(); },
+      .onAttemptFinished =
+          [&](std::uint64_t generation, AdapterIpcAttemptOutcome result) {
+            CHECK(generation == 0);
+            if (outcomeCount.fetch_add(1) == 0) {
+              outcome = result;
+              outcomePromise.set_value();
+            } else {
+              secondOutcomePromise.set_value();
+            }
           },
-      .onDecodeFailure = [] {},
-      .onDisconnected = [] {},
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
 
-  auto connectedFuture = connectedPromise.get_future();
-  REQUIRE(WaitReady(connectedFuture));
-  CHECK(socket.ConnectCallCount() == 3);
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
+  CHECK(socket.ConnectCallCount() == 1);
+
+  connection.Start();
+  auto secondConnectedFuture = secondConnectedPromise.get_future();
+  REQUIRE(WaitReady(secondConnectedFuture));
+  socket.SimulateDisconnect();
+  auto secondOutcomeFuture = secondOutcomePromise.get_future();
+  REQUIRE(WaitReady(secondOutcomeFuture));
+  CHECK(socket.ConnectCallCount() == 2);
 
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection reports each failed connect attempt before it "
-          "reconnects") {
+TEST_CASE("AdapterIpcConnection reports one failed connect attempt with its "
+          "terminal outcome") {
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({false, false, true});
+  socket.SetConnectResults({false, true});
   IpcFrameCodec codec;
-  std::promise<void> connectedPromise;
+  std::promise<void> outcomePromise;
   std::atomic<int> failedAttemptCount{0};
-  std::atomic<int> disconnectedCount{0};
+  std::uint64_t generation = 0;
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
 
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected = [&] { connectedPromise.set_value(); },
-      .onDisconnected = [&] { ++disconnectedCount; },
       .onConnectionAttemptFailed = [&] { ++failedAttemptCount; },
+      .onAttemptFinished =
+          [&](std::uint64_t attemptGeneration,
+              AdapterIpcAttemptOutcome result) {
+            generation = attemptGeneration;
+            outcome = result;
+            outcomePromise.set_value();
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
 
-  auto connectedFuture = connectedPromise.get_future();
-  REQUIRE(WaitReady(connectedFuture));
-  CHECK(failedAttemptCount.load() == 2);
-  CHECK(disconnectedCount.load() == 0);
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(generation == 0);
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
+  CHECK(failedAttemptCount.load() == 1);
+  CHECK(socket.ConnectCallCount() == 1);
 
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection retries after a throwing connect attempt") {
+TEST_CASE("AdapterIpcConnection reports a throwing connect attempt as a "
+          "failed one-shot attempt") {
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({true});
   std::promise<void> connectAttemptedPromise;
   socket.SetThrowOnConnect(connectAttemptedPromise);
   IpcFrameCodec codec;
   std::promise<void> failedAttemptPromise;
-  std::promise<void> connectedPromise;
+  std::promise<void> outcomePromise;
   std::atomic<int> failedAttemptCount{0};
-  std::atomic<int> disconnectedCount{0};
-  IpcMessage staleMessage{IpcCancelMessage{.correlationId = 1}};
-  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
-  AdapterIpcConnection *connectionPointer = nullptr;
-  std::atomic<bool> enqueueSucceeded{true};
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
 
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected =
-          [&] {
-            enqueueSucceeded = connectionPointer->TrySend(freshHello);
-            connectedPromise.set_value();
-          },
-      .onDisconnected = [&] { ++disconnectedCount; },
       .onConnectionAttemptFailed =
           [&] {
             ++failedAttemptCount;
             failedAttemptPromise.set_value();
             throw std::runtime_error("failed-connect callback failed");
           },
+      .onAttemptFinished =
+          [&](std::uint64_t generation, AdapterIpcAttemptOutcome result) {
+            CHECK(generation == 0);
+            outcome = result;
+            outcomePromise.set_value();
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
-  connectionPointer = &connection;
-  REQUIRE(connection.TrySend(staleMessage));
   connection.Start();
 
   auto connectAttemptedFuture = connectAttemptedPromise.get_future();
   REQUIRE(WaitReady(connectAttemptedFuture));
   auto failedAttemptFuture = failedAttemptPromise.get_future();
   REQUIRE(WaitReady(failedAttemptFuture));
-  auto connectedFuture = connectedPromise.get_future();
-  REQUIRE(WaitReady(connectedFuture));
-  CHECK(enqueueSucceeded.load());
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
   CHECK(failedAttemptCount.load() == 1);
-  CHECK(socket.ConnectCallCount() == 2);
+  CHECK(socket.ConnectCallCount() == 1);
   CHECK(socket.CloseCallCount() >= 1);
-  CHECK(disconnectedCount.load() == 0);
-
-  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
-  auto writeDeadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (socket.WrittenBytes() != expectedBytes &&
-         std::chrono::steady_clock::now() < writeDeadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  CHECK(socket.WrittenBytes() == expectedBytes);
-  CHECK(socket.AttemptedWrites() ==
-        std::vector<std::vector<std::byte>>{expectedBytes});
 
   connection.Stop();
 }
 
 TEST_CASE("AdapterIpcConnection contains an exception from the failed-connect "
-          "callback and continues its retry loop") {
+          "callback without retrying") {
   FakeAdapterIpcSocket socket;
   socket.SetConnectResults({false, true});
   IpcFrameCodec codec;
-  std::promise<void> connectedPromise;
+  std::promise<void> outcomePromise;
   std::atomic<int> failedAttemptCount{0};
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
 
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected = [&] { connectedPromise.set_value(); },
       .onConnectionAttemptFailed =
           [&] {
             ++failedAttemptCount;
             throw std::runtime_error("failed-connect callback failed");
           },
+      .onAttemptFinished =
+          [&](std::uint64_t generation, AdapterIpcAttemptOutcome result) {
+            CHECK(generation == 0);
+            outcome = result;
+            outcomePromise.set_value();
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
 
-  auto connectedFuture = connectedPromise.get_future();
-  REQUIRE(WaitReady(connectedFuture));
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
   CHECK(failedAttemptCount.load() == 1);
-  CHECK(socket.ConnectCallCount() == 2);
+  CHECK(socket.ConnectCallCount() == 1);
 
   connection.Stop();
 }
@@ -942,36 +969,26 @@ TEST_CASE("AdapterIpcConnection drains a burst of queued messages in order") {
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection discards pending outbound work between "
-          "transport generations") {
+TEST_CASE("AdapterIpcConnection clears queued work between explicit attempts") {
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({true, true, false});
-  //  A fails, the final same-generation flush of B fails, and the fresh
-  //  Hello on generation 2 succeeds.
-  socket.SetWriteResults({false, false, true});
+  socket.SetConnectResults({true, true});
+  socket.SetWriteResults({false, true});
   IpcFrameCodec codec;
-  std::promise<void> firstConnectedPromise;
+  IpcMessage staleMessage{IpcCancelMessage{.correlationId = 1}};
+  IpcMessage freshMessage{IpcCancelMessage{.correlationId = 2}};
+  std::promise<void> firstOutcomePromise;
   std::promise<void> secondConnectedPromise;
   std::atomic<int> connectedCount{0};
-
-  IpcMessage messageA{IpcCancelMessage{.correlationId = 1}};
-  IpcMessage messageB{IpcCancelMessage{.correlationId = 2}};
-  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
-  IpcMessage postGenerationMessage{IpcCancelMessage{.correlationId = 3}};
-
+  std::atomic<int> outcomeCount{0};
   AdapterIpcConnection *connectionPointer = nullptr;
-  std::atomic<bool> enqueueSucceeded{true};
+
   AdapterIpcConnectionCallbacks callbacks{
       .onConnected =
           [&] {
             if (connectedCount.fetch_add(1) == 0) {
-              bool firstEnqueued = connectionPointer->TrySend(messageA);
-              bool secondEnqueued = connectionPointer->TrySend(messageB);
-              enqueueSucceeded = firstEnqueued && secondEnqueued;
-              firstConnectedPromise.set_value();
+              REQUIRE(connectionPointer->TrySend(staleMessage));
             } else {
-              enqueueSucceeded = enqueueSucceeded.load() &&
-                                 connectionPointer->TrySend(freshHello);
+              REQUIRE(connectionPointer->TrySend(freshMessage));
               secondConnectedPromise.set_value();
             }
           },
@@ -979,128 +996,96 @@ TEST_CASE("AdapterIpcConnection discards pending outbound work between "
           [](const IpcMessage &) {
             return AdapterIpcMessageDisposition::kContinue;
           },
-      .onDisconnected = [] {},
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome outcome) {
+            if (outcome != AdapterIpcAttemptOutcome::kStopped &&
+                outcomeCount.fetch_add(1) == 0) {
+              firstOutcomePromise.set_value();
+            }
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connectionPointer = &connection;
   connection.Start();
 
-  auto firstConnectedFuture = firstConnectedPromise.get_future();
-  REQUIRE(WaitReady(firstConnectedFuture));
+  auto firstOutcomeFuture = firstOutcomePromise.get_future();
+  REQUIRE(WaitReady(firstOutcomeFuture));
+  connection.Start();
   auto secondConnectedFuture = secondConnectedPromise.get_future();
   REQUIRE(WaitReady(secondConnectedFuture));
-  CHECK(enqueueSucceeded.load());
 
-  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
-  std::vector<std::vector<std::byte>> expectedAttempts{
-      codec.Encode(messageA), codec.Encode(messageB), codec.Encode(freshHello)};
+  socket.SimulateDisconnect();
   auto writeDeadline =
       std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (socket.WrittenBytes() != expectedBytes &&
-         std::chrono::steady_clock::now() < writeDeadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  REQUIRE(socket.WrittenBytes() == expectedBytes);
-  auto attempts = socket.AttemptedWrites();
-  REQUIRE(attempts.size() >= expectedAttempts.size());
-  CHECK(std::equal(expectedAttempts.begin(), expectedAttempts.end(),
-                   attempts.begin()));
-
-  REQUIRE(connection.TrySend(postGenerationMessage));
-  std::vector<std::byte> postGenerationBytes =
-      codec.Encode(postGenerationMessage);
-  expectedBytes.insert(expectedBytes.end(), postGenerationBytes.begin(),
-                       postGenerationBytes.end());
+  std::vector<std::byte> expectedBytes = codec.Encode(freshMessage);
   while (socket.WrittenBytes() != expectedBytes &&
          std::chrono::steady_clock::now() < writeDeadline) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   CHECK(socket.WrittenBytes() == expectedBytes);
-  expectedAttempts.push_back(postGenerationBytes);
-  attempts = socket.AttemptedWrites();
-  REQUIRE(attempts.size() >= expectedAttempts.size());
-  CHECK(std::equal(expectedAttempts.begin(), expectedAttempts.end(),
-                   attempts.begin()));
+  CHECK(socket.AttemptedWrites() ==
+        std::vector<std::vector<std::byte>>{codec.Encode(staleMessage),
+                                            expectedBytes});
 
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection clears outbound work after a failed connect "
+TEST_CASE("AdapterIpcConnection clears outbound work after a failed one-shot "
           "attempt") {
   FakeAdapterIpcSocket socket;
-  socket.SetConnectResults({false, true, false});
+  socket.SetConnectResults({false});
   IpcFrameCodec codec;
-  std::promise<void> connectedPromise;
+  std::promise<void> outcomePromise;
   IpcMessage staleMessage{IpcCancelMessage{.correlationId = 1}};
-  IpcMessage freshHello{IpcHelloMessage{.correlationId = 100}};
-
-  AdapterIpcConnection *connectionPointer = nullptr;
-  std::atomic<bool> enqueueSucceeded{true};
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected =
-          [&] {
-            bool freshEnqueued = connectionPointer->TrySend(freshHello);
-            enqueueSucceeded = enqueueSucceeded.load() && freshEnqueued;
-            connectedPromise.set_value();
+      .onAttemptFinished =
+          [&](std::uint64_t generation, AdapterIpcAttemptOutcome result) {
+            CHECK(generation == 0);
+            outcome = result;
+            outcomePromise.set_value();
           },
-      .onMessageReceived =
-          [](const IpcMessage &) {
-            return AdapterIpcMessageDisposition::kContinue;
-          },
-      .onDisconnected = [] {},
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
-  connectionPointer = &connection;
   REQUIRE(connection.TrySend(staleMessage));
   connection.Start();
 
-  auto connectedFuture = connectedPromise.get_future();
-  REQUIRE(WaitReady(connectedFuture));
-  CHECK(enqueueSucceeded.load());
-  std::vector<std::byte> expectedBytes = codec.Encode(freshHello);
-  auto writeDeadline =
-      std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (socket.WrittenBytes() != expectedBytes &&
-         std::chrono::steady_clock::now() < writeDeadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-
-  CHECK(socket.WrittenBytes() == expectedBytes);
-  CHECK(socket.AttemptedWrites() ==
-        std::vector<std::vector<std::byte>>{expectedBytes});
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcome == AdapterIpcAttemptOutcome::kConnectFailed);
+  CHECK(socket.ConnectCallCount() == 1);
+  CHECK(socket.WrittenBytes().empty());
   connection.Stop();
 }
 
-TEST_CASE("AdapterIpcConnection ends serving and reconnects when "
-          "onMessageReceived returns false") {
+TEST_CASE("AdapterIpcConnection ends serving without an autonomous retry when "
+          "onMessageReceived requests close") {
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
-  std::promise<void> firstConnectedPromise;
+  std::promise<void> connectedPromise;
   std::promise<void> disconnectedPromise;
-  std::promise<void> secondConnectedPromise;
-  std::atomic<int> connectedCount{0};
+  std::promise<void> outcomePromise;
+  AdapterIpcAttemptOutcome outcome = AdapterIpcAttemptOutcome::kStopped;
 
   AdapterIpcConnectionCallbacks callbacks{
-      .onConnected =
-          [&] {
-            if (connectedCount.fetch_add(1) == 0) {
-              firstConnectedPromise.set_value();
-            } else {
-              secondConnectedPromise.set_value();
-            }
-          },
+      .onConnected = [&] { connectedPromise.set_value(); },
       .onMessageReceived =
           [](const IpcMessage &) {
             return AdapterIpcMessageDisposition::kClose;
           },
       .onDecodeFailure = [] {},
       .onDisconnected = [&] { disconnectedPromise.set_value(); },
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome result) {
+            outcome = result;
+            outcomePromise.set_value();
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
 
-  auto firstConnectedFuture = firstConnectedPromise.get_future();
-  REQUIRE(WaitReady(firstConnectedFuture));
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
 
   IpcMessage sent{IpcResynchronizeRequestMessage{.correlationId = 1}};
   socket.PushReadableBytes(codec.Encode(sent));
@@ -1108,11 +1093,10 @@ TEST_CASE("AdapterIpcConnection ends serving and reconnects when "
   auto disconnectedFuture = disconnectedPromise.get_future();
   REQUIRE(WaitReady(disconnectedFuture));
 
-  //  A false return ends this connected session but is not itself Stop(); a
-  //  fresh connect attempt should follow, same as any other disconnect.
-  auto secondConnectedFuture = secondConnectedPromise.get_future();
-  REQUIRE(WaitReady(secondConnectedFuture));
-  CHECK(connectedCount.load() == 2);
+  auto outcomeFuture = outcomePromise.get_future();
+  REQUIRE(WaitReady(outcomeFuture));
+  CHECK(outcome == AdapterIpcAttemptOutcome::kAuthenticationFailed);
+  CHECK(socket.ConnectCallCount() == 1);
 
   connection.Stop();
 }

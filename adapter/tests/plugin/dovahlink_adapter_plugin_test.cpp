@@ -186,16 +186,19 @@ TEST_CASE("the adapter plugin notifies the supervisor when the connection "
   REQUIRE(onDisconnected != std::string::npos);
   std::size_t handleDisconnected =
       source.find("session->HandleDisconnected();", onDisconnected);
+  std::size_t attemptFinished = source.find(".onAttemptFinished =");
   std::size_t notifyConnectionLost =
-      source.find("supervisor->NotifyConnectionLost();", onDisconnected);
+      source.find("supervisor->NotifyConnectionLost();", attemptFinished);
 
   REQUIRE(handleDisconnected != std::string::npos);
+  REQUIRE(attemptFinished != std::string::npos);
   REQUIRE(notifyConnectionLost != std::string::npos);
-  //  Both calls belong to this one callback, in this order: the session
-  //  observes the disconnect first, then the supervisor is told to run
-  //  another discovery round.
+  //  The session observes the physical disconnect before the completed
+  //  attempt notifies the supervisor. The latter runs after the worker has
+  //  marked itself restartable.
   CHECK(onDisconnected < handleDisconnected);
-  CHECK(handleDisconnected < notifyConnectionLost);
+  CHECK(handleDisconnected < attemptFinished);
+  CHECK(attemptFinished < notifyConnectionLost);
 }
 
 TEST_CASE("the adapter plugin notifies the supervisor when a connection "
@@ -203,13 +206,13 @@ TEST_CASE("the adapter plugin notifies the supervisor when a connection "
           "[plugin][structural]") {
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
-  std::size_t failedAttempt = source.find(".onConnectionAttemptFailed =");
-  REQUIRE(failedAttempt != std::string::npos);
+  std::size_t attemptFinished = source.find(".onAttemptFinished =");
+  REQUIRE(attemptFinished != std::string::npos);
   std::size_t notifyConnectionLost =
-      source.find("supervisor->NotifyConnectionLost();", failedAttempt);
+      source.find("supervisor->NotifyConnectionLost();", attemptFinished);
 
   REQUIRE(notifyConnectionLost != std::string::npos);
-  CHECK(failedAttempt < notifyConnectionLost);
+  CHECK(attemptFinished < notifyConnectionLost);
 }
 
 TEST_CASE("DllMain signals shutdown without calling the blocking ordered "

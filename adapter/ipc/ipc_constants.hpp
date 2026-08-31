@@ -33,15 +33,6 @@ inline constexpr std::size_t kMaxIpcMessagesPerSecond = 200;
 
 //  ---- Connection ----
 
-///  The fixed delay `AdapterIpcConnection` waits before retrying a failed
-///  connect attempt or reconnecting after a disconnect, per
-///  `ai/context/host/architecture.md`'s "adapter reconnect is bounded and
-///  performed outside game-thread work". A fixed delay, not exponential
-///  backoff, matching the host listener's own `AdapterIpcAcceptRetryDelay`
-///  precedent. Approved as a provisional value; a later concept may revise it
-///  with the same documented approval this file's other limits require.
-inline constexpr std::chrono::milliseconds kAdapterIpcReconnectDelay{200};
-
 ///  The absolute bound on one long-lived connection's pre-authentication
 ///  Hello/HelloAck establishment phase. This is intentionally separate from
 ///  post-authentication liveness and matches the candidate verifier's

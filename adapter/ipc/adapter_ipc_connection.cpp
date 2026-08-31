@@ -40,10 +40,30 @@ AdapterIpcConnection::AdapterIpcConnection(
 AdapterIpcConnection::~AdapterIpcConnection() { Stop(); }
 
 void AdapterIpcConnection::Start() {
+  {
+    std::lock_guard<std::mutex> stopLock(stopMutex_);
+    if (stopping_) {
+      return;
+    }
+  }
+
   std::lock_guard<std::mutex> lock(lifecycleMutex_);
-  if (worker_.joinable()) {
+  if (worker_.joinable() && worker_.get_id() == std::this_thread::get_id()) {
     return;
   }
+  {
+    std::lock_guard<std::mutex> stopLock(stopMutex_);
+    if (stopping_) {
+      return;
+    }
+  }
+  if (worker_.joinable()) {
+    if (!workerFinished_) {
+      return;
+    }
+    worker_.join();
+  }
+  workerFinished_ = false;
   worker_ = std::thread([this] { RunLoop(); });
 }
 
@@ -71,7 +91,6 @@ void AdapterIpcConnection::Stop() {
     std::lock_guard<std::mutex> lock(stopMutex_);
     stopping_ = true;
   }
-  stopCondition_.notify_all();
   try {
     socket_.RequestStop();
   } catch (...) {
@@ -115,76 +134,8 @@ void AdapterIpcConnection::Stop() {
 }
 
 void AdapterIpcConnection::RunLoop() {
-  bool connected = false;
   try {
-    while (true) {
-      {
-        std::lock_guard<std::mutex> lock(stopMutex_);
-        if (stopping_) {
-          return;
-        }
-      }
-
-      std::optional<AdapterIpcTarget> attemptTarget;
-      {
-        std::lock_guard<std::mutex> lock(targetMutex_);
-        attemptTarget = target_;
-      }
-      if (attemptTarget.has_value()) {
-        socket_.SetPort(attemptTarget->port);
-      }
-
-      bool connectedAttempt = false;
-      try {
-        connectedAttempt = socket_.Connect();
-      } catch (...) {
-        //  A throwing connect attempt has the same recoverability semantics as
-        //  a false result. Reset the transport on this worker thread, notify
-        //  the existing failure path, then keep the long-lived worker alive
-        //  through its normal bounded retry loop.
-        try {
-          socket_.Close();
-        } catch (...) {
-        }
-        ClearOutbound();
-        InvokeContained(callbacks_.onConnectionAttemptFailed);
-        WaitBoundedBackoff();
-        continue;
-      }
-      if (!connectedAttempt) {
-        ClearOutbound();
-        InvokeContained(callbacks_.onConnectionAttemptFailed);
-        WaitBoundedBackoff();
-        continue;
-      }
-      //  A successful connect begins a fresh transport generation. Any work
-      //  left from the prior generation, including work queued while no
-      //  transport was connected, must be gone before onConnected queues the
-      //  fresh Hello.
-      ClearOutbound();
-      connected = true;
-      const auto establishmentDeadline =
-          std::chrono::steady_clock::now() + establishmentTimeout_;
-
-      if (attemptTarget.has_value() && callbacks_.onTargetConnected) {
-        InvokeContained(callbacks_.onTargetConnected, *attemptTarget);
-      }
-      InvokeContained(callbacks_.onConnected);
-
-      ServeConnection(establishmentDeadline);
-
-      //  Best-effort final flush: a handler invoked from ServeConnection (for
-      //  example a decode-failure response) may have queued one last message
-      //  that no read poll will run again to drain.
-      DrainOutbound();
-
-      socket_.Close();
-      ClearOutbound();
-      InvokeContained(callbacks_.onDisconnected);
-      connected = false;
-
-      WaitBoundedBackoff();
-    }
+    RunAttempt();
   } catch (...) {
     //  No transport, codec, or callback failure may escape the worker thread.
     try {
@@ -192,13 +143,116 @@ void AdapterIpcConnection::RunLoop() {
     } catch (...) {
     }
     ClearOutbound();
-    if (connected) {
-      InvokeContained(callbacks_.onDisconnected);
-    }
+    MarkWorkerFinished();
+    InvokeContained(callbacks_.onAttemptFinished, 0,
+                    AdapterIpcAttemptOutcome::kConnectFailed);
   }
 }
 
-void AdapterIpcConnection::ServeConnection(
+void AdapterIpcConnection::RunAttempt() {
+  auto finish = [this](std::uint64_t targetGeneration,
+                       AdapterIpcAttemptOutcome outcome) {
+    MarkWorkerFinished();
+    InvokeContained(callbacks_.onAttemptFinished, targetGeneration, outcome);
+  };
+
+  bool connected = false;
+  bool authenticated = false;
+  std::optional<AdapterIpcTarget> attemptTarget;
+  {
+    std::lock_guard<std::mutex> lock(targetMutex_);
+    attemptTarget = target_;
+  }
+  const std::uint64_t targetGeneration =
+      attemptTarget.has_value() ? attemptTarget->targetGeneration : 0;
+
+  {
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    if (stopping_) {
+      finish(targetGeneration, AdapterIpcAttemptOutcome::kStopped);
+      return;
+    }
+  }
+
+  try {
+    if (attemptTarget.has_value()) {
+      socket_.SetPort(attemptTarget->port);
+    }
+
+    bool connectedAttempt = socket_.Connect();
+    if (!connectedAttempt) {
+      ClearOutbound();
+      bool stopped = false;
+      {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        stopped = stopping_;
+      }
+      if (!stopped) {
+        InvokeContained(callbacks_.onConnectionAttemptFailed);
+      }
+      finish(targetGeneration, stopped
+                                   ? AdapterIpcAttemptOutcome::kStopped
+                                   : AdapterIpcAttemptOutcome::kConnectFailed);
+      return;
+    }
+
+    ClearOutbound();
+    connected = true;
+    const auto establishmentDeadline =
+        std::chrono::steady_clock::now() + establishmentTimeout_;
+
+    if (attemptTarget.has_value() && callbacks_.onTargetConnected) {
+      InvokeContained(callbacks_.onTargetConnected, *attemptTarget);
+    }
+    InvokeContained(callbacks_.onConnected);
+    authenticated = ServeConnection(establishmentDeadline);
+  } catch (...) {
+    try {
+      socket_.Close();
+    } catch (...) {
+    }
+    ClearOutbound();
+    if (!connected) {
+      bool stopped = false;
+      {
+        std::lock_guard<std::mutex> lock(stopMutex_);
+        stopped = stopping_;
+      }
+      if (!stopped) {
+        InvokeContained(callbacks_.onConnectionAttemptFailed);
+      }
+    }
+  }
+
+  if (connected) {
+    try {
+      //  A handler invoked from ServeConnection may have queued one last
+      //  response that no later read poll will drain.
+      DrainOutbound();
+    } catch (...) {
+    }
+    try {
+      socket_.Close();
+    } catch (...) {
+    }
+    ClearOutbound();
+    InvokeContained(callbacks_.onDisconnected);
+  }
+
+  bool stopped = false;
+  {
+    std::lock_guard<std::mutex> lock(stopMutex_);
+    stopped = stopping_;
+  }
+  finish(targetGeneration,
+         stopped     ? AdapterIpcAttemptOutcome::kStopped
+         : connected ? authenticated
+                           ? AdapterIpcAttemptOutcome::kDisconnected
+                           : AdapterIpcAttemptOutcome::kAuthenticationFailed
+                     : AdapterIpcAttemptOutcome::kConnectFailed);
+}
+
+bool AdapterIpcConnection::ServeConnection(
     std::chrono::steady_clock::time_point establishmentDeadline) {
   bool authenticated = false;
 
@@ -206,13 +260,13 @@ void AdapterIpcConnection::ServeConnection(
     {
       std::lock_guard<std::mutex> lock(stopMutex_);
       if (stopping_) {
-        return;
+        return authenticated;
       }
     }
 
     if (!authenticated &&
         std::chrono::steady_clock::now() >= establishmentDeadline) {
-      return;
+      return false;
     }
 
     bool decodeFailed = false;
@@ -223,16 +277,16 @@ void AdapterIpcConnection::ServeConnection(
                             establishmentDeadline});
     if (decodeFailed) {
       InvokeContained(callbacks_.onDecodeFailure);
-      return;
+      return authenticated;
     }
     if (!message.has_value()) {
       //  Disconnected, or a stop was requested while waiting for a frame.
-      return;
+      return authenticated;
     }
 
     AdapterIpcMessageDisposition disposition = DispatchInboundMessage(*message);
     if (disposition == AdapterIpcMessageDisposition::kClose) {
-      return;
+      return authenticated;
     }
     if (disposition == AdapterIpcMessageDisposition::kAuthenticated) {
       authenticated = true;
@@ -344,10 +398,10 @@ void AdapterIpcConnection::ClearOutbound() {
   outbound_.clear();
 }
 
-void AdapterIpcConnection::WaitBoundedBackoff() {
-  std::unique_lock<std::mutex> lock(stopMutex_);
-  stopCondition_.wait_for(lock, kAdapterIpcReconnectDelay,
-                          [this] { return stopping_; });
+void AdapterIpcConnection::MarkWorkerFinished() {
+  std::lock_guard<std::mutex> lock(lifecycleMutex_);
+  workerFinished_ = true;
+  lifecycleCondition_.notify_all();
 }
 
 } //  namespace dovahlink::adapter::ipc

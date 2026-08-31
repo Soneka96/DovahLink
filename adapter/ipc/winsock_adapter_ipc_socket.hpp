@@ -19,7 +19,7 @@ namespace dovahlink::adapter::ipc {
 ///  polls a short internal timeout so `RequestStop` (callable from any
 ///  thread) makes an in-progress or future call return promptly instead of
 ///  hanging indefinitely, per `ai/context/host/architecture.md`'s "adapter
-///  reconnect is bounded and performed outside game-thread work".
+///  connection work is bounded and performed outside game-thread work".
 class IAdapterIpcSocket {
 public:
   virtual ~IAdapterIpcSocket() = default;
@@ -88,17 +88,12 @@ public:
   void RequestStop() override;
 
   ///  Reconfigures the loopback port a subsequent `Connect()` call targets.
-  ///  Not part of `IAdapterIpcSocket`: only the composition root, which holds
-  ///  the concrete type, needs to redirect the target once the real
-  ///  packaged-host endpoint is discovered -- ordinary consumers behind the
-  ///  interface never reconfigure a socket's target. Safe to call
-  ///  concurrently with `Connect()` from another thread; a call already in
-  ///  progress uses whichever value it already read, and only the next
-  ///  `Connect()` call is guaranteed to see the update.
+  ///  Safe to call concurrently with `Connect()` from another thread; a call
+  ///  already in progress uses whichever value it already read, and only the
+  ///  next `Connect()` call is guaranteed to see the update.
   void SetPort(std::uint16_t port) override;
 
-  ///  The loopback port a subsequent `Connect()` call currently targets. Not
-  ///  part of `IAdapterIpcSocket`, for the same reason as `SetPort`.
+  ///  The loopback port a subsequent `Connect()` call currently targets.
   std::uint16_t Port() const;
 
 private:

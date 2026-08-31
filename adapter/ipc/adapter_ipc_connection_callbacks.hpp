@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 
 #include "ipc/adapter_ipc_target.hpp"
@@ -20,6 +21,19 @@ enum class AdapterIpcMessageDisposition {
   kClose,
 };
 
+///  The terminal result reported for one coordinator-requested connection
+///  attempt.
+enum class AdapterIpcAttemptOutcome {
+  ///  The socket could not establish a transport.
+  kConnectFailed,
+  ///  The transport ended before mutual authentication completed.
+  kAuthenticationFailed,
+  ///  An authenticated transport later ended.
+  kDisconnected,
+  ///  The attempt ended because the connection was stopped.
+  kStopped,
+};
+
 ///  The connection lifecycle event hooks `AdapterIpcConnection` invokes on
 ///  its owner. Every field belongs to the same contract: how the transport
 ///  reports what is happening on the channel, since it makes no protocol
@@ -38,13 +52,16 @@ struct AdapterIpcConnectionCallbacks {
       onMessageReceived;
   ///  Invoked when an inbound frame could not be decoded.
   std::function<void()> onDecodeFailure;
-  ///  Invoked once a connected session ends, before a reconnect attempt or
-  ///  the connection stopping entirely.
+  ///  Invoked once a connected session ends, before the current attempt
+  ///  finishes.
   std::function<void()> onDisconnected;
   ///  Invoked when a connect attempt fails before a session is established.
-  ///  This may occur repeatedly while the connection's bounded retry loop is
-  ///  running, and may be invoked from the connection's background thread.
+  ///  It may be invoked from the connection's background thread.
   std::function<void()> onConnectionAttemptFailed;
+  ///  Invoked once when one connection attempt reaches a terminal outcome.
+  ///  The generation is zero when the attempt had no configured target.
+  std::function<void(std::uint64_t, AdapterIpcAttemptOutcome)>
+      onAttemptFinished;
 };
 
 } //  namespace dovahlink::adapter::ipc

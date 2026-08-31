@@ -201,13 +201,12 @@ SKSEPluginInfo(
                 return session->HandleMessage(message);
               },
           .onDecodeFailure = [] { session->HandleDecodeFailure(); },
-          .onDisconnected =
-              [] {
-                session->HandleDisconnected();
+          .onDisconnected = [] { session->HandleDisconnected(); },
+          .onAttemptFinished =
+              [](std::uint64_t,
+                 dovahlink::adapter::ipc::AdapterIpcAttemptOutcome) {
                 supervisor->NotifyConnectionLost();
               },
-          .onConnectionAttemptFailed =
-              [] { supervisor->NotifyConnectionLost(); },
       });
   if (supervisor == nullptr) {
     supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
