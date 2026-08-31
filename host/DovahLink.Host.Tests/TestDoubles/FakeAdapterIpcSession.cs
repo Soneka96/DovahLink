@@ -48,6 +48,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareCancel"/> returns.</summary>
     public IpcCancelMessage? CancelResult { get; set; }
 
+    /// <summary>An optional callback invoked synchronously at the end of <see cref="HandleDisconnected"/>, letting a test observe collaborator state exactly as it stood when the connection notified this session of disconnection.</summary>
+    public Action? OnDisconnected { get; set; }
+
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
@@ -94,5 +97,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     public IpcCancelMessage? PrepareCancel(ulong correlationId) => CancelResult;
 
     /// <inheritdoc/>
-    public void HandleDisconnected() => DisconnectedCalls++;
+    public void HandleDisconnected()
+    {
+        DisconnectedCalls++;
+        OnDisconnected?.Invoke();
+    }
 }

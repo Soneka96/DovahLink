@@ -775,6 +775,82 @@ public class AdapterIpcConnectionTests
         Assert.Equal(0UL, sampleCorrelationId);
     }
 
+    /// <summary>
+    /// Verifies that the outbound channel is already closed to new writes by the time the session is
+    /// notified of disconnection: a send prepared and attempted from inside the session's own
+    /// <c>HandleDisconnected</c> callback must fail rather than land in the channel after the
+    /// generation's unavailability could already be observed by an availability subscriber.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_Disconnecting_ClosesOutboundQueueBeforeSessionObservesDisconnect()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 42),
+            ReadSampleResult = new IpcReadSampleMessage(2, 42),
+            CancelResult = new IpcCancelMessage(3),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        bool listenAcceptedDuringDisconnect = true;
+        bool readSampleAcceptedDuringDisconnect = true;
+        bool cancelAcceptedDuringDisconnect = true;
+        fakeSession.OnDisconnected = () =>
+        {
+            listenAcceptedDuringDisconnect = connection.TrySendListenEvent(42, out _);
+            readSampleAcceptedDuringDisconnect = connection.TrySendReadSample(42, out _);
+            cancelAcceptedDuringDisconnect = connection.TryCancel(3);
+        };
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        Assert.False(listenAcceptedDuringDisconnect);
+        Assert.False(readSampleAcceptedDuringDisconnect);
+        Assert.False(cancelAcceptedDuringDisconnect);
+    }
+
+    /// <summary>
+    /// Verifies that closing the outbound channel before notifying the session of disconnection does
+    /// not turn the connection's graceful shutdown into a race that drops a frame legitimately
+    /// accepted just before teardown began: a send that succeeded while the connection was still
+    /// active must still reach the peer during the graceful drain that follows a protocol close.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_MessageAcceptedBeforeGracefulClose_IsStillDeliveredDuringDrain()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            FrameOutcome = AdapterIpcOutcome.Close,
+            ListenEventResult = new IpcListenEventMessage(9, 42),
+        };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        await ReadOneFrameAsync(client, codec); // resynchronize request
+        bool enqueued = connection.TrySendListenEvent(42, out ulong correlationId);
+        await client.WriteAsync(codec.Encode(new IpcCloseMessage(0, IpcCloseReason.Normal)));
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        var listenEvent = Assert.IsType<IpcListenEventMessage>(delivered);
+        Assert.Equal(9UL, correlationId);
+        Assert.Equal(42u, listenEvent.EventKey);
+        Assert.Equal(1, fakeSession.DisconnectedCalls);
+        client.Dispose();
+    }
+
     /// <summary>Waits for a terminal connection to dispose a blocked writer and cleans up after a failed assertion.</summary>
     /// <param name="runTask">The connection task under test.</param>
     /// <param name="blockingStream">The stream expected to be force-disposed.</param>

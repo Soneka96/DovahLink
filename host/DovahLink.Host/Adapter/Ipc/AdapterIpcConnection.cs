@@ -108,8 +108,12 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
         }
         finally
         {
-            session.HandleDisconnected();
+            // Completed before HandleDisconnected so the outbound channel is already closed to new
+            // writes by the time a subscriber can observe Unavailable(N): Channel<T> guarantees
+            // TryWrite fails once TryComplete has run, so no send authorized concurrently with
+            // teardown can land in the channel after this generation's unavailability is published.
             outbound.Writer.TryComplete();
+            session.HandleDisconnected();
             bool forceClose = cancellationToken.IsCancellationRequested ||
                 ioCancellation.IsCancellationRequested ||
                 inboundRateLimitExceeded ||
