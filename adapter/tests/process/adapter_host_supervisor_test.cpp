@@ -328,6 +328,13 @@ private:
 class FakeAdapterIpcConnection final
     : public dovahlink::adapter::ipc::IAdapterIpcConnection {
 public:
+  ///  Records the complete target snapshot selected by the supervisor.
+  void
+  ConfigureTarget(dovahlink::adapter::ipc::AdapterIpcTarget target) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_ = std::move(target);
+  }
+
   ///  Records that the connection was started.
   void Start() override {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -352,6 +359,24 @@ public:
     return startCount_;
   }
 
+  ///  Returns the configured target port, or zero when none was selected.
+  std::uint16_t ConfiguredPort() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->port : 0;
+  }
+
+  ///  Returns the configured target generation, or zero when none was selected.
+  std::uint64_t ConfiguredTargetGeneration() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->targetGeneration : 0;
+  }
+
+  ///  Returns the configured target proof token, or an empty token.
+  std::vector<std::byte> ConfiguredProofToken() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->proofToken : std::vector<std::byte>{};
+  }
+
   ///  Makes the next startup request throw instead of recording a start.
   void SetThrowsOnce() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -365,26 +390,22 @@ private:
   int startCount_ = 0;
   ///  Whether the next startup request should throw.
   bool throwOnce_ = false;
+  ///  The complete target snapshot most recently configured by the supervisor.
+  std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> target_;
 };
 
-///  Bundles a supervisor with the fakes and real, never-connected socket/
-///  proof-provider it was constructed against, so each test can inspect and
-///  drive them without repeating setup. Uses a short failed-round backoff so
+///  Bundles a supervisor with its fakes so each test can inspect and drive them
+///  without repeating setup. Uses a short failed-round backoff so
 ///  a test proving automatic retry does not slow down the suite.
 struct SupervisorFixture {
   FakeAdapterHostRendezvousReader reader;
   FakeAdapterHostHandshakeVerifier verifier;
   dovahlink::adapter::ipc::WinsockAdapterIpcSocket verifierSocket{0};
   FakeAdapterHostProcessLauncher launcher;
-  dovahlink::adapter::ipc::WinsockAdapterIpcSocket connectionSocket{0};
-  dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider
-      connectionProofProvider;
   FakeAdapterIpcConnection connection;
   AdapterHostSupervisor supervisor{
-      reader,           verifier,
-      verifierSocket,   launcher,
-      connectionSocket, connectionProofProvider,
-      connection,       std::chrono::milliseconds(30)};
+      reader,   verifier,   verifierSocket,
+      launcher, connection, std::chrono::milliseconds(30)};
 };
 
 } //  namespace
@@ -399,8 +420,9 @@ TEST_CASE("AdapterHostSupervisor adopts a verified rendezvous candidate and "
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == endpoint.port; }));
-  CHECK(fixture.connectionProofProvider.Token() == endpoint.proofToken);
+      [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
+  CHECK(fixture.connection.ConfiguredProofToken() == endpoint.proofToken);
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 1);
   CHECK(fixture.connection.StartCount() == 1);
   CHECK(fixture.launcher.CallCount() == 0);
 
@@ -419,7 +441,7 @@ TEST_CASE("AdapterHostSupervisor falls back to launching a fresh host when "
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil([&] {
-    return fixture.connectionSocket.Port() == launchedCandidate.port;
+    return fixture.connection.ConfiguredPort() == launchedCandidate.port;
   }));
   CHECK(fixture.verifier.VerifiedCandidates() ==
         std::vector<AdapterHostEndpoint>{rejectedCandidate, launchedCandidate});
@@ -451,14 +473,17 @@ TEST_CASE("AdapterHostSupervisor runs a fresh discovery round after "
   fixture.verifier.SetResults({true});
 
   fixture.supervisor.Start();
-  REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == firstEndpoint.port; }));
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == firstEndpoint.port;
+  }));
 
   fixture.supervisor.NotifyConnectionLost();
 
-  REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == secondEndpoint.port; }));
-  CHECK(fixture.connectionProofProvider.Token() == secondEndpoint.proofToken);
+  REQUIRE(WaitUntil([&] {
+    return fixture.connection.ConfiguredPort() == secondEndpoint.port;
+  }));
+  CHECK(fixture.connection.ConfiguredProofToken() == secondEndpoint.proofToken);
+  CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
 
   fixture.supervisor.RequestStop();
 }
@@ -506,8 +531,8 @@ TEST_CASE("AdapterHostSupervisor cancels an in-flight launch without starting "
   fixture.supervisor.RequestStop();
 
   CHECK(fixture.connection.StartCount() == 0);
-  CHECK(fixture.connectionSocket.Port() == 0);
-  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.connection.ConfiguredPort() == 0);
+  CHECK(fixture.connection.ConfiguredProofToken().empty());
   CHECK(fixture.verifier.VerifiedCandidates().empty());
 }
 
@@ -527,8 +552,8 @@ TEST_CASE("AdapterHostSupervisor cancels an in-flight verification without "
 
   CHECK(fixture.launcher.CallCount() == 0);
   CHECK(fixture.connection.StartCount() == 0);
-  CHECK(fixture.connectionSocket.Port() == 0);
-  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.connection.ConfiguredPort() == 0);
+  CHECK(fixture.connection.ConfiguredProofToken().empty());
   CHECK(fixture.verifier.VerifiedCandidates().empty());
 }
 
@@ -546,8 +571,8 @@ TEST_CASE("AdapterHostSupervisor skips launched-candidate verification when "
 
   CHECK(fixture.verifier.VerifiedCandidates().empty());
   CHECK(fixture.connection.StartCount() == 0);
-  CHECK(fixture.connectionSocket.Port() == 0);
-  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.connection.ConfiguredPort() == 0);
+  CHECK(fixture.connection.ConfiguredProofToken().empty());
 }
 
 TEST_CASE("AdapterHostSupervisor::RequestStop during a successful round's "
@@ -559,7 +584,7 @@ TEST_CASE("AdapterHostSupervisor::RequestStop during a successful round's "
 
   fixture.supervisor.Start();
   REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == endpoint.port; }));
+      [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
 
   fixture.supervisor.RequestStop();
 
@@ -593,7 +618,7 @@ TEST_CASE("AdapterHostSupervisor recovers after repeated failed rounds") {
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == endpoint.port; },
+      [&] { return fixture.connection.ConfiguredPort() == endpoint.port; },
       std::chrono::seconds(10)));
 
   CHECK(fixture.connection.StartCount() == 1);
@@ -615,7 +640,7 @@ TEST_CASE("AdapterHostSupervisor treats a collaborator exception as a "
   //  candidate, which this time verifies normally) rather than crashing
   //  the background thread.
   REQUIRE(WaitUntil(
-      [&] { return fixture.connectionSocket.Port() == endpoint.port; }));
+      [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
 
   fixture.supervisor.RequestStop();
 }
@@ -640,8 +665,8 @@ TEST_CASE("AdapterHostSupervisor::RequestStop can be called from within a "
   fixture.supervisor.RequestStop();
 
   CHECK(fixture.connection.StartCount() == 0);
-  CHECK(fixture.connectionSocket.Port() == 0);
-  CHECK(fixture.connectionProofProvider.Token().empty());
+  CHECK(fixture.connection.ConfiguredPort() == 0);
+  CHECK(fixture.connection.ConfiguredProofToken().empty());
   CHECK(fixture.launcher.CallCount() == 0);
 }
 
@@ -656,7 +681,7 @@ TEST_CASE("AdapterHostSupervisor contains a connection-start exception and "
   fixture.supervisor.Start();
 
   REQUIRE(WaitUntil([&] { return fixture.connection.StartCount() == 1; }));
-  CHECK(fixture.connectionSocket.Port() == endpoint.port);
+  CHECK(fixture.connection.ConfiguredPort() == endpoint.port);
 
   fixture.supervisor.RequestStop();
 }

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "ipc/settable_adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "process/adapter_host_constants.hpp"
 #include "process/adapter_host_endpoint.hpp"
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <stop_token>
@@ -66,27 +66,18 @@ public:
   ///  and `IAdapterHostHandshakeVerifier` never does so itself.
   ///  @param launcher Launches a fresh packaged host when no candidate can
   ///  be adopted or verified.
-  ///  @param connectionSocket The adapter's long-lived private IPC
-  ///  connection's own socket, retargeted to a verified candidate's port on
-  ///  every successful round.
-  ///  @param connectionProofProvider The same connection's peer-proof
-  ///  provider, retargeted to a verified candidate's proof token on every
-  ///  successful round.
   ///  @param connection The existing long-lived private IPC connection,
   ///  started only after the first candidate has been verified and its target
   ///  configured.
   ///  @param failedRoundBackoff The bound a round that exhausts its bounded
   ///  adopt-and-launch attempts waits before retrying.
-  AdapterHostSupervisor(
-      IAdapterHostRendezvousReader &reader,
-      IAdapterHostHandshakeVerifier &verifier,
-      ipc::WinsockAdapterIpcSocket &verifierSocket,
-      IAdapterHostProcessLauncher &launcher,
-      ipc::WinsockAdapterIpcSocket &connectionSocket,
-      ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider,
-      ipc::IAdapterIpcConnection &connection,
-      std::chrono::milliseconds failedRoundBackoff =
-          kDefaultAdapterHostSupervisorFailedRoundBackoff);
+  AdapterHostSupervisor(IAdapterHostRendezvousReader &reader,
+                        IAdapterHostHandshakeVerifier &verifier,
+                        ipc::WinsockAdapterIpcSocket &verifierSocket,
+                        IAdapterHostProcessLauncher &launcher,
+                        ipc::IAdapterIpcConnection &connection,
+                        std::chrono::milliseconds failedRoundBackoff =
+                            kDefaultAdapterHostSupervisorFailedRoundBackoff);
 
   ///  Calls `RequestStop()` as a fallback so the background thread is never
   ///  leaked.
@@ -144,13 +135,11 @@ private:
   ipc::WinsockAdapterIpcSocket &verifierSocket_;
   ///  Launches a fresh packaged host when no candidate can be adopted.
   IAdapterHostProcessLauncher &launcher_;
-  ///  The adapter's long-lived private IPC connection's own socket.
-  ipc::WinsockAdapterIpcSocket &connectionSocket_;
-  ///  The same connection's peer-proof provider.
-  ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider_;
   ///  The existing long-lived private IPC connection, started after its
   ///  first verified target is configured.
   ipc::IAdapterIpcConnection &connection_;
+  ///  The next supervisor-assigned target generation.
+  std::uint64_t nextTargetGeneration_ = 0;
   ///  The bound a failed round waits before retrying.
   std::chrono::milliseconds failedRoundBackoff_;
   ///  Guards the worker thread object itself, separate from `stateMutex_` so

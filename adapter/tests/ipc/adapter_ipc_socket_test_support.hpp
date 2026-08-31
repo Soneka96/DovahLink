@@ -30,6 +30,16 @@ public:
     connectResults_ = std::move(results);
   }
 
+  ///  Blocks the next `Connect` call until `release` becomes ready, signalling
+  ///  `entered` once the call has reached the controlled wait.
+  void BlockNextConnectUntilReleased(std::promise<void> &entered,
+                                     std::shared_future<void> release) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    blockNextConnect_ = true;
+    connectEnteredPromise_ = &entered;
+    connectRelease_ = std::move(release);
+  }
+
   ///  Makes the next connect attempt signal `attempted` and then throw.
   void SetThrowOnConnect(std::promise<void> &attempted) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -113,8 +123,37 @@ public:
     writtenBytes_.clear();
   }
 
+  ///  @copydoc IAdapterIpcSocket::SetPort
+  void SetPort(std::uint16_t port) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    port_ = port;
+  }
+
+  ///  The currently configured loopback port.
+  std::uint16_t Port() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return port_;
+  }
+
   ///  @copydoc IAdapterIpcSocket::Connect
   bool Connect() override {
+    std::promise<void> *entered = nullptr;
+    std::shared_future<void> release;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (blockNextConnect_) {
+        blockNextConnect_ = false;
+        entered = connectEnteredPromise_;
+        connectEnteredPromise_ = nullptr;
+        release = connectRelease_;
+        connectRelease_ = {};
+      }
+    }
+    if (entered != nullptr) {
+      entered->set_value();
+      release.wait();
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     ++connectCallCount_;
     if (throwOnConnect_) {
@@ -222,6 +261,8 @@ public:
 private:
   ///  Guards every other field.
   mutable std::mutex mutex_;
+  ///  The currently configured loopback port.
+  std::uint16_t port_ = 0;
   ///  Wakes a blocked `TryReadSome` when readable bytes, a disconnect, or a
   ///  stop becomes available.
   std::condition_variable readCondition_;
@@ -236,6 +277,12 @@ private:
   std::vector<bool> connectResults_;
   ///  Whether the next `Connect` call must throw instead of returning.
   bool throwOnConnect_ = false;
+  ///  Whether the next `Connect` call must wait for `connectRelease_`.
+  bool blockNextConnect_ = false;
+  ///  Signaled when the controlled `Connect` wait begins.
+  std::promise<void> *connectEnteredPromise_ = nullptr;
+  ///  Releases the controlled `Connect` wait.
+  std::shared_future<void> connectRelease_;
   ///  Signaled, then cleared, the next time `Connect` throws.
   std::promise<void> *connectAttemptedPromise_ = nullptr;
   ///  Signaled, then cleared, the next time `Connect` returns `false`.

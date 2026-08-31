@@ -2,6 +2,7 @@
 
 #include "ipc/adapter_ipc_connection.hpp"
 #include "ipc/adapter_ipc_hmac.hpp"
+#include "ipc/adapter_ipc_peer_proof_provider.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -27,6 +28,7 @@ using dovahlink::adapter::dispatch::IAdapterNativeDispatcher;
 using dovahlink::adapter::identity::AdapterInstanceId;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
 using dovahlink::adapter::ipc::AdapterIpcSession;
+using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::BuildHostProofMessage;
 using dovahlink::adapter::ipc::ComputeIpcHmacSha256;
 using dovahlink::adapter::ipc::FixedAdapterIpcPeerProofProvider;
@@ -154,6 +156,8 @@ private:
 ///  it, instead of any real transport.
 class FakeAdapterIpcConnection final : public IAdapterIpcConnection {
 public:
+  void ConfigureTarget(AdapterIpcTarget) override {}
+
   void Start() override {}
 
   bool TrySend(const IpcMessage &message) override {
@@ -199,12 +203,16 @@ std::array<std::byte, kIpcOwnerLifetimeIdBytes> SampleOwnerLifetimeId() {
 struct SessionFixture {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .targetGeneration = 1,
+  };
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
   AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
-                            peerProofProvider,  marshaller,
-                            dispatcher,         captureQueue};
+                            marshaller, dispatcher, captureQueue};
 };
 
 ///  Drives a real Hello/HelloAck handshake to completion: connects, captures
@@ -216,7 +224,12 @@ struct SessionFixture {
 void Authenticate(AdapterIpcSession &session,
                   FakeAdapterIpcConnection &connection,
                   std::span<const std::byte> peerProofToken) {
-  session.HandleConnected();
+  session.HandleConnected(AdapterIpcTarget{
+      .port = 58231,
+      .proofToken =
+          std::vector<std::byte>(peerProofToken.begin(), peerProofToken.end()),
+      .targetGeneration = 1,
+  });
   REQUIRE(connection.Sent().size() == 1);
   auto *hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
   REQUIRE(hello != nullptr);
@@ -244,7 +257,7 @@ TEST_CASE("AdapterIpcSession::PrepareHello builds Hello from the configured "
           "identity, proof token, and owner-lifetime-id") {
   SessionFixture fixture;
 
-  IpcMessage first = fixture.session.PrepareHello();
+  IpcMessage first = fixture.session.PrepareHello(fixture.target);
   auto *hello = std::get_if<IpcHelloMessage>(&first);
   REQUIRE(hello != nullptr);
   CHECK(hello->correlationId == 1);
@@ -253,7 +266,7 @@ TEST_CASE("AdapterIpcSession::PrepareHello builds Hello from the configured "
         std::vector<std::byte>{std::byte{9}, std::byte{8}, std::byte{7}});
   CHECK(hello->ownerLifetimeId == SampleOwnerLifetimeId());
 
-  IpcMessage second = fixture.session.PrepareHello();
+  IpcMessage second = fixture.session.PrepareHello(fixture.target);
   auto *secondHello = std::get_if<IpcHelloMessage>(&second);
   REQUIRE(secondHello != nullptr);
   CHECK(secondHello->correlationId == 2);
@@ -268,7 +281,7 @@ TEST_CASE("AdapterIpcSession::HandleConnected sends Hello through the "
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
 
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
 
   REQUIRE(connection.Sent().size() == 1);
   CHECK(std::holds_alternative<IpcHelloMessage>(connection.Sent().front()));
@@ -278,7 +291,7 @@ TEST_CASE("AdapterIpcSession::HandleConnected does nothing without an "
           "attached connection") {
   SessionFixture fixture;
 
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
 }
 
 TEST_CASE("AdapterIpcSession marks the host available only after an "
@@ -311,7 +324,7 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable when an "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
   REQUIRE(connection.Sent().size() == 1);
   auto *hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
   REQUIRE(hello != nullptr);
@@ -370,7 +383,7 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable when an accepted "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
   REQUIRE(connection.Sent().size() == 1);
   auto *hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
   REQUIRE(hello != nullptr);
@@ -470,8 +483,7 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
 
   {
     AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
-                              peerProofProvider,  marshaller,
-                              dispatcher,         captureQueue};
+                              marshaller, dispatcher, captureQueue};
     session.AttachConnection(connection);
     Authenticate(session, connection, peerProofProvider.Token());
     session.HandleMessage(
@@ -552,7 +564,7 @@ TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
   fixture.session.HandleMessage(
       IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
   fixture.session.HandleDisconnected();
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
   fixture.marshaller.RunAllPending();
 
   CHECK(fixture.dispatcher.DispatchedKeys().empty());
@@ -568,7 +580,7 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
 
   fixture.session.HandleDisconnected();
   REQUIRE_FALSE(fixture.session.IsHostAvailable());
-  fixture.session.HandleConnected();
+  fixture.session.HandleConnected(fixture.target);
   connection.Clear();
 
   Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
@@ -589,8 +601,8 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
   FakeAdapterCaptureHandoffQueue captureQueue;
   FakeAdapterIpcConnection connection;
   auto session = std::make_unique<AdapterIpcSession>(
-      SampleInstanceId(), SampleOwnerLifetimeId(), peerProofProvider,
-      marshaller, dispatcher, captureQueue);
+      SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
+      captureQueue);
   session->AttachConnection(connection);
   Authenticate(*session, connection, peerProofProvider.Token());
   session->HandleMessage(

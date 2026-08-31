@@ -11,13 +11,12 @@ namespace dovahlink::adapter::ipc {
 AdapterIpcSession::AdapterIpcSession(
     identity::AdapterInstanceId instanceId,
     std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
-    IAdapterIpcPeerProofProvider &peerProofProvider,
     runtime::IAdapterTaskMarshaller &taskMarshaller,
     dispatch::IAdapterNativeDispatcher &dispatcher,
     capture::IAdapterCaptureHandoffQueue &captureQueue)
     : instanceId_(instanceId), ownerLifetimeId_(ownerLifetimeId),
-      peerProofProvider_(peerProofProvider), taskMarshaller_(taskMarshaller),
-      dispatcher_(dispatcher), captureQueue_(captureQueue) {}
+      taskMarshaller_(taskMarshaller), dispatcher_(dispatcher),
+      captureQueue_(captureQueue) {}
 
 AdapterIpcSession::~AdapterIpcSession() {
   std::lock_guard<std::mutex> lock(*callbackMutex_);
@@ -28,26 +27,31 @@ void AdapterIpcSession::AttachConnection(IAdapterIpcConnection &connection) {
   connection_ = &connection;
 }
 
-IpcMessage AdapterIpcSession::PrepareHello() {
+IpcMessage AdapterIpcSession::PrepareHello(const AdapterIpcTarget &target) {
+  {
+    std::lock_guard<std::mutex> lock(availableMutex_);
+    activeTarget_ = target;
+  }
   pendingHelloCorrelationId_ = NextCorrelationId();
   pendingHelloChallenge_ = GenerateIpcChallenge();
   return IpcMessage{IpcHelloMessage{
       .correlationId = pendingHelloCorrelationId_,
       .adapterInstanceId = instanceId_.value,
-      .peerProofToken = peerProofProvider_.Token(),
+      .peerProofToken = target.proofToken,
       .challenge = pendingHelloChallenge_,
       .ownerLifetimeId = ownerLifetimeId_,
   }};
 }
 
-void AdapterIpcSession::HandleConnected() {
+void AdapterIpcSession::HandleConnected(const AdapterIpcTarget &target) {
   {
     std::lock_guard<std::mutex> lock(availableMutex_);
     ++connectionGeneration_;
     authenticationState_ = AuthenticationState::kAwaitingHelloAck;
+    activeTarget_ = target;
   }
   if (connection_ != nullptr) {
-    connection_->TrySend(PrepareHello());
+    connection_->TrySend(PrepareHello(target));
   }
 }
 
@@ -90,8 +94,16 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           //  matching correlation id, and a verifying hostProof recomputed
           //  from the exact challenge/instance id/lifetime id this adapter
           //  sent) is what authenticates the connection.
+          std::vector<std::byte> peerProofToken;
+          {
+            std::lock_guard<std::mutex> lock(availableMutex_);
+            if (!activeTarget_.has_value()) {
+              return AdapterIpcMessageDisposition::kClose;
+            }
+            peerProofToken = activeTarget_->proofToken;
+          }
           auto expectedProof = ComputeIpcHmacSha256(
-              peerProofProvider_.Token(),
+              peerProofToken,
               BuildHostProofMessage(pendingHelloChallenge_,
                                     pendingHelloCorrelationId_,
                                     instanceId_.value, ownerLifetimeId_));
@@ -148,6 +160,7 @@ void AdapterIpcSession::HandleDecodeFailure() {
 void AdapterIpcSession::HandleDisconnected() {
   std::lock_guard<std::mutex> lock(availableMutex_);
   authenticationState_ = AuthenticationState::kClosed;
+  activeTarget_.reset();
   ++connectionGeneration_;
 }
 

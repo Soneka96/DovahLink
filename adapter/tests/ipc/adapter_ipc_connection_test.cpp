@@ -20,6 +20,7 @@
 using dovahlink::adapter::ipc::AdapterIpcConnection;
 using dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks;
 using dovahlink::adapter::ipc::AdapterIpcMessageDisposition;
+using dovahlink::adapter::ipc::AdapterIpcTarget;
 using dovahlink::adapter::ipc::IAdapterIpcSocket;
 using dovahlink::adapter::ipc::IpcCancelMessage;
 using dovahlink::adapter::ipc::IpcCloseMessage;
@@ -42,6 +43,106 @@ template <typename T> bool WaitReady(std::future<T> &future) {
 }
 
 } //  namespace
+
+TEST_CASE("AdapterIpcConnection passes the configured target snapshot to the "
+          "target-connected callback and socket") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  AdapterIpcTarget expected{
+      .port = 12345,
+      .proofToken = {std::byte{9}, std::byte{8}},
+      .targetGeneration = 4,
+  };
+  std::promise<AdapterIpcTarget> targetPromise;
+  std::promise<void> connectedPromise;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onTargetConnected =
+          [&](const AdapterIpcTarget &target) {
+            targetPromise.set_value(target);
+          },
+      .onConnected = [&] { connectedPromise.set_value(); },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.ConfigureTarget(expected);
+  connection.Start();
+
+  auto targetFuture = targetPromise.get_future();
+  REQUIRE(WaitReady(targetFuture));
+  CHECK(targetFuture.get() == expected);
+  auto connectedFuture = connectedPromise.get_future();
+  REQUIRE(WaitReady(connectedFuture));
+  CHECK(socket.Port() == expected.port);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection uses the target snapshot captured at attempt "
+          "start") {
+  FakeAdapterIpcSocket socket;
+  IpcFrameCodec codec;
+  AdapterIpcTarget firstTarget{
+      .port = 12345,
+      .proofToken = {std::byte{1}},
+      .targetGeneration = 1,
+  };
+  AdapterIpcTarget secondTarget{
+      .port = 23456,
+      .proofToken = {std::byte{2}},
+      .targetGeneration = 2,
+  };
+  std::promise<void> connectEnteredPromise;
+  std::shared_future<void> connectEnteredFuture =
+      connectEnteredPromise.get_future().share();
+  std::promise<void> connectReleasePromise;
+  std::shared_future<void> connectReleaseFuture =
+      connectReleasePromise.get_future().share();
+  socket.BlockNextConnectUntilReleased(connectEnteredPromise,
+                                       connectReleaseFuture);
+
+  std::promise<AdapterIpcTarget> firstTargetPromise;
+  std::promise<AdapterIpcTarget> secondTargetPromise;
+  std::atomic<int> targetConnectedCount = 0;
+  AdapterIpcConnectionCallbacks callbacks{
+      .onTargetConnected =
+          [&](const AdapterIpcTarget &target) {
+            if (targetConnectedCount.fetch_add(1) == 0) {
+              firstTargetPromise.set_value(target);
+            } else {
+              secondTargetPromise.set_value(target);
+            }
+          },
+      .onMessageReceived =
+          [](const IpcMessage &) {
+            return AdapterIpcMessageDisposition::kContinue;
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connection.ConfigureTarget(firstTarget);
+  connection.Start();
+
+  REQUIRE(connectEnteredFuture.wait_for(std::chrono::seconds(5)) ==
+          std::future_status::ready);
+  connection.ConfigureTarget(secondTarget);
+  connectReleasePromise.set_value();
+
+  auto firstTargetFuture = firstTargetPromise.get_future();
+  REQUIRE(WaitReady(firstTargetFuture));
+  CHECK(firstTargetFuture.get() == firstTarget);
+  CHECK(socket.Port() == firstTarget.port);
+
+  socket.SimulateDisconnect();
+  auto secondTargetFuture = secondTargetPromise.get_future();
+  REQUIRE(WaitReady(secondTargetFuture));
+  CHECK(secondTargetFuture.get() == secondTarget);
+  CHECK(socket.Port() == secondTarget.port);
+
+  connection.Stop();
+}
 
 TEST_CASE("AdapterIpcConnection connects, reports onConnected, and delivers "
           "a decoded inbound message") {

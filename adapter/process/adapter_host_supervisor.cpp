@@ -12,14 +12,11 @@ AdapterHostSupervisor::AdapterHostSupervisor(
     IAdapterHostHandshakeVerifier &verifier,
     ipc::WinsockAdapterIpcSocket &verifierSocket,
     IAdapterHostProcessLauncher &launcher,
-    ipc::WinsockAdapterIpcSocket &connectionSocket,
-    ipc::SettableAdapterIpcPeerProofProvider &connectionProofProvider,
     ipc::IAdapterIpcConnection &connection,
     std::chrono::milliseconds failedRoundBackoff)
     : reader_(reader), verifier_(verifier), verifierSocket_(verifierSocket),
-      launcher_(launcher), connectionSocket_(connectionSocket),
-      connectionProofProvider_(connectionProofProvider),
-      connection_(connection), failedRoundBackoff_(failedRoundBackoff) {}
+      launcher_(launcher), connection_(connection),
+      failedRoundBackoff_(failedRoundBackoff) {}
 
 AdapterHostSupervisor::~AdapterHostSupervisor() { RequestStop(); }
 
@@ -141,8 +138,11 @@ bool AdapterHostSupervisor::VerifyCandidate(
 
 void AdapterHostSupervisor::ReconfigureLiveTarget(
     const AdapterHostEndpoint &endpoint) {
-  connectionSocket_.SetPort(endpoint.port);
-  connectionProofProvider_.SetToken(endpoint.proofToken);
+  connection_.ConfigureTarget(ipc::AdapterIpcTarget{
+      .port = endpoint.port,
+      .proofToken = endpoint.proofToken,
+      .targetGeneration = ++nextTargetGeneration_,
+  });
 }
 
 bool AdapterHostSupervisor::WaitForConnectionLostOrStop() {

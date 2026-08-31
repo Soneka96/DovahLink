@@ -24,6 +24,9 @@ class IAdapterIpcSocket {
 public:
   virtual ~IAdapterIpcSocket() = default;
 
+  ///  Changes the loopback port used by the next connection attempt.
+  virtual void SetPort(std::uint16_t port) = 0;
+
   ///  Attempts to establish the connection to the configured loopback
   ///  target. Blocking, bounded by short internal polls against a requested
   ///  stop.
@@ -92,7 +95,7 @@ public:
   ///  concurrently with `Connect()` from another thread; a call already in
   ///  progress uses whichever value it already read, and only the next
   ///  `Connect()` call is guaranteed to see the update.
-  void SetPort(std::uint16_t port);
+  void SetPort(std::uint16_t port) override;
 
   ///  The loopback port a subsequent `Connect()` call currently targets. Not
   ///  part of `IAdapterIpcSocket`, for the same reason as `SetPort`.

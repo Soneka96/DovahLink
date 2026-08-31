@@ -13,7 +13,6 @@
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
 #include "ipc/adapter_ipc_session.hpp"
 #include "ipc/ipc_frame_codec.hpp"
-#include "ipc/settable_adapter_ipc_peer_proof_provider.hpp"
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 #include "papyrus/commonlib_adapter_status_papyrus_adapter.hpp"
 #include "process/adapter_host_constants.hpp"
@@ -167,19 +166,15 @@ SKSEPluginInfo(
   static std::array<std::byte,
                     dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
       ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
-  static auto *peerProofProvider =
-      new dovahlink::adapter::ipc::SettableAdapterIpcPeerProofProvider;
   static auto *session = new dovahlink::adapter::ipc::AdapterIpcSession(
-      instanceId, ownerLifetimeId, *peerProofProvider, *taskMarshaller,
-      *dispatcher, *captureQueue);
+      instanceId, ownerLifetimeId, *taskMarshaller, *dispatcher, *captureQueue);
 
   static auto *socket = new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
   static auto *codec = new dovahlink::adapter::ipc::IpcFrameCodec;
 
   //  Process-lifecycle discovery: an adopt-from-rendezvous-or-launch-fresh
-  //  supervisor keeps `socket`/`peerProofProvider` (the connection's own
-  //  live target above) pointed at a verified host for this plugin's whole
-  //  lifetime, independently of `connection`'s own connect/retry loop.
+  //  supervisor keeps the connection's complete target snapshot pointed at a
+  //  verified host for this plugin's whole lifetime.
   static auto *reader =
       new dovahlink::adapter::process::FileAdapterHostRendezvousReader(
           *rendezvousPath);
@@ -197,7 +192,10 @@ SKSEPluginInfo(
   static auto *connection = new dovahlink::adapter::ipc::AdapterIpcConnection(
       *socket, *codec,
       dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
-          .onConnected = [] { session->HandleConnected(); },
+          .onTargetConnected =
+              [](const dovahlink::adapter::ipc::AdapterIpcTarget &target) {
+                session->HandleConnected(target);
+              },
           .onMessageReceived =
               [](const dovahlink::adapter::ipc::IpcMessage &message) {
                 return session->HandleMessage(message);
@@ -213,8 +211,7 @@ SKSEPluginInfo(
       });
   if (supervisor == nullptr) {
     supervisor = new dovahlink::adapter::process::AdapterHostSupervisor(
-        *reader, *verifier, *verifierSocket, *launcher, *socket,
-        *peerProofProvider, *connection);
+        *reader, *verifier, *verifierSocket, *launcher, *connection);
   }
   session->AttachConnection(*connection);
 

@@ -144,6 +144,8 @@ public:
   ///  Makes `Stop` throw after recording its call.
   void SetThrows() { throws_ = true; }
 
+  void ConfigureTarget(dovahlink::adapter::ipc::AdapterIpcTarget) override {}
+
   void Start() override {}
   bool TrySend(const dovahlink::adapter::ipc::IpcMessage &) override {
     return true;

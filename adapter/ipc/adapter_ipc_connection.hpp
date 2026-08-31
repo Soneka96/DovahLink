@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
+#include "ipc/adapter_ipc_target.hpp"
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_frame_codec.hpp"
 
@@ -27,6 +28,10 @@ class IAdapterIpcSocket;
 class IAdapterIpcConnection {
 public:
   virtual ~IAdapterIpcConnection() = default;
+
+  ///  Replaces the target used by the next connection attempt. The complete
+  ///  value is copied as one snapshot and never read piecemeal by callers.
+  virtual void ConfigureTarget(AdapterIpcTarget target) = 0;
 
   ///  Starts the connection's background connect/serve thread. Callers must
   ///  finish wiring every callback consumer (for example attaching this
@@ -72,6 +77,9 @@ public:
 
   ///  @copydoc IAdapterIpcConnection::Start
   void Start() override;
+
+  ///  @copydoc IAdapterIpcConnection::ConfigureTarget
+  void ConfigureTarget(AdapterIpcTarget target) override;
 
   ///  @copydoc IAdapterIpcConnection::TrySend
   bool TrySend(const IpcMessage &message) override;
@@ -154,6 +162,10 @@ private:
   std::mutex outboundMutex_;
   ///  The bounded FIFO of messages queued for the next write.
   std::deque<IpcMessage> outbound_;
+  ///  Guards the currently configured target snapshot.
+  std::mutex targetMutex_;
+  ///  The target snapshot used by the next connection attempt, if configured.
+  std::optional<AdapterIpcTarget> target_;
   ///  The background connect/serve thread, started by `Start()`.
   std::thread worker_;
 };

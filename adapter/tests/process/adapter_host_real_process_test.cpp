@@ -328,6 +328,13 @@ private:
 class RecordingAdapterIpcConnection final
     : public dovahlink::adapter::ipc::IAdapterIpcConnection {
 public:
+  ///  Records the target selected by the supervisor.
+  void
+  ConfigureTarget(dovahlink::adapter::ipc::AdapterIpcTarget target) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_ = std::move(target);
+  }
+
   ///  Records a connection start request.
   void Start() override { ++startCount_; }
 
@@ -340,9 +347,25 @@ public:
   ///  Returns how many times the supervisor requested startup.
   int StartCount() const { return startCount_.load(); }
 
+  ///  Returns the selected target port, or zero when no target is configured.
+  std::uint16_t ConfiguredPort() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->port : 0;
+  }
+
+  ///  Returns the selected target proof token, or an empty token.
+  std::vector<std::byte> ConfiguredProofToken() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->proofToken : std::vector<std::byte>{};
+  }
+
 private:
+  ///  Guards the selected target snapshot.
+  mutable std::mutex mutex_;
   ///  The observed number of connection start requests.
   std::atomic<int> startCount_ = 0;
+  ///  The target snapshot most recently selected by the supervisor.
+  std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> target_;
 };
 
 ///  Records every candidate sent through a real handshake verifier while
@@ -575,22 +598,27 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   AdapterHostHandshakeVerifier verifier(AdapterInstanceIdGenerator{}.Generate(),
                                         ownerLifetimeId, verifierSocket, codec,
                                         std::chrono::seconds(2));
-  SettableAdapterIpcPeerProofProvider proofProvider;
   ImmediateTaskMarshaller taskMarshaller;
   AdapterNativeDispatcher dispatcher;
   NoopCaptureQueue captureQueue;
   std::unique_ptr<AdapterHostSupervisor> supervisor;
   AdapterIpcSession session(AdapterInstanceIdGenerator{}.Generate(),
-                            ownerLifetimeId, proofProvider, taskMarshaller,
-                            dispatcher, captureQueue);
+                            ownerLifetimeId, taskMarshaller, dispatcher,
+                            captureQueue);
   std::atomic<int> connectedCount = 0;
+  std::mutex targetMutex;
+  std::optional<dovahlink::adapter::ipc::AdapterIpcTarget> connectedTarget;
   AdapterIpcConnection connection(
       connectionSocket, codec,
       dovahlink::adapter::ipc::AdapterIpcConnectionCallbacks{
-          .onConnected =
-              [&] {
+          .onTargetConnected =
+              [&](const dovahlink::adapter::ipc::AdapterIpcTarget &target) {
+                {
+                  std::lock_guard<std::mutex> lock(targetMutex);
+                  connectedTarget = target;
+                }
                 ++connectedCount;
-                session.HandleConnected();
+                session.HandleConnected(target);
               },
           .onMessageReceived =
               [&](const IpcMessage &message) {
@@ -605,14 +633,18 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
       });
   session.AttachConnection(connection);
   supervisor = std::make_unique<AdapterHostSupervisor>(
-      reader, verifier, verifierSocket, launcher, connectionSocket,
-      proofProvider, connection, std::chrono::milliseconds(50));
+      reader, verifier, verifierSocket, launcher, connection,
+      std::chrono::milliseconds(50));
   supervisor->Start();
 
   REQUIRE(
       WaitUntil([&] { return connectionSocket.Port() == firstEndpoint->port; },
                 std::chrono::seconds(5)));
-  CHECK(proofProvider.Token() == firstEndpoint->proofToken);
+  {
+    std::lock_guard<std::mutex> lock(targetMutex);
+    REQUIRE(connectedTarget.has_value());
+    CHECK(connectedTarget->proofToken == firstEndpoint->proofToken);
+  }
 
   REQUIRE(WaitUntil(
       [&] { return connectedCount.load() >= 1 && session.IsHostAvailable(); },
@@ -635,7 +667,11 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
   REQUIRE(WaitUntil(
       [&] { return connectedCount.load() >= 2 && session.IsHostAvailable(); },
       std::chrono::seconds(10)));
-  CHECK(proofProvider.Token() == secondEndpoint->proofToken);
+  {
+    std::lock_guard<std::mutex> lock(targetMutex);
+    REQUIRE(connectedTarget.has_value());
+    CHECK(connectedTarget->proofToken == secondEndpoint->proofToken);
+  }
 
   supervisor->RequestStop();
   connection.Stop();
@@ -676,19 +712,17 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
       AdapterInstanceIdGenerator{}.Generate(), ownerLifetimeId, verifierSocket,
       codec, std::chrono::seconds(2));
   RecordingAdapterHostHandshakeVerifier verifier(realVerifier);
-  SettableAdapterIpcPeerProofProvider proofProvider;
   RecordingAdapterIpcConnection connection;
   AdapterHostSupervisor supervisor(reader, verifier, verifierSocket, launcher,
-                                   connectionSocket, proofProvider, connection,
-                                   std::chrono::milliseconds(50));
+                                   connection, std::chrono::milliseconds(50));
 
   supervisor.Start();
 
   REQUIRE(WaitUntil(
       [&] {
         return connection.StartCount() == 1 &&
-               connectionSocket.Port() != staleListener.Port() &&
-               connectionSocket.Port() != 0;
+               connection.ConfiguredPort() != staleListener.Port() &&
+               connection.ConfiguredPort() != 0;
       },
       std::chrono::seconds(10)));
   auto verifiedCandidates = verifier.VerifiedCandidates();
@@ -698,8 +732,8 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
 
   auto freshEndpoint = reader.TryRead();
   REQUIRE(freshEndpoint.has_value());
-  CHECK(connectionSocket.Port() == freshEndpoint->port);
-  CHECK(proofProvider.Token() == freshEndpoint->proofToken);
+  CHECK(connection.ConfiguredPort() == freshEndpoint->port);
+  CHECK(connection.ConfiguredProofToken() == freshEndpoint->proofToken);
   CHECK(freshEndpoint->port == verifiedCandidates.back().port);
 
   supervisor.RequestStop();

@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include "ipc/adapter_ipc_target.hpp"
 #include "ipc/ipc_message.hpp"
 
 namespace dovahlink::adapter::ipc {
@@ -25,6 +26,9 @@ enum class AdapterIpcMessageDisposition {
 ///  decisions of its own. Every callback may be invoked from the
 ///  connection's own background thread.
 struct AdapterIpcConnectionCallbacks {
+  ///  Invoked once per successful connect with the exact target snapshot used
+  ///  by that connection attempt.
+  std::function<void(const AdapterIpcTarget &)> onTargetConnected;
   ///  Invoked once per successful connect, before frames are served.
   std::function<void()> onConnected;
   ///  Invoked for each successfully decoded inbound message.

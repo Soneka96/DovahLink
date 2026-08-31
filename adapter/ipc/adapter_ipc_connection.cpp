@@ -47,6 +47,11 @@ void AdapterIpcConnection::Start() {
   worker_ = std::thread([this] { RunLoop(); });
 }
 
+void AdapterIpcConnection::ConfigureTarget(AdapterIpcTarget target) {
+  std::lock_guard<std::mutex> lock(targetMutex_);
+  target_ = std::move(target);
+}
+
 bool AdapterIpcConnection::TrySend(const IpcMessage &message) {
   std::lock_guard<std::mutex> stopLock(stopMutex_);
   if (stopping_) {
@@ -120,6 +125,15 @@ void AdapterIpcConnection::RunLoop() {
         }
       }
 
+      std::optional<AdapterIpcTarget> attemptTarget;
+      {
+        std::lock_guard<std::mutex> lock(targetMutex_);
+        attemptTarget = target_;
+      }
+      if (attemptTarget.has_value()) {
+        socket_.SetPort(attemptTarget->port);
+      }
+
       bool connectedAttempt = false;
       try {
         connectedAttempt = socket_.Connect();
@@ -152,6 +166,9 @@ void AdapterIpcConnection::RunLoop() {
       const auto establishmentDeadline =
           std::chrono::steady_clock::now() + establishmentTimeout_;
 
+      if (attemptTarget.has_value() && callbacks_.onTargetConnected) {
+        InvokeContained(callbacks_.onTargetConnected, *attemptTarget);
+      }
       InvokeContained(callbacks_.onConnected);
 
       ServeConnection(establishmentDeadline);

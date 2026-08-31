@@ -173,7 +173,8 @@ TEST_CASE("the adapter plugin does not start IPC before supervisor discovery",
   std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
 
   CHECK(source.find("connection->Start();") == std::string::npos);
-  CHECK(source.find("*peerProofProvider, *connection") != std::string::npos);
+  CHECK(source.find(".onTargetConnected") != std::string::npos);
+  CHECK(source.find("*launcher, *connection") != std::string::npos);
 }
 
 TEST_CASE("the adapter plugin notifies the supervisor when the connection "

@@ -4,7 +4,7 @@
 #include "dispatch/adapter_native_dispatcher.hpp"
 #include "identity/adapter_instance_id.hpp"
 #include "ipc/adapter_ipc_connection_callbacks.hpp"
-#include "ipc/adapter_ipc_peer_proof_provider.hpp"
+#include "ipc/adapter_ipc_target.hpp"
 #include "ipc/ipc_constants.hpp"
 #include "ipc/ipc_message.hpp"
 #include "runtime/adapter_task_marshaller.hpp"
@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace dovahlink::adapter::ipc {
 
@@ -44,11 +45,12 @@ public:
   virtual void AttachConnection(IAdapterIpcConnection &connection) = 0;
 
   ///  Builds this session's Hello message.
-  [[nodiscard]] virtual IpcMessage PrepareHello() = 0;
+  [[nodiscard]] virtual IpcMessage
+  PrepareHello(const AdapterIpcTarget &target) = 0;
 
   ///  Handles a successful connect: sends Hello through the attached
   ///  connection.
-  virtual void HandleConnected() = 0;
+  virtual void HandleConnected(const AdapterIpcTarget &target) = 0;
 
   ///  Handles one successfully decoded inbound message.
   ///  @return The disposition for the current transport generation. A valid
@@ -80,7 +82,6 @@ public:
   ///  @param ownerLifetimeId The owning Skyrim process's lifetime identity,
   ///  scoping this handshake to the intended Skyrim lifetime. Not itself a
   ///  cryptographic ownership proof.
-  ///  @param peerProofProvider Supplies this adapter's Hello proof token.
   ///  @param taskMarshaller Marshals capture work onto the Skyrim game
   ///  thread.
   ///  @param dispatcher Performs the one generic key-to-Skyrim translation.
@@ -88,7 +89,6 @@ public:
   AdapterIpcSession(
       identity::AdapterInstanceId instanceId,
       std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId,
-      IAdapterIpcPeerProofProvider &peerProofProvider,
       runtime::IAdapterTaskMarshaller &taskMarshaller,
       dispatch::IAdapterNativeDispatcher &dispatcher,
       capture::IAdapterCaptureHandoffQueue &captureQueue);
@@ -101,10 +101,11 @@ public:
   void AttachConnection(IAdapterIpcConnection &connection) override;
 
   ///  @copydoc IAdapterIpcSession::PrepareHello
-  [[nodiscard]] IpcMessage PrepareHello() override;
+  [[nodiscard]] IpcMessage
+  PrepareHello(const AdapterIpcTarget &target) override;
 
   ///  @copydoc IAdapterIpcSession::HandleConnected
-  void HandleConnected() override;
+  void HandleConnected(const AdapterIpcTarget &target) override;
 
   ///  @copydoc IAdapterIpcSession::HandleMessage
   AdapterIpcMessageDisposition
@@ -153,8 +154,6 @@ private:
   ///  The owning Skyrim process's lifetime identity. Not itself a
   ///  cryptographic ownership proof.
   std::array<std::byte, kIpcOwnerLifetimeIdBytes> ownerLifetimeId_;
-  ///  Supplies this adapter's Hello proof token.
-  IAdapterIpcPeerProofProvider &peerProofProvider_;
   ///  Marshals capture work onto the Skyrim game thread.
   runtime::IAdapterTaskMarshaller &taskMarshaller_;
   ///  Performs the one generic key-to-Skyrim translation.
@@ -169,6 +168,8 @@ private:
   std::atomic<std::uint64_t> nextCorrelationId_{0};
   ///  Identifies the currently connected transport generation.
   std::uint64_t connectionGeneration_ = 0;
+  ///  The complete target snapshot authenticated by the current Hello.
+  std::optional<AdapterIpcTarget> activeTarget_;
   ///  The correlation id of the most recently prepared Hello, verified
   ///  against a received HelloAck's own correlation id. Touched only from
   ///  the connection's single callback-invoking thread (`PrepareHello` is

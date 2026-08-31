@@ -106,6 +106,7 @@ target_compile_definitions(dovahlink_adapter_owner_lifetime_test_fixture PRIVATE
 )
 add_executable(dovahlink_adapter_tests
     tests/ipc/ipc_frame_codec_test.cpp
+    tests/ipc/adapter_ipc_target_test.cpp
     tests/ipc/winsock_adapter_ipc_socket_test.cpp
     tests/ipc/adapter_ipc_connection_test.cpp
     tests/ipc/adapter_ipc_session_test.cpp
