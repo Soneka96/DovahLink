@@ -200,7 +200,7 @@ Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
   }
 
   SIZE_T attributeListSize = 0;
-  InitializeProcThreadAttributeList(nullptr, 1, 0, &attributeListSize);
+  InitializeProcThreadAttributeList(nullptr, 2, 0, &attributeListSize);
   if (attributeListSize == 0) {
     return std::nullopt;
   }
@@ -208,7 +208,7 @@ Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
   std::vector<std::byte> attributeStorage(attributeListSize);
   auto *attributeList =
       reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributeStorage.data());
-  if (!InitializeProcThreadAttributeList(attributeList, 1, 0,
+  if (!InitializeProcThreadAttributeList(attributeList, 2, 0,
                                          &attributeListSize)) {
     return std::nullopt;
   }
@@ -218,6 +218,13 @@ Win32AdapterHostProcessLauncher::Launch(std::stop_token cancellationToken) {
   if (!UpdateProcThreadAttribute(attributeList, 0,
                                  PROC_THREAD_ATTRIBUTE_JOB_LIST, jobHandles,
                                  sizeof(jobHandles), nullptr, nullptr)) {
+    return std::nullopt;
+  }
+
+  HANDLE inheritedHandles[] = {pipeWrite};
+  if (!UpdateProcThreadAttribute(
+          attributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inheritedHandles,
+          sizeof(inheritedHandles), nullptr, nullptr)) {
     return std::nullopt;
   }
 

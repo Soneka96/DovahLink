@@ -11,6 +11,7 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <future>
 #include <optional>
@@ -66,6 +67,32 @@ private:
   const wchar_t *name_;
 };
 
+///  Owns one inheritable event handle used to detect accidental child-handle
+///  inheritance by the launcher.
+class ScopedInheritableEvent {
+public:
+  ScopedInheritableEvent() {
+    SECURITY_ATTRIBUTES attributes{};
+    attributes.nLength = sizeof(attributes);
+    attributes.bInheritHandle = TRUE;
+    handle_ = CreateEventW(&attributes, FALSE, FALSE, nullptr);
+  }
+
+  ~ScopedInheritableEvent() {
+    if (handle_ != nullptr) {
+      CloseHandle(handle_);
+    }
+  }
+
+  ScopedInheritableEvent(const ScopedInheritableEvent &) = delete;
+  ScopedInheritableEvent &operator=(const ScopedInheritableEvent &) = delete;
+
+  HANDLE Get() const { return handle_; }
+
+private:
+  HANDLE handle_ = nullptr;
+};
+
 } //  namespace
 
 TEST_CASE("Win32AdapterHostProcessLauncher associates the child with its Job "
@@ -83,6 +110,7 @@ TEST_CASE("Win32AdapterHostProcessLauncher associates the child with its Job "
   CHECK(source.find("CreateJobObjectW") < createProcess);
   CHECK(source.find("SetInformationJobObject") < createProcess);
   CHECK(source.find("PROC_THREAD_ATTRIBUTE_JOB_LIST") < createProcess);
+  CHECK(source.find("PROC_THREAD_ATTRIBUTE_HANDLE_LIST") < createProcess);
   CHECK(source.find("UpdateProcThreadAttribute") < createProcess);
   CHECK(source.find("EXTENDED_STARTUPINFO_PRESENT", createProcess) !=
         std::string::npos);
@@ -96,6 +124,27 @@ TEST_CASE("Win32AdapterHostProcessLauncher associates the child with its Job "
   CHECK(source.find("AssignProcessToJobObject") == std::string::npos);
   CHECK(source.find("ScopedHandle") != std::string::npos);
   CHECK(source.find("ScopedProcThreadAttributeList") != std::string::npos);
+}
+
+TEST_CASE("Win32AdapterHostProcessLauncher inherits only the rendezvous pipe",
+          "[process][integration]") {
+  ScopedInheritableEvent unrelatedHandle;
+  REQUIRE(unrelatedHandle.Get() != nullptr);
+  std::wstring handleValue =
+      std::to_wstring(reinterpret_cast<std::uintptr_t>(unrelatedHandle.Get()));
+  ScopedEnvironmentVariable probe(L"DOVAHLINK_TEST_HOST_UNRELATED_HANDLE",
+                                  handleValue.c_str());
+
+  Win32AdapterHostProcessLauncher launcher(FixtureExecutablePath(),
+                                           SampleLifetimeId());
+  std::optional<AdapterHostEndpoint> endpoint = launcher.Launch();
+
+  REQUIRE(endpoint.has_value());
+  CHECK(endpoint->port == 4242);
+  //  The fixture reports PROOF ab only when GetHandleInformation cannot open
+  //  the unrelated handle value in the child process.
+  CHECK(endpoint->proofToken == std::vector<std::byte>{std::byte{0xAB}});
+  launcher.AwaitExitOrTerminate(std::chrono::milliseconds(200));
 }
 
 TEST_CASE("Win32AdapterHostProcessLauncher::Launch starts the packaged host "
