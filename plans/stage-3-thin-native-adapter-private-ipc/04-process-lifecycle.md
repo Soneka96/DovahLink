@@ -201,28 +201,34 @@ substitutes for that proof.
 With a configured port of `0`, a host that restarts (crash-and-relaunch) binds
 a new, different ephemeral port. The adapter's process-lifecycle supervisor is
 therefore not a one-shot startup step: for the whole adapter process lifetime,
-it watches for the private connection reporting the host lost (disconnected
-without ever re-establishing), and on that signal reruns its bounded
-adopt-or-launch-and-verify discovery procedure again, then reconfigures the
-existing long-lived connection to the newly discovered endpoint. Each
-individual discovery round remains bounded and cancellable, per "Startup
-retry" above; only the outer watch-and-retry loop is unbounded for the
-process's life, matching the host's own unbounded private-IPC accept loop
-(`ai/context/host/architecture.md`'s "adapter reconnect is bounded and
-performed outside game-thread work" describes each attempt, not a one-time
-budget for the whole session).
+it runs a sequence of bounded discovery rounds and owns every reconnection
+decision itself. Each round is adopt-or-launch only -- reading the rendezvous
+file, or launching a fresh host when no candidate is available -- never a
+separate pre-connection verification step; verification is exactly the
+Hello/HelloAck mutual authentication "Mutual authentication (D2)" above
+describes, performed once per connection attempt by the unchanged
+`AdapterIpcSession`. Each individual discovery round remains bounded and
+cancellable, per "Startup retry" above; only the outer supervise-and-retry
+loop is unbounded for the process's life, matching the host's own unbounded
+private-IPC accept loop (`ai/context/host/architecture.md`'s "the adapter
+supervisor coordinates one bounded connection attempt at a time" describes
+each attempt, not a one-time budget for the whole session).
 
 The existing `AdapterIpcConnection`/`AdapterIpcSession` pair (Concept 03) is
 never stopped and restarted to pick up a new endpoint: `AdapterIpcConnection`
 was built so `Stop()` permanently ends it and `AttachConnection` is called
 exactly once, so recreating either object mid-session is not this concept's
-mechanism. Instead, the connection's own target (its socket's port and the
-peer-proof value it presents) is updated in place, safely, while the
-connection keeps running and keeps retrying on its own bounded backoff; the
-next reconnect attempt inside its already-running retry loop picks up the
-updated target. This is the chosen resolution to the two options Concept 04
-was asked to weigh: update the live target rather than mint a new
-session/connection generation.
+mechanism. Instead, on a successful round the supervisor builds one immutable
+target snapshot -- port, proof token, and a supervisor-assigned target
+generation -- configures the connection with it, and starts exactly one new
+coordinator-requested connection attempt. `AdapterIpcConnection` performs that
+one attempt and returns: it never retries or reconnects on its own. It
+reports its terminal outcome, tagged with that same target generation, back
+to the supervisor, which alone decides whether the next round adopts
+rendezvous, launches a fresh host, or waits through a bounded backoff first.
+This is the chosen resolution to the two options Concept 04 was asked to
+weigh: update the live connection's target for a fresh attempt rather than
+mint a new session/connection generation.
 
 #### Discovery-round retry state machine
 
@@ -235,25 +241,34 @@ The loop is instead, precisely:
 
 ```
 loop until RequestStop():
-    run one bounded discovery round (adopt-or-launch, then verify)
-    if the round succeeded:
-        update the live connection's target (SetPort/SetToken)
-        wait until EITHER the connection reports the host lost, OR RequestStop()
-        # on waking: loop back to the top and run another round
-    else (the round exhausted its bounded attempts without success):
+    run one bounded discovery round (adopt-or-launch)
+    if a candidate was found:
+        build one immutable target snapshot (port, proof token, target
+        generation), configure the connection with it, and start one attempt
+        wait until EITHER the connection reports its terminal outcome for
+        this target generation, OR RequestStop()
+        if the outcome was a connect/authentication failure, prefer a fresh
+        launch next round instead of re-adopting the same rendezvous file
+        if the outcome was a connect/authentication failure, OR the
+        connection disconnected after successfully authenticating:
+            wait a fixed bounded backoff, OR RequestStop()
+        # either way, loop back to the top and run another round
+    else (discovery itself produced no candidate):
         wait a fixed bounded backoff, OR RequestStop()
         # always loops back to the top and tries again -- never depends on an
         # external signal that a failed round may never produce
 ```
 
-A successful round's wait is unbounded in wall-clock time (there is no
-deadline on how long a healthy connection may stay healthy) but is always
-interruptible by `RequestStop()`; a failed round's wait is itself bounded (a
-fixed retry delay) and equally interruptible. This guarantees the supervisor
-always eventually retries after any failure -- repeated crashes, a launch
-that fails outright, or a host that only becomes reachable later -- without
-ever requiring an external wakeup that might not come, and without ever
-spinning without a delay between attempts.
+A round's wait for a terminal outcome is unbounded in wall-clock time (there
+is no deadline on how long a healthy connection may stay healthy) but is
+always interruptible by `RequestStop()`; every bounded backoff wait -- after a
+round that produced no candidate, a failed connection attempt, or an
+authenticated connection that later disconnected -- is itself bounded and
+equally interruptible. This guarantees the supervisor always eventually
+retries after any failure -- repeated crashes, a launch that fails outright, a
+host that only becomes reachable later, or a peer that connects and
+disconnects repeatedly -- without ever requiring an external wakeup that
+might not come, and without ever spinning without a delay between attempts.
 
 ### Shutdown ordering
 
@@ -347,9 +362,10 @@ with tests covering pre-handshake and rejected-peer requests.
 - Inbound and outbound work is scoped to the transport generation: pending
   outbound frames from a failed generation cannot be emitted before the fresh
   Hello of the next generation.
-- A transport `Connect()` exception is a contained failed attempt, not a
-  terminal worker failure; the same long-lived connection worker remains in
-  its bounded retry loop.
+- A transport `Connect()` exception is a contained failed attempt: the worker
+  reports it as one terminal outcome for its target generation and returns,
+  never escaping the worker thread. The supervisor, not the connection, then
+  decides and schedules the next attempt.
 - `ownerLifetimeId` is never described or relied on as a cryptographic
   ownership proof; it only scopes discovery/signaling namespaces. See
   "Lifetime-scoped rendezvous and shutdown identity."
@@ -363,6 +379,11 @@ with tests covering pre-handshake and rejected-peer requests.
   live plugin unload/reload while Skyrim remains running is not supported.
 - A failed plugin load constructs no thread-owning runtime object before its
   failure guards return.
+- `AdapterHostSupervisor` is the sole recovery coordinator: it alone decides
+  whether the next round adopts rendezvous, launches a fresh host, or waits
+  through a bounded backoff. `AdapterIpcConnection` performs exactly one
+  target-generation attempt per `Start()` call and reports its terminal
+  outcome back to the supervisor; it never retries or reconnects on its own.
 
 ## Allowed files/modules
 
@@ -423,8 +444,10 @@ with tests covering pre-handshake and rejected-peer requests.
 - A shutdown request racing against an in-flight discovery round or a pending
   reconnect interrupts that round/attempt and starts no new one; no host
   relaunch is ever initiated once shutdown has begun. Covered for every wait
-  state the supervisor can be in: mid-round, waiting after a successful
-  round, and waiting after a failed round's backoff.
+  state the supervisor can be in: mid-round, waiting for a connection attempt's
+  terminal outcome, waiting through a failed round's or a failed connection
+  attempt's backoff, and waiting through the backoff after an authenticated
+  connection disconnects.
 - The graceful-shutdown orchestration method preserves the Job Object/process
   handle through the signal-and-bounded-wait step and only force-terminates
   as an explicit fallback afterward, never before.
