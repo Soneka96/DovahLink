@@ -93,17 +93,20 @@ AdapterIpcSession::HandleMessage(const IpcMessage &message) {
           //  adapter's presented proof. The full conjunction (accepted,
           //  matching correlation id, and a verifying hostProof recomputed
           //  from the exact challenge/instance id/lifetime id this adapter
-          //  sent) is what authenticates the connection.
-          std::vector<std::byte> peerProofToken;
+          //  sent) is what authenticates the connection. Keyed by
+          //  hostProofKey, independent of the proofToken this adapter itself
+          //  presented in Hello, so observing that Hello alone can never let
+          //  an untrusted observer forge this proof.
+          std::vector<std::byte> hostProofKey;
           {
             std::lock_guard<std::mutex> lock(availableMutex_);
             if (!activeTarget_.has_value()) {
               return AdapterIpcMessageDisposition::kClose;
             }
-            peerProofToken = activeTarget_->proofToken;
+            hostProofKey = activeTarget_->hostProofKey;
           }
           auto expectedProof = ComputeIpcHmacSha256(
-              peerProofToken,
+              hostProofKey,
               BuildHostProofMessage(pendingHelloChallenge_,
                                     pendingHelloCorrelationId_,
                                     instanceId_.value, ownerLifetimeId_));

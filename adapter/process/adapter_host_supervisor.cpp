@@ -163,6 +163,7 @@ std::uint64_t AdapterHostSupervisor::ReconfigureLiveTarget(
   connection_.ConfigureTarget(ipc::AdapterIpcTarget{
       .port = endpoint.port,
       .proofToken = endpoint.proofToken,
+      .hostProofKey = endpoint.hostProofKey,
       .targetGeneration = targetGeneration,
   });
   return targetGeneration;

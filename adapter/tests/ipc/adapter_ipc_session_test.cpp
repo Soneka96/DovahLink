@@ -13,7 +13,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <span>
 #include <stdexcept>
 #include <thread>
 #include <unordered_map>
@@ -206,6 +205,7 @@ struct SessionFixture {
   AdapterIpcTarget target{
       .port = 58231,
       .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
       .targetGeneration = 1,
   };
   FakeAdapterTaskMarshaller marshaller;
@@ -215,27 +215,23 @@ struct SessionFixture {
                             marshaller, dispatcher, captureQueue};
 };
 
-///  Drives a real Hello/HelloAck handshake to completion: connects, captures
-///  the Hello the session actually sent, computes the matching accepted
-///  HelloAck's `hostProof` from the same peer-proof token, and delivers it --
-///  exactly the mutual-authentication proof a legitimate host would produce.
-///  Clears `connection`'s recorded messages afterward so a test's own
-///  assertions on `connection.Sent()` see only what happens next.
+///  Drives a real Hello/HelloAck handshake to completion: connects with
+///  `target`, captures the Hello the session actually sent, computes the
+///  matching accepted HelloAck's `hostProof` from `target`'s HostProof key
+///  (independent of the proof token that Hello itself carried), and delivers
+///  it -- exactly the mutual-authentication proof a legitimate host would
+///  produce. Clears `connection`'s recorded messages afterward so a test's
+///  own assertions on `connection.Sent()` see only what happens next.
 void Authenticate(AdapterIpcSession &session,
                   FakeAdapterIpcConnection &connection,
-                  std::span<const std::byte> peerProofToken) {
-  session.HandleConnected(AdapterIpcTarget{
-      .port = 58231,
-      .proofToken =
-          std::vector<std::byte>(peerProofToken.begin(), peerProofToken.end()),
-      .targetGeneration = 1,
-  });
+                  const AdapterIpcTarget &target) {
+  session.HandleConnected(target);
   REQUIRE(connection.Sent().size() == 1);
   auto *hello = std::get_if<IpcHelloMessage>(&connection.Sent().front());
   REQUIRE(hello != nullptr);
 
   auto expectedProof = ComputeIpcHmacSha256(
-      peerProofToken,
+      target.hostProofKey,
       BuildHostProofMessage(hello->challenge, hello->correlationId,
                             hello->adapterInstanceId, hello->ownerLifetimeId));
 
@@ -301,7 +297,7 @@ TEST_CASE("AdapterIpcSession marks the host available only after an "
   fixture.session.AttachConnection(connection);
   CHECK_FALSE(fixture.session.IsHostAvailable());
 
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   CHECK(fixture.session.IsHostAvailable());
 }
@@ -359,13 +355,32 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable when an "
                            .hostProof = wrongProof}});
   }
 
+  SECTION("hostProof keyed by the bearer proof token instead of the "
+          "HostProof key") {
+    //  Proves the domain-separation invariant this fields split exists for:
+    //  a HelloAck computed with the value this adapter itself presented in
+    //  Hello -- exactly what an observer of that Hello alone would have --
+    //  is still rejected. Only the independent, never-transmitted
+    //  hostProofKey can produce a valid HostProof.
+    auto proofKeyedByBearerToken = ComputeIpcHmacSha256(
+        fixture.target.proofToken,
+        BuildHostProofMessage(hello->challenge, hello->correlationId,
+                              hello->adapterInstanceId,
+                              hello->ownerLifetimeId));
+    fixture.session.HandleMessage(IpcMessage{
+        IpcHelloAckMessage{.correlationId = hello->correlationId,
+                           .accepted = true,
+                           .rejectReason = IpcHelloRejectReason::kNone,
+                           .hostProof = proofKeyedByBearerToken}});
+  }
+
   SECTION("replayed hostProof (valid for a different, earlier challenge)") {
     //  A prior, separate handshake's genuinely-correct proof, replayed
     //  against this attempt's different challenge/correlationId.
     std::array<std::byte, 32> staleChallenge{};
     staleChallenge.fill(std::byte{0x11});
     auto staleProof = ComputeIpcHmacSha256(
-        fixture.peerProofProvider.Token(),
+        fixture.target.hostProofKey,
         BuildHostProofMessage(staleChallenge, 999, hello->adapterInstanceId,
                               hello->ownerLifetimeId));
     fixture.session.HandleMessage(IpcMessage{
@@ -392,7 +407,7 @@ TEST_CASE("AdapterIpcSession keeps the host unavailable when an accepted "
   //  outstanding Hello's -- the mismatch alone must reject it, even though
   //  the proof math is otherwise valid for that other id.
   auto proofForDifferentCorrelationId = ComputeIpcHmacSha256(
-      fixture.peerProofProvider.Token(),
+      fixture.target.hostProofKey,
       BuildHostProofMessage(hello->challenge, hello->correlationId + 1,
                             hello->adapterInstanceId, hello->ownerLifetimeId));
 
@@ -410,7 +425,7 @@ TEST_CASE("AdapterIpcSession closes on a duplicate rejected HelloAck and "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   REQUIRE(fixture.session.IsHostAvailable());
 
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcHelloAckMessage{
@@ -429,7 +444,7 @@ TEST_CASE("AdapterIpcSession::HandleDisconnected marks the host "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   REQUIRE(fixture.session.IsHostAvailable());
 
   fixture.session.HandleDisconnected();
@@ -442,7 +457,7 @@ TEST_CASE("AdapterIpcSession handles a resynchronize request by marshaling "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   CHECK(fixture.session.HandleMessage(IpcMessage{IpcResynchronizeRequestMessage{
             .correlationId = 42}}) == AdapterIpcMessageDisposition::kContinue);
@@ -484,13 +499,19 @@ TEST_CASE("AdapterIpcSession::HandleClosing is a harmless no-op on a session "
   //  state.
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 }
 
 TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
           "destruction") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
   FakeAdapterTaskMarshaller marshaller;
   FakeAdapterNativeDispatcher dispatcher;
   FakeAdapterCaptureHandoffQueue captureQueue;
@@ -500,7 +521,7 @@ TEST_CASE("AdapterIpcSession drops pending game-thread work after session "
     AdapterIpcSession session{SampleInstanceId(), SampleOwnerLifetimeId(),
                               marshaller, dispatcher, captureQueue};
     session.AttachConnection(connection);
-    Authenticate(session, connection, peerProofProvider.Token());
+    Authenticate(session, connection, target);
     session.HandleMessage(
         IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
     session.HandleMessage(
@@ -521,7 +542,7 @@ TEST_CASE("AdapterIpcSession drops a pending resynchronization result after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   fixture.session.HandleMessage(
       IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
@@ -536,7 +557,7 @@ TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}});
 
   fixture.session.HandleMessage(
@@ -553,7 +574,7 @@ TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(8, {std::byte{2}});
 
   fixture.session.HandleMessage(
@@ -571,7 +592,7 @@ TEST_CASE("AdapterIpcSession drops a pending resynchronization result after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   fixture.session.HandleMessage(
       IpcMessage{IpcResynchronizeRequestMessage{.correlationId = 42}});
@@ -592,7 +613,7 @@ TEST_CASE("AdapterIpcSession drops a pending listen-event request after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}});
 
   fixture.session.HandleMessage(
@@ -610,7 +631,7 @@ TEST_CASE("AdapterIpcSession drops a pending read-sample request after "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(8, {std::byte{2}});
 
   fixture.session.HandleMessage(
@@ -628,7 +649,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}});
 
   fixture.session.HandleMessage(
@@ -641,7 +662,7 @@ TEST_CASE("AdapterIpcSession::HandleClosing and HandleDisconnected "
   fixture.session.HandleDisconnected();
   REQUIRE_FALSE(fixture.session.IsHostAvailable());
 
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(8, {std::byte{2}});
   fixture.session.HandleMessage(
       IpcMessage{IpcReadSampleMessage{.correlationId = 2, .sampleToken = 8}});
@@ -658,7 +679,7 @@ TEST_CASE("AdapterIpcSession drops pending intent requests from an older "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}});
   fixture.dispatcher.SetResult(8, {std::byte{2}});
 
@@ -678,7 +699,7 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   REQUIRE(fixture.session.IsHostAvailable());
 
   fixture.session.HandleDisconnected();
@@ -686,7 +707,7 @@ TEST_CASE("AdapterIpcSession can authenticate again after reconnecting") {
   fixture.session.HandleConnected(fixture.target);
   connection.Clear();
 
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   CHECK(fixture.session.IsHostAvailable());
 }
@@ -695,6 +716,12 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
           "callback before returning") {
   FixedAdapterIpcPeerProofProvider peerProofProvider{
       {std::byte{9}, std::byte{8}, std::byte{7}}};
+  AdapterIpcTarget target{
+      .port = 58231,
+      .proofToken = peerProofProvider.Token(),
+      .hostProofKey = {std::byte{1}, std::byte{1}, std::byte{1}},
+      .targetGeneration = 1,
+  };
   FakeAdapterTaskMarshaller marshaller;
   std::promise<void> enteredPromise;
   std::shared_future<void> enteredFuture = enteredPromise.get_future();
@@ -707,7 +734,7 @@ TEST_CASE("AdapterIpcSession destruction waits for an in-flight game-thread "
       SampleInstanceId(), SampleOwnerLifetimeId(), marshaller, dispatcher,
       captureQueue);
   session->AttachConnection(connection);
-  Authenticate(*session, connection, peerProofProvider.Token());
+  Authenticate(*session, connection, target);
   session->HandleMessage(
       IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 7}});
 
@@ -756,7 +783,7 @@ TEST_CASE("AdapterIpcSession handles a listen-event request by dispatching "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}, std::byte{2}});
 
   CHECK(fixture.session.HandleMessage(IpcMessage{
@@ -778,7 +805,7 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a listen-event key with "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   fixture.session.HandleMessage(
       IpcMessage{IpcListenEventMessage{.correlationId = 1, .eventKey = 99}});
@@ -792,7 +819,7 @@ TEST_CASE("AdapterIpcSession enqueues nothing for a read-sample token with "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   fixture.session.HandleMessage(
       IpcMessage{IpcReadSampleMessage{.correlationId = 1, .sampleToken = 99}});
@@ -807,7 +834,7 @@ TEST_CASE("AdapterIpcSession contains an exception thrown by the "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetThrows(13);
 
   fixture.session.HandleMessage(
@@ -826,7 +853,7 @@ TEST_CASE("AdapterIpcSession handles a read-sample request the same way as "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(3, {std::byte{5}});
 
   CHECK(fixture.session.HandleMessage(IpcMessage{
@@ -860,7 +887,7 @@ TEST_CASE("AdapterIpcSession never dispatches a listen-event marshaled "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.dispatcher.SetResult(7, {std::byte{1}});
 
   //  Enqueued while authenticated, so it passes the enqueue-time gate and is
@@ -927,7 +954,7 @@ TEST_CASE("AdapterIpcSession keeps serving on a received Reject or Cancel "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   CHECK(
       fixture.session.HandleMessage(IpcMessage{IpcRejectMessage{
@@ -959,7 +986,7 @@ TEST_CASE("AdapterIpcSession rejects and closes an unexpected message kind "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
 
   AdapterIpcMessageDisposition disposition =
       fixture.session.HandleMessage(IpcMessage{
@@ -1008,7 +1035,7 @@ TEST_CASE("AdapterIpcSession rejects an accepted HelloAck before a transport "
           "has connected") {
   SessionFixture fixture;
   auto proof = ComputeIpcHmacSha256(
-      fixture.peerProofProvider.Token(),
+      fixture.target.hostProofKey,
       BuildHostProofMessage({}, 0, SampleInstanceId().value,
                             SampleOwnerLifetimeId()));
 
@@ -1025,7 +1052,7 @@ TEST_CASE("AdapterIpcSession closes every subsequent message after the "
   SessionFixture fixture;
   FakeAdapterIpcConnection connection;
   fixture.session.AttachConnection(connection);
-  Authenticate(fixture.session, connection, fixture.peerProofProvider.Token());
+  Authenticate(fixture.session, connection, fixture.target);
   fixture.session.HandleDisconnected();
 
   CHECK(fixture.session.HandleMessage(IpcMessage{

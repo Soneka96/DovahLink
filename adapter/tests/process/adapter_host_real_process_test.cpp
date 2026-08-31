@@ -374,6 +374,13 @@ public:
     return target_.has_value() ? target_->proofToken : std::vector<std::byte>{};
   }
 
+  ///  Returns the selected target HostProof key, or an empty key.
+  std::vector<std::byte> ConfiguredHostProofKey() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->hostProofKey
+                               : std::vector<std::byte>{};
+  }
+
 private:
   ///  Guards the selected target snapshot.
   mutable std::mutex mutex_;
@@ -572,6 +579,7 @@ TEST_CASE("the running supervisor rediscovers the real host on a new "
     std::lock_guard<std::mutex> lock(targetMutex);
     REQUIRE(connectedTarget.has_value());
     CHECK(connectedTarget->proofToken == firstEndpoint->proofToken);
+    CHECK(connectedTarget->hostProofKey == firstEndpoint->hostProofKey);
   }
 
   REQUIRE(WaitUntil(
@@ -664,6 +672,7 @@ TEST_CASE("a rendezvous port occupied by another process falls back to a "
   REQUIRE(freshEndpoint.has_value());
   CHECK(connection.ConfiguredPort() == freshEndpoint->port);
   CHECK(connection.ConfiguredProofToken() == freshEndpoint->proofToken);
+  CHECK(connection.ConfiguredHostProofKey() == freshEndpoint->hostProofKey);
 
   supervisor.RequestStop();
   CHECK_FALSE(launcher.AwaitExitOrTerminate(std::chrono::milliseconds(0)));

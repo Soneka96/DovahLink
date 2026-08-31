@@ -75,10 +75,11 @@ private:
 };
 
 ///  A representative candidate endpoint for a given port, with an arbitrary
-///  fixed proof token.
+///  fixed proof token and HostProof key.
 AdapterHostEndpoint SampleEndpoint(std::uint16_t port) {
   return AdapterHostEndpoint{.port = port,
-                             .proofToken = {std::byte{1}, std::byte{2}}};
+                             .proofToken = {std::byte{1}, std::byte{2}},
+                             .hostProofKey = {std::byte{3}, std::byte{4}}};
 }
 
 ///  Polls `predicate` until it becomes `true` or `bound` elapses, for
@@ -300,6 +301,13 @@ public:
     return target_.has_value() ? target_->proofToken : std::vector<std::byte>{};
   }
 
+  ///  Returns the configured target HostProof key, or an empty key.
+  std::vector<std::byte> ConfiguredHostProofKey() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return target_.has_value() ? target_->hostProofKey
+                               : std::vector<std::byte>{};
+  }
+
   ///  Makes the next startup request throw instead of recording a start.
   void SetThrowsOnce() {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -342,6 +350,7 @@ TEST_CASE("AdapterHostSupervisor selects a rendezvous candidate and "
   REQUIRE(WaitUntil(
       [&] { return fixture.connection.ConfiguredPort() == endpoint.port; }));
   CHECK(fixture.connection.ConfiguredProofToken() == endpoint.proofToken);
+  CHECK(fixture.connection.ConfiguredHostProofKey() == endpoint.hostProofKey);
   CHECK(fixture.connection.ConfiguredTargetGeneration() == 1);
   CHECK(fixture.connection.StartCount() == 1);
   CHECK(fixture.launcher.CallCount() == 0);
@@ -406,6 +415,8 @@ TEST_CASE("AdapterHostSupervisor runs a fresh discovery round after "
     return fixture.connection.ConfiguredPort() == secondEndpoint.port;
   }));
   CHECK(fixture.connection.ConfiguredProofToken() == secondEndpoint.proofToken);
+  CHECK(fixture.connection.ConfiguredHostProofKey() ==
+        secondEndpoint.hostProofKey);
   CHECK(fixture.connection.ConfiguredTargetGeneration() == 2);
 
   fixture.supervisor.RequestStop();
