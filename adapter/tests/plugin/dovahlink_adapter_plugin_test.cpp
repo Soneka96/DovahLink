@@ -108,6 +108,23 @@ TEST_CASE("the adapter plugin fails load cleanly when SKSE's messaging "
   CHECK(returnTrue > registerListener);
 }
 
+TEST_CASE("the adapter plugin derives and reuses one owner-lifetime identity",
+          "[plugin][structural]") {
+  std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+
+  CHECK(CountOccurrences(source, "DeriveOwnerLifetimeId(") == 1);
+  CHECK(source.find("gOwnerLifetimeId = *ownerLifetimeId;") !=
+        std::string::npos);
+  CHECK(
+      source.find(
+          "ResolveDefaultRendezvousFilePath(\n          *gOwnerLifetimeId)") !=
+      std::string::npos);
+  CHECK(source.find("*hostExecutablePath, stableOwnerLifetimeId") !=
+        std::string::npos);
+  CHECK(source.find("*gOwnerLifetimeId)\n        .RequestShutdown();") !=
+        std::string::npos);
+}
+
 TEST_CASE("adapter/CMakeLists.txt never links or builds a bridge/ target",
           "[plugin][structural][boundary]") {
   //  Proof obligation: "Independent adapter configuration/build does not

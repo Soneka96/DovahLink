@@ -88,6 +88,13 @@ std::optional<std::filesystem::path> ResolveAdapterHostExecutablePath() {
          dovahlink::adapter::process::kAdapterHostExecutableRelativePath;
 }
 
+///  The one owner-lifetime identity accepted by this plugin instance. It is
+///  populated during `SKSEPluginLoad` and reused by DLL-detach shutdown so
+///  every lifecycle participant names the same Skyrim process lifetime.
+std::optional<
+    std::array<std::byte, dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>>
+    gOwnerLifetimeId;
+
 } //  namespace
 
 using namespace std::literals;
@@ -110,9 +117,17 @@ SKSEPluginInfo(
   //  process-lifetime worker. If SKSE rejects this load and immediately
   //  unloads the DLL, there must be no thread-owning object whose destructor
   //  could run under the loader lock.
+  auto ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
+  if (!ownerLifetimeId.has_value()) {
+    SKSE::log::error("Unable to derive the current Skyrim process lifetime "
+                     "identity; refusing to start the adapter.");
+    return false;
+  }
+  gOwnerLifetimeId = *ownerLifetimeId;
+
   auto rendezvousPath =
       dovahlink::adapter::process::ResolveDefaultRendezvousFilePath(
-          dovahlink::adapter::process::DeriveOwnerLifetimeId());
+          *gOwnerLifetimeId);
   if (!rendezvousPath.has_value()) {
     SKSE::log::error("Unable to resolve the host rendezvous file path; the "
                      "current Windows user has no local application-data "
@@ -162,11 +177,10 @@ SKSEPluginInfo(
   dovahlink::adapter::identity::AdapterInstanceIdGenerator idGenerator;
   static dovahlink::adapter::identity::AdapterInstanceId instanceId =
       idGenerator.Generate();
-  static std::array<std::byte,
-                    dovahlink::adapter::ipc::kIpcOwnerLifetimeIdBytes>
-      ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
+  const auto &stableOwnerLifetimeId = *gOwnerLifetimeId;
   static auto *session = new dovahlink::adapter::ipc::AdapterIpcSession(
-      instanceId, ownerLifetimeId, *taskMarshaller, *dispatcher, *captureQueue);
+      instanceId, stableOwnerLifetimeId, *taskMarshaller, *dispatcher,
+      *captureQueue);
 
   static auto *socket = new dovahlink::adapter::ipc::WinsockAdapterIpcSocket(0);
   static auto *codec = new dovahlink::adapter::ipc::IpcFrameCodec;
@@ -179,7 +193,7 @@ SKSEPluginInfo(
           *rendezvousPath);
   static auto *launcher =
       new dovahlink::adapter::process::Win32AdapterHostProcessLauncher(
-          *hostExecutablePath, ownerLifetimeId);
+          *hostExecutablePath, stableOwnerLifetimeId);
   static auto *supervisor =
       static_cast<dovahlink::adapter::process::AdapterHostSupervisor *>(
           nullptr);
@@ -234,15 +248,10 @@ SKSEPluginInfo(
 ///  currently no confirmed safe hook to call that sequence from before the
 ///  process disappears; `ExitProcess`-driven teardown reclaims every
 ///  adapter-side thread, socket, and handle regardless of whether it ran.
-///  The owning Skyrim process's lifetime identity is re-derived fresh here
-///  rather than read from `SKSEPluginLoad`'s own state, since it is a pure,
-///  deterministic function of the current process and needs no shared
-///  state to recompute.
 BOOL APIENTRY DllMain(HMODULE, DWORD reason, LPVOID) {
-  if (reason == DLL_PROCESS_DETACH) {
-    auto ownerLifetimeId = dovahlink::adapter::process::DeriveOwnerLifetimeId();
+  if (reason == DLL_PROCESS_DETACH && gOwnerLifetimeId.has_value()) {
     dovahlink::adapter::process::WindowsEventAdapterHostShutdownRequester(
-        ownerLifetimeId)
+        *gOwnerLifetimeId)
         .RequestShutdown();
   }
   return TRUE;

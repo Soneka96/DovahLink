@@ -45,15 +45,18 @@ std::optional<std::uint8_t> LowercaseHexDigitValue(char digit) {
 
 } //  namespace
 
-std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes> DeriveOwnerLifetimeId() {
+std::optional<std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes>>
+DeriveOwnerLifetimeId() {
   DWORD processId = GetCurrentProcessId();
 
   FILETIME creationTime{};
   FILETIME exitTime{};
   FILETIME kernelTime{};
   FILETIME userTime{};
-  GetProcessTimes(GetCurrentProcess(), &creationTime, &exitTime, &kernelTime,
-                  &userTime);
+  if (!GetProcessTimes(GetCurrentProcess(), &creationTime, &exitTime,
+                       &kernelTime, &userTime)) {
+    return std::nullopt;
+  }
   const std::uint64_t creationTimeValue =
       (static_cast<std::uint64_t>(creationTime.dwHighDateTime) << 32) |
       creationTime.dwLowDateTime;

@@ -39,7 +39,9 @@ TEST_CASE("DeriveOwnerLifetimeId returns the same value across successive "
   auto first = DeriveOwnerLifetimeId();
   auto second = DeriveOwnerLifetimeId();
 
-  CHECK(first == second);
+  REQUIRE(first.has_value());
+  REQUIRE(second.has_value());
+  CHECK(*first == *second);
 }
 
 TEST_CASE("FormatOwnerLifetimeId produces exactly 24 lowercase hex "
@@ -85,13 +87,14 @@ TEST_CASE("DeriveOwnerLifetimeId's first 4 bytes are the current process id, "
           "little-endian",
           "[process][adapter_owner_lifetime_id]") {
   auto lifetimeId = DeriveOwnerLifetimeId();
+  REQUIRE(lifetimeId.has_value());
   DWORD expectedProcessId = GetCurrentProcessId();
 
   std::uint32_t encodedProcessId = 0;
   for (int index = 3; index >= 0; --index) {
     encodedProcessId = (encodedProcessId << 8) |
                        std::to_integer<std::uint32_t>(
-                           lifetimeId[static_cast<std::size_t>(index)]);
+                           (*lifetimeId)[static_cast<std::size_t>(index)]);
   }
 
   CHECK(encodedProcessId == static_cast<std::uint32_t>(expectedProcessId));
@@ -100,11 +103,23 @@ TEST_CASE("DeriveOwnerLifetimeId's first 4 bytes are the current process id, "
 TEST_CASE("a derived lifetime id round-trips through format and parse",
           "[process][adapter_owner_lifetime_id]") {
   auto derived = DeriveOwnerLifetimeId();
+  REQUIRE(derived.has_value());
 
-  auto parsed = ParseOwnerLifetimeId(FormatOwnerLifetimeId(derived));
+  auto parsed = ParseOwnerLifetimeId(FormatOwnerLifetimeId(*derived));
 
   REQUIRE(parsed.has_value());
-  CHECK(*parsed == derived);
+  CHECK(*parsed == *derived);
+}
+
+TEST_CASE("DeriveOwnerLifetimeId checks the Windows process-time API result",
+          "[process][adapter_owner_lifetime_id][structural]") {
+  std::filesystem::path sourcePath =
+      std::filesystem::path(DOVAHLINK_ADAPTER_PROCESS_DIR) /
+      "adapter_owner_lifetime_id.cpp";
+  std::string source = dovahlink::adapter::test_support::ReadSource(sourcePath);
+
+  CHECK(source.find("if (!GetProcessTimes") != std::string::npos);
+  CHECK(source.find("return std::nullopt;") != std::string::npos);
 }
 
 TEST_CASE("ParseOwnerLifetimeId rejects text of the wrong length",

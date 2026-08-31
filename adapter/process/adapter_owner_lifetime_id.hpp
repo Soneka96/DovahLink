@@ -22,8 +22,10 @@ namespace dovahlink::adapter::process {
 ///  named event, and the handshake's lifetime check to the intended Skyrim
 ///  lifetime; it is not itself a cryptographic ownership proof, since it is
 ///  not secret.
-///  @return The current process's 12-byte lifetime identity.
-std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes> DeriveOwnerLifetimeId();
+///  @return The current process's 12-byte lifetime identity, or
+///  `std::nullopt` if Windows cannot provide the process creation time.
+std::optional<std::array<std::byte, ipc::kIpcOwnerLifetimeIdBytes>>
+DeriveOwnerLifetimeId();
 
 ///  Formats a lifetime identity as 24 lowercase hex characters, for use in a
 ///  file name, a named kernel object name, or a process argument.

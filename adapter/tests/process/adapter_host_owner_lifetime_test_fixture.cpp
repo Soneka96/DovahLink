@@ -12,14 +12,17 @@ using dovahlink::adapter::process::Win32AdapterHostProcessLauncher;
 
 int main() {
   const auto ownerLifetimeId = DeriveOwnerLifetimeId();
+  if (!ownerLifetimeId.has_value()) {
+    return 2;
+  }
   Win32AdapterHostProcessLauncher launcher(
-      DOVAHLINK_HOST_EXECUTABLE, ownerLifetimeId, std::chrono::seconds(10));
+      DOVAHLINK_HOST_EXECUTABLE, *ownerLifetimeId, std::chrono::seconds(10));
   auto endpoint = launcher.Launch();
   if (!endpoint.has_value()) {
     return 1;
   }
 
-  std::cout << "OWNER " << FormatOwnerLifetimeId(ownerLifetimeId) << '\n'
+  std::cout << "OWNER " << FormatOwnerLifetimeId(*ownerLifetimeId) << '\n'
             << "PORT " << endpoint->port << '\n'
             << "HOST_PID " << launcher.ProcessId() << '\n'
             << std::flush;
