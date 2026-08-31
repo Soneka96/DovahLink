@@ -14,6 +14,18 @@
 
 namespace dovahlink::adapter::ipc {
 
+///  Caps `remainingMicroseconds` -- the time left until `Connect`'s absolute
+///  deadline -- to at most `pollTimeoutMilliseconds`, so one `select()` call
+///  inside `Connect` never blocks longer than one poll interval even when
+///  the deadline is still far off, letting a concurrent `RequestStop` be
+///  observed promptly. Pure and side-effect-free; exposed only for direct
+///  unit testing of this one bounded-poll computation, not as a
+///  general-purpose utility. `Connect` only ever calls this with a positive
+///  `remainingMicroseconds` (it already returns before this point once the
+///  deadline has passed) and the fixed, positive internal poll constant.
+long long CapConnectPollMicroseconds(long long remainingMicroseconds,
+                                     int pollTimeoutMilliseconds);
+
 ///  A blocking, internally-interruptible TCP client socket to the private
 ///  host-to-adapter IPC channel's loopback listener. Every blocking call
 ///  polls a short internal timeout so `RequestStop` (callable from any

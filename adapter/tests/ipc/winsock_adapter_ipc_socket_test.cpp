@@ -19,6 +19,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+using dovahlink::adapter::ipc::CapConnectPollMicroseconds;
 using dovahlink::adapter::ipc::WinsockAdapterIpcSocket;
 using dovahlink::adapter::test_support::ReadSource;
 
@@ -415,4 +416,29 @@ TEST_CASE("WinsockAdapterIpcSocket::Close is idempotent",
 
   socket.Close();
   socket.Close();
+}
+
+TEST_CASE("CapConnectPollMicroseconds caps to the poll timeout when more "
+          "time remains",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  CHECK(CapConnectPollMicroseconds(/*remainingMicroseconds=*/2'000'000,
+                                   /*pollTimeoutMilliseconds=*/100) == 100'000);
+}
+
+TEST_CASE("CapConnectPollMicroseconds passes remaining time through "
+          "unchanged once it is at or below the poll timeout",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  CHECK(CapConnectPollMicroseconds(/*remainingMicroseconds=*/100'000,
+                                   /*pollTimeoutMilliseconds=*/100) == 100'000);
+  CHECK(CapConnectPollMicroseconds(/*remainingMicroseconds=*/1,
+                                   /*pollTimeoutMilliseconds=*/100) == 1);
+  CHECK(CapConnectPollMicroseconds(/*remainingMicroseconds=*/0,
+                                   /*pollTimeoutMilliseconds=*/100) == 0);
+}
+
+TEST_CASE("CapConnectPollMicroseconds caps exactly one microsecond past the "
+          "poll timeout boundary",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  CHECK(CapConnectPollMicroseconds(/*remainingMicroseconds=*/100'001,
+                                   /*pollTimeoutMilliseconds=*/100) == 100'000);
 }

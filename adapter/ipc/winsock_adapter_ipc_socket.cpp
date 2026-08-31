@@ -1,5 +1,6 @@
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 
+#include <algorithm>
 #include <chrono>
 
 namespace dovahlink::adapter::ipc {
@@ -14,6 +15,13 @@ constexpr auto kConnectTimeout = std::chrono::seconds(2);
 constexpr auto kWriteTimeout = std::chrono::seconds(2);
 
 } //  namespace
+
+long long CapConnectPollMicroseconds(long long remainingMicroseconds,
+                                     int pollTimeoutMilliseconds) {
+  const long long pollTimeoutMicroseconds =
+      static_cast<long long>(pollTimeoutMilliseconds) * 1000;
+  return std::min(remainingMicroseconds, pollTimeoutMicroseconds);
+}
 
 WinsockAdapterIpcSocket::WinsockAdapterIpcSocket(std::uint16_t port)
     : port_(port) {
@@ -80,8 +88,15 @@ bool WinsockAdapterIpcSocket::Connect() {
     if (remainingMicroseconds <= 0) {
       break;
     }
-    timeval pollInterval{static_cast<long>(remainingMicroseconds / 1000000),
-                         static_cast<long>(remainingMicroseconds % 1000000)};
+    //  Capped to one poll interval -- not the full remaining deadline -- so
+    //  a concurrent RequestStop() is observed at the top of this loop
+    //  promptly rather than only after select() finally returns, matching
+    //  WriteAll's identical cap below and IAdapterIpcSocket::Connect's
+    //  documented short-internal-polls contract.
+    const auto pollMicroseconds = CapConnectPollMicroseconds(
+        remainingMicroseconds, kPollTimeoutMilliseconds);
+    timeval pollInterval{static_cast<long>(pollMicroseconds / 1000000),
+                         static_cast<long>(pollMicroseconds % 1000000)};
 
     int selectResult = select(0, nullptr, &writeSet, &errorSet, &pollInterval);
     if (selectResult == SOCKET_ERROR || FD_ISSET(socket_, &errorSet)) {
