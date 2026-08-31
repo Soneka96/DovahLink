@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <exception>
 #include <expected>
 #include <utility>
 #include <vector>
@@ -102,6 +103,26 @@ void AdapterIpcConnection::Start() {
       joinInProgress_ = false;
       workerThreadId_ = std::thread::id{};
       lifecycleCondition_.notify_all();
+      if (ownedWorker.joinable()) {
+        //  join() failed for a reason that leaves `ownedWorker` still
+        //  representing a thread of execution. That's structurally
+        //  impossible for the two std::thread::join() error conditions this
+        //  class's own invariants already rule out here: an
+        //  already-joined/detached thread can't reach this catch (it was
+        //  moved from a worker_ just proven joinable() under the lock, and
+        //  joinable state transfers through the move), and a self-join
+        //  can't reach it either, past the workerThreadId_ guard above --
+        //  leaving only a genuine OS-level join failure with the underlying
+        //  thread's status unknown. Letting this exception unwind out of
+        //  this scope would destroy a still-joinable `ownedWorker`, which
+        //  calls std::terminate() from inside `~thread()` -- silently,
+        //  before any caller's own exception containment gets a chance to
+        //  run -- while the worker may still be executing and touching
+        //  `this`. Terminate explicitly here instead, so that outcome is a
+        //  deliberate, diagnosable stop rather than an implicit one that
+        //  also swallows the original failure without a trace.
+        std::terminate();
+      }
       throw;
     }
 
@@ -195,6 +216,26 @@ void AdapterIpcConnection::Stop() {
     joinInProgress_ = false;
     workerThreadId_ = std::thread::id{};
     lifecycleCondition_.notify_all();
+    if (ownedWorker.joinable()) {
+      //  join() failed for a reason that leaves `ownedWorker` still
+      //  representing a thread of execution. That's structurally impossible
+      //  for the two std::thread::join() error conditions this class's own
+      //  invariants already rule out here: an already-joined/detached
+      //  thread can't reach this catch (it was moved from a worker_ just
+      //  proven joinable() under the lock, and joinable state transfers
+      //  through the move), and a self-join can't reach it either, past the
+      //  workerThreadId_ guard above -- leaving only a genuine OS-level join
+      //  failure with the underlying thread's status unknown. Letting this
+      //  exception unwind out of this scope would destroy a still-joinable
+      //  `ownedWorker`, which calls std::terminate() from inside
+      //  `~thread()` -- silently, before any caller's own exception
+      //  containment gets a chance to run -- while the worker may still be
+      //  executing and touching `this`. Terminate explicitly here instead,
+      //  so that outcome is a deliberate, diagnosable stop rather than an
+      //  implicit one that also swallows the original failure without a
+      //  trace.
+      std::terminate();
+    }
     throw;
   }
 
