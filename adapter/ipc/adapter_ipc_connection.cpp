@@ -81,7 +81,42 @@ void AdapterIpcConnection::Start() {
     if (!workerFinished_) {
       return;
     }
-    worker_.join();
+    //  `MarkWorkerFinished()` runs before the worker's own `onAttemptFinished`
+    //  callback returns, so a callback re-entering `Start()`/`Stop()` from
+    //  that same worker can still be in flight here. Joining while holding
+    //  `lifecycleMutex_` would deadlock that reentrant call against this one
+    //  waiting for the worker to return -- the same reason `Stop()` already
+    //  moves `worker_` into a local before releasing the lock: `worker_`
+    //  becomes safely empty for any other lock holder the instant this move
+    //  completes, rather than staying a live `std::thread` object some other
+    //  caller could race against during the actual (unsynchronized,
+    //  potentially blocking) join below.
+    joinInProgress_ = true;
+    std::thread ownedWorker = std::move(worker_);
+    lifecycleLock.unlock();
+
+    try {
+      ownedWorker.join();
+    } catch (...) {
+      std::lock_guard<std::mutex> lock(lifecycleMutex_);
+      joinInProgress_ = false;
+      workerThreadId_ = std::thread::id{};
+      lifecycleCondition_.notify_all();
+      throw;
+    }
+
+    lifecycleLock.lock();
+    joinInProgress_ = false;
+    workerThreadId_ = std::thread::id{};
+    lifecycleCondition_.notify_all();
+
+    //  A concurrent Stop() may have set `stopping_` while this thread was
+    //  joining; re-check before replacing the worker it just retired so that
+    //  call reliably wins instead of racing a fresh attempt into existence.
+    std::lock_guard<std::mutex> stopLock(stopMutex_);
+    if (stopping_) {
+      return;
+    }
   }
   //  Each coordinator-requested attempt is a new peer/session generation;
   //  rate-limit history must never carry across a reconnect.

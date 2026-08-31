@@ -1092,6 +1092,157 @@ TEST_CASE("AdapterIpcConnection::Start can be requested from its own worker "
   stopper.join();
 }
 
+TEST_CASE("AdapterIpcConnection::Start retiring a finished worker does not "
+          "deadlock against a reentrant Start from onAttemptFinished") {
+  //  MarkWorkerFinished() sets workerFinished_ before onAttemptFinished runs,
+  //  so an external Start() can see the worker as finished and begin
+  //  retiring it while that same worker's own onAttemptFinished callback is
+  //  still in flight. If that external Start() ever joined while holding
+  //  lifecycleMutex_, a callback that re-enters Start() from the worker would
+  //  deadlock waiting for the same lock the external caller holds while
+  //  blocked in join(). This proves the actual ordering instead: the
+  //  external Start() genuinely blocks retiring the worker, the reentrant
+  //  call from inside the callback still returns, and exactly one
+  //  replacement worker results.
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false});
+  IpcFrameCodec codec;
+  std::atomic<int> attemptFinishedCount{0};
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
+  std::atomic<bool> startThrew{false};
+  std::promise<void> reentrantStartReturnedPromise;
+  std::future<void> reentrantStartReturnedFuture =
+      reentrantStartReturnedPromise.get_future();
+  AdapterIpcConnection *connectionPointer = nullptr;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome) {
+            //  Only the first attempt drives the blocking reentrant-call
+            //  dance; the external Start()'s own replacement attempt below
+            //  also finishes (connect fails again) and must not re-satisfy
+            //  the already-set promises above.
+            if (attemptFinishedCount.fetch_add(1) != 0) {
+              return;
+            }
+            callbackEnteredPromise.set_value();
+            releaseFuture.wait();
+            try {
+              connectionPointer->Start();
+            } catch (...) {
+              startThrew = true;
+            }
+            reentrantStartReturnedPromise.set_value();
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  connection.Start();
+  REQUIRE(WaitReady(callbackEnteredFuture));
+
+  std::promise<void> externalStartReturnedPromise;
+  std::future<void> externalStartReturnedFuture =
+      externalStartReturnedPromise.get_future();
+  std::thread externalStarter([&] {
+    connection.Start();
+    externalStartReturnedPromise.set_value();
+  });
+  //  Proves the external Start() has become the join owner and is genuinely
+  //  blocked waiting for the first worker to return, before letting the
+  //  worker's own callback call Start() reentrantly below.
+  REQUIRE(externalStartReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+          std::future_status::timeout);
+
+  releasePromise.set_value();
+  REQUIRE(WaitReady(reentrantStartReturnedFuture));
+  CHECK_FALSE(startThrew.load());
+  REQUIRE(WaitReady(externalStartReturnedFuture));
+  externalStarter.join();
+
+  //  The replacement worker's own Connect() call runs asynchronously on its
+  //  own thread, so wait for its attempt to finish rather than racing the
+  //  check below against it.
+  REQUIRE(WaitUntil([&] { return attemptFinishedCount.load() == 2; }));
+  //  Exactly one replacement worker: the initial attempt plus the external
+  //  Start()'s own retry, and nothing spawned by the reentrant call.
+  CHECK(socket.ConnectCallCount() == 2);
+
+  connection.Stop();
+}
+
+TEST_CASE("AdapterIpcConnection::Start retiring a finished worker does not "
+          "deadlock against a reentrant Stop from onAttemptFinished, and the "
+          "concurrent stop wins over a replacement attempt") {
+  //  Same shape as the reentrant-Start case above, but the callback calls
+  //  Stop() instead: Stop() sets stopping_ before its own self-thread check,
+  //  so by the time the external Start() (blocked joining the same worker)
+  //  wakes up and re-checks stopping_, it must see the concurrent stop and
+  //  skip creating a replacement worker entirely, rather than racing one
+  //  into existence.
+  FakeAdapterIpcSocket socket;
+  socket.SetConnectResults({false});
+  IpcFrameCodec codec;
+  std::atomic<int> attemptFinishedCount{0};
+  std::promise<void> callbackEnteredPromise;
+  std::future<void> callbackEnteredFuture = callbackEnteredPromise.get_future();
+  std::promise<void> releasePromise;
+  std::shared_future<void> releaseFuture = releasePromise.get_future().share();
+  std::atomic<bool> stopThrew{false};
+  std::promise<void> reentrantStopReturnedPromise;
+  std::future<void> reentrantStopReturnedFuture =
+      reentrantStopReturnedPromise.get_future();
+  AdapterIpcConnection *connectionPointer = nullptr;
+
+  AdapterIpcConnectionCallbacks callbacks{
+      .onAttemptFinished =
+          [&](std::uint64_t, AdapterIpcAttemptOutcome) {
+            if (attemptFinishedCount.fetch_add(1) != 0) {
+              return;
+            }
+            callbackEnteredPromise.set_value();
+            releaseFuture.wait();
+            try {
+              connectionPointer->Stop();
+            } catch (...) {
+              stopThrew = true;
+            }
+            reentrantStopReturnedPromise.set_value();
+          },
+  };
+  AdapterIpcConnection connection(socket, codec, std::move(callbacks));
+  connectionPointer = &connection;
+  connection.Start();
+  REQUIRE(WaitReady(callbackEnteredFuture));
+
+  std::promise<void> externalStartReturnedPromise;
+  std::future<void> externalStartReturnedFuture =
+      externalStartReturnedPromise.get_future();
+  std::thread externalStarter([&] {
+    connection.Start();
+    externalStartReturnedPromise.set_value();
+  });
+  //  Proves the external Start() has become the join owner and is genuinely
+  //  blocked waiting for the worker to return, before letting the worker's
+  //  own callback call Stop() reentrantly below.
+  REQUIRE(externalStartReturnedFuture.wait_for(std::chrono::milliseconds(50)) ==
+          std::future_status::timeout);
+
+  releasePromise.set_value();
+  REQUIRE(WaitReady(reentrantStopReturnedFuture));
+  CHECK_FALSE(stopThrew.load());
+  REQUIRE(WaitReady(externalStartReturnedFuture));
+  externalStarter.join();
+
+  //  The reentrant Stop() set stopping_ before the external Start() rechecked
+  //  it, so no replacement worker was created.
+  CHECK(socket.ConnectCallCount() == 1);
+
+  connection.Stop();
+}
+
 TEST_CASE("AdapterIpcConnection contains an exception from the transport "
           "connect loop") {
   FakeAdapterIpcSocket socket;
