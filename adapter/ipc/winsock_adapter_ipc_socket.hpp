@@ -56,7 +56,7 @@ public:
 
   ///  Requests that any in-progress or future blocking call return promptly.
   ///  Idempotent and safe to call from any thread, including while another
-  ///  thread is blocked inside `Connect`/`ReadExact`/`WriteAll`.
+  ///  thread is blocked inside `Connect`/`TryReadSome`/`WriteAll`.
   virtual void RequestStop() = 0;
 };
 
@@ -97,6 +97,9 @@ public:
   std::uint16_t Port() const;
 
 private:
+  ///  Whether the constructor successfully initialized Winsock for this
+  ///  instance.
+  bool winsockInitialized_ = false;
   ///  The loopback port to connect to.
   std::atomic<std::uint16_t> port_;
   ///  The underlying Winsock socket handle, or `INVALID_SOCKET` when closed.

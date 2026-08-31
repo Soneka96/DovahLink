@@ -1,20 +1,26 @@
 #include "ipc/winsock_adapter_ipc_socket.hpp"
 
+#include "test_support/source_text_test_support.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <future>
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string>
 #include <thread>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 using dovahlink::adapter::ipc::WinsockAdapterIpcSocket;
+using dovahlink::adapter::test_support::ReadSource;
 
 namespace {
 
@@ -149,6 +155,31 @@ bool ReadFullyForTest(WinsockAdapterIpcSocket &socket,
 
 } //  namespace
 
+TEST_CASE("WinsockAdapterIpcSocket checks every required setup result",
+          "[ipc][structural]") {
+  std::filesystem::path sourcePath =
+      std::filesystem::path(DOVAHLINK_ADAPTER_SOURCE_ROOT_DIR) /
+      "ipc/winsock_adapter_ipc_socket.cpp";
+  std::string source = ReadSource(sourcePath);
+
+  CHECK(source.find("WSAStartup") != std::string::npos);
+  CHECK(source.find("winsockInitialized_ = WSAStartup") != std::string::npos);
+  CHECK(source.find("ioctlsocket(socket_, FIONBIO, &nonBlocking) != 0") !=
+        std::string::npos);
+  CHECK(
+      source.find("inet_pton(AF_INET, \"127.0.0.1\", &target.sin_addr) != 1") !=
+      std::string::npos);
+  CHECK(source.find("connectResult") != std::string::npos);
+  CHECK(source.find("getsockopt(socket_, SOL_SOCKET, SO_ERROR") !=
+        std::string::npos);
+  CHECK(source.find("ioctlsocket(socket_, FIONBIO, &blocking) != 0") !=
+        std::string::npos);
+  CHECK(source.find("SO_RCVTIMEO") != std::string::npos);
+  CHECK(source.find("SO_SNDTIMEO") != std::string::npos);
+  CHECK(source.find("kConnectTimeout") != std::string::npos);
+  CHECK(source.find("kWriteTimeout") != std::string::npos);
+}
+
 TEST_CASE("WinsockAdapterIpcSocket cleanup joins an accept thread after a "
           "failed connect",
           "[ipc][winsock_adapter_ipc_socket]") {
@@ -171,8 +202,10 @@ TEST_CASE("WinsockAdapterIpcSocket fails to connect when nothing is "
           "[ipc][winsock_adapter_ipc_socket]") {
   //  Port 1 is a reserved, essentially always-closed loopback port.
   WinsockAdapterIpcSocket socket(1);
+  const auto started = std::chrono::steady_clock::now();
 
   CHECK_FALSE(socket.Connect());
+  CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds(3));
 }
 
 TEST_CASE("WinsockAdapterIpcSocket connects and round-trips real bytes over "
@@ -220,6 +253,31 @@ TEST_CASE("WinsockAdapterIpcSocket::TryReadSome returns nullopt once "
 
   std::array<std::byte, 4> buffer{};
   CHECK_FALSE(socket.TryReadSome(buffer).has_value());
+}
+
+TEST_CASE("WinsockAdapterIpcSocket::TryReadSome reports stop while a read is "
+          "blocked",
+          "[ipc][winsock_adapter_ipc_socket]") {
+  RawLoopbackListener listener;
+  WinsockAdapterIpcSocket socket(listener.Port());
+
+  std::thread acceptThread([&] { listener.AcceptOne(); });
+  bool connected = socket.Connect();
+  if (!connected) {
+    listener.StopAccepting();
+  }
+  acceptThread.join();
+  REQUIRE(connected);
+  REQUIRE(listener.Accepted());
+
+  std::array<std::byte, 4> buffer{};
+  std::future<std::optional<std::size_t>> read = std::async(
+      std::launch::async, [&] { return socket.TryReadSome(buffer); });
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  socket.RequestStop();
+
+  REQUIRE(read.wait_for(std::chrono::seconds(1)) == std::future_status::ready);
+  CHECK_FALSE(read.get().has_value());
 }
 
 TEST_CASE("WinsockAdapterIpcSocket::WriteAll fails once RequestStop is "
