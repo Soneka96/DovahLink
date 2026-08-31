@@ -88,15 +88,17 @@ endif()
 # "Release" host output folder (never "RelWithDebInfo"), so an unrecognized
 # value fails loudly here instead of silently pointing at a host binary that
 # was never built for that configuration.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Debug")
-elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Release")
-else()
-    message(FATAL_ERROR
-        "Unrecognized CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}'; configure with "
-        "the windows-x64-debug or windows-x64-release preset, or set "
-        "DOVAHLINK_HOST_BUILD_CONFIGURATION explicitly.")
+if(NOT DEFINED DOVAHLINK_HOST_BUILD_CONFIGURATION OR DOVAHLINK_HOST_BUILD_CONFIGURATION STREQUAL "")
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Debug")
+    elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(DOVAHLINK_HOST_BUILD_CONFIGURATION "Release")
+    else()
+        message(FATAL_ERROR
+            "Unrecognized CMAKE_BUILD_TYPE '${CMAKE_BUILD_TYPE}'; configure with "
+            "the windows-x64-debug or windows-x64-release preset, or set "
+            "DOVAHLINK_HOST_BUILD_CONFIGURATION explicitly.")
+    endif()
 endif()
 set(DOVAHLINK_HOST_EXECUTABLE
     "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net9.0-windows/DovahLink.Host.exe"
