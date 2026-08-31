@@ -48,11 +48,17 @@ public:
   ///  Makes `RequestStop` throw instead of recording its call.
   void SetThrows() { throws_ = true; }
 
+  ///  Makes `RequestStop` throw a non-standard exception.
+  void SetThrowsNonStandard() { throwsNonStandard_ = true; }
+
   void Start() override {}
 
   void RequestStop() override {
+    if (throwsNonStandard_) {
+      throw 42;
+    }
     if (throws_) {
-      throw std::runtime_error("RequestStop failed unexpectedly");
+      throw std::logic_error("RequestStop failed unexpectedly");
     }
     log_.Record("supervisor.RequestStop");
   }
@@ -62,18 +68,26 @@ public:
 private:
   CallLog &log_;
   bool throws_ = false;
+  bool throwsNonStandard_ = false;
 };
 
 class FakeShutdownRequester final : public IAdapterHostShutdownRequester {
 public:
   explicit FakeShutdownRequester(CallLog &log) : log_(log) {}
 
+  ///  Makes `RequestShutdown` throw after recording its call.
+  void SetThrows() { throws_ = true; }
+
   void RequestShutdown() override {
     log_.Record("shutdownRequester.RequestShutdown");
+    if (throws_) {
+      throw std::runtime_error("RequestShutdown failed unexpectedly");
+    }
   }
 
 private:
   CallLog &log_;
+  bool throws_ = false;
 };
 
 ///  A deterministic `IAdapterHostProcessLauncher` test double that records
@@ -82,6 +96,15 @@ class FakeLauncher final : public IAdapterHostProcessLauncher {
 public:
   explicit FakeLauncher(CallLog &log) : log_(log) {}
 
+  ///  Makes `AwaitExitOrTerminate` throw after recording its call.
+  void SetAwaitThrows() { awaitThrows_ = true; }
+
+  ///  Makes `AwaitExitOrTerminate` report that force-termination was needed.
+  void SetAwaitRequiresForceTermination() { awaitResult_ = false; }
+
+  ///  Makes `Release` throw after recording its call.
+  void SetReleaseThrows() { releaseThrows_ = true; }
+
   std::optional<AdapterHostEndpoint> Launch(std::stop_token) override {
     return std::nullopt;
   }
@@ -89,10 +112,18 @@ public:
   bool AwaitExitOrTerminate(std::chrono::milliseconds timeout) override {
     log_.Record("launcher.AwaitExitOrTerminate");
     lastTimeout_ = timeout;
-    return true;
+    if (awaitThrows_) {
+      throw std::runtime_error("AwaitExitOrTerminate failed unexpectedly");
+    }
+    return awaitResult_;
   }
 
-  void Release() override { log_.Record("launcher.Release"); }
+  void Release() override {
+    log_.Record("launcher.Release");
+    if (releaseThrows_) {
+      throw std::runtime_error("Release failed unexpectedly");
+    }
+  }
 
   ///  The `timeout` most recently passed to `AwaitExitOrTerminate`.
   std::chrono::milliseconds LastTimeout() const { return lastTimeout_; }
@@ -100,6 +131,9 @@ public:
 private:
   CallLog &log_;
   std::chrono::milliseconds lastTimeout_{0};
+  bool awaitThrows_ = false;
+  bool awaitResult_ = true;
+  bool releaseThrows_ = false;
 };
 
 class FakeConnection final
@@ -107,14 +141,23 @@ class FakeConnection final
 public:
   explicit FakeConnection(CallLog &log) : log_(log) {}
 
+  ///  Makes `Stop` throw after recording its call.
+  void SetThrows() { throws_ = true; }
+
   void Start() override {}
   bool TrySend(const dovahlink::adapter::ipc::IpcMessage &) override {
     return true;
   }
-  void Stop() override { log_.Record("connection.Stop"); }
+  void Stop() override {
+    log_.Record("connection.Stop");
+    if (throws_) {
+      throw std::runtime_error("Stop failed unexpectedly");
+    }
+  }
 
 private:
   CallLog &log_;
+  bool throws_ = false;
 };
 
 } //  namespace
@@ -154,9 +197,8 @@ TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown passes the "
   CHECK(launcher.LastTimeout() == configuredBound);
 }
 
-TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown still releases "
-          "the launched host's handle, then rethrows, when an earlier step "
-          "throws") {
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown continues ordered "
+          "cleanup and rethrows when supervisor stop throws") {
   CallLog log;
   FakeSupervisor supervisor(log);
   supervisor.SetThrows();
@@ -166,10 +208,146 @@ TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown still releases "
   AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
                                            launcher, connection);
 
+  CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::logic_error);
+
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown continues ordered "
+          "cleanup and rethrows when shutdown signaling throws") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  FakeShutdownRequester shutdownRequester(log);
+  shutdownRequester.SetThrows();
+  FakeLauncher launcher(log);
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
   CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::runtime_error);
 
-  //  Release must still have run despite the earlier failure, and nothing
-  //  after the throwing step (the signal, the wait, stopping the
-  //  connection) may have run at all.
-  CHECK(log.Calls() == std::vector<std::string>{"launcher.Release"});
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"supervisor.RequestStop",
+                                 "shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown continues ordered "
+          "cleanup and rethrows when the bounded host wait throws") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  FakeShutdownRequester shutdownRequester(log);
+  FakeLauncher launcher(log);
+  launcher.SetAwaitThrows();
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::runtime_error);
+
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"supervisor.RequestStop",
+                                 "shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown releases last and "
+          "rethrows when connection stop throws") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  FakeShutdownRequester shutdownRequester(log);
+  FakeLauncher launcher(log);
+  FakeConnection connection(log);
+  connection.SetThrows();
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::runtime_error);
+
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"supervisor.RequestStop",
+                                 "shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown rethrows the first "
+          "exception while continuing later phases") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  supervisor.SetThrows();
+  FakeShutdownRequester shutdownRequester(log);
+  shutdownRequester.SetThrows();
+  FakeLauncher launcher(log);
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::logic_error);
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown preserves a non-"
+          "standard exception while continuing cleanup") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  supervisor.SetThrowsNonStandard();
+  FakeShutdownRequester shutdownRequester(log);
+  FakeLauncher launcher(log);
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  CHECK_THROWS(orchestrator.RunOrderedShutdown());
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown releases last and "
+          "rethrows when final release throws") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  FakeShutdownRequester shutdownRequester(log);
+  FakeLauncher launcher(log);
+  launcher.SetReleaseThrows();
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  CHECK_THROWS_AS(orchestrator.RunOrderedShutdown(), std::runtime_error);
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"supervisor.RequestStop",
+                                 "shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
+}
+
+TEST_CASE("AdapterShutdownOrchestrator::RunOrderedShutdown preserves ordering "
+          "when the host requires force-termination") {
+  CallLog log;
+  FakeSupervisor supervisor(log);
+  FakeShutdownRequester shutdownRequester(log);
+  FakeLauncher launcher(log);
+  launcher.SetAwaitRequiresForceTermination();
+  FakeConnection connection(log);
+  AdapterShutdownOrchestrator orchestrator(supervisor, shutdownRequester,
+                                           launcher, connection);
+
+  orchestrator.RunOrderedShutdown();
+
+  CHECK(log.Calls() ==
+        std::vector<std::string>{"supervisor.RequestStop",
+                                 "shutdownRequester.RequestShutdown",
+                                 "launcher.AwaitExitOrTerminate",
+                                 "connection.Stop", "launcher.Release"});
 }
