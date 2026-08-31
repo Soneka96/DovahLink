@@ -148,7 +148,8 @@ void AdapterIpcConnection::RunLoop() {
     }
     ClearOutbound();
     MarkWorkerFinished();
-    InvokeContained(callbacks_.onAttemptFinished, 0,
+    InvokeContained(callbacks_.onAttemptFinished,
+                    inProgressAttemptTargetGeneration_,
                     AdapterIpcAttemptOutcome::kConnectFailed);
   }
 }
@@ -162,13 +163,21 @@ void AdapterIpcConnection::RunAttempt() {
 
   bool connected = false;
   bool authenticated = false;
+
+  std::uint64_t targetGeneration = 0;
   std::optional<AdapterIpcTarget> attemptTarget;
   {
     std::lock_guard<std::mutex> lock(targetMutex_);
+    //  The generation is recorded into the member first, before the
+    //  snapshot copy below that can throw (`std::vector` proof-token
+    //  allocation), so `RunLoop`'s outer failure boundary can still report
+    //  the correct generation if that copy fails. Both reads share this one
+    //  lock scope so the generation and the snapshot it came from can never
+    //  diverge under a concurrent `ConfigureTarget` call.
+    targetGeneration = target_.has_value() ? target_->targetGeneration : 0;
+    inProgressAttemptTargetGeneration_ = targetGeneration;
     attemptTarget = target_;
   }
-  const std::uint64_t targetGeneration =
-      attemptTarget.has_value() ? attemptTarget->targetGeneration : 0;
 
   {
     std::lock_guard<std::mutex> lock(stopMutex_);

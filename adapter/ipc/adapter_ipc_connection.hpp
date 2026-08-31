@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -183,6 +184,12 @@ private:
   std::optional<AdapterIpcTarget> target_;
   ///  The background connect/serve thread, started by `Start()`.
   std::thread worker_;
+  ///  The target generation of the attempt currently in progress, captured
+  ///  before any operation that copies the target snapshot's proof token can
+  ///  throw. `RunLoop`'s outer failure boundary reports this generation when
+  ///  an exception escapes before `RunAttempt` can otherwise determine it.
+  ///  Stays `0` when no target was ever configured.
+  std::uint64_t inProgressAttemptTargetGeneration_ = 0;
 };
 
 } //  namespace dovahlink::adapter::ipc
