@@ -1564,6 +1564,7 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected on "
   FakeAdapterIpcSocket socket;
   IpcFrameCodec codec;
   std::vector<std::string> callOrder;
+  int closeCallCountDuringClosing = -1;
   std::promise<void> disconnectedPromise;
   AdapterIpcConnectionCallbacks callbacks{
       .onMessageReceived =
@@ -1575,7 +1576,11 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected on "
             callOrder.push_back("onDisconnected");
             disconnectedPromise.set_value();
           },
-      .onClosing = [&] { callOrder.push_back("onClosing"); },
+      .onClosing =
+          [&] {
+            closeCallCountDuringClosing = socket.CloseCallCount();
+            callOrder.push_back("onClosing");
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   connection.Start();
@@ -1587,6 +1592,7 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected on "
   REQUIRE(callOrder.size() == 2);
   CHECK(callOrder[0] == "onClosing");
   CHECK(callOrder[1] == "onDisconnected");
+  CHECK(closeCallCountDuringClosing == 0);
 
   connection.Stop();
 }
@@ -1603,6 +1609,7 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected "
   IpcFrameCodec codec;
   std::vector<std::string> callOrder;
   bool decodeFailureInvoked = false;
+  int closeCallCountDuringClosing = -1;
   std::promise<void> disconnectedPromise;
   AdapterIpcConnectionCallbacks callbacks{
       .onDecodeFailure = [&] { decodeFailureInvoked = true; },
@@ -1611,7 +1618,11 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected "
             callOrder.push_back("onDisconnected");
             disconnectedPromise.set_value();
           },
-      .onClosing = [&] { callOrder.push_back("onClosing"); },
+      .onClosing =
+          [&] {
+            closeCallCountDuringClosing = socket.CloseCallCount();
+            callOrder.push_back("onClosing");
+          },
   };
   AdapterIpcConnection connection(socket, codec, std::move(callbacks));
   socket.PushReadableBytes(BuildRawFrameOfDeclaredLength(kFailingFrameLength));
@@ -1629,6 +1640,10 @@ TEST_CASE("AdapterIpcConnection invokes onClosing before onDisconnected "
   //  connection already handles via onDecodeFailure and a plain `return;`):
   //  only the exception path never reaches decoding at all.
   CHECK_FALSE(decodeFailureInvoked);
+  //  Confirms the socket wasn't physically closed by the catch block before
+  //  onClosing invalidated the session -- the exact ordering bug this test
+  //  exists to catch.
+  CHECK(closeCallCountDuringClosing == 0);
 
   connection.Stop();
 }

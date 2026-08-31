@@ -252,12 +252,19 @@ void AdapterIpcConnection::RunAttempt() {
     //  before returning.
     ServeConnection(establishmentDeadline, authenticated);
   } catch (...) {
-    try {
-      socket_.Close();
-    } catch (...) {
-    }
-    ClearOutbound();
+    //  A connected attempt falls through here with no cleanup of its own:
+    //  physically closing the socket before `onClosing` below invalidates
+    //  the session would leave deferred game-thread work briefly reachable
+    //  under a generation the transport has already abandoned. The shared
+    //  `if (connected)` epilogue is the only place a connected attempt's
+    //  socket is closed, whether `ServeConnection` returned normally or
+    //  threw.
     if (!connected) {
+      try {
+        socket_.Close();
+      } catch (...) {
+      }
+      ClearOutbound();
       bool stopped = false;
       {
         std::lock_guard<std::mutex> lock(stopMutex_);
