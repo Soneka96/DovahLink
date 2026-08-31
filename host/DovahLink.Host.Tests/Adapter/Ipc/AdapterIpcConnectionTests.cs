@@ -35,6 +35,10 @@ public class AdapterIpcConnectionTests
         Assert.IsType<IpcHelloAckMessage>(ack);
         Assert.IsType<IpcResynchronizeRequestMessage>(resync);
         Assert.Single(fakeSession.HandshakeCalls);
+        Assert.Equal(1, fakeSession.CommitHandshakeCalls);
+        Assert.Equal(
+            new[] { nameof(FakeAdapterIpcSession.Handshake), nameof(FakeAdapterIpcSession.PrepareResynchronizeRequest), nameof(FakeAdapterIpcSession.CommitHandshake) },
+            fakeSession.LifecycleCalls);
         Assert.Equal(1, fakeSession.DisconnectedCalls);
     }
 
@@ -59,6 +63,36 @@ public class AdapterIpcConnectionTests
         var helloAck = Assert.IsType<IpcHelloAckMessage>(ack);
         Assert.False(helloAck.Accepted);
         Assert.Equal(0, trailingByte);
+        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
+        client.Dispose();
+    }
+
+    /// <summary>Verifies that a full outbound queue prevents handshake commitment when the acknowledgement cannot be queued.</summary>
+    [Fact]
+    public async Task RunAsync_FullOutboundQueue_SkipsHandshakeCommit()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var blockingStream = new BlockingWriteStream(server);
+        var codec = new IpcFrameCodec();
+        var fakeSession = new FakeAdapterIpcSession
+        {
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            HandshakeResult = new AdapterHandshakeResult(true, new IpcHelloAckMessage(1, true, IpcHelloRejectReason.None)),
+        };
+        var connection = new AdapterIpcConnection(blockingStream, codec, fakeSession, new SystemClock());
+
+        for (int index = 0; index < Constants.MaxIpcQueuedMessages; index++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+        Task runTask = connection.RunAsync(CancellationToken.None);
+
+        await blockingStream.WriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, fakeSession.CommitHandshakeCalls);
         client.Dispose();
     }
 

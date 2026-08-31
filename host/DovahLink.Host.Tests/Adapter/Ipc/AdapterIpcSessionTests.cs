@@ -12,7 +12,7 @@ public class AdapterIpcSessionTests
 {
     // ---- Handshake ----
 
-    /// <summary>Verifies that a Hello with a matching proof and nonzero instance id is accepted and connects the tracker.</summary>
+    /// <summary>Verifies that a valid Hello is accepted without publishing availability until commitment.</summary>
     [Fact]
     public void Handshake_ValidProof_Accepts()
     {
@@ -27,9 +27,30 @@ public class AdapterIpcSessionTests
         Assert.True(result.Accepted);
         Assert.True(result.AckMessage.Accepted);
         Assert.Equal(IpcHelloRejectReason.None, result.AckMessage.RejectReason);
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+        Assert.Null(session.ConnectionGeneration);
+
+        session.CommitHandshake();
+
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
         Assert.NotNull(session.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that committing an accepted handshake twice publishes only one connection generation.</summary>
+    [Fact]
+    public void CommitHandshake_CalledTwice_PublishesOnce()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var session = new AdapterIpcSession(tracker, verifier);
+
+        session.Handshake(new IpcHelloMessage(7, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
+        session.CommitHandshake();
+
+        Assert.Equal(1, tracker.CurrentConnectionGeneration);
+        Assert.Equal(AdapterAvailability.Available, tracker.Current);
     }
 
     /// <summary>
@@ -66,6 +87,9 @@ public class AdapterIpcSessionTests
         AdapterHandshakeResult result = session.Handshake(hello);
 
         Assert.Equal(new byte[Constants.IpcHostProofBytes], result.AckMessage.HostProof);
+        session.CommitHandshake();
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+        Assert.Null(session.ConnectionGeneration);
     }
 
     /// <summary>Verifies that a Hello with a matching proof but a mismatched owner-lifetime-id is rejected, even though the proof itself is correct.</summary>
@@ -401,6 +425,21 @@ public class AdapterIpcSessionTests
         Assert.Null(session.PrepareListenEvent(1));
     }
 
+    /// <summary>Verifies that capture intents remain unavailable after validation but before handshake commitment.</summary>
+    [Fact]
+    public void PrepareCaptureIntent_BeforeCommit_ReturnsNull()
+    {
+        var tracker = new FakeAdapterAvailabilityTracker();
+        var verifier = new AdapterPeerProofVerifier();
+        var session = new AdapterIpcSession(tracker, verifier);
+        session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+
+        Assert.Null(session.PrepareListenEvent(1));
+        Assert.Null(session.PrepareReadSample(1));
+        Assert.Null(session.PrepareCancel(1));
+        Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
+    }
+
     /// <summary>Verifies that preparing an event-listening intent after handshake returns a message with a nonzero correlation id and the requested key.</summary>
     [Fact]
     public void PrepareListenEvent_AfterHandshake_ReturnsMessage()
@@ -515,13 +554,14 @@ public class AdapterIpcSessionTests
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
     }
 
-    /// <summary>Creates a session that has already completed a successful handshake against a fresh tracker.</summary>
+    /// <summary>Creates a session that has already completed and committed a successful handshake against a fresh tracker.</summary>
     private static (AdapterIpcSession Session, FakeAdapterAvailabilityTracker Tracker) HandshakenSession()
     {
         var tracker = new FakeAdapterAvailabilityTracker();
         var verifier = new AdapterPeerProofVerifier();
         var session = new AdapterIpcSession(tracker, verifier);
         session.Handshake(new IpcHelloMessage(1, AdapterInstanceId.NewId(), verifier.ExpectedToken));
+        session.CommitHandshake();
         return (session, tracker);
     }
 }

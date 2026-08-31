@@ -13,12 +13,18 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// </summary>
 public interface IAdapterIpcSession
 {
-    /// <summary>The connection generation assigned once the handshake succeeds, or <see langword="null"/> before then.</summary>
+    /// <summary>The connection generation assigned once the accepted handshake is committed, or <see langword="null"/> before then.</summary>
     long? ConnectionGeneration { get; }
 
-    /// <summary>Evaluates a connecting adapter's Hello and decides whether to accept the connection.</summary>
+    /// <summary>Evaluates a connecting adapter's Hello and decides whether to accept the connection without publishing availability.</summary>
     /// <param name="hello">The received Hello message.</param>
     AdapterHandshakeResult Handshake(IpcHelloMessage hello);
+
+    /// <summary>
+    /// Commits an accepted handshake after the acknowledgement has been queued ahead of all normal
+    /// host-side availability work.
+    /// </summary>
+    void CommitHandshake();
 
     /// <summary>Builds the resynchronization request to send immediately after a successful handshake.</summary>
     IpcResynchronizeRequestMessage PrepareResynchronizeRequest();
@@ -71,11 +77,17 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// </summary>
     private readonly OwnerLifetimeId expectedOwnerLifetimeId;
 
-    /// <summary>The connecting adapter's instance identity, set once the handshake succeeds.</summary>
+    /// <summary>The connecting adapter's instance identity, set once the handshake passes validation.</summary>
     private AdapterInstanceId? instanceId;
 
-    /// <summary>The connection generation assigned once the handshake succeeds.</summary>
+    /// <summary>The connection generation assigned once the accepted handshake is committed.</summary>
     private long? connectionGeneration;
+
+    /// <summary>Whether this session's Hello passed validation and is waiting for commitment.</summary>
+    private bool handshakeAccepted;
+
+    /// <summary>Whether the accepted handshake has already been committed to the availability tracker.</summary>
+    private bool handshakeCommitted;
 
     /// <summary>The correlation id of the resynchronization request currently awaiting a result, if any.</summary>
     private ulong? pendingResynchronizeCorrelationId;
@@ -127,9 +139,21 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         }
 
         instanceId = hello.AdapterInstanceId;
-        connectionGeneration = tracker.NotifyConnected(hello.AdapterInstanceId);
+        handshakeAccepted = true;
         byte[] hostProof = ComputeHostProof(hello);
         return new AdapterHandshakeResult(true, new IpcHelloAckMessage(hello.CorrelationId, true, IpcHelloRejectReason.None, hostProof));
+    }
+
+    /// <inheritdoc/>
+    public void CommitHandshake()
+    {
+        if (!handshakeAccepted || handshakeCommitted || instanceId is null)
+        {
+            return;
+        }
+
+        connectionGeneration = tracker.NotifyConnected(instanceId.Value);
+        handshakeCommitted = true;
     }
 
     /// <summary>

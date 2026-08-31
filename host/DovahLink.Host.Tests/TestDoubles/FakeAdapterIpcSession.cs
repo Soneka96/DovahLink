@@ -8,6 +8,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The Hello messages passed to <see cref="Handshake"/>, in call order.</summary>
     public List<IpcHelloMessage> HandshakeCalls { get; } = [];
 
+    /// <summary>The lifecycle operations observed by this fake, in call order.</summary>
+    public List<string> LifecycleCalls { get; } = [];
+
     /// <summary>The frames passed to <see cref="HandleFrame"/>, in call order.</summary>
     public List<IpcMessage> HandledFrames { get; } = [];
 
@@ -16,6 +19,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
 
     /// <summary>The number of times <see cref="HandleDisconnected"/> was called.</summary>
     public int DisconnectedCalls { get; private set; }
+
+    /// <summary>The number of times <see cref="CommitHandshake"/> was called.</summary>
+    public int CommitHandshakeCalls { get; private set; }
 
     /// <inheritdoc/>
     public long? ConnectionGeneration { get; set; }
@@ -45,12 +51,24 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <inheritdoc/>
     public AdapterHandshakeResult Handshake(IpcHelloMessage hello)
     {
+        LifecycleCalls.Add(nameof(Handshake));
         HandshakeCalls.Add(hello);
         return HandshakeResult;
     }
 
     /// <inheritdoc/>
-    public IpcResynchronizeRequestMessage PrepareResynchronizeRequest() => ResynchronizeRequest;
+    public void CommitHandshake()
+    {
+        LifecycleCalls.Add(nameof(CommitHandshake));
+        CommitHandshakeCalls++;
+    }
+
+    /// <inheritdoc/>
+    public IpcResynchronizeRequestMessage PrepareResynchronizeRequest()
+    {
+        LifecycleCalls.Add(nameof(PrepareResynchronizeRequest));
+        return ResynchronizeRequest;
+    }
 
     /// <inheritdoc/>
     public AdapterIpcOutcome HandleFrame(IpcMessage message)
