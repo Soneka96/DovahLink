@@ -37,6 +37,11 @@ inline constexpr std::chrono::milliseconds kAdapterHostLaunchStdoutPollInterval{
 ///  that buffer unbounded.
 inline constexpr std::size_t kMaxAdapterHostEndpointReportBytes = 1024;
 
+///  The maximum bytes `FileAdapterHostRendezvousReader` accepts for either
+///  line of a two-line endpoint report before rejecting it. This is a bounded
+///  parser buffer, not an expansion of the protocol's proof-token limit.
+inline constexpr std::size_t kMaxAdapterHostRendezvousLineBytes = 1024;
+
 ///  The bound `Win32AdapterHostProcessLauncher::AwaitExitOrTerminate` waits
 ///  for the operating system to finish tearing down a process after
 ///  force-termination is requested, before returning. Force-termination

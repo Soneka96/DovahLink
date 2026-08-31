@@ -1,6 +1,8 @@
 #include "process/adapter_host_rendezvous_reader.hpp"
 
+#include "process/adapter_host_constants.hpp"
 #include "process/adapter_owner_lifetime_id.hpp"
+#include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -12,6 +14,7 @@
 using dovahlink::adapter::process::AdapterHostEndpoint;
 using dovahlink::adapter::process::FileAdapterHostRendezvousReader;
 using dovahlink::adapter::process::ResolveDefaultRendezvousFilePath;
+using dovahlink::adapter::test_support::ReadSource;
 
 namespace {
 
@@ -135,6 +138,35 @@ TEST_CASE("FileAdapterHostRendezvousReader returns nullopt for malformed "
 
     std::filesystem::remove(path);
   }
+}
+
+TEST_CASE("FileAdapterHostRendezvousReader rejects lines beyond the bounded "
+          "report size") {
+  const std::size_t maximum =
+      dovahlink::adapter::process::kMaxAdapterHostRendezvousLineBytes;
+  for (const std::string &content :
+       {"PORT " + std::string(maximum, '1') + "\nPROOF a0\n",
+        "PORT 1\nPROOF " + std::string(maximum, 'a') + "\n",
+        "PORT " + std::string(maximum + 1, '1') + "\nPROOF a0\n"}) {
+    std::filesystem::path path = UniqueTempFilePath();
+    WriteRawFile(path, content);
+    FileAdapterHostRendezvousReader reader(path);
+
+    CHECK_FALSE(reader.TryRead().has_value());
+    std::filesystem::remove(path);
+  }
+}
+
+TEST_CASE("FileAdapterHostRendezvousReader uses a bounded line reader",
+          "[process][adapter_host_rendezvous_reader][structural]") {
+  std::filesystem::path sourcePath =
+      std::filesystem::path(DOVAHLINK_ADAPTER_PROCESS_DIR) /
+      "adapter_host_rendezvous_reader.cpp";
+  std::string source = ReadSource(sourcePath);
+
+  CHECK(source.find("ReadBoundedLine") != std::string::npos);
+  CHECK(source.find("kMaxAdapterHostRendezvousLineBytes") != std::string::npos);
+  CHECK(source.find("std::getline") == std::string::npos);
 }
 
 TEST_CASE("ResolveDefaultRendezvousFilePath embeds the formatted "
